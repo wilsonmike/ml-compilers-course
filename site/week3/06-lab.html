@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 3 Lab</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
+  .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
+  .build > li::before { content: counter(st, decimal-leading-zero); position: absolute; left: var(--s5); top: var(--s4); font: 500 0.875rem/1.7 var(--mono); color: var(--ink-3); }
+  .build h3 { margin: 0 0 var(--s2); }
+  .build p { margin: 0 0 var(--s2); }
+  .build .check { font-size: 0.9375rem; color: var(--ink-3); margin: 0; }
+  .checklist { list-style: none; padding: 0; margin: var(--s4) 0; max-width: var(--col); }
+  .checklist li { border-bottom: 1px solid var(--line); }
+  .checklist label { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) 0; cursor: pointer; }
+  .checklist input { margin-top: 5px; width: 1rem; height: 1rem; accent-color: var(--accent); flex: none; }
+  .checklist input:checked + span { color: var(--ink-3); text-decoration: line-through; }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 3 · Lesson 6</p>
+<h1>The week 3 lab</h1>
+<p class="lede">Add loops to your compiler: <code>range</code> and <code>end</code> in the type checker, loop-carried memory in the interpreter, and nested <code>for</code> loops in the renderer. You're done when every week 3 test passes, weeks 1 and 2 still pass, and you've written 10 new tests of your own.</p>
+
+<div class="prose">
+<h2>What you're building</h2>
+<ul>
+<li><strong>Two new ops.</strong> <code>range n</code> is a loop counter named by its statement, and <code>end x1 ... xk r</code> repeats its effects for every value of <code>r</code>. See <a href="../../spec/uir-week3.md">spec/uir-week3.md</a>.</li>
+<li><strong>Open ranges on every node</strong>, and the checks that use them. Asserts, calls and range bounds have none. An <code>end</code> must close a range its effects use. Each range is closed by exactly one <code>end</code>, which is what makes the loop nesting well defined. Every range a store uses is closed before its output. A buffer's output version sits outside every loop.</li>
+<li><strong>Bounds through ranges.</strong> A range's interval is <code>[0, n-1]</code>, so your week 1 analysis proves <code>i*K + k</code> in range with no new code beyond that one case.</li>
+<li><strong>Placement and linearization.</strong> Each value at the depth of its deepest range, loads by the placement rule, each <code>end</code> as a block. One structure that both <code>run</code> and <code>render</code> walk.</li>
+<li><strong>Loop-carried memory in <code>run</code>.</strong> Week 2's "a version is a value" interpreter can't express an accumulator. Executing the linearized blocks against mutable arrays can.</li>
+<li><strong>Nested <code>for</code> loops in <code>render</code></strong>, with loop-invariant values hoisted.</li>
+</ul>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">The smallest loop there is.</p>
+<div class="exercise small" data-ex="w3-06-scale">
+<h3>Your first loop</h3>
+<p>Slot 0 is <code>x</code> (4 f32), slot 1 is <code>y</code> (4 f32). Make the final contents of slot 1 equal <code>2 * x[i]</code> for every <code>i</code> in 0..3, using one <code>range</code>. The starter does only <code>i = 0</code>, with no loop.</p>
+</div>
+
+<div class="prose">
+<h2>The command-line contract</h2>
+<p>Nothing new on the command line. <code>run</code>, <code>simplify</code> and <code>render</code> keep their contracts from weeks 1 and 2; what changes is which programs they accept and what <code>render</code> may print.</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>week 3 changes</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe run FILE</code></td><td>Programs may contain <code>range</code> and <code>end</code>. Loop rule violations (an <code>end</code> closing an unused range, a range closed twice, a range never closed, an assert or call depending on an open range) are static errors: exit 2 with an <code>invalid:</code> line.</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>For a program that contains a <code>range</code>, the C may use <code>for</code> loops. <code>while</code>, <code>do</code>, <code>goto</code> and recursion are still out. For a program with no <code>range</code>, the C must stay loopless.</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>How render tests are graded</h2>
+<p>Exactly as in week 2, with one change to the loop check. For each <code># render</code> test the grader:</p>
+<ol>
+<li>runs <code>your.exe render FILE</code> and fails the test on a nonzero exit;</li>
+<li>parses the program with the oracle and checks whether it contains a <code>range</code>. It then strips comments and string literals from your C and fails the test if it finds <code>while</code>, <code>do</code> or <code>goto</code>, or, when the program has no range, <code>for</code>;</li>
+<li>writes its own <code>main</code>: one array per buffer filled with the <code>data</code> values (f32 from exact bits), a call to <code>kernel</code> in slot order, then one line per element;</li>
+<li>compiles both files with <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code>;</li>
+<li>runs it and compares every element with the oracle: i32 and bool exactly, f32 bit for bit, any NaN matching any NaN.</li>
+</ol>
+<p>Two new ways to fail. A loop bound or offset that overflows <code>int32_t</code> in your C is undefined behavior, so keep loop counters <code>int32_t</code> and do index arithmetic through the same <code>uint32_t</code> wrap as every other <code>add</code> and <code>mul</code>. And an accumulator loaded once outside its loop gives the wrong sum, not a crash: it shows up as a wrong value in the buffer.</p>
+
+<h2>Running the suite</h2>
+<p>From the course repo root, and keep the earlier weeks green while you work:</p>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 3
+python tools/test.py --compiler "C:/path/to/your.exe" --week 3 -k render -v   # just the render tests, with details
+python tools/test.py --compiler "C:/path/to/your.exe" --week 2
+python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
+<p>Pass the built executable, not <code>dune exec</code>: the grader runs tests in parallel. Tests live in <code>tests/week3/run/</code> and <code>tests/week3/render/</code>.</p>
+
+<h2>Write your 10 tests</h2>
+<p>Ten tests in <code>&lt;your compiler repo&gt;/tests/week3/</code>, each aimed at a rule someone will get wrong. Check them against the oracle:</p>
+<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week3</code></pre>
+<p>Good targets: an accumulator whose load has to run inside the loop, a reset store indexed by the outer ranges, and a range bound of 0 (the loop runs zero times). Invalid cases make good targets too, such as an <code>end</code> that closes a range its effect doesn't use, or a range closed by two <code>end</code>s. Also try one <code>end</code> with two effects writing two buffers, and a padded convolution whose raw index is invalid but whose masked index passes.</p>
+</div>
+
+<h2>A build order that works</h2>
+<ol class="build">
+<li><h3>Parse and type the new ops</h3><p><code>range</code> takes one i32 operand and is named by its statement, so two ranges with the same bound are still different loops. <code>end</code> takes one or more effects and a range last. Effects are <code>void</code>, and only <code>end</code> and <code>after</code> may consume them.</p><p class="check">Checkpoint: every file in <code>tests/week3/run/</code> parses or is rejected with exit 2.</p></li>
+<li><h3>Open ranges</h3><p>One memoized pass: a range is open in itself, <code>end</code> removes its range, everything else takes the union of its sources. Then the static checks from the spec.</p><p class="check">Checkpoint: the loop-rule invalid tests exit 2.</p></li>
+<li><h3>Bounds through ranges</h3><p>Add one case to your interval analysis: a range's interval is <code>[0, hi(n) - 1]</code>.</p><p class="check">Checkpoint: looped matmul and convolution offsets type check, and an unmasked padded index exits 2.</p></li>
+<li><h3>Loop order and placement</h3><p>Find each range's outer loops from its <code>end</code>. Give every node a path of loops, outermost first, and move accumulator loads to their uses. Keep this a separate pass: it's the part the syllabus says wants a rewrite engine.</p><p class="check">Checkpoint: print each node with its path and check the convolution by eye.</p></li>
+<li><h3>Linearize</h3><p>Build nested blocks: each block lists its nodes and its loops in an order where sources come first and loads of a version come before the store that overwrites it.</p><p class="check">Checkpoint: the "old version needed after it was overwritten" tests still exit 2.</p></li>
+<li><h3>Execute the blocks in <code>run</code></h3><p>Mutable arrays per storage, a value table, and a loop that sets each range's counter and runs its body.</p><p class="check">Checkpoint: every week 3 run test passes, and weeks 1 and 2 still do.</p></li>
+<li><h3>Render the blocks</h3><p>The same walk, printing <code>for</code> headers, indented bodies and closing braces. Your week 2 expression printer doesn't change.</p><p class="check">Checkpoint: every render test passes, bit for bit.</p></li>
+<li><h3>Your 10 tests</h3><p>Write them, check them with <code>--check-tests</code>, and use them to break your compiler before the suite does.</p></li>
+</ol>
+
+<h2>Checklist</h2>
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="parse"><span><code>range</code> and <code>end</code> parse and type check, and each range is its own loop</span></label></li>
+<li><label><input type="checkbox" data-k="open"><span>Every node knows its open ranges, and the loop rules are enforced statically</span></label></li>
+<li><label><input type="checkbox" data-k="bounds"><span>A range's interval is <code>[0, n-1]</code>, so looped offsets are proven in bounds</span></label></li>
+<li><label><input type="checkbox" data-k="order"><span>Loop order comes from the <code>end</code>s, and a range closed twice or never closed is rejected</span></label></li>
+<li><label><input type="checkbox" data-k="place"><span>Values live at the depth of their deepest range, and accumulator loads move to their uses</span></label></li>
+<li><label><input type="checkbox" data-k="lin"><span>One linearized structure, walked by both <code>run</code> and <code>render</code></span></label></li>
+<li><label><input type="checkbox" data-k="exec"><span><code>run</code> executes loops with loop-carried memory</span></label></li>
+<li><label><input type="checkbox" data-k="render"><span><code>render</code> prints nested <code>for</code> loops with hoisted invariants, and no loops for programs without ranges</span></label></li>
+<li><label><input type="checkbox" data-k="suite3"><span><code>python tools/test.py --compiler ... --week 3</code> passes everything</span></label></li>
+<li><label><input type="checkbox" data-k="suite12"><span>Weeks 1 and 2 still pass everything</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 week 3 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+
+<div class="key">
+<span class="label">The AI policy, still</span>
+<p>Your repo's <code>CLAUDE.md</code> hasn't changed: Claude may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. That includes your placement pass and your loop printer. "Why does my accumulator end up with only the last product?" is a fine question. "Write my linearizer" is not.</p>
+<p>The oracle in <code>_reference/</code> stays closed. Running <code>python _reference/uirc.py render FILE</code> on your own test to see where it puts each line is fine: it's asking the oracle a question.</p>
+</div>
+
+<div class="trap">
+<span class="label">Slop compounds, again</span>
+<p>Week 4's rangeify creates ranges and ends for you, from shapes. If placement and printing are tangled together now, you'll be untangling them under deadline next week. Keep three passes: open ranges, placement and linearization, printing.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your renderer prints a <code>for</code> loop to zero a scratch <code>alloc</code> at the top of every kernel. Which render tests fail?</p>
+<div class="opts">
+<button data-k="a">None: <code>for</code> is allowed in week 3</button>
+<button data-k="b">Every test whose program has no <code>range</code>, including all of week 2's</button>
+<button data-k="c">Every test</button>
+</div>
+<p class="hint">Look at step 2 of how render tests are graded.</p>
+<div class="why"><p><code>for</code> is allowed only for programs that contain a <code>range</code>. Zero an <code>alloc</code> with <code>= {0}</code> and the problem disappears.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">What exit code should <code>run</code> give?</p>
+<pre><code>%b  = buffer 4 dtype=i32 slot=0
+%c  = buffer 4 dtype=i32 slot=1
+%i  = range 4
+%v  = shrink %b %i shape=[]
+%s  = store %v 7
+%e  = end %s %i
+%b1 = after %b %e
+%w  = shrink %c %i shape=[]
+%s2 = store %w 8
+%e2 = end %s2 %i
+%c1 = after %c %e2</code></pre>
+<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">Check</button></div>
+<p class="hint">Count the <code>end</code>s that close <code>%i</code>.</p>
+<div class="why"><p><code>2</code>: <code>%i</code> is closed twice. A range is one loop and gets one <code>end</code>. To write both buffers in it, use <code>end %s %s2 %i</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your matmul render test fails with a wrong value: every output equals just the last product. What's the most likely cause?</p>
+<div class="opts">
+<button data-k="a">Signed overflow in the index arithmetic</button>
+<button data-k="b">The <code>k</code> loop runs in the wrong order</button>
+<button data-k="c">The accumulator load was printed outside the <code>k</code> loop, so every iteration adds to the same starting value</button>
+<button data-k="d">A missing <code>-ffp-contract=off</code></button>
+</div>
+<p class="hint">Which value should change from one <code>k</code> iteration to the next?</p>
+<div class="why"><p>If the load of the accumulator runs once before the loop, each iteration computes <code>start + product</code> and stores it, and the last store wins. The placement rule puts that load inside the loop. Overflow would trap, and the flags are the grader's, not yours.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Which of these may you do this week?</p>
+<div class="opts">
+<button data-k="a">Run <code>python _reference/uirc.py render</code> on a test you wrote, to see where each line goes</button>
+<button data-k="b">Open <code>_reference/uirc.py</code> to read how it places loads</button>
+<button data-k="c">Ask Claude to write your placement pass</button>
+</div>
+<p class="hint">Running the oracle is asking it a question.</p>
+<div class="why"><p>Running the oracle on your own tests is fine. Reading its source spoils the puzzle, and the AI policy rules out having your compiler code written for you.</p></div>
+</div>
+
+<nav class="pager">
+<a href="05-rendering-loops.html">← Lesson 5: Rendering loops</a>
+<a href="../index.html">Back to the course →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // per-viewer convenience only: remember ticked boxes; works without storage
+  const KEY = 'cc-week3-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 2 Study Guide</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 2 study guide</h1>
+  <p class="lede">Week 2 adds memory and turns your compiler into one that prints C. The ideas are few but strict: memory comes in versions, every access has to be provably in range, and the C you print must have no undefined behavior.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week2/01-buffers-and-views.html">2.1 Buffers and views</a></h3>
+  <p>A <code>buffer</code> is memory outside the program, given to the kernel by slot. An <code>alloc</code> is scratch memory inside it, zeroed. <code>shrink</code> makes a view: a window starting some elements in, either <code>[k]</code> elements or a single element (<code>shape=[]</code>). Memory is never an ALU operand, so you <code>load</code> it first.</p>
+  <h3><a href="../week2/02-load-store-after.html">2.2 Load, store, after</a></h3>
+  <p>A store doesn't change a buffer in the graph. <code>after %b %s</code> is the new version with the write applied, and loads read whichever version they name. "Fully ordered" means one store per version, every store sequenced by an <code>after</code>, and every load of a version able to run before the store that overwrites it.</p>
+  <h3><a href="../week2/03-bounds.html">2.3 Proving bounds</a></h3>
+  <p>Every view must be provably inside its parent, using week 1's intervals: the offset's interval needs <code>lo ≥ 0</code> and <code>hi + k ≤ n</code>. A value loaded from memory could be anything, so you mask it (<code>max</code>, <code>mod</code>) into range before using it as an offset.</p>
+  <h3><a href="../week2/04-rendering-c.html">2.4 Rendering C</a></h3>
+  <p>Rendering schedules the DAG into straight-line C: sources first, and loads of a version before the store that overwrites it. Each i32 op is written so C has no undefined behavior (wrap through <code>uint32_t</code>, guard <code>INT_MIN / -1</code>), f32 literals are printed as exact hex floats, and the grader forbids fused multiply-add.</p>
+  <h3><a href="../week2/05-the-runtime.html">2.5 The runtime</a></h3>
+  <p>To run the C, write the kernel and a generated <code>main</code> to a temp folder, compile, run, and read the results back, printing f32 as raw bits so nothing is lost. It's optional this week, but kernels get timed from week 6.</p>
+  <h3><a href="../week2/06-lab.html">2.6 Lab</a></h3>
+  <p><code>run</code> keeps its week 1 contract with memory added, and <code>render</code> prints a <code>kernel</code> the grader compiles with UB trapping and compares bit for bit against the oracle. The week 2 suite has 99 tests. Keep week 1 green too.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>op</th><th>gives</th><th>remember</th></tr></thead>
+    <tbody>
+      <tr><td><code>buffer n dtype=D slot=S data=[...]</code></td><td>memory (n,)</td><td>slots unique, and no data means zeros</td></tr>
+      <tr><td><code>alloc n dtype=D</code></td><td>memory (n,)</td><td>local, zeroed, and not an output. Each alloc is its own storage</td></tr>
+      <tr><td><code>shrink m off shape=[k]</code> / <code>shape=[]</code></td><td>a view</td><td>offsets of nested shrinks add up and must be provably in range</td></tr>
+      <tr><td><code>load v</code></td><td>a value</td><td>reads the version it's given</td></tr>
+      <tr><td><code>store v x</code></td><td>void</td><td>must be sequenced by exactly one <code>after</code></td></tr>
+      <tr><td><code>after m s</code></td><td>memory</td><td>the version of m once s happened, where m is a whole version, not a view</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>rule</th><th>statement</th></tr></thead>
+    <tbody>
+      <tr><td>one store per version</td><td>two stores into the same version are unordered, even into different elements</td></tr>
+      <tr><td>every store sequenced</td><td>a store no <code>after</code> names has no effect and is invalid</td></tr>
+      <tr><td>old version read late</td><td>if a load of version V is needed after V was overwritten, the program is invalid</td></tr>
+      <tr><td>bounds</td><td>offset interval: <code>lo ≥ 0</code> and <code>hi + k ≤ n</code> (<code>k = 1</code> for <code>shape=[]</code>), and loaded values are full range</td></tr>
+      <tr><td>outputs</td><td>the final version of each buffer: the one no <code>after</code> builds on</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>rendering</th><th>write it as</th></tr></thead>
+    <tbody>
+      <tr><td>i32 <code>add</code>, <code>mul</code>, <code>shl</code></td><td><code>(int32_t)((uint32_t)a + (uint32_t)b)</code></td></tr>
+      <tr><td>i32 <code>div</code>, <code>mod</code></td><td>guard <code>b == -1</code>: <code>INT_MIN / -1</code> is undefined in C</td></tr>
+      <tr><td>f32 constants</td><td>hex floats, e.g. <code>0x1.99999ap-4f</code>, plus <code>NAN</code> and <code>INFINITY</code></td></tr>
+      <tr><td>f32 <code>max</code></td><td>a same-file helper: NaN if either is NaN, <code>max(-0.0, 0.0) = +0.0</code> (not <code>fmaxf</code>)</td></tr>
+      <tr><td>grader flags</td><td><code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined</code></td></tr>
+      <tr><td>allowed calls</td><td><code>&lt;math.h&gt;</code> and non-recursive helpers defined in the same file, with no loops in week 2</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Mistakes people make</h2>
+  <p>Each was planted in the reference compiler and caught by the suite. The <a href="tests-week2.html">week 2 test guide</a> lists every test with the bugs known to fail it.</p>
+  <ol>
+    <li><strong>Forgetting that nested shrink offsets add up.</strong> A view of a view starts at the sum of both offsets. Caught by <code>view_shrink_of_shrink</code> and the render test <code>nested_view_offsets</code>.</li>
+    <li><strong>Letting two stores share a version.</strong> Even two stores into different elements of the same version are unordered. Caught by <code>err_two_stores_one_version</code>.</li>
+    <li><strong>Allowing a store nothing sequences.</strong> Caught by <code>err_unsequenced_store</code>.</li>
+    <li><strong>Treating every alloc as the same memory.</strong> Two allocs of the same size are separate storage. Caught by <code>alloc_distinct</code> and <code>alloc_two_distinct</code>.</li>
+    <li><strong>Skipping the bounds proof for a loaded index.</strong> A raw loaded value can be anything. Caught by <code>err_bounds_raw_loaded</code>. The masked version passes in <code>bounds_masked_offset</code>.</li>
+    <li><strong>Scheduling a store before a load of the version it overwrites.</strong> In C, memory is updated in place. Caught by <code>swap</code>, <code>old_version_late_use</code> and <code>swap_schedule</code>.</li>
+    <li><strong>Printing plain signed C.</strong> <code>a + b</code> on <code>int32_t</code> traps under the grader's UB sanitizer. Caught by <code>i32_add_wrap</code>, <code>i32_mul_wrap</code> and <code>i32_shl_wrap</code>.</li>
+    <li><strong>No <code>-1</code> guard on div and mod.</strong> Caught by <code>i32_div_mod_intmin</code>. On Windows the unguarded version can hang instead of trapping.</li>
+    <li><strong>Using <code>fmaxf</code> for <code>max</code>.</strong> <code>fmaxf(NAN, 1.0f)</code> is 1, but the course's max gives NaN. Caught by <code>f32_max</code>.</li>
+    <li><strong>Printing f32 constants with too few digits.</strong> Six decimal digits can't round-trip every float. Caught by <code>f32_exact_literals</code>.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order. Each check is a tiny program to run through your compiler and through the oracle (<code>python _reference/uirc.py run FILE</code>, or <code>render FILE</code>).</p>
+  <ol>
+    <li><strong>Parse the new ops.</strong> Done when <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code> parse with their attributes. Check: <code>%b = buffer 3 dtype=i32 slot=0 data=[1 2 3]</code>, <code>%v = shrink %b 1 shape=[2]</code>, <code>%l = load %v</code>, <code>%e = index %l 1</code>, <code>%t = assert %e 3</code> exits 0.</li>
+    <li><strong>Type memory.</strong> Done when memory can't be used as a value. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%a = add %b 1</code>, <code>%t = assert 1 1</code> must exit 2.</li>
+    <li><strong>Bounds.</strong> Done when views are proven with week 1's intervals. Check: an offset of <code>mod (max %x 0) 4</code> with <code>shape=[2]</code> passes on a 5-element buffer and fails on a 4-element one (the interval is [0, 3], and 3 + 2 must be at most n). If both pass, you aren't checking at all. If both fail, your <code>mod</code> interval is too wide.</li>
+    <li><strong>Ordering checks.</strong> Done when two stores into one version, or an unsequenced store, exit 2. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%e = shrink %b 0 shape=[]</code>, <code>%s1 = store %e 1</code>, <code>%t = assert 1 1</code> must exit 2.</li>
+    <li><strong>Interpret memory.</strong> Done when versions behave. Check: with <code>%b</code> holding <code>[10 20]</code>, load element 0 as <code>%x</code>, store 5 into it, take <code>%b1 = after %b %s</code>, load element 0 of <code>%b1</code> as <code>%y</code>. Then <code>add %x %y</code> must be 15. If you get 10, your load of <code>%b</code> saw the store.</li>
+    <li><strong>Render ALU ops.</strong> Done when every op prints UB-free C. Check: <code>python tools/test.py --compiler PATH --week 2 -k i32_ -v</code>. A crash with exit code 132 or similar means the sanitizer trapped undefined behavior.</li>
+    <li><strong>Render memory and the schedule.</strong> Done when loads come before the stores that overwrite their version. Check: <code>-k swap -v</code>. A swap that copies the same value into both slots means a store was printed too early.</li>
+  </ol>
+  <div class="trap"><span class="label">When a test fails and none of this fits</span>
+    <p>Rerun it alone with <code>-v</code>, shrink it to the fewest lines that still fail, and compare with the oracle's output. For render tests, <code>python _reference/uirc.py render FILE</code> shows the C the oracle would print. The <a href="debugging.html">debugging guide</a> has the full routine.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-fill="3">
+    <p class="q">What does <code>%e</code> hold?</p>
+    <pre><code>%b = buffer 3 dtype=i32 slot=0 data=[1 2 3]
+%v = shrink %b 1 shape=[2]
+%l = load %v
+%e = index %l 1</code></pre>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">The view starts at element 1 and is 2 long. Index 1 of the view is which element of the buffer?</p>
+    <div class="why">The view covers buffer elements 1 and 2, so it holds <code>[2 3]</code>, and index 1 is 3.</div>
+  </div>
+  <div class="quiz" data-fill="5">
+    <p class="q">An offset is <code>mod (max %x 0) 4</code> with <code>%x</code> loaded from memory, and the view is <code>shape=[2]</code>. What's the smallest buffer size for which the view is provably in bounds?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">The offset's interval is [0, 3]. The rule is <code>hi + k ≤ n</code>.</p>
+    <div class="why"><code>3 + 2 = 5</code>, so n must be at least 5. On a 4-element buffer the oracle reports "offset in [0, 3], 2 element(s), parent has 4".</div>
+  </div>
+  <div class="quiz" data-fill="15">
+    <p class="q">With <code>%b</code> holding <code>[10 20]</code>, what is <code>%z</code>?</p>
+    <pre><code>%e  = shrink %b 0 shape=[]
+%x  = load %e
+%s  = store %e 5
+%b1 = after %b %s
+%e1 = shrink %b1 0 shape=[]
+%y  = load %e1
+%z  = add %x %y</code></pre>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Which version does each load name?</p>
+    <div class="why"><code>%x</code> reads the original version (10) and <code>%y</code> reads the version after the store (5), so 15.</div>
+  </div>
+  <div class="quiz" data-answer="c">
+    <p class="q">Two stores write to <em>different</em> elements of the same buffer version, and one <code>after</code> sequences the first. What does <code>run</code> exit with?</p>
+    <div class="opts"><button data-k="a">0: they don't overlap</button><button data-k="b">1</button><button data-k="c">2: the program is invalid</button></div>
+    <p class="hint">The rule is about versions, not elements.</p>
+    <div class="why">Two stores into one version are unordered no matter which elements they touch, and the second store isn't sequenced either. The oracle exits 2.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">Which line is safe C for an i32 <code>add</code> under the grader's flags?</p>
+    <div class="opts"><button data-k="a"><code>int32_t v = a + b;</code></button><button data-k="b"><code>int32_t v = (int32_t)((uint32_t)a + (uint32_t)b);</code></button><button data-k="c"><code>int32_t v = (int32_t)((int64_t)a + b);</code></button></div>
+    <p class="hint">Which of these can overflow a signed type?</p>
+    <div class="why">Unsigned arithmetic wraps by definition, and converting back to <code>int32_t</code> wraps on every compiler you'll use. Option a overflows a signed int, which traps under <code>-fsanitize-trap</code>. Option c doesn't overflow the add, but converting an out-of-range 64-bit value back is the same implementation-defined step with no gain.</div>
+  </div>
+  <div class="quiz" data-answer="a">
+    <p class="q">Why does the grader compile with <code>-ffp-contract=off</code>?</p>
+    <div class="opts"><button data-k="a">So <code>a * b + c</code> isn't fused into one rounding</button><button data-k="b">To make the code faster</button><button data-k="c">To turn off undefined-behavior checks</button></div>
+    <p class="hint">A fused multiply-add rounds once instead of twice.</p>
+    <div class="why">The spec rounds after every op. A fused multiply-add skips the rounding of the product, which can change the last bit and fail a bit-exact comparison.</div>
+  </div>
+  <div class="quiz" data-fill="2">
+    <p class="q">What does <code>run</code> exit with?</p>
+    <pre><code>%b = buffer 2 dtype=i32 slot=0
+%e = shrink %b 0 shape=[]
+%s1 = store %e 1
+%t = assert 1 1</code></pre>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Is the store sequenced by anything?</p>
+    <div class="why">No <code>after</code> names <code>%s1</code>, so it has no effect, which the spec makes an error: exit 2.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">What does C's <code>fmaxf(NAN, 1.0f)</code> return, and what must your rendered <code>max</code> return for the same inputs?</p>
+    <div class="opts"><button data-k="a">NaN and NaN</button><button data-k="b">1.0 and NaN</button><button data-k="c">1.0 and 1.0</button></div>
+    <p class="hint"><code>fmaxf</code> treats NaN as "missing data".</p>
+    <div class="why"><code>fmaxf</code> returns the other operand when one is NaN. The course's <code>max</code> propagates NaN, so you need your own helper.</div>
+  </div>
+  <p>More practice: the <a href="review.html?week=2">week 2 quiz review</a>.</p>
+
+  <h2>Go deeper</h2>
+  <ul>
+    <li><a href="https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html">Clang's UndefinedBehaviorSanitizer</a>. What the grader's <code>-fsanitize=undefined</code> catches, and what it doesn't.</li>
+    <li><a href="https://blog.regehr.org/archives/213">A Guide to Undefined Behavior in C and C++</a> (John Regehr). Why a compiler is allowed to break code with signed overflow.</li>
+    <li><a href="https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html">What Every Computer Scientist Should Know About Floating-Point Arithmetic</a>. The background for fused multiply-add, rounding, and exact literals.</li>
+    <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a>. Its renderers print C (and GPU code) from UOps much as you're doing this week. Reading how it names values and orders memory operations is a good comparison.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Interval_arithmetic">Interval arithmetic</a>. The theory behind the bounds proofs, and why they're sound.</li>
+  </ul>
+  <h3>Challenges</h3>
+  <ol>
+    <li><strong>Smallest correct C.</strong> Make your renderer skip the <code>-1</code> guard when the divisor is a constant that isn't <code>-1</code>, and skip the <code>uint32_t</code> casts when bounds prove an add can't overflow. Check that every render test still passes.</li>
+    <li><strong>A program the ordering rules reject but C could run.</strong> Find one, and explain which rule rejects it and why the rule is still worth having. Use <code>python _reference/uirc.py run FILE</code> to confirm it's rejected.</li>
+    <li><strong>Tighter bounds through <code>where</code>.</strong> <code>where (cmplt %i 4) %i 0</code> is in [0, 3] when <code>%i ≥ 0</code>, but the interval of a <code>where</code> is the union of its branches. Sketch an analysis that uses the condition, and find a program it would accept that the oracle rejects.</li>
+  </ol>
+</main>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+ "id": "w3-05-skeleton",
+ "lang": "ocaml",
+ "title": "Print a loop nest",
+ "show": "String.escaped",
+ "starter": "(* Nest one for loop per (variable, bound), outermost first, with the body innermost.\n   Indent two spaces per level. Lines are joined with \"\\n\", no trailing newline. *)\nlet skeleton (loops : (string * string) list) (body : string) : string =\n  body\n",
+ "tests": [
+  {
+   "expr": "skeleton [] \"x = 1;\"",
+   "expect": "x = 1;",
+   "sample": true
+  },
+  {
+   "expr": "skeleton [(\"i\", \"4\")] \"b0[i] = 0;\"",
+   "expect": "for (int32_t i = 0; i < 4; i++) {\\n  b0[i] = 0;\\n}",
+   "sample": true
+  },
+  {
+   "expr": "skeleton [(\"i\", \"2\"); (\"j\", \"3\")] \"f(i, j);\"",
+   "expect": "for (int32_t i = 0; i < 2; i++) {\\n  for (int32_t j = 0; j < 3; j++) {\\n    f(i, j);\\n  }\\n}"
+  },
+  {
+   "expr": "skeleton [(\"r0\", \"n\"); (\"r1\", \"m\"); (\"r2\", \"k\")] \"s;\"",
+   "expect": "for (int32_t r0 = 0; r0 < n; r0++) {\\n  for (int32_t r1 = 0; r1 < m; r1++) {\\n    for (int32_t r2 = 0; r2 < k; r2++) {\\n      s;\\n    }\\n  }\\n}"
+  },
+  {
+   "expr": "skeleton [(\"i\", \"v3\")] \"\"",
+   "expect": "for (int32_t i = 0; i < v3; i++) {\\n  \\n}"
+  }
+ ],
+ "hints": [
+  "Build a list of lines and join it with `String.concat \"\\n\"`. The lines are: one `for` header per loop, the body, then one `}` per loop.",
+  "Loop number d (0 for the outermost) is indented 2*d spaces; the body is indented 2*n; the closing braces count back down from 2*(n-1) to 0.",
+  "`List.mapi` gives you the depth for each header, and `List.init n (fun d -> ...)` builds the closers. `String.make (2 * d) ' '` makes the padding."
+ ],
+ "explain": "A renderer prints loops by recursion or, as here, by counting depth. Getting the closers to mirror the headers is the whole trick; the examples are printed with `String.escaped`, so `\\n` stands for a line break."
+}

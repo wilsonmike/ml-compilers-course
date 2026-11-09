@@ -1,0 +1,53 @@
+{
+ "id": "w2-01-resolve",
+ "lang": "ocaml",
+ "title": "Resolve a view",
+ "show": "(fun (s, l) -> Printf.sprintf \"%d %d\" s l)",
+ "starter": "type view =\n  | Buffer of int                (* a whole buffer of n elements *)\n  | Shrink of view * int * int   (* parent, offset, k elements:  shrink p off shape=[k] *)\n  | Elem of view * int           (* parent, offset, one element: shrink p off shape=[] *)\n\n(* resolve v = (start, len): where v starts inside its buffer, and how many elements it covers.\n   Raise (Invalid_argument \"out of bounds\") if any step doesn't fit inside its parent. *)\nlet rec resolve (v : view) : int * int =\n  match v with\n  | Buffer n -> (0, n)\n  | Shrink (p, off, k) -> let (s, _) = resolve p in (s + off, k)\n  | Elem (p, off) -> let (s, _) = resolve p in (s + off, 1)\n",
+ "tests": [
+  {
+   "expr": "resolve (Shrink (Buffer 6, 2, 3))",
+   "expect": "2 3",
+   "sample": true
+  },
+  {
+   "expr": "resolve (Elem (Shrink (Buffer 6, 2, 3), 1))",
+   "expect": "3 1",
+   "sample": true
+  },
+  {
+   "expr": "resolve (Buffer 6)",
+   "expect": "0 6"
+  },
+  {
+   "expr": "resolve (Shrink (Shrink (Buffer 10, 2, 6), 3, 3))",
+   "expect": "5 3"
+  },
+  {
+   "expr": "resolve (Elem (Buffer 1, 0))",
+   "expect": "0 1"
+  },
+  {
+   "expr": "resolve (Shrink (Buffer 6, 4, 3))",
+   "expect": "exception Invalid_argument(\"out of bounds\")"
+  },
+  {
+   "expr": "resolve (Elem (Shrink (Buffer 6, 2, 3), 3))",
+   "expect": "exception Invalid_argument(\"out of bounds\")"
+  },
+  {
+   "expr": "resolve (Shrink (Buffer 6, -1, 2))",
+   "expect": "exception Invalid_argument(\"out of bounds\")"
+  },
+  {
+   "expr": "resolve (Shrink (Shrink (Buffer 10, 0, 4), 2, 3))",
+   "expect": "exception Invalid_argument(\"out of bounds\")"
+  }
+ ],
+ "hints": [
+  "Each step only knows its parent. Resolve the parent first, then check the new window against the parent's length, not the buffer's.",
+  "A step with offset `off` and `k` elements fits when `off >= 0` and `off + k <= parent_len`. An `Elem` is the same check with `k = 1`.",
+  "The test `Shrink (Shrink (Buffer 10, 0, 4), 2, 3)` fails only if you compare against the parent's 4 elements. The buffer's 10 elements would wrongly let it through."
+ ],
+ "explain": "The solution resolves the parent to `(start, len)`, checks `0 <= off` and `off + k <= len` against that parent, and returns `(start + off, k)`. Checking against the parent rather than the whole buffer is what catches a view that fits the buffer but spills out of the view it was cut from."
+}

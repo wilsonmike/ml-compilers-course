@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 4 Study Guide</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 4 study guide</h1>
+  <p class="lede">Week 4 lets you write whole-vector programs: elementwise ops on rank-1 values, <code>reduce</code>, <code>expand</code> and <code>stage</code>. Your compiler turns them back into week 3 loops by itself, a pass called rangeify. This page recaps the week, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week4/01-vectors.html">4.1 Vectors and elementwise ops</a></h3>
+  <p>ALU ops now accept rank-1 operands of one shared shape and work element by element. There's no implicit broadcasting: <code>add %v 1.0</code> with a vector <code>%v</code> is a type error. Rank-1 values may not depend on a hand-written loop's open range.</p>
+  <h3><a href="../week4/02-reduce-expand.html">4.2 Reduce and expand</a></h3>
+  <p><code>reduce</code> is a left fold that starts from the first element: <code>x[0] op x[1] op ... op x[n-1]</code>, rounding after every step. The order is part of the spec because f32 results depend on it. <code>expand</code> broadcasts a scalar to a shape, and week 5 widens it to grow any size-1 axis.</p>
+  <h3><a href="../week4/03-rangeify.html">4.3 Rangeify</a></h3>
+  <p>Rangeify removes shapes by asking each vector for "your element at index i". An elementwise op at i is the op on its operands at i, a load is a scalar load at offset + i, an expand is just its scalar, a reduce becomes an accumulator loop, and a rank-1 store becomes a store loop.</p>
+  <h3><a href="../week4/04-materialization.html">4.4 Fuse or materialize</a></h3>
+  <p>A computed value used twice can be recomputed at each use (fusion) or stored once in a temp buffer (materialization). Without <code>stage</code> your compiler may choose, and <code>stage</code> forces a temp. The results are bit-identical either way. Only speed differs, and speed is graded from week 6.</p>
+  <h3><a href="../week4/05-rendering-vectors.html">4.5 Rendering vectors</a></h3>
+  <p>Rendered C must be at most 20,000 bytes, so a 4096-element vector has to become a loop. A whole <code>x / sum(x)</code> kernel is around 800 bytes: a reduce loop, a scalar computed once between loops, and a store loop.</p>
+  <h3><a href="../week4/06-lab.html">4.6 Lab</a></h3>
+  <p>Same commands as week 3. <code>render</code> may print <code>for</code> loops when the program has a range, a reduce, expand or stage, an elementwise op on a vector, or any rank-1 value over 32 elements. The suite has 77 tests.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>op</th><th>operands</th><th>result</th><th>remember</th></tr></thead>
+    <tbody>
+      <tr><td>ALU ops</td><td>one shared shape</td><td>that shape</td><td>elementwise, with no implicit broadcast</td></tr>
+      <tr><td><code>expand x shape=[n]</code></td><td>a scalar (week 5: also size-1 axes)</td><td><code>(n,)</code></td><td>every element is x, and growing a size-2 axis is always an error</td></tr>
+      <tr><td><code>reduce x op=add|mul|max</code></td><td>rank-1, i32 or f32</td><td>scalar</td><td>left fold from <code>x[0]</code>, and one element is just that element</td></tr>
+      <tr><td><code>stage x</code></td><td>any value</td><td>same</td><td>same value, but forces a temp buffer in render</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>reduce</th><th>i32</th><th>f32</th></tr></thead>
+    <tbody>
+      <tr><td><code>op=add</code></td><td>wraps at every step</td><td>rounds at every step, order matters, and a single <code>-0.0</code> stays <code>-0.0</code></td></tr>
+      <tr><td><code>op=mul</code></td><td>wraps at every step</td><td>rounds and can overflow to inf</td></tr>
+      <tr><td><code>op=max</code></td><td>plain max</td><td>any NaN gives NaN; <code>max(-0.0, 0.0) = +0.0</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>render may use for loops when the program has</th></tr></thead>
+    <tbody>
+      <tr><td>a <code>range</code>, or a <code>reduce</code>, <code>expand</code> or <code>stage</code></td></tr>
+      <tr><td>an elementwise ALU op on a rank-1 value</td></tr>
+      <tr><td>any rank-1 value with more than 32 elements</td></tr>
+      <tr><td>otherwise it must be loopless, and every render must be at most 20,000 bytes</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Mistakes people make</h2>
+  <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week4.html">week 4 test guide</a> lists every test with the bugs known to fail it.</p>
+  <ol>
+    <li><strong>Folding right to left.</strong> Caught by <code>reduce_add_f32_order</code>, where the other order gives 0.0 instead of the right answer.</li>
+    <li><strong>Folding from zero instead of <code>x[0]</code>.</strong> <code>0.0 + -0.0</code> is <code>+0.0</code>, and 0 is wrong for max over negatives. Caught by <code>reduce_add_negzero</code>, <code>reduce_max_i32</code> and <code>reduce_max_signed_zero</code>.</li>
+    <li><strong>A max reduce that skips NaN.</strong> Any NaN makes the result NaN. Caught by <code>reduce_max_nan</code>.</li>
+    <li><strong>Elementwise ops that read element 0 for every index.</strong> Caught by <code>add_i32_vec</code>, <code>add_i32_wrap_vec</code> and <code>cast_vec</code>.</li>
+    <li><strong>An expand that produces zeros.</strong> Caught by <code>expand_dtypes</code>, <code>chained_reduce</code> and <code>cmplt_where_vec</code>.</li>
+    <li><strong>Forgetting to rangeify something.</strong> If your kernel's size grows with n, a vector reached the printer unrolled. Caught by <code>r_add_f32_2048</code> and every 4096-element test.</li>
+    <li><strong>A plain large copy rendered loopless.</strong> A 4096-element load and store has no ALU op, but it still has to be a loop to fit in 20 KB. Caught by <code>r_copy_4096</code>.</li>
+    <li><strong>A stage that reads the wrong element, or zeroes its temp.</strong> Caught by <code>r_stage_twice_4096</code>, <code>r_used_twice_stage_2048</code> and <code>normalize_small_stage</code>.</li>
+    <li><strong>Accepting implicit broadcasts or bad reduces.</strong> <code>add %v 1.0</code>, a reduce of a scalar, and a reduce of bools are all invalid. Caught by <code>err_missing_expand</code>, <code>err_reduce_scalar</code> and <code>err_reduce_bool</code>.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py run FILE</code> or <code>render FILE</code>).</p>
+  <ol>
+    <li><strong>Shapes on ALU ops.</strong> Done when this exits 2 with <code>invalid:</code> (no implicit broadcast), and every week 1 test still passes:
+<pre><code>%v = stack 1.0 2.0 3.0
+%w = add %v 1.0
+%t = assert 1 1</code></pre></li>
+    <li><strong>Parse and type expand, reduce and stage.</strong> Done when the suite's <code>err_reduce_scalar</code>, <code>err_reduce_bool</code> and <code>err_expand_no_shape</code> exit 2.</li>
+    <li><strong>Vectors in run.</strong> Done when these fold in the right order and from the right start:
+<pre><code>%v = stack 1e8 1.0 1.0 -1e8
+%s = reduce %v op=add
+%t = assert %s 0.0
+%z = stack -0.0
+%q = reduce %z op=add
+%r = recip %q
+%u = assert %r -inf</code></pre>
+      If the first assert fails, you're not folding left to right (or not rounding each step). If the second fails, you started from 0.0 instead of <code>x[0]</code>.</li>
+    <li><strong>The element at an index.</strong> Done when a 64-element copy (load a buffer, store it into another) renders with one loop, while the same copy of 8 elements may stay loopless. If the 64-element version prints 64 stores, the size rule never triggered.</li>
+    <li><strong>Stores and reduces become loops.</strong> Done when <code>r_dot_4096</code> passes bit for bit. A reduce is week 3's accumulator: a one-element alloc seeded with element 0, then a loop over the remaining n - 1 elements.</li>
+    <li><strong>Stage becomes a temp.</strong> Done when staged and unstaged versions agree. Check:
+<pre><code>%x  = stack 1.0 2.0 3.0 4.0
+%s  = reduce %x op=add
+%e  = expand %s shape=[4]
+%n  = mul %x %e
+%xs = stage %x
+%s2 = reduce %xs op=add
+%e2 = expand %s2 shape=[4]
+%n2 = mul %xs %e2
+%t  = assert %n %n2</code></pre></li>
+    <li><strong>Check the size.</strong> Done when your largest kernel is around a kilobyte, whatever n is, and every render test passes.</li>
+  </ol>
+  <div class="trap"><span class="label">When a render is bit-for-bit wrong</span>
+    <p>Print the failing element's index and both values as f32 bits. A difference in the last bit almost always means a different order of operations: a reduce folded the other way, or an <code>a * b + c</code> the compiler contracted into one rounding. The <a href="debugging.html">debugging guide</a> shows how to print the bits.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-fill="0.0|0">
+    <p class="q">What does <code>reduce</code> with <code>op=add</code> give for the f32 vector <code>[1e8 1.0 1.0 -1e8]</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Fold left to right from the first element, rounding to f32 after every add.</p>
+    <div class="why"><code>1e8 + 1.0</code> rounds back to <code>1e8</code>, so does the next <code>+ 1.0</code>, and <code>- 1e8</code> leaves 0.0. A pairwise or reversed sum would give 2.0.</div>
+  </div>
+  <div class="quiz" data-fill="0">
+    <p class="q">What does <code>reduce</code> with <code>op=mul</code> give for the i32 vector <code>[65536 65536 3]</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">65536 is 2<sup>16</sup>. What's 2<sup>32</sup> in i32?</p>
+    <div class="why">2<sup>16</sup> · 2<sup>16</sup> = 2<sup>32</sup>, which wraps to 0, and 0 · 3 = 0.</div>
+  </div>
+  <div class="quiz" data-fill="-inf">
+    <p class="q">For the f32 vector <code>[-0.0]</code>, <code>%s = reduce %v op=add</code>. What's <code>recip %s</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">A one-element reduce is just that element. What's recip of -0.0?</p>
+    <div class="why">The fold starts from <code>x[0] = -0.0</code> and has nothing else to add, so the sum is <code>-0.0</code>, and <code>recip -0.0 = -inf</code>. Starting from 0.0 would give <code>+0.0</code> and <code>inf</code>.</div>
+  </div>
+  <div class="quiz" data-answer="a">
+    <p class="q">What does <code>reduce</code> with <code>op=max</code> give for the f32 vector <code>[-0.0 0.0 -0.0]</code>?</p>
+    <div class="opts"><button data-k="a"><code>+0.0</code></button><button data-k="b"><code>-0.0</code></button><button data-k="c">it depends on the order</button></div>
+    <p class="hint">What does the spec say <code>max(-0.0, 0.0)</code> is, in either order?</p>
+    <div class="why"><code>max(-0.0, 0.0)</code> is <code>+0.0</code> in either order, so once the <code>+0.0</code> is folded in, it stays.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">Which program must render with a <code>for</code> loop?</p>
+    <div class="opts"><button data-k="a">copy an 8-element buffer into another (load, then store)</button><button data-k="b">copy a 64-element buffer into another (load, then store)</button><button data-k="c">add two scalars and store the result</button></div>
+    <p class="hint">A plain copy has no ALU op. What else makes the loop rule apply?</p>
+    <div class="why">Any rank-1 value with more than 32 elements must become a loop. The 8-element copy may stay loopless (the oracle prints 8 stores, about 600 bytes), but the 64-element one renders as one loop.</div>
+  </div>
+  <div class="quiz" data-answer="c">
+    <p class="q">A program computes <code>x / sum(x)</code> twice: once as written, and once with <code>stage</code> on <code>x</code>. How do the outputs compare?</p>
+    <div class="opts"><button data-k="a">The staged one is more accurate</button><button data-k="b">They differ in the last bit</button><button data-k="c">Bit-identical</button></div>
+    <p class="hint">Does stage change any value, or only where values live?</p>
+    <div class="why">Stage only decides whether a value is stored in a temp or recomputed. Elementwise ops are deterministic and every reduce folds in the same order, so the bits are identical. Only speed can differ.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">Which line is a type error, with <code>%v</code> an f32 vector of shape <code>(3,)</code>?</p>
+    <div class="opts"><button data-k="a"><code>%w = mul %v %v</code></button><button data-k="b"><code>%w = add %v 1.0</code></button><button data-k="c"><code>%s = reduce %v op=max</code></button></div>
+    <p class="hint">Do both operands have the same shape?</p>
+    <div class="why"><code>%v</code> has shape <code>(3,)</code> and <code>1.0</code> has shape <code>()</code>. Write <code>%one = expand 1.0 shape=[3]</code> first, then add.</div>
+  </div>
+  <p>More practice: the <a href="review.html?week=4">week 4 quiz review</a>.</p>
+
+  <h2>Go deeper</h2>
+  <ul>
+    <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a> and its <a href="https://docs.tinygrad.org/">documentation</a>. Rangeify is tinygrad's name for this pass, and its scheduler decides fusion and materialization for real models.</li>
+    <li><a href="https://halide-lang.org/">Halide</a> and its <a href="https://people.csail.mit.edu/jrk/halide-pldi13.pdf">PLDI 2013 paper</a>. The idea that what to compute and where to store it are separate decisions, which is exactly fuse versus materialize.</li>
+    <li><a href="https://arxiv.org/abs/1802.04799">TVM: An Automated End-to-End Optimizing Compiler for Deep Learning</a>. How a production ML compiler fuses operators and picks schedules.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Loop_fission_and_fusion">Loop fission and fusion</a>. The classic transformations behind lesson 4.4.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Pairwise_summation">Pairwise summation</a> and <a href="https://en.wikipedia.org/wiki/Kahan_summation_algorithm">Kahan summation</a>. Why the fold order matters, and how real libraries trade it for accuracy.</li>
+    <li><a href="https://numpy.org/doc/stable/user/basics.broadcasting.html">NumPy broadcasting</a>. The implicit broadcast rules that this course makes explicit with <code>expand</code>.</li>
+  </ul>
+  <h3>Challenges</h3>
+  <ol>
+    <li><strong>Find an order that matters.</strong> Build an f32 vector of 8 values where the left fold and a pairwise sum give different bits. Check the left fold with the oracle (<code>reduce op=add</code>) and the pairwise sum by hand or in Python with f32 rounding.</li>
+    <li><strong>Count the memory traffic.</strong> For <code>(x - max(x)) * recip(sum((x - max(x)) * (x - max(x))))</code>, count how many times each element of x is read with no <code>stage</code>, and with <code>stage</code> on <code>x - max(x)</code>. Render both and count the loops to check your reasoning.</li>
+    <li><strong>Mean and variance, staged or not.</strong> Write a program that writes the mean and the variance of 2048 values into two slots. Render it with and without <code>stage</code> on the deviations <code>x - mean</code>, count the loops in each, and confirm with the oracle that both leave the same bits. (A one-pass formula like <code>E[x²] - mean²</code> uses fewer loops but different arithmetic, so its bits will differ: try it and see.)</li>
+  </ol>
+</main>
+</body>
+</html>

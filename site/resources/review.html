@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz Review</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .review-bar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin: 0 0 var(--s5); }
+  .review-bar .seg button { padding: 4px var(--s3); }
+  .from { font-size: 0.875rem; color: var(--ink-3); margin: var(--s6) 0 calc(-1 * var(--s3)); }
+  .from a { color: var(--ink-3); }
+  .empty { color: var(--ink-2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+  <h1>Quiz review</h1>
+  <p class="lede">Every quiz from a week on one page. Answer them again before the lab, or bring back only the ones you didn't get right the first time.</p>
+
+  <div class="note">
+    <span class="label">How "missed" works</span>
+    <p>A quiz counts as missed when you answered it wrong first, or used Show answer, in a lesson or here. Answer it right on the first try and it drops off the list. The list lives in this browser only.</p>
+  </div>
+
+  <div class="review-bar">
+    <label for="week" class="muted">Week</label>
+    <select id="week" class="sel"></select>
+    <div class="seg" role="group" aria-label="Which quizzes">
+      <button type="button" data-mode="all">All</button>
+      <button type="button" data-mode="missed">Only missed</button>
+    </div>
+    <button type="button" class="btn" id="shuffle">Shuffle</button>
+  </div>
+  <p class="score"></p>
+  <div id="quizzes"><p class="empty">Loading quizzes...</p></div>
+</main>
+<script>
+(() => {
+  const { h, NAV, quizzes, store } = CC;
+  const weeks = NAV.filter(g => /^Week \d/.test(g.title));
+  const params = new URLSearchParams(location.search);
+  let week = Math.min(Math.max(parseInt(params.get('week') || '1', 10) || 0, 0), weeks.length - 1);
+  let mode = params.get('mode') === 'missed' ? 'missed' : 'all';
+  let shuffle = params.get('shuffle') === '1';
+  const sel = document.getElementById('week'), box = document.getElementById('quizzes');
+  weeks.forEach((g, i) => sel.append(h('option', { value: String(i), text: g.title })));
+  sel.value = String(week);
+  const go = () => { const p = new URLSearchParams({ week, mode }); if (shuffle) p.set('shuffle', '1'); location.search = p.toString(); };
+  sel.onchange = () => { week = +sel.value; go(); };
+  document.querySelectorAll('.seg button').forEach(b => { b.classList.toggle('on', b.dataset.mode === mode); b.onclick = () => { mode = b.dataset.mode; go(); }; });
+  document.getElementById('shuffle').onclick = () => { shuffle = !shuffle; go(); };
+  document.getElementById('shuffle').textContent = shuffle ? 'In lesson order' : 'Shuffle';
+
+  async function load() {
+    const groups = [];
+    for (const [href, title, n] of weeks[week].items) {
+      try {
+        const html = await fetch('../' + href).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const qs = [...doc.querySelectorAll('.quiz')].map((q, i) => { q.dataset.qid = `${href}#${i}`; return q; });
+        groups.push({ href, title, n, qs });
+      } catch (e) { groups.push({ href, title, n, qs: [], err: e.message }); }
+    }
+    let items = groups.flatMap(g => g.qs.map(q => ({ g, q })));
+    if (mode === 'missed') items = items.filter(({ q }) => store.get('cc-missed:' + q.dataset.qid));
+    if (shuffle) for (let i = items.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [items[i], items[j]] = [items[j], items[i]]; }
+    box.replaceChildren();
+    if (groups.some(g => g.err)) box.append(h('p', { class: 'empty', text: 'Some lessons could not be loaded. The review page needs the course server: python tools/serve.py' }));
+    if (!items.length) { box.append(h('p', { class: 'empty', text: mode === 'missed' ? 'Nothing missed in this week. Try "All", or another week.' : 'No quizzes found.' })); document.querySelector('.score').textContent = ''; return; }
+    let last = null;
+    for (const { g, q } of items) {
+      if (shuffle || g !== last) box.append(h('p', { class: 'from' }, `${g.n || ''} `, h('a', { href: '../' + g.href, text: g.title })));
+      last = g;
+      box.append(document.importNode(q, true));
+    }
+    quizzes(box);
+  }
+  load();
+})();
+</script>
+</body>
+</html>

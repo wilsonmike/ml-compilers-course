@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vectors</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .strip { display: grid; gap: var(--s2); }
+  .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+  .strip .name { font: 0.875rem var(--mono); color: var(--ink-3); min-width: 3.5rem; }
+  .vals { font: 0.875rem var(--mono); color: var(--ink-2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 4 · Lesson 1</p>
+<h1>Vectors</h1>
+<p class="lede">Until now every ALU op took scalars, and to touch many elements you wrote a loop by hand. This week values get a shape again: an ALU op can take two vectors and combine them element by element. Your compiler's job is to turn that back into loops, a pass called <em>rangeify</em> (lesson 4.3): it asks each vector for "your element at index i" and builds a loop around the answer.</p>
+
+<div class="prose">
+<h2>Rank-1 values</h2>
+<p>A value of shape <code>(n,)</code> is a vector of n elements, all of one dtype. You've had them since week 1 (<code>stack</code> builds one) and week 2 (<code>load</code> of a whole buffer or a <code>[k]</code> view gives one). What's new is that ALU ops accept them:</p>
+<pre><code>%x = buffer 4 dtype=f32 slot=0 data=[1.0 2.0 3.0 4.0]
+%y = buffer 4 dtype=f32 slot=1 data=[10.0 20.0 30.0 40.0]
+%vx = load %x                # shape (4,)
+%vy = load %y                # shape (4,)
+%z  = add %vx %vy            # shape (4,): [11.0 22.0 33.0 44.0]</code></pre>
+<p>The rule is <strong>elementwise</strong>: element i of the result is the op applied to element i of each operand. Every ALU op works this way, including <code>cmplt</code> (a vector of bools), <code>where</code> (a vector condition picks per element) and <code>cast</code>. All operands must have the same shape, and the result has that shape too.</p>
+</div>
+
+<div class="fig" id="ew" data-title="add, element by element"></div>
+
+<div class="prose">
+<p>Nothing about the arithmetic changes. Each element is computed with week 1's rules: i32 wraps, f32 rounds to nearest-even after the op, <code>max</code> propagates NaN. A vector op is just n scalar ops that happen not to depend on each other, which is exactly why they can run in any order, or all at once.</p>
+</div>
+
+<h2>No implicit broadcasting</h2>
+<div class="prose">
+<p>NumPy and PyTorch let you write <code>x + 1.0</code> and quietly stretch the scalar to x's shape. Here that's a type error:</p>
+<pre><code>%v = load %x               # shape (4,)
+%z = add %v 1.0            # invalid: shapes (4,) and () don't match</code></pre>
+<p>To use a scalar with a vector, you <code>expand</code> it first, which lesson 4.2 covers properly:</p>
+<pre><code>%one = expand 1.0 shape=[4]   # [1.0 1.0 1.0 1.0]
+%z   = add %v %one            # fine: both (4,)</code></pre>
+</div>
+
+<div class="key">
+<span class="label">Why make broadcasts explicit</span>
+<p>tinygrad does the same thing: a broadcast is its own node in the graph, never a side effect of an add. That keeps every op's shape rule trivial (all inputs, one shape), and it puts the broadcast where the compiler can see it. When rangeify later asks "what is element i of this value", an <code>expand</code> answers "the scalar, whatever i is", and that's the whole reason a broadcast costs nothing in the generated loop.</p>
+</div>
+
+<div class="exercise" data-ex="w4-01-affine">
+<h3>An affine map, elementwise</h3>
+<p>Slot 0 holds five f32s <code>x</code>, and slot 1 holds two f32s <code>a</code> and <code>b</code>. Store <code>y[i] = a * x[i] + b</code> into slot 2, multiplying first, then adding. The starter forgets <code>b</code>.</p>
+</div>
+
+<h2>Shapes the type checker enforces</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th>program</th><th>result</th></tr></thead>
+<tbody>
+<tr><td><code>add</code> of two <code>(4,)</code> f32 vectors</td><td>f32 <code>(4,)</code></td></tr>
+<tr><td><code>cmplt</code> of two <code>(3,)</code> i32 vectors</td><td>bool <code>(3,)</code></td></tr>
+<tr><td><code>where</code> with a bool <code>(3,)</code> condition and two <code>(3,)</code> branches</td><td>the branches' dtype, <code>(3,)</code></td></tr>
+<tr><td><code>add</code> of <code>(4,)</code> and <code>(3,)</code></td><td>invalid</td></tr>
+<tr><td><code>add</code> of <code>(4,)</code> and a scalar</td><td>invalid: <code>expand</code> the scalar</td></tr>
+<tr><td><code>index</code> of an <code>(n,)</code> result</td><td>a scalar, as in week 1</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="trap">
+<span class="label">Vectors don't mix with hand-written loops</span>
+<p>A vector may not depend on an open range from a week 3 loop. "The element of a vector at iteration k" is something rangeify will build for you. Mixing the two by hand is an error.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-01-absdiff">
+<h3>Absolute difference</h3>
+<p>Slots 0 and 1 hold four i32s each. Store <code>|x[i] - y[i]|</code> into slot 2, with i32 wraparound (there's no subtract op, and no abs op either).</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="10">
+<p class="q">What does <code>%i</code> hold?</p>
+<pre><code>%x = stack 1 2 3
+%y = stack 4 5 6
+%z = mul %x %y
+%i = index %z 1</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Work out <code>%z</code> element by element, then pick element 1 (counting from 0).</p>
+<div class="why"><p><code>%z</code> is <code>[4 10 18]</code>, and index 1 is 10.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q"><code>%v</code> is an f32 vector of shape <code>(4,)</code>. What happens with <code>%z = add %v 1.0</code>?</p>
+<div class="opts">
+<button data-k="a">Each element gets 1.0 added.</button>
+<button data-k="b">Only element 0 gets 1.0 added.</button>
+<button data-k="c">The program is invalid: the shapes <code>(4,)</code> and <code>()</code> don't match.</button>
+<button data-k="d">The result is a scalar: the sum of <code>%v</code> plus 1.0.</button>
+</div>
+<p class="hint">Does any ALU op stretch a scalar for you?</p>
+<div class="why"><p>There's no implicit broadcasting. Write <code>%one = expand 1.0 shape=[4]</code> and add that.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%x</code> and <code>%y</code> are i32 vectors of shape <code>(3,)</code>. What is <code>cmplt %x %y</code>?</p>
+<div class="opts">
+<button data-k="a">One bool: whether every element of x is less than y's.</button>
+<button data-k="b">A bool vector of shape <code>(3,)</code>.</button>
+<button data-k="c">An i32 vector of 0s and 1s.</button>
+<button data-k="d">Invalid: comparisons only take scalars.</button>
+</div>
+<p class="hint">Elementwise means the result has the operands' shape, and <code>cmplt</code> always returns bool.</p>
+<div class="why"><p>Each element compares on its own, so you get three bools, shape <code>(3,)</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="1 9 3 | [1 9 3] | 1, 9, 3 | [1, 9, 3]">
+<p class="q">What does <code>%w</code> hold?</p>
+<pre><code>%c = stack true false true
+%a = stack 1 2 3
+%b = stack 9 9 9
+%w = where %c %a %b</code></pre>
+<div class="fill"><input aria-label="your answer" placeholder="e.g. 1 2 3"><button class="btn">Check</button></div>
+<p class="hint">The condition picks a branch separately for each element.</p>
+<div class="why"><p>Element 0 takes a (1), element 1 takes b (9), element 2 takes a (3): <code>[1 9 3]</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="1 -2 0 | [1 -2 0] | 1, -2, 0 | [1, -2, 0]">
+<p class="q">What does <code>cast %v dtype=i32</code> give for <code>%v = stack 1.5 -2.5 0.5</code>?</p>
+<div class="fill"><input aria-label="your answer" placeholder="e.g. 1 2 3"><button class="btn">Check</button></div>
+<p class="hint">Week 1's cast rule, applied to each element. Which way does f32 to i32 round?</p>
+<div class="why"><p>f32 to i32 truncates toward zero, element by element: 1, -2, 0.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Why does the course (like tinygrad) make broadcasting an explicit <code>expand</code> node?</p>
+<div class="opts">
+<button data-k="a">Every op keeps a one-line shape rule, and the broadcast is a node rangeify can see and make free.</button>
+<button data-k="b">Implicit broadcasting can't be compiled to C.</button>
+<button data-k="c">Broadcasting is always a bug in ML code.</button>
+<button data-k="d">It makes programs shorter.</button>
+</div>
+<p class="hint">Think about what each op's type rule looks like with and without it.</p>
+<div class="why"><p>With explicit broadcasts, "all inputs have one shape" is the whole rule for every ALU op. And the <code>expand</code> node tells rangeify that the element at any index is the same scalar, so it costs nothing in the loop. Implicit broadcasting compiles fine, but it hides that structure inside every op.</p></div>
+</div>
+
+<nav class="pager">
+<a href="../week3/06-lab.html">← Week 3 lab</a>
+<a href="02-reduce-expand.html">Lesson 2: Reduce and expand →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const x = [1, 2, 3, 4], y = [10, 20, 30, 40];
+  const row = (name, vals, mark, cls) => h('div', { class: 'row' }, h('span', { class: 'name', text: name }),
+    h('div', { class: 'mem' }, vals.map((v, i) => h('div', { class: 'cell' + (i === mark ? ' ' + cls : '') }, h('span', { class: 'addr', text: i }), v === null ? '?' : v.toFixed(1)))));
+  const steps = [{ caption: 'Two vectors of shape <code>(4,)</code>. <code>add %vx %vy</code> will produce a third, of the same shape.', i: -1 }];
+  for (let i = 0; i < 4; i++) steps.push({ caption: `Element ${i}: <code>${x[i]}.0 + ${y[i]}.0 = ${x[i] + y[i]}.0</code>. It reads only element ${i} of each operand.`, i });
+  steps.push({ caption: 'Done. No element needed any other element, so the four adds could have run in any order: the property that lets rangeify turn this into one loop.', i: 4 });
+  CC.stepper(document.getElementById('ew'), steps, (s, body) => {
+    const z = x.map((v, i) => i < s.i || s.i === 4 ? v + y[i] : (i === s.i ? v + y[i] : null));
+    body.append(h('div', { class: 'strip' }, row('vx', x, s.i, 'on'), row('vy', y, s.i, 'on'), row('z', z, s.i, 'hit'),
+      h('div', { class: 'vals', text: s.i >= 0 && s.i < 4 ? `z[${s.i}] = vx[${s.i}] + vy[${s.i}]` : ' ' })));
+  });
+});
+</script>
+</body>
+</html>

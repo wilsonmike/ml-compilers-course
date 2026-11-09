@@ -1,0 +1,16 @@
+# expect: pass
+# max over rows propagates NaN per column, and i32 mul wraps (65536 * 65536 = 0)
+%v0 = buffer 6 dtype=f32 slot=0 data=[1.0 2.0 nan 5.0 3.0 -1.0]
+%v1 = load %v0
+%v2 = reshape %v1 shape=[3 2]
+%v3 = reduce %v2 op=max pop=1
+%v4 = buffer 2 dtype=f32 slot=1 data=[nan 5.0]
+%v5 = load %v4
+%v6 = assert %v3 %v5
+%v7 = buffer 4 dtype=i32 slot=2 data=[65536 3 65536 -2]
+%v8 = load %v7
+%v9 = reshape %v8 shape=[2 2]
+%v10 = reduce %v9 op=mul pop=1
+%v11 = buffer 2 dtype=i32 slot=3 data=[0 -6]
+%v12 = load %v11
+%v13 = assert %v10 %v12

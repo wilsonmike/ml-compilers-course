@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fuse or Materialize</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .stack { display: grid; gap: var(--s4); }
+  .split pre { margin: 0; font-size: 0.875rem; }
+  .split .cap2 { font: 500 0.875rem var(--sans); color: var(--ink-3); margin: 0 0 var(--s2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 4 · Lesson 4</p>
+<h1>Fuse or materialize</h1>
+<p class="lede">The syllabus says it plainly: "We have to confront questions about materialization here." Rangeify answers "what is your element at index i?" one loop at a time. When a value is used in two loops, it gets asked twice. You can let it compute the answer twice, or store the answers once and read them back. That choice is materialization.</p>
+
+<div class="prose">
+<h2>A value with two uses</h2>
+<p>Here is a sum-of-squares normalization: square every element, divide each square by the total of the squares. The squares, <code>%d</code>, have two uses.</p>
+<pre><code>%v  = load %x
+%d  = mul %v %v              # the squares
+%s  = reduce %d op=add       # use 1: the total
+%r  = recip %s
+%e  = expand %r shape=[4]
+%w  = mul %d %e              # use 2: each square / total
+%st = store %y %w</code></pre>
+<p>The reduce becomes one loop and the store becomes another (lesson 4.3). Each loop asks <code>%d</code> for its element at the loop's own index, so <code>%d</code> is asked once per element in each loop. Nothing in rangeify connects the two questions.</p>
+</div>
+
+<div class="fig" id="steps" data-title="two loops ask the same value"></div>
+
+<h2>Recompute: fusion</h2>
+<div class="prose">
+<p>Without <code>stage</code>, the spec lets your compiler choose either way. The oracle always recomputes, and <code>stage</code> forces a temp. Recomputing means rangeify answers each question by computing the element where it's needed. The square is <strong>fused</strong> into both loops. No temp memory, no extra pass, but the multiply happens twice per element.</p>
+<p>Put <code>%q = stage %d</code> in front of both uses, and rangeify does something different: it fills a temp buffer with every element of <code>%d</code> in a loop of its own, then answers both questions with a load from that buffer. The value is <strong>materialized</strong>. One multiply per element, but a write and two reads of a 4-element temp.</p>
+</div>
+
+<div class="fig bleed" data-title="the oracle's C for the same program, with and without stage">
+<div class="body split">
+<div><p class="cap2">without stage (recompute)</p><pre><code>float a3[1] = {0};
+float v7 = b0[0];
+float v8 = (v7 * v7);
+a3[0] = v8;
+for (int32_t r14 = 0; r14 &lt; 3; r14++) {
+  float v15 = a3[0];
+  int32_t v16 = (int32_t)((uint32_t)r14 + (uint32_t)1);
+  int32_t v17 = (v16 % 4);
+  float v19 = b0[v17];
+  float v20 = (v19 * v19);   /* square */
+  float v21 = (v15 + v20);
+  a3[0] = v21;
+}
+float v25 = a3[0];
+float v26 = (1.0f / v25);
+for (int32_t r27 = 0; r27 &lt; 4; r27++) {
+  float v30 = b0[r27];
+  float v31 = (v30 * v30);   /* square, again */
+  float v32 = (v31 * v26);
+  b1[r27] = v32;
+}</code></pre></div>
+<div><p class="cap2">with <code>%q = stage %d</code> on both uses (materialize)</p><pre><code>float a3[4] = {0};
+for (int32_t r4 = 0; r4 &lt; 4; r4++) {
+  int32_t v6 = (r4 % 4);
+  float v8 = b0[v6];
+  float v9 = (v8 * v8);      /* square, once */
+  a3[r4] = v9;               /* into the temp */
+}
+float a12[1] = {0};
+float v16 = a3[0];
+a12[0] = v16;
+for (int32_t r22 = 0; r22 &lt; 3; r22++) {
+  float v23 = a12[0];
+  int32_t v24 = (int32_t)((uint32_t)r22 + (uint32_t)1);
+  int32_t v25 = (v24 % 4);
+  float v27 = a3[v25];       /* read the temp */
+  float v28 = (v23 + v27);
+  a12[0] = v28;
+}
+float v32 = a12[0];
+float v33 = (1.0f / v32);
+for (int32_t r34 = 0; r34 &lt; 4; r34++) {
+  float v37 = a3[r34];       /* read the temp */
+  float v38 = (v37 * v33);
+  b1[r34] = v38;
+}</code></pre></div>
+</div>
+<div class="cap">Two loops become three. Fusion multiplies twice per element. Materializing multiplies once but writes four floats and reads them twice. The <code>% 4</code> lines come from decoding a flat loop counter into an index. Here they never change the value, and lesson 5.5 shows how a simplifier removes them.</div>
+</div>
+
+<div class="exercise small" data-ex="w4-04-two-outputs">
+<h3>Two outputs from one value</h3>
+<p>Slot 0 is <code>x</code> (4 f32). Write <code>x * x</code> into slot 1 (4 f32) and the sum of <code>x * x</code> into slot 2 (1 f32), using <code>stage</code> so both outputs read one materialized copy of the squares.</p>
+</div>
+
+<h2>The answer is the same either way</h2>
+<div class="prose">
+<p>You can choose freely because the choice can't change the result. An elementwise op computes the same bits for the same inputs wherever it runs, and every reduce folds its elements in the same order, left to right from the first. So the recomputed square and the stored square are the same float, and both sums add the same floats in the same order.</p>
+<p>The three versions of the program above (no stage, stage on one use, stage on both) compile to kernels that, with <code>x = [1.0 2.0 3.0 4.0]</code>, leave exactly the same bits in <code>y</code>: <code>3d088889 3e088889 3e99999a 3f088889</code>, which is <code>1/30, 4/30, 9/30, 16/30</code> rounded to f32.</p>
+</div>
+
+<div class="key">
+<span class="label">Materialization is a performance decision</span>
+<p>Because results can't change, <code>stage</code> never fixes a wrong answer, and leaving it out never breaks a right one. The grader in week 4 checks only bits and size. Week 6 starts timing kernels, and that's when the choice starts to cost or save you something.</p>
+</div>
+
+<h2>A cost model in words</h2>
+<div class="prose">
+<p>Recomputing costs arithmetic: every extra use repeats the whole chain that produces the value. Materializing costs memory traffic: one write of n elements, one read of n per use, and n elements of temp storage.</p>
+<p>Lesson 0.2 is the reason memory usually loses. A multiply takes about a nanosecond, and a trip to DRAM takes tens to a hundred. For a value as cheap as <code>v * v</code>, recomputing it in each loop is almost always faster than writing it out and reading it back. Materializing starts to pay when the value is expensive to compute (a long chain of ops, or a reduce of its own) and has many uses.</p>
+<ul>
+<li><strong>Staging a plain load is pure loss.</strong> <code>stage (load %x)</code> copies <code>x</code> into a temp and then reads the copy instead of the original. Same reads, plus a write.</li>
+<li><strong>Two reduces over one vector</strong> already work without a temp: each reduce is its own loop reading <code>x</code>. The oracle even shares the load of <code>x[0]</code> that seeds both folds, because hash consing makes it one node.</li>
+<li><strong>A value used once</strong> is never worth staging: there's nothing to share.</li>
+</ul>
+</div>
+
+<div class="trap">
+<span class="label"><code>stage</code> wraps a value, not a name</span>
+<p><code>%q = stage %d</code> is a new value. Uses of <code>%q</code> read the temp, and uses of <code>%d</code> still recompute. Stage only the store's use and leave the reduce reading <code>%d</code>, and the oracle's C squares in the fill loop and again in the reduce loop: three loops, and the reduce saved nothing. To share, every use has to go through the staged value.</p>
+</div>
+
+<div class="exercise" data-ex="w4-04-variance">
+<h3>Variance</h3>
+<p>Slot 0 is <code>x</code> (8 f32). Write its variance into the one-element buffer in slot 1, computed exactly as</p>
+<pre><code>mean = (sum of x) * 0.125
+c    = x + expand(-mean)          # -mean is mean * -1.0
+var  = (sum of c * c) * 0.125</code></pre>
+<p>Both sums are <code>reduce op=add</code>. Results are compared bit for bit.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-04-stage-set">
+<h3>Which nodes are worth staging</h3>
+<p>A graph is a list of <code>(id, srcs)</code> pairs. Return, sorted, every non-leaf id that has two or more distinct consumers. A node read twice by the same consumer (like <code>mul %c %c</code>) is still one use, since rangeify builds that element once per index. That's the candidate list a materialization pass starts from.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="2">
+<p class="q">Without <code>stage</code>, how many times per element does the oracle's C compute <code>v * v</code> for the sum-of-squares normalization above?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">How many loops ask <code>%d</code> for an element?</p>
+<div class="why"><p>Twice: once in the reduce loop and once in the store loop. Each loop asks for <code>%d</code>'s element at its own index, and without a temp the square is recomputed for each.</p></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">With <code>%q = stage %d</code> on both uses, how many <code>for</code> loops does the oracle render?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The reduce and the store are still loops. What does stage add?</p>
+<div class="why"><p>Three: the loop that fills the temp with the squares, the reduce loop and the store loop.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Adding <code>stage</code> in front of a value changes which of these?</p>
+<div class="opts">
+<button data-k="a">The bits the kernel writes, slightly, because the value is rounded on the way into the temp</button>
+<button data-k="b">The order in which a reduce adds its elements</button>
+<button data-k="c">Only how much work and memory traffic the kernel does</button>
+<button data-k="d">Nothing at all, not even the C</button>
+</div>
+<p class="hint">The temp holds f32 values, and the value was already f32.</p>
+<div class="why"><p>Storing an f32 into an f32 buffer and reading it back gives the same bits, and reduces fold in the same order either way. The C changes (an extra loop and a temp) but the result can't.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Which <code>stage</code> is always a loss?</p>
+<div class="opts">
+<button data-k="a"><code>stage (load %x)</code>, used by two reduces</button>
+<button data-k="b"><code>stage</code> of a long elementwise chain used by three loops</button>
+<button data-k="c"><code>stage</code> of <code>x * x</code> used by a reduce and a store</button>
+<button data-k="d">None: staging never costs anything</button>
+</div>
+<p class="hint">What does the temp contain, and where did those floats come from?</p>
+<div class="why"><p>A staged load is a copy of memory you could read directly. It adds a write and a temp without saving any arithmetic.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">You write <code>%q = stage %d</code>, use <code>%q</code> in the store, and leave the reduce reading <code>%d</code>. What happens?</p>
+<div class="opts">
+<button data-k="a">Both uses read the temp: stage applies to <code>%d</code> everywhere</button>
+<button data-k="b">The store reads the temp, the reduce recomputes <code>%d</code>, and you get three loops</button>
+<button data-k="c">Type error: a value can't be used both staged and unstaged</button>
+<button data-k="d">The reduce reads uninitialized memory</button>
+</div>
+<p class="hint"><code>%q</code> and <code>%d</code> are two different nodes.</p>
+<div class="why"><p>Stage makes a new value. Only its uses read the temp. The reduce still asks <code>%d</code> directly, so the square is computed in the fill loop and again in the reduce loop.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">On a typical machine, why does recomputing <code>v * v</code> usually beat materializing it?</p>
+<div class="opts">
+<button data-k="a">Because recomputing gives more accurate results</button>
+<button data-k="b">Because temp buffers are limited to 4 elements</button>
+<button data-k="c">Because the grader times kernels in week 4</button>
+<button data-k="d">Because one multiply is far cheaper than writing a float to memory and reading it back</button>
+</div>
+<p class="hint">Lesson 0.2: compare a cycle with a trip to memory.</p>
+<div class="why"><p>Arithmetic is cheap and memory traffic is not. Materializing a value pays only when computing it is expensive enough to outweigh the extra writes and reads. Week 4 doesn't time anything yet, but week 6 does.</p></div>
+</div>
+
+<nav class="pager">
+<a href="03-rangeify.html">← Lesson 3: Rangeify</a>
+<a href="05-rendering-vectors.html">Lesson 5: Rendering vectors →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const N = (id, op, sub, src, cls) => ({ id, op, sub, src: src || [], cls });
+  const base = (dcls, rcls, scls) => [N('bx', 'buffer x', 'f32 (4,)'), N('ld', 'load', '(4,)', ['bx']), N('d', 'mul', 'v * v', ['ld', 'ld'], dcls),
+    N('rd', 'reduce', 'add', ['d'], rcls), N('rc', 'recip', '', ['rd']), N('ex', 'expand', '[4]', ['rc']), N('w', 'mul', '(4,)', ['d', 'ex'], scls), N('st', 'store y', '', ['w'], scls)];
+  const steps = [
+    { caption: 'The squares <code>%d</code> feed two consumers: the reduce and the elementwise <code>mul</code> that the store writes.', nodes: base('hit') },
+    { caption: 'Rangeify turns the reduce into a loop. Inside it, the reduce asks <code>%d</code> for its element at the loop index.', nodes: base('hit', 'new') },
+    { caption: 'The store becomes a second loop, and it asks <code>%d</code> again, at its own index. Without <code>stage</code>, each loop computes the square itself.', nodes: base('hit', null, 'new') },
+    { caption: 'With <code>%q = stage %d</code>, a third loop fills a temp buffer once, and both loops read the temp instead of squaring.',
+      nodes: [N('bx', 'buffer x', 'f32 (4,)'), N('ld', 'load', '(4,)', ['bx']), N('d', 'mul', 'v * v', ['ld', 'ld']), N('q', 'stage', 'temp, 4 floats', ['d'], 'new'),
+        N('rd', 'reduce', 'add', ['q'], 'hit'), N('rc', 'recip', '', ['rd']), N('ex', 'expand', '[4]', ['rc']), N('w', 'mul', '(4,)', ['q', 'ex'], 'hit'), N('st', 'store y', '', ['w'])] },
+  ];
+  CC.stepper(document.getElementById('steps'), steps, (s, body) => body.append(h('div', { class: 'stack' }, CC.graph(s.nodes))));
+});
+</script>
+</body>
+</html>

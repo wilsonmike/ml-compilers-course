@@ -1,0 +1,65 @@
+{
+ "id": "w1-03-toy-simplify",
+ "lang": "ocaml",
+ "title": "A toy rewriter",
+ "show": "(fun e -> to_string (simplify e))",
+ "starter": "type e = Const of int | Var of string | Add of e * e | Mul of e * e\n\n(* Used to print test results. Don't change it. *)\nlet rec to_string = function\n  | Const n -> string_of_int n\n  | Var s -> s\n  | Add (a, b) -> \"(\" ^ to_string a ^ \" + \" ^ to_string b ^ \")\"\n  | Mul (a, b) -> \"(\" ^ to_string a ^ \" * \" ^ to_string b ^ \")\"\n\n(* Paste your wrap32 from lesson 0.6 here if you need it. *)\n\n(* Simplify sources first (children before their parent), re-applying the rules to each result until none fire. *)\nlet simplify (e : e) : e = e\n",
+ "tests": [
+  {
+   "expr": "Add (Const 2, Const 3)",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "Add (Var \"x\", Const 0)",
+   "expect": "x",
+   "sample": true
+  },
+  {
+   "expr": "Mul (Const 4, Var \"x\")",
+   "expect": "(x * 4)"
+  },
+  {
+   "expr": "Add (Add (Var \"x\", Const 3), Const 4)",
+   "expect": "(x + 7)"
+  },
+  {
+   "expr": "Add (Const 1, Add (Const 2, Var \"y\"))",
+   "expect": "(y + 3)"
+  },
+  {
+   "expr": "Mul (Const 65536, Const 65536)",
+   "expect": "0"
+  },
+  {
+   "expr": "Add (Const 2147483647, Const 1)",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "Mul (Add (Var \"x\", Const 0), Const 1)",
+   "expect": "x"
+  },
+  {
+   "expr": "Mul (Const 0, Add (Var \"a\", Var \"b\"))",
+   "expect": "0"
+  },
+  {
+   "expr": "Add (Add (Var \"x\", Const 3), Const (-3))",
+   "expect": "x"
+  },
+  {
+   "expr": "Mul (Mul (Var \"z\", Const 3), Const 5)",
+   "expect": "(z * 15)"
+  },
+  {
+   "expr": "Add (Mul (Var \"x\", Const 2), Mul (Var \"x\", Const 2))",
+   "expect": "((x * 2) + (x * 2))"
+  }
+ ],
+ "hints": [
+  "Write `rule : e -> e option` that tries every rule once on a single node and returns `Some new_node` if one fired, `None` otherwise. Keep it separate from the walk over the tree.",
+  "Simplify both children first, rebuild the node, then keep applying rules to that node until none fire. That's sources first plus a fixpoint.",
+  "Constant folding must wrap to 32 bits, and the canonicalizing rule (const to the right) must only fire when the left side is a `Const` and the right isn't, or it never stops."
+ ],
+ "explain": "`rule` returns `Some` rewrite or `None`, so `fix` can loop until no rule fires, and `simplify` calls it after simplifying the children: sources first, greedy, to a fixpoint. Folding wraps with `wrap32`, and because both-constant nodes fold before the swap rule is tried, moving a constant to the right can never ping-pong forever."
+}

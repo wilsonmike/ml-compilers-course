@@ -1,0 +1,18 @@
+# render
+# the spec's GEMM: reshape, permute, expand, mul, reduce pop=1
+%Ab = buffer 12 dtype=f32 slot=0 data=[-1.25 -0.75 -0.25 0.25 0.75 1.25 1.75 2.25 2.75 3.25 3.75 4.25]
+%Bb = buffer 20 dtype=f32 slot=1 data=[0.10000000149011612 0.3499999940395355 0.6000000238418579 0.8500000238418579 1.100000023841858 1.350000023841858 1.600000023841858 1.850000023841858 2.0999999046325684 2.3499999046325684 2.5999999046325684 2.8499999046325684 3.0999999046325684 3.3499999046325684 3.5999999046325684 3.8499999046325684 4.099999904632568 4.349999904632568 4.599999904632568 4.849999904632568]
+%Cb = buffer 15 dtype=f32 slot=2
+%A  = load %Ab
+%B  = load %Bb
+%a2 = reshape %A shape=[3 4]
+%a3 = reshape %a2 shape=[3 4 1]
+%aT = permute %a3 order=[1 0 2]
+%ax = expand %aT shape=[4 3 5]
+%b3 = reshape %B shape=[4 1 5]
+%bx = expand %b3 shape=[4 3 5]
+%p  = mul %ax %bx
+%c  = reduce %p op=add pop=1
+%cf = reshape %c shape=[15]
+%s  = store %Cb %cf
+%C1 = after %Cb %s

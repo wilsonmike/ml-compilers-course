@@ -1,0 +1,26 @@
+# expect: pass
+# an inner loop inside two loops can ignore the middle range, and it just reruns
+%A  = buffer 4 dtype=i32 slot=0
+%B  = buffer 6 dtype=i32 slot=1
+%j  = range 2
+%i  = range 2
+%k  = range 3
+%i3 = mul %i 3
+%ik = add %i3 %k
+%vb = shrink %B %ik shape=[]
+%sb = store %vb %ik
+%ek = end %sb %k
+%j2 = mul %j 2
+%ji = add %j2 %i
+%va = shrink %A %ji shape=[]
+%sa = store %va %ji
+%ei = end %sa %ek %i
+%ej = end %ei %j
+%A1 = after %A %ej
+%B1 = after %B %ej
+%xa = load %A1
+%xb = load %B1
+%wa = stack 0 1 2 3
+%wb = stack 0 1 2 3 4 5
+%t0 = assert %xa %wa
+%t1 = assert %xb %wb

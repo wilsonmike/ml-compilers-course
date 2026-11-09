@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCaml Crash Course</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Week 0|OCaml crash course" data-root="../">
+<main>
+  <p class="eyebrow">Week 0 · Lesson 6</p>
+  <h1>OCaml crash course</h1>
+  <p class="lede">You're going to write your compiler in OCaml. This is the subset of the language you need to start, taught with examples that have nothing to do with compilers, so that every line of compiler code is yours.</p>
+
+  <div class="note">
+    <span class="label">Why the examples are cards and bank accounts</span>
+    <p>This page teaches the language, not the course. You won't find a UOp type, a parser, or an evaluator here, on purpose. Translating "deck of cards" ideas into "graph of ops" ideas is part of the learning.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Install</h2>
+    <h3>Option A: native Windows</h3>
+    <p>opam (OCaml's package manager) 2.2 and later support Windows directly. Do these once, in PowerShell:</p>
+  </div>
+<pre><code>winget install Git.Git OCaml.opam
+# close this terminal and open a NEW one, so opam is on your PATH
+opam init                     # take the defaults, including the "internal Cygwin" option
+opam install dune utop ocaml-lsp-server</code></pre>
+  <div class="prose">
+    <p><code>opam init</code> downloads its own small Unix environment (Cygwin) and builds the OCaml compiler from source, so expect 10 to 30 minutes. If it offers to set up your shell or profile, say yes. If <code>utop</code> fails to build, drop it from the install line. The plain <code>ocaml</code> REPL is enough.</p>
+    <p>If you said no to the shell setup, run this in <b>every new terminal</b> before using OCaml. It loads opam's PATH settings into that window:</p>
+  </div>
+<pre><code>(&amp; opam env) -split '\r?\n' | ForEach-Object { Invoke-Expression $_ }
+ocaml -version                # should print a version number</code></pre>
+  <div class="prose">
+    <h3>Option B: WSL (Ubuntu inside Windows)</h3>
+    <p>If option A fights you, use WSL. Everything in the OCaml world assumes a Unix shell, and later weeks need clang and CUDA, which also work well there.</p>
+  </div>
+<pre><code>wsl --install                 # once, then reboot and open "Ubuntu"
+sudo apt update &amp;&amp; sudo apt install -y opam clang
+opam init -y
+eval $(opam env)
+opam install -y dune utop ocaml-lsp-server</code></pre>
+<div class="note">
+    <span class="label">Running the exercises</span>
+    <p>The editors in these lessons are graded by <code>python tools/serve.py</code>, which runs <code>ocaml</code> from your PATH. Start it from a terminal where <code>ocaml -version</code> works. With WSL, OCaml lives inside Ubuntu, so run <code>python3 tools/serve.py</code> inside Ubuntu too (your Windows files are under <code>/mnt/c/...</code>). Until OCaml is installed you can borrow it from Docker (this needs Docker Desktop running): <code>python tools/serve.py --ocaml "docker run --rm -i ocaml/opam:alpine-ocaml-5.2 ocaml"</code>.</p>
+  </div>
+  <div class="prose">
+    <p>For an editor, use VS Code with the <b>OCaml Platform</b> extension. It uses <code>ocaml-lsp-server</code> to show the type of anything you hover. Turn this on early: in OCaml, the types <em>are</em> the documentation. <code>utop</code> is a REPL where you can try every snippet on this page.</p>
+
+    <h2>A dune project</h2>
+    <p><b>dune</b> is the build system. It makes a project skeleton for you:</p>
+  </div>
+<pre><code>dune init project words
+cd words
+dune build                     # compile everything
+dune exec words                # run it: prints "Hello, World!" for now
+# the binary lands at _build/default/bin/main.exe</code></pre>
+  <div class="prose">
+    <p>You get <code>bin/main.ml</code> (the program), <code>lib/</code> (a library for the rest of your code), and <code>test/</code>. Every <code>.ml</code> file is automatically a <b>module</b>: <code>lib/deck.ml</code> becomes <code>Deck</code>. dune wraps the library in a module named after it, so from <code>bin/main.ml</code> you call <code>Words.Deck.shuffle</code>, or write <code>open Words</code> at the top and then just <code>Deck.shuffle</code>. Forgetting this is the usual cause of "Unbound module Deck". Arguments for your program go after <code>--</code>, as in <code>dune exec words -- count notes.txt</code>. The <code>count</code> example near the end of this page is what makes that one work.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Warnings are errors in dev builds</span>
+    <p>dune's default profile turns some warnings into errors, including an unused variable. That's annoying for the first hour and very useful after that. Prefix a name with <code>_</code> to say "unused on purpose".</p>
+  </div>
+
+  <div class="prose">
+    <h2>Values and functions</h2>
+    <p><code>let</code> binds a name to a value. Names never change. Functions are values too, and you call them without parentheses or commas.</p>
+  </div>
+<pre><code>let tax_rate = 0.08
+let with_tax price = price *. (1.0 +. tax_rate)    (* float ops end in a dot *)
+let rec factorial n = if n &lt;= 1 then 1 else n * factorial (n - 1)
+
+let () = Printf.printf "%.2f %d\n" (with_tax 10.0) (factorial 5)   (* 10.80 120 *)</code></pre>
+  <div class="prose">
+    <p>Integers use <code>+ - * /</code> and floats use <code>+. -. *. /.</code>. There's no automatic conversion. <code>1 + 1.0</code> is a type error, and you write <code>float_of_int 1 +. 1.0</code>. Recursive functions need <code>let rec</code>. <code>let () = ...</code> is how you write "run this when the program starts".</p>
+  </div>
+  <div class="key">
+    <span class="label">Syntax you'll see in every starter</span>
+    <p>Each line below runs, and together they print <code>12 10 1 3 none 5 hello, world 1 2</code>.</p>
+<pre><code>let area = let w = 3 in let h = 4 in w * h       (* let ... in: a name used only in what follows *)
+let double = fun x -&gt; 2 * x                       (* fun: a function with no name *)
+let pair : int * string = (1, "one")              (* a tuple; its type is written with * *)
+let first (a, _) = a                              (* taking a tuple apart *)
+let safe_div a b = if b = 0 then None else Some (a / b)   (* type: int -&gt; int -&gt; int option *)
+let show o = match o with Some v -&gt; string_of_int v | None -&gt; "none"
+let counter = ref 0
+let () = counter := !counter + 1                  (* := sets a ref, ! reads it *)
+let add (x : int) (y : int) : int = x + y         (* optional type annotations *)
+let greeting = "hello, " ^ "world"                (* ^ joins strings *)
+let make_counter () = let n = ref 0 in fun () -&gt; incr n; !n   (* returns a function *)
+let next = make_counter ()
+let c1 = next ()
+let c2 = next ()</code></pre>
+    <p>An <b>option</b> is either <code>Some value</code> or <code>None</code>: OCaml's way of saying "maybe a result". A type like <code>card list -&gt; int</code> reads "a function from a list of cards to an int". The last three lines show a function that returns a function: each call to <code>make_counter ()</code> makes its own private <code>n</code>.</p>
+  </div>
+  <div class="prose">
+
+    <h2>Variants and pattern matching</h2>
+    <p>This is the feature you're choosing OCaml for. A <b>variant</b> type lists every shape a value can have, and each shape can carry data. <code>match</code> takes a value apart by its shape.</p>
+  </div>
+<pre><code>type suit = Hearts | Diamonds | Clubs | Spades
+type card =
+  | Number of int * suit        (* 2 through 10 *)
+  | Jack of suit | Queen of suit | King of suit
+  | Ace of suit
+
+let points card =
+  match card with
+  | Number (n, _) -&gt; n
+  | Jack _ | Queen _ | King _ -&gt; 10
+  | Ace _ -&gt; 11
+
+let suit_of = function            (* "function" is shorthand for fun x -&gt; match x with *)
+  | Number (_, s) | Jack s | Queen s | King s | Ace s -&gt; s
+
+let is_red c = match suit_of c with Hearts | Diamonds -&gt; true | Clubs | Spades -&gt; false
+
+(* guards with "when", and nested patterns *)
+let describe = function
+  | Number (n, Hearts) when n &gt;= 9 -&gt; "a high heart"
+  | Ace Spades -&gt; "the ace of spades"
+  | _ -&gt; "some card"</code></pre>
+  <div class="prose">
+    <p>Each <code>|</code> line in the type is a <b>constructor</b>. <code>Number of int * suit</code> means the <code>Number</code> constructor carries a pair: an int and a suit (here <code>*</code> means "and", not multiplication).</p>
+    <p>The compiler checks that every <code>match</code> covers every case. Add a <code>Joker</code> constructor and every match that forgot about it gets a warning that points at the line. When your types grow all semester, this is what keeps old code honest.</p>
+  </div>
+  <div class="trap">
+    <span class="label">The catch-all hides new cases</span>
+    <p>A final <code>| _ -&gt; ...</code> case matches everything, including constructors you add next month, so the exhaustiveness check can't help you there anymore. Use <code>_</code> on purpose, not by habit.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Records, mutation, exceptions</h2>
+    <p>A <b>record</b> is a struct with named fields. Fields are immutable unless you mark them <code>mutable</code>. An <b>exception</b> can carry data and is caught with <code>try ... with</code>, which pattern matches just like <code>match</code>.</p>
+  </div>
+<pre><code>type account = { owner : string; mutable balance : int }
+exception Insufficient_funds of int
+
+let withdraw acct amount =
+  if amount &gt; acct.balance then raise (Insufficient_funds (amount - acct.balance));
+  acct.balance &lt;- acct.balance - amount
+
+let () =
+  let a = { owner = "Sam"; balance = 100 } in
+  withdraw a 30;
+  (try withdraw a 500 with Insufficient_funds short -&gt; Printf.printf "short by %d\n" short);
+  Printf.printf "%s has %d\n" a.owner a.balance</code></pre>
+  <div class="prose">
+    <p><code>;</code> sequences two expressions and <code>&lt;-</code> assigns a mutable field. A single mutable variable is a <code>ref</code>: <code>let count = ref 0 in incr count; !count</code>. Prefer immutable data, and reach for mutation when it actually makes the code simpler.</p>
+
+    <h2>Lists and arrays</h2>
+    <p>Lists are immutable and singly linked, written <code>[a; b; c]</code> (semicolons, not commas). Arrays are fixed size, mutable, and indexed with <code>a.(i)</code>.</p>
+  </div>
+<pre><code>type task = { title : string; finished : bool }    (* "done" is a keyword *)
+let todos = [ { title = "buy milk"; finished = true };
+              { title = "call the bank"; finished = false };
+              { title = "water plants"; finished = false } ]
+
+let left = todos |&gt; List.filter (fun t -&gt; not t.finished) |&gt; List.map (fun t -&gt; t.title)
+let n_done = List.fold_left (fun acc t -&gt; if t.finished then acc + 1 else acc) 0 todos
+
+let rec total = function [] -&gt; 0 | x :: rest -&gt; x + total rest    (* matching on a list *)
+
+let scores = Array.make 5 0
+let () = scores.(2) &lt;- 7; Printf.printf "%d %d\n" (Array.length scores) scores.(2)   (* 5 7 *)</code></pre>
+  <div class="prose">
+    <p><code>|&gt;</code> pipes a value into a function: <code>x |&gt; f |&gt; g</code> is <code>g (f x)</code>. <code>x :: rest</code> is the pattern for "first element, then the rest".</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06-hand-value">
+    <h3>Blackjack hand value</h3>
+    <p>Using the <code>card</code> type above, write <code>hand_value : card list -&gt; int</code>. Numbers are worth their number, faces 10, and an Ace 11. But while the total is over 21, an Ace may count as 1 instead, one Ace at a time.</p>
+    <p class="muted">Pattern match for the points, then fold with <code>List.fold_left</code> (shown just above). Keep the types in the starter exactly as they are: the tests build cards with those constructors.</p>
+  </div>
+
+  <div class="prose">
+
+    <h2>A recursive type: a tree of words</h2>
+    <p>Variants can refer to themselves. Here's a binary search tree of strings. Smaller words go left, bigger ones go right, and you never change a tree. <code>insert</code> builds a new one that shares the untouched branches with the old one.</p>
+  </div>
+<pre><code>type tree = Leaf | Node of tree * string * tree
+
+let rec insert w t =
+  match t with
+  | Leaf -&gt; Node (Leaf, w, Leaf)
+  | Node (l, x, r) -&gt;
+    if w &lt; x then Node (insert w l, x, r)
+    else if w &gt; x then Node (l, x, insert w r)
+    else t                                       (* already there *)
+
+let rec to_list = function Leaf -&gt; [] | Node (l, x, r) -&gt; to_list l @ [x] @ to_list r
+
+let t = List.fold_left (fun t w -&gt; insert w t) Leaf ["pear"; "apple"; "zebra"; "mango"; "kiwi"]</code></pre>
+
+  <div class="fig" id="bst" data-title="List.fold_left insert: one word at a time"></div>
+
+  <div class="prose">
+    <h2>Hashtbl and equality</h2>
+    <p><code>Hashtbl</code> is a mutable hash table. It uses structural hashing and equality by default, so it works with any key type.</p>
+  </div>
+<pre><code>let counts : (string, int) Hashtbl.t = Hashtbl.create 64
+
+let see word =
+  let n = Option.value ~default:0 (Hashtbl.find_opt counts word) in
+  Hashtbl.replace counts word (n + 1)
+
+let () =
+  List.iter see ["kiwi"; "pear"; "kiwi"];
+  Hashtbl.iter (fun w n -&gt; Printf.printf "%s: %d\n" w n) counts   (* order is not guaranteed *)</code></pre>
+  <div class="prose">
+    <p><code>~default:0</code> is a <b>labelled argument</b>: you pass it by name. <code>Hashtbl.find_opt</code> returns an option, and <code>Option.value ~default:0</code> turns <code>None</code> into 0.</p>
+    <p>OCaml has two equalities. <code>a = b</code> is <b>structural</b>: it walks both values and compares everything inside, which can take as long as the values are big. <code>a == b</code> is <b>physical</b>: it asks whether they're the very same object in memory, which is one pointer comparison. Remember this distinction. It matters in week 1.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Hashtbl.hash doesn't look at everything</span>
+    <p>The default hash only looks at a limited number of nodes inside a value, about ten meaningful ones. Two big values that differ deep inside can hash the same, and they're still told apart correctly by <code>=</code>, just slowly. If you ever key a table on large nested values, think about what you're actually hashing.</p>
+  </div>
+
+  <div class="exercise" data-ex="w0-06-top-words">
+    <h3>The k most common words</h3>
+    <p>Write <code>top_words : int -&gt; string list -&gt; (string * int) list</code>. Count every word, then return the <code>k</code> most frequent as <code>(word, count)</code> pairs: higher counts first, and ties broken alphabetically (plain <code>compare</code> on strings, so <code>"A"</code> sorts before <code>"a"</code>). If there are fewer than <code>k</code> distinct words, return them all.</p>
+    <p class="muted">Tools: <code>Hashtbl</code> to count, <code>Hashtbl.fold</code> to get a list out, <code>List.sort</code> with your own comparison, and <code>List.filteri</code> to take a prefix.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Modules</h2>
+    <p>A module groups related types and functions. Each file is one module, and you can nest more with <code>module Name = struct ... end</code>. A <code>.mli</code> file next to a <code>.ml</code> file lists what the module exposes. Anything not listed is private.</p>
+  </div>
+<pre><code>module Deck = struct
+  let suits = [Hearts; Diamonds; Clubs; Spades]
+  let full = List.concat_map
+      (fun s -&gt; List.init 9 (fun i -&gt; Number (i + 2, s)) @ [Jack s; Queen s; King s; Ace s]) suits
+end
+
+let () = Printf.printf "%d cards\n" (List.length Deck.full)   (* 52 cards *)</code></pre>
+
+  <div class="prose">
+    <h2>Integers: the trap for this course</h2>
+    <p>OCaml's plain <code>int</code> is <b>63 bits</b> on a 64-bit machine. One bit is used internally to tell integers apart from pointers. So <code>max_int</code> is 2<sup>62</sup> − 1 = 4,611,686,018,427,387,903, and <code>2147483647 + 1</code> is just <code>2147483648</code>. It does <b>not</b> wrap at 32 bits.</p>
+    <p>The language you're compiling has a 32-bit <code>i32</code> that <em>must</em> wrap. The <code>Int32</code> module gives you true 32-bit integers. Literals end in <code>l</code>.</p>
+  </div>
+<pre><code>let a = Int32.max_int                 (* 2147483647l *)
+let b = Int32.add a 1l                (* -2147483648l: wrapped *)
+let c = 2147483647 + 1                (* 2147483648: a plain int did not *)
+let () = Printf.printf "%ld %ld %d\n" a b c
+
+(* the other Int32 operations you'll want: *)
+(* Int32.mul  Int32.div  Int32.rem  Int32.logxor  Int32.shift_left
+   Int32.compare  Int32.of_int  Int32.to_int  Int32.to_float  Int32.of_float *)</code></pre>
+  <div class="prose">
+    <p><code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, like C, and raise <code>Division_by_zero</code> on zero. <code>Int32.of_int</code> keeps the low 32 bits. <code>Int32.of_float</code> truncates, and its result is unspecified for NaN or anything out of range, so check those cases yourself. Read the docs for each function before you use it. The exact edge-case behavior is what the tests check.</p>
+    <p>You can also keep using plain <code>int</code> and normalize to 32 bits after every operation. Either way works. Pick one and be consistent.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06-div32">
+    <h3>C-style 32-bit division</h3>
+    <p>Write <code>div32 a b</code> for i32 values held in plain ints: truncate toward zero, wrap to 32 bits, and raise <code>Division_by_zero</code> when <code>b = 0</code>. (Lesson 1.2 has a variant that returns an option instead of raising.)</p>
+    <p class="muted">OCaml's <code>/</code> already truncates toward zero, so the starter is almost right. Exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
+  </div>
+
+  <div class="prose">
+
+    <h2>Floats are doubles</h2>
+    <p>OCaml's <code>float</code> is a 64-bit double. The course's <code>f32</code> is single precision. To round a double to the nearest single, convert it to the 32-bit encoding and back:</p>
+  </div>
+<pre><code>let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
+let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
+(* 0.10000000000000001
+   0.10000000149011612 *)</code></pre>
+  <div class="prose">
+    <p><code>Int32.bits_of_float</code> rounds to single precision and gives you its 32 bits. <code>Int32.float_of_bits</code> reads them back as a double holding that exact single value. Comparisons on floats follow IEEE: <code>nan = nan</code> is <code>false</code>. Test for NaN with <code>Float.is_nan</code>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06-is-f32">
+    <h3>Is it already an f32?</h3>
+    <p>Write <code>is_f32 : float -&gt; bool</code>: true when the double <code>x</code> is exactly representable in single precision. NaN and the infinities count as representable.</p>
+    <p class="muted">Round it with the trick above and compare. Then check what your answer says about <code>nan</code>.</p>
+  </div>
+
+  <div class="prose">
+
+    <h2>Files, arguments, exit codes</h2>
+  </div>
+<pre><code>let () =
+  match Sys.argv with
+  | [| _; "count"; path |] -&gt;
+    let lines = In_channel.with_open_text path In_channel.input_lines in
+    Printf.printf "%d lines\n" (List.length lines);
+    exit 0
+  | _ -&gt;
+    prerr_endline "usage: words count FILE";     (* stderr *)
+    exit 2</code></pre>
+  <div class="prose">
+    <p><code>Sys.argv.(0)</code> is the program name. <code>exit n</code> ends the program with status <code>n</code>, which is how the course's test runner learns whether a test passed. <code>[| _; "count"; path |]</code> matches an array of exactly three elements. <code>prerr_endline</code> prints a line to stderr, and <code>Printf.eprintf</code> prints formatted text to stderr. <code>In_channel.input_lines</code> needs OCaml 5.1 or newer, which any fresh install has. (Splitting the whole text on <code>'\n'</code> instead overcounts by one when the file ends with a newline.)</p>
+  </div>
+
+  <h2>Capstone: the toposort from lesson 0.3</h2>
+  <div class="exercise" data-ex="w0-03-topo">
+    <h3>Toposort a tiny DAG, in OCaml</h3>
+    <p>This is lesson 0.3's toposort, now that you have the language. A graph is a list of records <code>{ name : string; srcs : string list }</code>, each name appearing once. Write <code>topo graph root</code>: every name reachable from <code>root</code>, <b>each exactly once</b>, in depth-first post-order. Visit a node's <code>srcs</code> left to right, then emit the node itself.</p>
+    <p>For <code>(a + b) * (a + b)</code> that's <code>["a"; "b"; "add"; "mul"]</code>. Nodes not reachable from <code>root</code> are left out. One hidden test is the 31-level doubling DAG from lesson 0.3's trap, so remember what you've visited.</p>
+    <details class="toggle">
+      <summary>OCaml hints</summary>
+      <p><code>List.find (fun n -&gt; n.name = x) graph</code> looks a node up (it raises <code>Not_found</code> if nothing matches). A <code>Hashtbl</code> remembers what you've seen. Build the output in a <code>ref</code> list with <code>out := x :: !out</code>, then <code>List.rev</code> it at the end.</p>
+    </details>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">On 64-bit OCaml, what is <code>max_int</code>?</p>
+    <div class="opts"><button data-k="a">2<sup>31</sup> − 1</button><button data-k="b">2<sup>62</sup> − 1</button><button data-k="c">2<sup>63</sup> − 1</button></div>
+    <p class="hint">OCaml ints are not quite 64 bits. One bit is used for something else.</p>
+    <p class="hint">If the int has 63 bits and one of them is the sign, what is the largest positive value?</p>
+    <div class="why"><p>63-bit ints, so the top value is 2<sup>62</sup> − 1. One bit tags integers so the garbage collector can tell them from pointers.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="-2147483648l | -2147483648">
+    <p class="q">Predict the value of <code>Int32.add Int32.max_int 1l</code>.</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">The <code>Int32</code> module wraps around at 32 bits, like C's <code>int32_t</code>.</p>
+    <p class="hint">Adding 1 to the largest 32-bit value goes to the other end of the range. Remember the <code>l</code> suffix.</p>
+    <div class="why"><p><code>Int32</code> wraps at 32 bits, so it becomes <code>Int32.min_int</code>, <code>-2147483648l</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">What happens with <code>let x = 1 + 1.0</code>?</p>
+    <div class="opts"><button data-k="a"><code>x = 2.0</code></button><button data-k="b"><code>x = 2</code></button><button data-k="c">It doesn't compile: <code>+</code> takes two ints</button></div>
+    <p class="hint">Look at the types of the two operands. Does OCaml ever convert between <code>int</code> and <code>float</code> for you?</p>
+    <div class="why"><p>No implicit conversion. The course's IR works the same way: <code>add</code> on an <code>i32</code> and an <code>f32</code> is a type error.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="Sam has 70">
+    <p class="q">In the bank account example, what does the <b>last</b> line print?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Trace the balance through each withdrawal. Does the failing withdrawal change the balance before it raises?</p>
+    <p class="hint">The last line uses <code>"%s has %d\n"</code>.</p>
+    <div class="why"><p>The 30 withdrawal succeeds (100 → 70). The 500 one raises before it changes anything, prints "short by 430", and the balance stays 70.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="[2; 4; 6] | [2;4;6]">
+    <p class="q">Predict: <code>[1; 2; 3] |&gt; List.map (fun x -&gt; x * 2)</code></p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint"><code>|&gt;</code> passes the list on the left as the last argument to the function on the right.</p>
+    <p class="hint">Answer in OCaml list syntax, with semicolons.</p>
+    <div class="why"><p><code>[2; 4; 6]</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q"><code>let a = List.init 3 (fun i -&gt; i)</code> and <code>let b = List.init 3 (fun i -&gt; i)</code>. What are <code>a = b</code> and <code>a == b</code>?</p>
+    <div class="opts"><button data-k="a"><code>true</code> and <code>false</code></button><button data-k="b"><code>true</code> and <code>true</code></button><button data-k="c"><code>false</code> and <code>false</code></button></div>
+    <p class="hint"><code>=</code> compares contents. <code>==</code> asks whether two values are the same object in memory.</p>
+    <p class="hint">Were the two lists built separately?</p>
+    <div class="why"><p>Same contents, so structurally equal. They're two separately built lists, so they aren't physically equal. If you had a way to guarantee that equal values are always the <em>same</em> object, <code>==</code> would be enough. Hold that thought until week 1.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">After inserting "pear", "apple", "zebra", "mango", "kiwi", what does <code>to_list t</code> return?</p>
+    <div class="opts">
+      <button data-k="a"><code>["pear"; "apple"; "zebra"; "mango"; "kiwi"]</code></button>
+      <button data-k="b"><code>["apple"; "kiwi"; "mango"; "pear"; "zebra"]</code></button>
+      <button data-k="c"><code>["kiwi"; "mango"; "zebra"; "apple"; "pear"]</code></button>
+    </div>
+    <p class="hint">A binary search tree keeps smaller words on the left and larger ones on the right. What order does an in-order walk visit them in?</p>
+    <div class="why"><p>An in-order walk of a binary search tree visits the words in sorted order.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">You add <code>| Joker</code> to the <code>card</code> type and rebuild. What happens to <code>points</code>?</p>
+    <div class="opts">
+      <button data-k="a">Nothing, it still compiles cleanly</button>
+      <button data-k="b">It returns 0 for a Joker</button>
+      <button data-k="c">The compiler warns that the match is not exhaustive (an error under dune's dev profile), and a Joker would raise <code>Match_failure</code></button>
+    </div>
+    <p class="hint">Pattern matches are checked for exhaustiveness at compile time. What does the compiler do when a case is missing?</p>
+    <div class="why"><p>This is the safety net. Every function that takes apart a <code>card</code> gets flagged.</p></div>
+  </div>
+  <h2>Code it</h2>
+  <div class="exercise" data-ex="w0-ocaml-wrap32">
+    <h3>Wrap a native int to 32 bits</h3>
+    <p>OCaml's <code>int</code> is 63 bits, but your compiler's <code>i32</code> wraps at 32. Write <code>wrap32 x</code>: the signed 32-bit value with the same low 32 bits as <code>x</code>.</p>
+    <p class="muted">Two roads: the <code>Int32</code> module, or bit operations (<code>land</code>, <code>lsl</code>, <code>asr</code>).</p>
+  </div>
+
+
+  <nav class="pager"><a href="05-matmul.html">← matrix multiply</a><a href="../week1/01-the-uop.html">week 1: the UOp →</a></nav>
+</main>
+
+<script>
+// BST insertion stepper. Edges run parent -> child, so the root is drawn on top.
+(() => {
+  const words = ['pear', 'apple', 'zebra', 'mango', 'kiwi'];
+  const insert = (t, w) => !t ? { w, l: null, r: null } : w < t.w ? { ...t, l: insert(t.l, w) } : w > t.w ? { ...t, r: insert(t.r, w) } : t;
+  const path = (t, w, acc = []) => !t ? acc : t.w === w ? [...acc, w] : path(w < t.w ? t.l : t.r, w, [...acc, t.w]);
+  const steps = [{ t: null, w: null, caption: 'Start with <code>Leaf</code>, the empty tree.' }];
+  let t = null;
+  for (const w of words) {
+    t = insert(t, w);
+    const p = path(t, w);
+    steps.push({ t, w, p, caption: `insert <code>"${w}"</code>: ` + (p.length === 1 ? 'the tree was empty, so it becomes the root.' :
+      p.slice(0, -1).map((x, i) => `"${w}" ${w < x ? '&lt;' : '&gt;'} "${x}", go ${w < x ? 'left' : 'right'}`).join(', then ') + '. Put it in the empty spot there.') });
+  }
+  steps[steps.length - 1].caption += ' Read the tree left to right and you get the words in sorted order.';
+  const nodes = (t, parent, out = []) => { if (!t) return out; nodes(t.l, t.w, out); out.push({ id: t.w, op: '"' + t.w + '"', src: parent ? [parent] : [] }); nodes(t.r, t.w, out); return out; };
+  CC.stepper(document.getElementById('bst'), steps, (s, body) => {
+    if (!s.t) { body.append(CC.h('pre', {}, CC.h('code', { text: 'Leaf' }))); return; }
+    body.append(CC.graph(nodes(s.t, null).map(n => ({ ...n, cls: n.id === s.w ? 'new' : s.p.includes(n.id) ? 'hit' : '' }))));
+  });
+})();
+</script>
+</body>
+</html>

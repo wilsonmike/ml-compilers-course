@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory and Caches</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .grid2d { display: grid; grid-template-columns: repeat(4, 3.25rem); gap: 2px; font: 0.875rem var(--mono); }
+  .grid2d div { height: 2.75rem; display: flex; align-items: center; justify-content: center; background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; }
+  .grid2d div.now { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .grid2d div.hit, .mem .cell.hit { border-color: var(--good); color: var(--good); }
+  .grid2d div.miss, .mem .cell.miss { border-color: var(--bad); color: var(--bad); }
+  .lines { display: flex; flex-wrap: wrap; gap: var(--s3); }
+  .lines .ln { display: flex; flex-direction: column; gap: var(--s1); }
+  .lines .ln .name { font: 0.875rem var(--mono); color: var(--ink-3); }
+  .lines .ln.cached .mem { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+  .cache { display: flex; gap: var(--s2); font: 0.875rem var(--mono); flex-wrap: wrap; }
+  .cache span { padding: var(--s2) var(--s3); border: 1px solid var(--ink); border-radius: 6px; }
+  .cache span.empty { border-style: dashed; background: none; color: var(--ink-3); border-color: var(--line-2); } /* design-ok: dashed is the diagram notation for padding and out-of-bounds cells, named in the captions */
+  .cstats { font: 0.875rem var(--mono); color: var(--ink-2); display: flex; gap: var(--s5); flex-wrap: wrap; }
+  .cstats b.m { color: var(--bad); } .cstats b.h { color: var(--good); }
+  .viz { display: flex; gap: var(--s6); flex-wrap: wrap; align-items: flex-start; }
+  .viz > div { display: flex; flex-direction: column; gap: var(--s3); }
+  .lat td:last-child { font-family: var(--mono); }
+  .bar { height: 0.625rem; background: var(--accent); border-radius: 2px; min-width: 2px; } /* design-ok: a chart bar, one data series */
+</style>
+</head>
+<body data-root="../">
+<main>
+  <p class="eyebrow">Week 0 · Lesson 2</p>
+  <h1>Memory and caches</h1>
+  <p class="lede">Two loops can do exactly the same arithmetic and differ in speed by ten times or more. The difference is the order they touch memory. From week 6 on, your grade depends on getting that order right.</p>
+
+  <div class="prose">
+    <h2>Memory is far away</h2>
+    <p>The CPU can add two numbers in well under a nanosecond. Fetching a number from main memory (DRAM) takes something like 100 nanoseconds. If every load went all the way out to DRAM, the CPU would spend almost all its time waiting.</p>
+    <p>So there are <b>caches</b>: small, fast memories that keep copies of recently used data close to the core. Rough, typical numbers for a modern desktop chip:</p>
+  </div>
+  <div class="tablewrap"><table class="lat">
+    <tr><th>level</th><th>typical size</th><th>typical latency</th><th></th></tr>
+    <tr><td>register</td><td>a few hundred bytes</td><td>0 cycles</td><td><div class="bar" style="width:2px"></div></td></tr>
+    <tr><td>L1 cache</td><td>32 to 64 KB per core</td><td>~1 ns (4 to 5 cycles)</td><td><div class="bar" style="width:4px"></div></td></tr>
+    <tr><td>L2 cache</td><td>256 KB to 2 MB per core</td><td>~4 ns</td><td><div class="bar" style="width:12px"></div></td></tr>
+    <tr><td>L3 cache</td><td>8 to 64 MB shared</td><td>~10 to 20 ns</td><td><div class="bar" style="width:45px"></div></td></tr>
+    <tr><td>DRAM</td><td>gigabytes</td><td>~80 to 100 ns</td><td><div class="bar" style="width:240px;max-width:100%"></div></td></tr>
+  </table></div>
+  <p class="muted">These vary by chip. Only the ratios matter here: each level is several times slower than the one above it. A nanosecond (ns) is a billionth of a second. A <b>cycle</b> is one tick of the CPU's clock, about 0.25 ns at 4 GHz. A <b>register</b> is one of a few dozen named slots inside the CPU where arithmetic actually happens, and a <b>core</b> is one of the CPU's independent processors.</p>
+
+  <div class="prose">
+    <h2>Caches move whole lines</h2>
+    <p>A cache never fetches just one byte. It fetches a <b>cache line</b>, which is <b>64 bytes</b> on x86 and most ARM chips (Apple M-series chips use 128). Load one <code>float</code> and you get the other 15 floats in that line for free, as long as you use them before the line gets <b>evicted</b> (thrown out of the cache to make room for another line).</p>
+    <p>That means the order you walk an array matters. Reading consecutive addresses uses every byte of every line you fetch. Jumping around fetches a whole line and uses 4 bytes of it.</p>
+
+    <h2>2D arrays are rows laid end to end</h2>
+    <p>C stores <code>int m[R][C]</code> in <b>row-major</b> order: all of row 0, then all of row 1, and so on. So <code>m[i][j]</code> lives at</p>
+  </div>
+  <pre><code>base + (i * C + j) * sizeof(int)</code></pre>
+  <div class="prose">
+    <p>Neighbors along <code>j</code> are neighbors in memory. Neighbors along <code>i</code> are <code>C * 4</code> bytes apart. That's the base-plus-offset formula from lesson 1 again, with the offset now built from two indices.</p>
+    <p>The distance in memory from one access to the next is called the <b>stride</b>. Walking along <code>j</code> has stride 1 element, and walking along <code>i</code> has stride <code>C</code> elements.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-02-flat-index">
+    <h3>Code quiz: the row-major index</h3>
+    <p>Write <code>int flat_index(int i, int j, int C)</code>: the position of <code>m[i][j]</code> in the flat array of a row-major matrix with <code>C</code> columns. Element positions, not bytes.</p>
+  </div>
+
+  <div class="prose">
+
+    <h2>Watch it happen</h2>
+    <p>Here's a toy machine so the picture fits on screen: <code>int m[4][4]</code> (64 bytes), toy cache lines of <b>16 bytes</b> (4 ints), and a cache that holds only <b>2 lines</b>. When it's full, the least recently used line gets kicked out (this policy is called LRU, "least recently used"). Step through both loops and count the misses.</p>
+  </div>
+
+  <div class="fig" id="rowfig" data-title="for i: for j: sum += m[i][j]   (row order)"></div>
+  <div class="fig" id="colfig" data-title="for j: for i: sum += m[i][j]   (column order)"></div>
+
+  <div class="prose">
+    <p>Same 16 additions, same answer. Row order misses 4 times, once per line. Column order misses all 16 times, because by the time it comes back to a line, that line has been evicted. On a real machine with a large array, that's the difference between using every byte of each 64-byte line and using one 4-byte element of it.</p>
+  </div>
+  <div class="note">
+    <span class="label">Rule of thumb</span>
+    <p>Make the innermost loop walk the last index of the array, so it moves through memory with stride 1.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-02-lines-touched">
+    <h3>Code quiz: how many lines does a walk touch?</h3>
+    <p>Write <code>long long lines_touched(long long start, int n)</code>. You read <code>n</code> consecutive 4-byte ints starting at byte address <code>start</code>. Return how many distinct 64-byte cache lines those bytes fall in. Line <code>k</code> holds bytes <code>64k</code> to <code>64k + 63</code>. <code>n</code> can be 0.</p>
+    <p class="muted">An aligned walk of 16 ints touches 1 line. Shift it by 4 bytes and it touches 2.</p>
+  </div>
+  <div class="trap">
+    <span class="label">There are other effects too</span>
+    <p>Real CPUs also have <b>hardware prefetchers</b> that spot regular strides and fetch lines early. Column order on a small array can look less awful than this toy suggests. Don't trust intuition here. Measure. Starting in week 6, you'll time everything.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Why a compiler course cares</h2>
+    <p>You won't write these loops by hand. Your compiler will generate them. In week 3 it turns shapes into nested <code>for</code> loops, and it chooses the loop order. In week 4 it decides whether an intermediate result gets written to memory or stays in a register. In week 8 it <b>tiles</b> loops, splitting a big matrix into blocks small enough to stay in cache while they're reused. Every one of those decisions is about the picture above: keep the data you need close, and use every byte of each line you pay for.</p>
+  </div>
+
+  <div class="exercise" data-ex="w0-02-transpose">
+    <h3>Transpose a row-major matrix</h3>
+    <p>Write <code>void transpose(const int *src, int *dst, int rows, int cols)</code>. <code>src</code> is a <code>rows</code> x <code>cols</code> matrix stored row-major. Fill <code>dst</code>, a <code>cols</code> x <code>rows</code> row-major matrix, so that <code>dst[j][i] == src[i][j]</code>.</p>
+    <p>Both arrays are flat, so you compute every index yourself with the formula from this lesson. The tests check 1 x 1, single rows, single columns, and that transposing twice gives back the original.</p>
+    <details class="toggle">
+      <summary>Which loop order is cache friendly here?</summary>
+      <p>Neither, fully. If the inner loop walks <code>j</code>, reads of <code>src</code> are stride 1 but writes to <code>dst</code> jump by <code>rows</code>. Swap the loops and the problem swaps sides. Fast transposes work on small square tiles that fit in cache, which is the week 8 idea in miniature.</p>
+    </details>
+    <p class="muted">The examples print <code>dst</code> through some helper code. Only your <code>transpose</code> matters.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="16">
+    <p class="q">How many 4-byte <code>float</code>s fit in one 64-byte cache line?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">A float is 4 bytes. Divide the line size by the element size.</p>
+    <div class="why"><p>64 / 4 = 16.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="44">
+    <p class="q"><code>int m[4][4]</code> starts at address 0. What's the byte address of <code>m[2][3]</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Row-major: first count how many ints come before <code>m[2][3]</code>, then turn that count into bytes.</p>
+    <p class="hint">Two full rows of 4, plus 3 more. Each int is 4 bytes.</p>
+    <div class="why"><p>(2 × 4 + 3) × 4 = 11 × 4 = 44.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">For <code>float a[N][N]</code> in C, which loop nest walks memory with stride 1 in the inner loop?</p>
+    <div class="opts">
+      <button data-k="a"><code>for j: for i: a[i][j]</code></button>
+      <button data-k="b"><code>for i: for j: a[i][j]</code></button>
+      <button data-k="c">They're the same, since both visit every element once</button>
+    </div>
+    <p class="hint">Which two elements are neighbors in memory: <code>a[i][j]</code> and <code>a[i][j+1]</code>, or <code>a[i][j]</code> and <code>a[i+1][j]</code>?</p>
+    <div class="why"><p>The inner loop should move the last index, <code>j</code>, because <code>a[i][j]</code> and <code>a[i][j+1]</code> are adjacent in memory.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="64">
+    <p class="q">You sum <code>float a[1024]</code> front to back, and <code>a</code> starts on a line boundary. How many distinct 64-byte cache lines do you touch?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Work out the total bytes first, then how many 64-byte lines that many bytes fill.</p>
+    <div class="why"><p>1024 × 4 = 4096 bytes, and 4096 / 64 = 64 lines. Each line is fetched once and fully used.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">A loop reads <code>a[0], a[16], a[32], ...</code> from a <code>float</code> array (stride 16 floats). What fraction of each fetched 64-byte line does it use?</p>
+    <div class="opts"><button data-k="a">1/16</button><button data-k="b">1/4</button><button data-k="c">All of it</button></div>
+    <p class="hint">A stride of 16 floats is 64 bytes. Where does each access land relative to the previous one?</p>
+    <div class="why"><p>Stride 16 floats is 64 bytes, so every access lands on a new line and uses 4 of its 64 bytes.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="4">
+    <p class="q">On the toy machine above, change the cache to hold <b>4</b> lines. How many misses does column order have now?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Column order misses because rows get evicted before the next column comes back to them.</p>
+    <p class="hint">If the cache can hold every line of the matrix at once, does anything ever get evicted?</p>
+    <div class="why"><p>All 4 lines of <code>m</code> fit at once, so after the first column brings them in, nothing is evicted. 4 misses, same as row order. That's the idea behind tiling: make the working set fit.</p></div>
+  </div>
+
+  <nav class="pager"><a href="01-c-and-pointers.html">← C and pointers</a><a href="03-compilers-and-irs.html">compilers and IRs →</a></nav>
+</main>
+
+<script>
+// Toy cache: 4x4 int matrix, 16-byte lines (one row each), 2-line LRU cache.
+(() => {
+  const { h } = CC, N = 4, WAYS = 2;
+  function simulate(order) {
+    const cache = [], seen = [], steps = [];
+    let misses = 0, hits = 0;
+    const idx = [];
+    for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) idx.push(order === 'row' ? [a, b] : [b, a]);
+    steps.push({ i: -1, cache: [], seen: [], misses: 0, hits: 0, caption: 'Cache empty. Each row of the flat memory on the right is one 16-byte line. A line gets an outline while it is in the cache.' });
+    for (const [i, j] of idx) {
+      const line = i, k = cache.indexOf(line), hit = k >= 0;
+      if (hit) { cache.splice(k, 1); hits++; } else { misses++; if (cache.length === WAYS) cache.shift(); }
+      cache.push(line);   // most recently used at the end
+      seen.push({ i, j, hit });
+      const addr = (i * N + j) * 4;
+      steps.push({ i, j, hit, cache: [...cache], seen: [...seen], misses, hits,
+        caption: `<code>m[${i}][${j}]</code> at byte ${addr}, in line ${line}. ` + (hit ? 'Already cached: <b>hit</b>.' : `Not cached: <b>miss</b>, fetch line ${line}` + (misses > WAYS && !hit ? ', evicting the least recently used line.' : '.')) });
+    }
+    steps[steps.length - 1].caption += ` Done: <b>${misses} misses</b>, ${hits} hits.`;
+    return steps;
+  }
+  function draw(s, body) {
+    const last = new Map(s.seen.map(e => [e.i * N + e.j, e.hit ? 'hit' : 'miss']));
+    const grid = h('div', { class: 'grid2d' }, Array.from({ length: N * N }, (_, k) => {
+      const i = Math.floor(k / N), j = k % N;
+      return h('div', { class: (last.get(k) || '') + (i === s.i && j === s.j ? ' now' : ''), text: `${i},${j}` });
+    }));
+    const lines = h('div', { class: 'lines' }, Array.from({ length: N }, (_, L) =>
+      h('div', { class: 'ln' + (s.cache.includes(L) ? ' cached' : '') }, h('span', { class: 'name', text: `line ${L} (bytes ${L * 16} to ${L * 16 + 15})` }),
+        h('div', { class: 'mem' }, Array.from({ length: N }, (_, j) => { const k = L * N + j;
+          return h('div', { class: 'cell ' + (last.get(k) || '') }, h('span', { class: 'addr', text: String(k * 4) }), `${L},${j}`); })))));
+    const cache = h('div', { class: 'cache' }, Array.from({ length: WAYS }, (_, w) => s.cache[w] != null ? h('span', { text: 'line ' + s.cache[w] }) : h('span', { class: 'empty', text: 'empty' })));
+    body.append(h('div', { class: 'viz' },
+      h('div', {}, h('span', { class: 'label', text: 'm as a 2D array' }), grid),
+      h('div', {}, h('span', { class: 'label', text: 'same bytes, flat in memory' }), lines,
+        h('span', { class: 'label', text: 'cache (2 lines, LRU)' }), cache,
+        h('div', { class: 'cstats' }, h('span', {}, 'misses ', h('b', { class: 'm', text: String(s.misses) })), h('span', {}, 'hits ', h('b', { class: 'h', text: String(s.hits) }))))));
+  }
+  CC.stepper(document.getElementById('rowfig'), simulate('row'), draw);
+  CC.stepper(document.getElementById('colfig'), simulate('col'), draw);
+})();
+</script>
+</body>
+</html>

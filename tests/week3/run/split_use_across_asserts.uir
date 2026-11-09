@@ -1,0 +1,17 @@
+# expect: pass
+# where a load runs depends on every use in the program: the second assert uses %x outside the loop, so the loop sees the pre-loop 10 every time, even while checking the first assert alone
+%b  = buffer 1 dtype=i32 slot=0 data=[10]
+%v0 = shrink %b 0 shape=[]
+%x  = load %v0
+%i  = range 3
+%z  = mul %i 0
+%v  = shrink %b %z shape=[]
+%xz = add %x %z
+%y  = add %xz 1
+%s  = store %v %y
+%e  = end %s %i
+%b1 = after %b %e
+%r  = load %b1
+%q  = stack 11
+%t0 = assert %r %q
+%t1 = assert %x 10

@@ -1,0 +1,57 @@
+{
+ "id": "w2-05-read-slot",
+ "lang": "ocaml",
+ "title": "Read a buffer back from the harness",
+ "show": "(fun l -> String.concat \" \" (List.map (Printf.sprintf \"%h\") l))",
+ "starter": "(* The compiled program prints one line per f32 element: the slot, a space, and\n   the 32 bits as 8 hex digits, e.g.  \"0 3f800000\".  Return the values for slot k,\n   in order. Lines may end in \\r\\n, and blank lines can appear. *)\nlet read_slot (out : string) (k : int) : float list =\n  []\n",
+ "tests": [
+  {
+   "expr": "read_slot \"0 3f800000\\n0 40000000\\n\" 0",
+   "expect": "0x1p+0 0x1p+1",
+   "sample": true
+  },
+  {
+   "expr": "read_slot \"0 3f800000\\n1 bf800000\\n0 00000000\\n\" 1",
+   "expect": "-0x1p+0",
+   "sample": true
+  },
+  {
+   "expr": "read_slot \"0 80000000\\n\" 0",
+   "expect": "-0x0p+0"
+  },
+  {
+   "expr": "read_slot \"0 7fc00000\\n\" 0",
+   "expect": "nan"
+  },
+  {
+   "expr": "read_slot \"2 7f800000\\n\" 2",
+   "expect": "infinity"
+  },
+  {
+   "expr": "read_slot \"0 00000001\\n\" 0",
+   "expect": "0x1p-149"
+  },
+  {
+   "expr": "read_slot \"0 3f800000\\n\" 5",
+   "expect": ""
+  },
+  {
+   "expr": "read_slot \"0 3f800000\\r\\n0 40400000\\r\\n\" 0",
+   "expect": "0x1p+0 0x1.8p+1"
+  },
+  {
+   "expr": "read_slot \"\\n0 3f800000\\n\\n\" 0",
+   "expect": "0x1p+0"
+  },
+  {
+   "expr": "read_slot \"0 c0490fdb\\n\" 0",
+   "expect": "-0x1.921fb6p+1"
+  }
+ ],
+ "hints": [
+  "Split the output into lines, split each line on the space, and keep the lines whose slot matches.",
+  "`Int32.of_string (\"0x\" ^ hex)` reads 8 hex digits even when the top bit is set (`0x80000000` becomes `Int32.min_int`), and `Int32.float_of_bits` turns those bits into the float. Don't go through `float_of_string`: the point is to never round anything.",
+  "On Windows the lines end in `\\r\\n`. `String.trim` strips the `\\r` and turns blank lines into empty strings, which won't match the `[slot; bits]` pattern."
+ ],
+ "explain": "Printing f32 values as raw bits and rebuilding them with `Int32.float_of_bits` makes the round trip exact: -0.0, NaN, infinities and subnormals all survive, which decimal output with a limited number of digits can't promise. Trimming each line handles CRLF and blank lines, so the same parser works on every platform."
+}

@@ -1,0 +1,84 @@
+{
+ "id": "w2-02-swap",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 0,
+ "title": "Swap two elements in place",
+ "starter": "%b  = buffer 4 dtype=i32 slot=0 data=[1 2 3 4]\n# Swap b[0] and b[1]. Leave b[2] and b[3] alone.\n%e0 = shrink %b 0 shape=[]\n%e1 = shrink %b 1 shape=[]\n%x  = load %e0\n%y  = load %e1\n%s0 = store %e0 %y\n%b1 = after %b %s0\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4
+    ]
+   },
+   "expect": "[2 1 3 4]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     9,
+     8,
+     7,
+     6
+    ]
+   },
+   "expect": "[8 9 7 6]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     5,
+     5,
+     0,
+     0
+    ]
+   },
+   "expect": "[5 5 0 0]"
+  },
+  {
+   "data": {
+    "0": [
+     -1,
+     2147483647,
+     7,
+     8
+    ]
+   },
+   "expect": "[2147483647 -1 7 8]"
+  },
+  {
+   "data": {
+    "0": [
+     0,
+     -2147483648,
+     1,
+     1
+    ]
+   },
+   "expect": "[-2147483648 0 1 1]"
+  },
+  {
+   "data": {
+    "0": [
+     3,
+     0,
+     -3,
+     0
+    ]
+   },
+   "expect": "[0 3 -3 0]"
+  }
+ ],
+ "hints": [
+  "The starter writes b[0] but never writes b[1]. You need a second store, and it has to happen after the first one.",
+  "A second store into `%b` is invalid (two stores into one version). Store into a view of `%b1`, then sequence it with `after %b1 ...`.",
+  "Both values were loaded from the original `%b` before anything was written, so `%x` still holds the old b[0]. Store `%x` into `shrink %b1 1 shape=[]`."
+ ],
+ "explain": "Both loads read version `%b`, so they see the original values. The first store makes `%b1` with b[0] replaced; the second store writes `%x` into a view of `%b1` (call it `%s1`), and `after %b1 %s1` makes the final version. Each version gets exactly one store, so the order is total."
+}

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 5 Lab</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
+  .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
+  .build > li::before { content: counter(st, decimal-leading-zero); position: absolute; left: var(--s5); top: var(--s4); font: 500 0.875rem/1.7 var(--mono); color: var(--ink-3); }
+  .build h3 { margin: 0 0 var(--s2); }
+  .build p { margin: 0 0 var(--s2); }
+  .build .check { font-size: 0.9375rem; color: var(--ink-3); margin: 0; }
+  .checklist { list-style: none; padding: 0; margin: var(--s4) 0; max-width: var(--col); }
+  .checklist li { border-bottom: 1px solid var(--line); }
+  .checklist label { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) 0; cursor: pointer; }
+  .checklist input { margin-top: 5px; width: 1rem; height: 1rem; accent-color: var(--accent); flex: none; }
+  .checklist input:checked + span { color: var(--ink-3); text-decoration: line-through; }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 5 · Lesson 6</p>
+<h1>The week 5 lab</h1>
+<p class="lede">Lift the rank limit. Your type checker learns shapes of any rank and the four movement ops, <code>run</code> evaluates them, and your rangeify pass turns each one into index arithmetic. You're done when every week 5 test passes, weeks 1 to 4 still pass, and you've written 10 new tests of your own.</p>
+
+<div class="prose">
+<h2>Warm up</h2>
+<p>One movement op and one reduce. The trick is that <code>reduce</code> only folds leading axes.</p>
+</div>
+<div class="exercise small" data-ex="w5-06-rowsum">
+<h3>Warm-up: row sums with permute</h3>
+<p>Slot 0 holds a 2x3 i32 matrix, row-major. Store its two row sums into slot 1. The starter reduces the first axis directly, which gives column sums.</p>
+</div>
+
+<div class="prose">
+<h2>The command-line contract</h2>
+<p>Nothing new on the command line. What changes is which programs the commands accept, and when <code>render</code> may print loops.</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>week 5 changes</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe run FILE</code></td><td>Values may have any rank. <code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> are new, and <code>expand</code>, <code>stack</code>, <code>index</code> and <code>reduce pop=m</code> work at any rank. Static errors (exit 2 with an <code>invalid:</code> line) include: a reshape that changes the element count, an order that isn't a permutation, the wrong number of pads, a shrink offset that can't be proven in range, an expand that grows an axis that isn't size 1, a reduce popping more axes than the value has, storing a value whose shape isn't the view's (buffers stay rank 1), and a param of rank 2 or more.</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>Still at most 20,000 bytes, bit-exact. <code>for</code> loops are allowed when the program has a <code>range</code>, any shape op (<code>reduce</code>, <code>expand</code>, <code>stage</code>, <code>reshape</code>, <code>permute</code>, <code>pad</code>, value <code>shrink</code>), an elementwise op on a shaped value, a value of rank 2 or more, or a rank-1 value with more than 32 elements. Otherwise it stays loopless, as in week 2.</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>How render tests are graded</h2>
+<p>The same five steps as week 4. For each <code># render</code> test the grader:</p>
+<ol>
+<li>runs <code>your.exe render FILE</code> and fails the test on a nonzero exit;</li>
+<li>fails the test if your output is over 20,000 bytes;</li>
+<li>decides with the oracle whether loops are allowed (the rule above), strips comments and strings from your C, and fails the test on <code>while</code>, <code>do</code>, <code>goto</code>, or a disallowed <code>for</code>;</li>
+<li>compiles your C with its own <code>main</code>: <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code>;</li>
+<li>runs it and compares every buffer with the oracle: i32 and bool exactly, f32 bit for bit, any NaN matching any NaN.</li>
+</ol>
+<p>Two things bite this week. A reduce over several axes must fold them in row-major order, the same order the oracle uses, or f32 bits drift. And a padded read must clamp its index: an out-of-bounds read is undefined behavior even when the mask throws the value away. The sanitizer won't always catch it, so don't count on the grader to: clamp because the C must be correct.</p>
+
+<h2>Running the suite</h2>
+<p>From the course repo root, keeping every earlier week green:</p>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 5
+python tools/test.py --compiler "C:/path/to/your.exe" --week 5 -k render -v   # the render tests, with details
+python tools/test.py --compiler "C:/path/to/your.exe" --week 4
+python tools/test.py --compiler "C:/path/to/your.exe" --week 3
+python tools/test.py --compiler "C:/path/to/your.exe" --week 2
+python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
+<p>Pass the built executable, not <code>dune exec</code>. Tests live in <code>tests/week5/run/</code> and <code>tests/week5/render/</code>.</p>
+
+<h2>Write your 10 tests</h2>
+<p>Ten tests in <code>path/to/your-repo/tests/week5/</code>, each aimed at a rule someone will get wrong. Check them against the oracle:</p>
+<pre><code>python tools/test.py --check-tests path/to/your-repo/tests/week5</code></pre>
+<p>Good targets: a transpose tested with distinct values (constant data hides every bug), a reshape after a permute versus before it, and a pad on the right only. Also try a shrink whose offset comes from a <code>mod</code> mask, plus one that can't be proven (invalid). Then add a <code>reduce pop=2</code> whose bits depend on the fold order, the syllabus GEMM with A stored the wrong way, and a large render test that must stay under the size limit.</p>
+</div>
+
+<h2>A build order that works</h2>
+<ol class="build">
+<li><h3>Shapes of any rank</h3><p>Lift the rank limit everywhere except memory and params. ALU ops, <code>where</code>, <code>cast</code> and <code>assert</code> take one shared shape of any rank. <code>stack</code> takes items of one shape and adds a leading axis, and <code>index</code> pops one leading axis per index.</p><p class="check">Checkpoint: every week 1 to 4 test still passes.</p></li>
+<li><h3>Type the movement ops</h3><p><code>reshape</code> (same element count), <code>permute</code> (a permutation), <code>pad</code> (two numbers per axis), value <code>shrink</code> (one provable offset per axis, using your week 1 bounds), <code>expand</code> (scalar, or size-1 axes only), <code>reduce pop=m</code>.</p><p class="check">Checkpoint: every file in <code>tests/week5/run/</code> parses or is rejected with exit 2.</p></li>
+<li><h3>Evaluate them</h3><p>In <code>run</code>, represent a value as a shape and a flat row-major array. Each movement op is a function from output index to input index. Tabulate it over the output shape.</p><p class="check">Checkpoint: every week 5 run test passes.</p></li>
+<li><h3>Index tuples in rangeify</h3><p>Change "your element at index i" to take one index per axis. Write flatten and unflatten once, as helpers that build <code>mul</code>, <code>add</code>, <code>div</code> and <code>mod</code> nodes.</p><p class="check">Checkpoint: a reshape round trip renders to one loop that passes. Its index math (a flatten, an unflatten and a leftover <code>% n</code>) needn't be simplified to a plain copy. Correct is enough this week.</p></li>
+<li><h3>Each op as index arithmetic</h3><p>Permute reorders the tuple, shrink adds offsets, expand reads size-1 axes at 0, and pad clamps the index and masks the value with <code>where</code>.</p><p class="check">Checkpoint: the pad and transpose render tests pass bit for bit.</p></li>
+<li><h3>Reduce over several axes</h3><p>Use one accumulator, seeded with the first element, and one loop over a flat counter covering the other <code>T - 1</code> combinations of the leading axes (T is the product of the popped axis sizes), unflattened in row-major order.</p><p class="check">Checkpoint: the movement GEMM tests pass, including the large one.</p></li>
+<li><h3>Clean up the index math</h3><p>Optional but worthwhile: run your week 1 simplifier on the lowered index arithmetic. Constant folding and bounds-based <code>mod</code> elimination remove most of what flatten and unflatten leave behind.</p><p class="check">Checkpoint: your rendered GEMM has no <code>% c</code> on a value already known to be below <code>c</code>.</p></li>
+<li><h3>Your 10 tests</h3><p>Write them, check them with <code>--check-tests</code>, and use them to break your compiler before the suite does.</p></li>
+</ol>
+
+<h2>Checklist</h2>
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="rank"><span>Values of any rank type check, and memory and params stay rank 0 or 1</span></label></li>
+<li><label><input type="checkbox" data-k="ops"><span><code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> parse, type check and reject bad attributes</span></label></li>
+<li><label><input type="checkbox" data-k="bcast"><span><code>expand</code> grows only size-1 axes, and <code>stack</code> and <code>index</code> work at any rank</span></label></li>
+<li><label><input type="checkbox" data-k="run"><span><code>run</code> evaluates every movement op, and <code>reduce pop=m</code> folds in row-major order</span></label></li>
+<li><label><input type="checkbox" data-k="lower"><span>Rangeify asks for elements by index tuple, with flatten and unflatten helpers</span></label></li>
+<li><label><input type="checkbox" data-k="pad"><span>Padded reads clamp their index and mask the value</span></label></li>
+<li><label><input type="checkbox" data-k="gemm"><span>The movement GEMM renders to loops and passes bit for bit</span></label></li>
+<li><label><input type="checkbox" data-k="suite5"><span><code>python tools/test.py --compiler ... --week 5</code> passes everything</span></label></li>
+<li><label><input type="checkbox" data-k="suite1234"><span>Weeks 1 to 4 still pass everything</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 week 5 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+
+<div class="key">
+<span class="label">The AI policy, still</span>
+<p>Your repo's <code>CLAUDE.md</code> hasn't changed: Claude may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why does my reshape after a permute read the wrong element?" is a fine question. "Write my unflatten helper" is not.</p>
+<p>The oracle in <code>_reference/</code> stays closed. Running <code>python _reference/uirc.py render FILE</code> on your own test to see the index arithmetic it produces is fine.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%m = reshape %x shape=[2 2]</code> on a loaded 4-element buffer, then <code>store %b %m</code>. Valid?</p>
+<div class="opts">
+<button data-k="a">Yes: the element counts match</button>
+<button data-k="b">No: memory stays rank 1, so the stored value must be reshaped back to <code>[4]</code></button>
+<button data-k="c">Yes, but only for f32</button>
+</div>
+<p class="hint">What shape is a whole-buffer view?</p>
+<div class="why"><p>The view has shape <code>(4,)</code> and the value <code>(2, 2)</code>. The oracle exits 2: "the value must match the view's dtype and shape".</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Which of these is a static error?</p>
+<div class="opts">
+<button data-k="a"><code>reshape</code> of a <code>(2, 3)</code> to <code>[6 1]</code></button>
+<button data-k="b"><code>permute</code> of a <code>(2, 3)</code> with <code>order=[1 0]</code></button>
+<button data-k="c"><code>reshape</code> of a 3-element vector to <code>[2 2]</code></button>
+<button data-k="d"><code>pad</code> of a <code>(2, 3)</code> with <code>pads=[0 0 1 1]</code></button>
+</div>
+<p class="hint">Count the elements before and after.</p>
+<div class="why"><p>3 elements can't become 4. The oracle: "reshape keeps the element count: 3 != 4".</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>reduce %m op=add pop=3</code> on a value of shape <code>(2, 2)</code>?</p>
+<div class="opts">
+<button data-k="a">Invalid: it pops more axes than the value has</button>
+<button data-k="b">A scalar: extra pops are ignored</button>
+<button data-k="c">Shape <code>(2,)</code></button>
+</div>
+<p class="hint">pop counts leading axes, between 1 and the rank.</p>
+<div class="why"><p>A rank-2 value has two axes to pop. The oracle rejects <code>pop=3</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">In the warm-up, why does reducing the <code>(2, 3)</code> matrix directly give column sums?</p>
+<div class="opts">
+<button data-k="a">Because reduce folds the last axis</button>
+<button data-k="b">Because reduce folds the first axis, which runs down each column</button>
+<button data-k="c">Because the buffer is stored column-major</button>
+</div>
+<p class="hint">Which index varies along axis 0 of a row-major matrix?</p>
+<div class="why"><p>Folding axis 0 combines <code>m[0][j]</code> with <code>m[1][j]</code>: one sum per column. Transposing first puts each row on axis 0.</p></div>
+</div>
+
+<nav class="pager">
+<a href="05-rangeify-movement.html">← Lesson 5: Rangeify movement ops</a>
+<a href="../index.html">Course home →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // per-viewer convenience only: remember ticked boxes; works without storage
+  const KEY = 'cc-week5-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

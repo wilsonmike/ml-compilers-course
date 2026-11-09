@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 1 Lab</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
+  .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
+  .build > li::before { content: counter(st, decimal-leading-zero); position: absolute; left: var(--s5); top: var(--s4); font: 500 0.875rem/1.7 var(--mono); color: var(--ink-3); }
+  .build h3 { margin: 0 0 var(--s2); }
+  .build p { margin: 0 0 var(--s2); }
+  .build .check { font-size: 0.9375rem; color: var(--ink-3); margin: 0; }
+  .checklist { list-style: none; padding: 0; margin: var(--s4) 0; max-width: var(--col); }
+  .checklist li { border-bottom: 1px solid var(--line); }
+  .checklist label { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) 0; cursor: pointer; }
+  .checklist input { margin-top: 5px; width: 1rem; height: 1rem; accent-color: var(--accent); flex: none; }
+  .checklist input:checked + span { color: var(--ink-3); text-decoration: line-through; }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 1 · Lesson 6</p>
+<h1>The week 1 lab</h1>
+<p class="lede">Build a compiler that parses .uir, type-checks it, runs it, and simplifies it. Write it in your own repo, in OCaml. You're done when every week 1 test passes and you've written 10 tests of your own.</p>
+
+<div class="prose">
+<h2>What you're building</h2>
+<ul>
+<li><strong>A parser</strong> for the .uir lines in <a href="../../spec/uir-week1.md">spec/uir-week1.md</a>: names, ops, literals, <code>key=value</code> attributes.</li>
+<li><strong>Hash-consed UOps.</strong> One constructor that returns the existing node whenever the same <code>(op, src, arg)</code>, where dtype and shape are part of the key, was built before. Everything else depends on this.</li>
+<li><strong>A type checker</strong> that gives every node a dtype and a shape, and rejects bad programs (exit 2) before anything runs.</li>
+<li><strong>A memoized interpreter</strong> that evaluates the asserts in file order, with i32 wrapping, f32 rounding, C-style div and mod, and per-call evaluation for <code>call</code>/<code>param</code>.</li>
+<li><strong>A rewrite-based simplifier</strong>: a sources-first rewrite engine run to a fixpoint, with constant folding, canonicalization, identities, and bounds-powered rules.</li>
+</ul>
+
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Five minutes in .uir before the big build. It makes you use C-style <code>div</code> and <code>mod</code> exactly as your interpreter will have to.</p>
+<div class="exercise small" data-ex="w1-06-floor-div">
+<h3>Floor division from C division</h3>
+<p><code>div</code> truncates toward zero, so <code>div -7 2</code> is <code>-3</code>. Python's <code>//</code> floors, so <code>-7 // 2</code> is <code>-4</code>. Build floor division for i32 params <code>a</code> and <code>b</code> (b is never 0) from <code>div</code>, <code>mod</code>, <code>cmplt</code>, <code>xor</code>, <code>where</code> and <code>add</code> (there's no subtract, so <code>add %q -1</code>).</p>
+<p class="muted">The two only differ when the remainder is nonzero and its sign differs from <code>b</code>'s.</p>
+</div>
+
+<div class="prose">
+<h2>The command-line contract</h2>
+<p>The grader sees your exit code, your stdout (for <code>simplify</code>), and your stderr (the <code>invalid:</code> and <code>assert failed:</code> lines). A crash is not an answer: exit 2 only counts if stderr has a line starting <code>invalid:</code>, so an uncaught OCaml exception (<code>Fatal error: exception ...</code>) fails the test.</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>result</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe run FILE</code></td><td>exit <code>0</code> if every assert passed. Exit <code>1</code> if one failed: print <code>assert failed: %name</code> to stderr, naming the <em>first</em> failure in file order. Exit <code>2</code> for an invalid program: a parse error, type error, undefined name, or a runtime error that an assert depends on. Print a line starting <code>invalid:</code> to stderr. Every statement is type checked first. Then asserts run in file order and stop at the first one that fails (exit 1) or errors (exit 2).</td></tr>
+<tr><td><code>your.exe simplify FILE</code></td><td>Print a valid .uir program to stdout that defines <code>%out</code> with the same dtype and shape, and computes the same value wherever the original doesn't error. It's graded on equivalence (every edge value in every param slot, f32 compared bit for bit) and on an op budget, <code>max_ops</code>, counted on the statements you print: duplicate statements count twice, so hash cons your output.</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>Running the suite</h2>
+<p>Two tools, two jobs. <code>python tools/serve.py</code> serves these lessons and grades the in-lesson exercises like the one above. <code>tools/test.py</code> grades <em>your compiler</em> against the week's suite. From the course repo root (<code>&lt;course repo&gt;</code>):</p>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 1
+python tools/test.py --compiler "C:/path/to/your.exe" --week 1 -k div     # only tests whose name contains "div"
+python tools/test.py --compiler "C:/path/to/your.exe" --week 1 -v         # show what differed
+python tools/test.py --compiler "C:/path/to/your.exe" --week 1 --jobs 1   # one test at a time</code></pre>
+<p>Pass the built executable (for dune, <code>_build/default/bin/main.exe</code>), not <code>dune exec</code>: the suite runs tests in parallel, and parallel <code>dune exec</code> calls fight over dune's build lock.</p>
+<p>Tests live in <code>tests/week1/run/</code> and <code>tests/week1/simplify/</code>, and you <em>should</em> read them. Each one is a small, readable .uir file.</p>
+
+<h2>Write your 10 tests</h2>
+<p>The real course has students hand in 10 tests every week, graded against an oracle. Do the same: put them in <code>&lt;your compiler repo&gt;/tests/week1/</code>, one <code>.uir</code> file each, starting with a header.</p>
+<pre><code># expect: pass
+# C division truncates toward zero, and mod takes the sign of the dividend
+%a = div -7 2
+%t = assert %a -3
+%b = mod -7 2
+%u = assert %b -1</code></pre>
+<p><code># expect:</code> is <code>pass</code>, <code>assert_fail</code> or <code>invalid</code>. A simplify test has no asserts, defines <code>%out</code>, and uses <code># simplify: max_ops=N</code>. Then check them against the oracle. <code>--check-tests</code> confirms each <code># expect:</code> header, and for simplify tests it checks that the oracle's own simplifier reaches your <code>max_ops</code>, so you can't write an impossible target:</p>
+<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week1</code></pre>
+<p>A good test targets one rule you think someone (maybe you) will get wrong: <code>INT_MIN / -1</code>, <code>nan</code> in <code>max</code>, a nested call that reuses slot 0, an <code>index</code> one past the end. A test that every compiler passes teaches nothing.</p>
+</div>
+
+<h2>A build order that works</h2>
+<ol class="build">
+<li><h3>Set up your repo</h3><p>Make a new folder outside the course repo, then <code>git init</code> and <code>dune init project mlc</code> inside it (lesson 0.6 shows dune). Copy <code>templates/CLAUDE.md</code> from the course repo into your repo's root: it tells Claude to explain and ask questions but never write your compiler code.</p><p class="check">Checkpoint: <code>dune build</code> succeeds and <code>_build/default/bin/main.exe</code> runs.</p></li>
+<li><h3>Parse and print</h3><p>Turn every line into (name, op, operands, attributes). Print each statement back in .uir form and check it matches the input line, ignoring spacing and comments.</p><p class="check">Checkpoint: every file in <code>tests/week1/run/</code> parses or is rejected with exit 2, and none crash.</p></li>
+<li><h3>The hash-consed UOp</h3><p>One table keyed on (op, src, arg), with dtype and shape as part of the key. Sources are already unique, so compare them by identity. In OCaml, <code>==</code> is physical equality and <code>=</code> is structural. Know which one you're using.</p><p class="check">Checkpoint: building <code>add x 1</code> twice returns the same physical node.</p></li>
+<li><h3>Types</h3><p>dtype and shape for every op, following the table in the spec. No implicit conversions.</p><p class="check">Checkpoint: all <code>expect: invalid</code> type-error tests exit 2.</p></li>
+<li><h3>Interpreter</h3><p>Evaluate the asserts in file order, with each node computed once. Look these up for your language: how to do 32-bit wrapping arithmetic (OCaml's native <code>int</code> is 63 bits), and how to round a double to binary32 (OCaml floats are doubles, so see <code>Int32.bits_of_float</code>).</p><p class="check">Checkpoint: the arithmetic tests pass, and the deep shared-DAG test finishes in milliseconds.</p></li>
+<li><h3>call and param</h3><p>Evaluate a body with an environment (a map from slot number to value for the current call). Keep the memo per call. Bodies are closed.</p><p class="check">Checkpoint: the nested-call tests pass, including the ones that reuse slot 0.</p></li>
+<li><h3>The rewrite engine</h3><p>A sources-first pass that tries rules at each node, repeated until nothing changes. Start with constant folding, using the <em>same</em> op semantics as the interpreter, then add canonicalization.</p><p class="check">Checkpoint: the folding simplify tests pass their <code>max_ops</code>.</p></li>
+<li><h3>Symbolic rules and bounds</h3><p>i32 identities, f32-safe identities only, call inlining, then interval bounds and the rules they power.</p><p class="check">Checkpoint: every simplify test passes, including the ones designed to catch <code>x * 0</code> on f32 and <code>(x * 2) / 2</code>.</p></li>
+<li><h3>Your 10 tests</h3><p>Write them, and check them with <code>--check-tests</code>. Then try to break your own compiler with them.</p></li>
+</ol>
+
+<h2>Checklist</h2>
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="parse"><span>Parser handles comments, blank lines, literals (<code>3</code>, <code>-7</code>, <code>1.5</code>, <code>1e5</code>, <code>inf</code>, <code>nan</code>, <code>true</code>), lists and attributes</span></label></li>
+<li><label><input type="checkbox" data-k="hc"><span>UOps are hash consed. Identical statements are one node.</span></label></li>
+<li><label><input type="checkbox" data-k="types"><span>Type errors exit 2 before anything is evaluated</span></label></li>
+<li><label><input type="checkbox" data-k="i32"><span>i32 wraps, div truncates, mod follows the dividend, shl range-checked</span></label></li>
+<li><label><input type="checkbox" data-k="f32"><span>f32 rounds after every op, and handles <code>nan</code>, <code>inf</code>, <code>-0.0</code> as specced</span></label></li>
+<li><label><input type="checkbox" data-k="memo"><span>Evaluation is memoized: shared work is done once</span></label></li>
+<li><label><input type="checkbox" data-k="call"><span>call/param with closed bodies, and the memo is kept per call</span></label></li>
+<li><label><input type="checkbox" data-k="exit"><span>Exit codes 0 / 1 / 2, with <code>assert failed: %name</code> on stderr</span></label></li>
+<li><label><input type="checkbox" data-k="rw"><span>Rewrite engine reaches a fixpoint and never folds an error into a value</span></label></li>
+<li><label><input type="checkbox" data-k="sym"><span>Symbolic rules are valid per dtype, and bounds are conservative</span></label></li>
+<li><label><input type="checkbox" data-k="suite"><span><code>python tools/test.py --compiler ... --week 1</code> passes everything</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+
+<div class="key">
+<span class="label">The AI policy</span>
+<p>This course was built with AI. Your compiler should not be. In your repo (<code>my-ml-compiler</code>), the <code>CLAUDE.md</code> says Claude may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. That's in the spirit of the original course's "slop management" theme. The point is the understanding, and you only get it by typing it yourself.</p>
+<p>The reference compiler lives in <code>_reference/</code> in the course repo. The test runner uses it as the oracle, and running it is fine. <strong>Never open it.</strong> It's written in Python, not OCaml, so a stray glance hands you less, but it would still spoil the puzzles.</p>
+</div>
+
+<div class="trap">
+<span class="label">Slop compounds</span>
+<p>Every later week builds on this code: loads and stores in week 2, loops in week 3, rangeify in week 4. A sloppy UOp type or a simplifier that is "mostly right" will cost you far more later than it saves now. Keep it small, keep it readable, and delete anything you don't understand.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="1">
+<p class="q">What exit code should <code>run</code> give?</p>
+<pre><code>%t = assert 2 3</code></pre>
+<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Exit 0 means every assert passed, 1 means an assert failed, and 2 means the program is invalid. Which one is this?</p>
+<div class="why"><p><code>1</code>, a failing assert, with <code>assert failed: %t</code> on stderr.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">And this one?</p>
+<pre><code>%a = add 1 1.0
+%t = assert %a 2</code></pre>
+<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Look at the dtypes of <code>1</code> and <code>1.0</code>. Does .uir ever convert between them for you?</p>
+<div class="why"><p><code>2</code>. <code>1</code> is i32 and <code>1.0</code> is f32, and there's no implicit conversion, so it's a type error.</p></div>
+</div>
+
+<div class="quiz" data-fill="%u | u">
+<p class="q">Which assert should the stderr message name?</p>
+<pre><code>%a = add 2 3
+%t = assert %a 5
+%u = assert %a 6
+%v = assert %a 7</code></pre>
+<div class="fill"><input aria-label="your answer" placeholder="%name"><button class="btn">check</button></div>
+<p class="hint">Asserts are checked in file order. Which one is the first to fail?</p>
+<div class="why"><p><code>%u</code>: the first failing assert in file order. <code>%t</code> passes, and both <code>%u</code> and <code>%v</code> fail.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">You're stuck on a failing nested-call test. What can Claude do in your compiler repo?</p>
+<div class="opts">
+<button data-k="a">Rewrite your substitution function so it's correct</button>
+<button data-k="b">Paste the matching part of the reference compiler</button>
+<button data-k="c">Explain the closed-body rule, draw the graph, and ask questions that lead you to the bug</button>
+<button data-k="d">Nothing at all</button>
+</div>
+<p class="hint">Look back at the AI policy in your repo's <code>CLAUDE.md</code>: explaining is allowed, writing your compiler code is not.</p>
+<div class="why"><p>Explaining, drawing and asking questions are all fine. Writing or rewriting compiler code isn't, and neither is the reference.</p></div>
+</div>
+
+<nav class="pager">
+<a href="05-call-and-param.html">← Lesson 5: call and param</a>
+<a href="../index.html">Back to the course →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // per-viewer convenience only: remember ticked boxes; works without storage
+  const KEY = 'cc-week1-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

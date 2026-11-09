@@ -1,0 +1,49 @@
+{
+ "id": "w5-05-shape",
+ "lang": "ocaml",
+ "title": "The shape after a chain of movement ops",
+ "show": "(fun l -> \"[\" ^ String.concat \" \" (List.map string_of_int l) ^ \"]\")",
+ "starter": "type op = Reshape of int list | Permute of int list | Pad of int list | Expand of int list | Reduce of int\n\n(* the shape after applying ops in order; the inputs are always valid *)\nlet rec shape_after (shape : int list) (ops : op list) : int list =\n  shape\n",
+ "tests": [
+  {
+   "expr": "shape_after [2;3] [Permute [1;0]]",
+   "expect": "[3 2]",
+   "sample": true
+  },
+  {
+   "expr": "shape_after [12] [Reshape [3;4]; Pad [1;1;0;2]]",
+   "expect": "[5 6]",
+   "sample": true
+  },
+  {
+   "expr": "shape_after [2;3;4] [Permute [2;0;1]]",
+   "expect": "[4 2 3]"
+  },
+  {
+   "expr": "shape_after [3;1;4] [Expand [3;5;4]; Reduce 1]",
+   "expect": "[5 4]"
+  },
+  {
+   "expr": "shape_after [2;3] [Reduce 2]",
+   "expect": "[]"
+  },
+  {
+   "expr": "shape_after [6] []",
+   "expect": "[6]"
+  },
+  {
+   "expr": "shape_after [2;3] [Pad [0;0;1;0]; Permute [1;0]; Reshape [8]]",
+   "expect": "[8]"
+  },
+  {
+   "expr": "shape_after [4;5] [Reshape [2;2;5]; Permute [1;2;0]; Reduce 1]",
+   "expect": "[5 2]"
+  }
+ ],
+ "hints": [
+  "Recurse over the list: work out the shape after the first op, then carry on with the rest.",
+  "Reshape and Expand name the new shape outright. Permute picks `List.nth shape p` for each p in the order. Pad adds a left and a right amount to each axis.",
+  "Reduce m drops the first m axes: `List.filteri (fun i _ -> i >= m) shape`."
+ ],
+ "explain": "Movement ops never look at the data, so a shape is enough to type check a whole chain. Each op is a small function of the old shape, and folding them left to right gives the final one."
+}

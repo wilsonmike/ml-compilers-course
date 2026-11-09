@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 2 Lab</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
+  .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
+  .build > li::before { content: counter(st, decimal-leading-zero); position: absolute; left: var(--s5); top: var(--s4); font: 500 0.875rem/1.7 var(--mono); color: var(--ink-3); }
+  .build h3 { margin: 0 0 var(--s2); }
+  .build p { margin: 0 0 var(--s2); }
+  .build .check { font-size: 0.9375rem; color: var(--ink-3); margin: 0; }
+  .checklist { list-style: none; padding: 0; margin: var(--s4) 0; max-width: var(--col); }
+  .checklist li { border-bottom: 1px solid var(--line); }
+  .checklist label { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) 0; cursor: pointer; }
+  .checklist input { margin-top: 5px; width: 1rem; height: 1rem; accent-color: var(--accent); flex: none; }
+  .checklist input:checked + span { color: var(--ink-3); text-decoration: line-through; }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 2 · Lesson 6</p>
+<h1>The week 2 lab</h1>
+<p class="lede">Extend your week 1 compiler with memory: buffers, views, loads, stores and versions, checked for order and bounds. Then teach it to print C. You're done when every week 2 test passes, week 1 still passes, and you've written 10 new tests of your own.</p>
+
+<div class="prose">
+<h2>What you're building</h2>
+<ul>
+<li><strong>Memory in the type checker.</strong> <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code>, from <a href="../../spec/uir-week2.md">spec/uir-week2.md</a>. Memory has addrspace GLOBAL and can't flow into ALU ops, <code>call</code> or <code>assert</code>.</li>
+<li><strong>The ordering checks.</strong> One store per version, every store sequenced by exactly one <code>after</code>, and no load of a version that's needed after it was overwritten.</li>
+<li><strong>Bounds proofs.</strong> Every <code>shrink</code> proven in range with your week 1 interval analysis. A view you can't prove makes the program invalid.</li>
+<li><strong>Interpretation with memory</strong>, so <code>run</code> can evaluate asserts that read buffers.</li>
+<li><strong>A renderer</strong>: <code>render FILE</code> prints one loopless C function, <code>kernel</code>, with no undefined behavior.</li>
+<li><strong>Optionally, a runtime</strong> that compiles and runs that C. The grader brings its own harness, so you don't need one to pass. You'll want it by week 6, when kernels get timed.</li>
+</ul>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">One small program where rule 3 matters: a load of an old version that has to run before the store that overwrites it.</p>
+<div class="exercise small" data-ex="w2-06-rotate">
+<h3>Rotate three elements</h3>
+<p>The starter is meant to rotate slot 0 left, so <code>[a b c]</code> becomes <code>[b c a]</code>, but one load reads the wrong version. Fix it. Keep it valid: every store sequenced, one store per version.</p>
+</div>
+
+<div class="prose">
+<h2>The command-line contract</h2>
+<p>Week 1's <code>run</code> and <code>simplify</code> still apply, unchanged. Week 2 adds memory to <code>run</code>, and adds <code>render</code>.</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>result</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe run FILE</code></td><td>Same exit codes and stderr lines as week 1: <code>0</code>, <code>1</code> with <code>assert failed: %name</code>, or <code>2</code> with a line starting <code>invalid:</code>. Ordering violations, unprovable bounds and memory used as a value are all static errors (exit 2). You may interpret or compile, and the grader only sees the exit code and stderr.</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>Print C to stdout that defines <code>void kernel(T0 *b0, T1 *b1, ...)</code>, one pointer per <code>buffer</code> in slot order (<code>float</code>, <code>int32_t</code>, <code>bool</code>). Asserts are ignored. No <code>for</code>, <code>while</code>, <code>do</code> or <code>goto</code>, and no calls outside the file except <code>&lt;math.h&gt;</code> (non-recursive helpers you define in the same file are fine).</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>How render tests are graded</h2>
+<p>A render test is a valid program with a <code># render</code> header. For each one, the grader:</p>
+<ol>
+<li>runs <code>your.exe render FILE</code> and fails the test on a nonzero exit;</li>
+<li>removes comments and string literals from your C and fails it if <code>for</code>, <code>while</code>, <code>do</code> or <code>goto</code> appears;</li>
+<li>writes its own <code>main</code>: one <code>static</code> array per buffer, filled with the <code>data</code> values (f32 copied in from exact bit patterns), then a call to your <code>kernel</code> in slot order, then one line per element (f32 as 8 hex digits of bits);</li>
+<li>compiles both files with <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code> (with gcc, the equivalent trap flag);</li>
+<li>runs the program, and compares every element of every buffer with the oracle: i32 and bool exactly, f32 bit for bit, with any NaN matching any NaN.</li>
+</ol>
+<p>A crash in step 5 almost always means undefined behavior that the sanitizer turned into a trap: signed overflow, <code>INT_MIN / -1</code>, a bad shift. One Windows quirk: a naive <code>INT_MIN / -1</code> there tends to hang in the system error reporter instead of crashing, so you'll see "didn't finish" rather than "crashed". Check your <code>div</code> and <code>mod</code> first.</p>
+
+<h2>Running the suite</h2>
+<p>From the course repo root, and keep week 1 green while you work:</p>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 2
+python tools/test.py --compiler "C:/path/to/your.exe" --week 2 -k render -v   # just the render tests, with details
+python tools/test.py --compiler "C:/path/to/your.exe" --week 1                # nothing from last week broke</code></pre>
+<p>Tests live in <code>tests/week2/run/</code> and <code>tests/week2/render/</code>. Read a few before you start: they're short, and the file names say what each one checks.</p>
+
+<h2>Write your 10 tests</h2>
+<p>Same deal as week 1: 10 tests in <code>&lt;your compiler repo&gt;/tests/week2/</code>, each aimed at a rule someone will get wrong. Run tests use <code># expect: pass</code>, <code>assert_fail</code> or <code>invalid</code>, and render tests use <code># render</code>. Check them against the oracle:</p>
+<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week2</code></pre>
+<p>For a render test, <code>--check-tests</code> renders it with the oracle, compiles it with the same harness, and checks the buffers. Good targets: two stores into one version (invalid), a load of an old version after the store (a swap), an offset from a loaded value with and without a <code>mod</code> mask, a wrapping <code>mul</code> in a render test, and <code>max</code> on NaN and <code>-0.0</code>.</p>
+</div>
+
+<h2>A build order that works</h2>
+<ol class="build">
+<li><h3>Parse the new ops</h3><p><code>buffer</code> and <code>alloc</code> take a size literal. <code>buffer</code> has <code>slot=</code> and optional <code>data=[...]</code>, and <code>shrink</code> takes an offset operand and <code>shape=[k]</code> or <code>shape=[]</code>. Two <code>alloc</code>s of the same size are different storage, so they must not hash cons into one node.</p><p class="check">Checkpoint: every file in <code>tests/week2/run/</code> parses or is rejected with exit 2.</p></li>
+<li><h3>Type memory</h3><p>Give every node an addrspace. Memory can be an operand of <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code>, and nothing else.</p><p class="check">Checkpoint: the "memory used as a value" invalid tests exit 2.</p></li>
+<li><h3>Bounds</h3><p>Reuse your week 1 intervals. A loaded value's interval is the full i32 range.</p><p class="check">Checkpoint: the masked-offset tests pass and the unmasked ones exit 2.</p></li>
+<li><h3>Ordering checks</h3><p>Find each store's version by walking <code>shrink</code>s down to a <code>buffer</code>, <code>alloc</code> or <code>after</code>. Count stores per version and <code>after</code>s per store. Then try to schedule: if every load of V can't come before the store that overwrites V, the program is invalid.</p><p class="check">Checkpoint: all ordering invalid tests exit 2, and the swap tests pass.</p></li>
+<li><h3>Interpret memory</h3><p>Versions are values: <code>after</code> produces a new array with one write applied. Copying is fine at this size.</p><p class="check">Checkpoint: every week 2 run test passes.</p></li>
+<li><h3>Render ALU ops</h3><p>One function from op to C expression, with the safe spellings from lesson 4. Test it by rendering week 1 style arithmetic into a buffer.</p><p class="check">Checkpoint: render tests with only i32 math pass, including the wrapping ones.</p></li>
+<li><h3>Render memory and the schedule</h3><p>Views become pointer plus offset, <code>after</code> prints nothing, loads of a version go before the store that overwrites it. Then f32: hex literals, NaN and infinities, the <code>max</code> helper.</p><p class="check">Checkpoint: every render test passes, bit for bit.</p></li>
+<li><h3>Your 10 tests</h3><p>Write them, check them with <code>--check-tests</code>, and use them to break your compiler before the suite does.</p></li>
+</ol>
+
+<h2>Checklist</h2>
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="parse"><span>Parser handles <code>buffer</code>, <code>alloc</code>, <code>shrink</code> with <code>slot=</code>, <code>data=[...]</code> and <code>shape=[]</code></span></label></li>
+<li><label><input type="checkbox" data-k="alloc"><span>Each <code>alloc</code> is its own storage, never hash consed with another</span></label></li>
+<li><label><input type="checkbox" data-k="addr"><span>Memory can't be used as a value: loads only</span></label></li>
+<li><label><input type="checkbox" data-k="bounds"><span>Every view is proven in bounds with intervals, and loaded values count as unknown</span></label></li>
+<li><label><input type="checkbox" data-k="order"><span>One store per version, every store sequenced, and old-version loads schedulable</span></label></li>
+<li><label><input type="checkbox" data-k="interp"><span><code>run</code> interprets memory, and asserts can read buffers</span></label></li>
+<li><label><input type="checkbox" data-k="ub"><span>Rendered i32 ops have no undefined behavior: <code>uint32_t</code> wrap, guarded <code>div</code> and <code>mod</code></span></label></li>
+<li><label><input type="checkbox" data-k="f32"><span>f32 constants print as exact literals, with <code>NAN</code>, <code>INFINITY</code> and <code>-0.0</code> handled</span></label></li>
+<li><label><input type="checkbox" data-k="sched"><span>Loads of a version are printed before the store that overwrites it</span></label></li>
+<li><label><input type="checkbox" data-k="suite2"><span><code>python tools/test.py --compiler ... --week 2</code> passes everything</span></label></li>
+<li><label><input type="checkbox" data-k="suite1"><span>Week 1 still passes everything</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 week 2 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+
+<div class="key">
+<span class="label">The AI policy, still</span>
+<p>Your repo's <code>CLAUDE.md</code> hasn't changed: Claude may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. This week that includes your renderer and your runtime. Asking "why does my kernel trap on this test?" is fine. Asking for the C your renderer should print is not.</p>
+<p>The oracle in <code>_reference/</code> is still off limits to read. Running <code>python _reference/uirc.py render FILE</code> to see what it prints for one of your own tests is fine: it's the same as asking the oracle a question.</p>
+</div>
+
+<div class="trap">
+<span class="label">Slop compounds, again</span>
+<p>Week 3 adds loops, and your renderer and runtime become the core of everything after that. A renderer built from string concatenation scattered across the type checker will be rewritten in two weeks. Keep one function per job: schedule, name, print.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your <code>render</code> output starts every kernel with a <code>for</code> loop that zeroes a scratch array. What happens?</p>
+<div class="opts">
+<button data-k="a">It passes: the loop is outside the computation</button>
+<button data-k="b">Every render test fails: rendered C must be loopless</button>
+<button data-k="c">It passes, but slowly</button>
+</div>
+<p class="hint">Look at step 2 of how render tests are graded.</p>
+<div class="why"><p>The grader rejects any <code>for</code>, <code>while</code>, <code>do</code> or <code>goto</code> outside comments and strings. Zero an <code>alloc</code> with an initializer, <code>= {0}</code>, instead.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">What exit code should <code>run</code> give?</p>
+<pre><code>%b  = buffer 2 dtype=i32 slot=0
+%e  = shrink %b 0 shape=[]
+%s1 = store %e 1
+%s2 = store %e 2
+%b1 = after %b %s1
+%b2 = after %b1 %s2</code></pre>
+<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">Check</button></div>
+<p class="hint">Which version does <code>%s2</code> write into? Count the stores into that version.</p>
+<div class="why"><p><code>2</code>. Both stores write through <code>%e</code>, a view of <code>%b</code>, so version <code>%b</code> has two stores, which is unordered. On top of that, <code>after %b1 %s2</code> names <code>%b1</code> while <code>%s2</code> writes into <code>%b</code>. Either problem alone makes it invalid.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">The grader says "your kernel crashed (exit ...)" on a test that only does i32 <code>add</code> and <code>mul</code>. What's the most likely cause?</p>
+<div class="opts">
+<button data-k="a">The harness allocated the buffers too small</button>
+<button data-k="b">An f32 rounding difference</button>
+<button data-k="c">Signed overflow: an add or mul printed as plain <code>a + b</code>, which the sanitizer traps</button>
+<button data-k="d">A missing <code>#include</code></button>
+</div>
+<p class="hint">The grader compiles with <code>-fsanitize-trap=undefined</code>. Which of these is undefined behavior in C?</p>
+<div class="why"><p>Signed overflow. A missing include would fail to compile, not crash, and a rounding difference would show up as a wrong value. Wrap through <code>uint32_t</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Which of these may you do this week?</p>
+<div class="opts">
+<button data-k="a">Run <code>python _reference/uirc.py render</code> on a test you wrote, to see what correct output does</button>
+<button data-k="b">Open <code>_reference/uirc.py</code> to see how it schedules stores</button>
+<button data-k="c">Ask Claude to write your <code>render</code> function so you can study it</button>
+</div>
+<p class="hint">Running the oracle is asking it a question. Reading its source, or getting compiler code written for you, isn't.</p>
+<div class="why"><p>Running the oracle on your own tests is fine. Reading its source spoils the puzzle, and the AI policy rules out having your compiler code written for you.</p></div>
+</div>
+
+<nav class="pager">
+<a href="05-the-runtime.html">← Lesson 5: The runtime</a>
+<a href="../index.html">Back to the course →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // per-viewer convenience only: remember ticked boxes; works without storage
+  const KEY = 'cc-week2-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

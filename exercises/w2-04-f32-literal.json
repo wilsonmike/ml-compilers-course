@@ -1,0 +1,57 @@
+{
+ "id": "w2-04-f32-literal",
+ "lang": "ocaml",
+ "title": "An f32 as an exact C literal",
+ "show": "(fun s -> s)",
+ "starter": "(* x is already an f32 value (held in an OCaml float). Return C source that\n   produces exactly x:  NAN for any nan, INFINITY, (-INFINITY), and otherwise\n   the hex float that Printf's %h prints, with an f suffix: 1.0 -> \"0x1p+0f\". *)\nlet c_float (x : float) : string =\n  Printf.sprintf \"%gf\" x\n",
+ "tests": [
+  {
+   "expr": "c_float 1.0",
+   "expect": "0x1p+0f",
+   "sample": true
+  },
+  {
+   "expr": "c_float (Int32.float_of_bits (Int32.bits_of_float 0.1))",
+   "expect": "0x1.99999ap-4f",
+   "sample": true
+  },
+  {
+   "expr": "c_float (-0.0)",
+   "expect": "-0x0p+0f"
+  },
+  {
+   "expr": "c_float nan",
+   "expect": "NAN"
+  },
+  {
+   "expr": "c_float (Float.neg nan)",
+   "expect": "NAN"
+  },
+  {
+   "expr": "c_float infinity",
+   "expect": "INFINITY"
+  },
+  {
+   "expr": "c_float neg_infinity",
+   "expect": "(-INFINITY)"
+  },
+  {
+   "expr": "c_float 1.401298464324817e-45",
+   "expect": "0x1p-149f"
+  },
+  {
+   "expr": "c_float (Int32.float_of_bits (Int32.bits_of_float 3.4028234663852886e38))",
+   "expect": "0x1.fffffep+127f"
+  },
+  {
+   "expr": "c_float (-2.5)",
+   "expect": "-0x1.4p+1f"
+  }
+ ],
+ "hints": [
+  "Handle the three special values first: `Float.is_nan`, `infinity` and `neg_infinity`. Everything else is an ordinary finite number.",
+  "`Printf.sprintf \"%h\" x` prints the exact bits as a hex float, like `0x1.99999ap-4`. C reads that same syntax; it just needs the `f` suffix to be a `float` instead of a `double`.",
+  "Why `(-INFINITY)` with parentheses: the literal lands inside bigger C expressions, and a leading minus can merge with an operator printed just before it (`x--INFINITY` lexes as `x-- INFINITY`). The same risk applies to negative finite literals if you print them right after an operator, so parenthesize those too in your renderer, or always put spaces around operators."
+ ],
+ "explain": "A hex float names the exact binary value, so it can't be misread the way a short decimal can (`%g` turns FLT_MAX into 3.40282e+38, which reads back as a different float). The solution special-cases nan (with either sign) and the infinities, which have no numeric literal, and prints everything else with `%h` plus `f`, including -0.0 as `-0x0p+0f`."
+}

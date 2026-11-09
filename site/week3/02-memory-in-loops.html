@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory in Loops</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .strip { display: grid; gap: var(--s2); }
+  .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+  .strip .name { font: 0.875rem var(--mono); color: var(--ink-3); min-width: 4.5rem; }
+  .vals { font: 0.875rem var(--mono); color: var(--ink-2); }
+  .stack { display: grid; gap: var(--s3); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 3 · Lesson 2</p>
+<h1>Memory in loops</h1>
+<p class="lede">A loop body runs again and again over the same storage. Week 2's rule, that every load names the version it reads, still holds, but "the version" now changes every iteration. This lesson covers the accumulator, the one placement rule that makes it work, and the case where a load reads the contents from before the loop.</p>
+
+<div class="prose">
+<h2>An accumulator</h2>
+<p>Summing a buffer means keeping a running total in memory. Here it lives in a one-element <code>alloc</code>:</p>
+<pre><code>%in   = buffer 4 dtype=i32 slot=0 data=[1 2 3 4]
+%out  = buffer 1 dtype=i32 slot=1
+%acc  = alloc 1 dtype=i32       # starts as 0
+%k    = range 4
+%a    = shrink %acc 0 shape=[]
+%cur  = load %a                 # the running total so far
+%iv   = shrink %in %k shape=[]
+%x    = load %iv                # in[k]
+%sum  = add %cur %x
+%s    = store %a %sum           # acc = acc + in[k]
+%e    = end %s %k
+%acc1 = after %acc %e           # acc after the whole loop
+%a1   = shrink %acc1 0 shape=[]
+%tot  = load %a1                # 10
+%o    = shrink %out 0 shape=[]
+%so   = store %o %tot
+%out1 = after %out %so</code></pre>
+<p>Look at <code>%cur</code>. It doesn't depend on <code>%k</code>, so by the open-ranges rule from lesson 3.1 it would be computed once, before the loop. That would read 0 once, and every iteration would store <code>0 + in[k]</code>, leaving 4 instead of 10. Loads need one more rule.</p>
+</div>
+
+<div class="key">
+<span class="label">Where a load runs</span>
+<p>A load is placed like any other value: inside every loop whose range it depends on, and no deeper. One exception makes accumulators work. Take the innermost loop that contains <strong>every use</strong> of the load. If that loop is deeper than the load's own place, and it stores into the version the load reads, the load moves into it: it runs on every iteration and sees the <strong>current</strong> contents (the previous iteration's store, or the contents before the loop on the first iteration).</p>
+<p>A use counts as inside a loop only if it's placed there itself: because it depends on that loop's range, or because it's a load this same rule moved there.</p>
+</div>
+
+<div class="prose">
+<p><code>%cur</code>'s only use, <code>%sum</code>, is inside the k loop, and the k loop stores into <code>%acc</code>, the version <code>%cur</code> reads. So <code>%cur</code> is loaded fresh each iteration. Step through it:</p>
+</div>
+
+<div class="fig" id="run" data-title="the accumulator, iteration by iteration"></div>
+
+<div class="prose">
+<p><code>%tot</code> reads <code>%acc1</code>, the version after the loop. Its use is outside the loop, so it runs once, after the loop closes. Here's the C the oracle renders, trimmed of the wraparound casts:</p>
+<pre><code>int32_t a4[1] = {0};
+for (int32_t r7 = 0; r7 &lt; 4; r7++) {
+  int32_t v8 = a4[0];        /* %cur: inside the loop */
+  int32_t v10 = b0[r7];      /* in[k] */
+  a4[0] = v8 + v10;
+}
+b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
+</div>
+
+<div class="exercise" data-ex="w3-02-rowsum">
+<h3>Row sums</h3>
+<p>Slot 0 is a 3-by-4 i32 matrix, row-major. Write each row's sum into slot 1: <code>out[i] = A[i*4+0] + ... + A[i*4+3]</code>. Slot 1 starts with junk, so every <code>out[i]</code> has to be reset before its row is summed. The starter forgets.</p>
+</div>
+
+<h2>Split uses read the old contents</h2>
+<div class="prose">
+<p>If a load is used both inside and outside a loop, the innermost loop holding every use is the one <em>around</em> the loop. The load runs once, before the loop, and every use sees the contents from before the loop:</p>
+<pre><code>%b   = buffer 2 dtype=i32 slot=0 data=[5 0]
+%acc = shrink %b 0 shape=[]
+%cur = load %acc            # used inside AND outside the loop
+%k   = range 3
+%one = add %k 1
+%sum = add %cur %one        # use 1: inside the loop
+%s   = store %acc %sum
+%e   = end %s %k
+%b1  = after %b %e
+%dst = shrink %b1 1 shape=[]
+%s2  = store %dst %cur      # use 2: after the loop
+%b2  = after %b1 %s2</code></pre>
+<p>Every iteration computes <code>5 + (k + 1)</code> from the same 5. The last one, k = 2, leaves b[0] = 8, and b[1] gets the old 5. Drop the second use and <code>%cur</code> moves into the loop: b[0] becomes 5 + 1 + 2 + 3 = 11.</p>
+</div>
+
+<div class="trap">
+<span class="label">The same node can't be both</span>
+<p>Because UOps are hash consed, "the load of b[0]" is one node. You can't have it be loop-carried for one use and pre-loop for another. And writing <code>load %acc</code> a second time doesn't help: two identical loads are the same node. If you need both the running value and the starting value, load through two <em>different</em> view nodes of the same element, for example one at offset <code>0</code> and one at an offset the graph sees as different, such as <code>mul %k 0</code>. With that change, the program above gives b[0] = 11 (loop-carried) and b[1] = 5 (the starting value).</p>
+</div>
+
+<div class="trap">
+<span class="label">A use that doesn't depend on the range pins the load</span>
+<p>This loop is meant to add 1 to b[0] three times, starting from 10. It writes 11:</p>
+<pre><code>%b  = buffer 1 dtype=i32 slot=0 data=[10]
+%i  = range 3
+%z  = mul %i 0
+%v  = shrink %b %z shape=[]   # the store's view depends on %i
+%v0 = shrink %b 0 shape=[]    # the load's view doesn't
+%x  = load %v0
+%y  = add %x 1                # depends on no range
+%s  = store %v %y
+%e  = end %s %i
+%b1 = after %b %e</code></pre>
+<p><code>%y</code> depends on no range, so it's placed outside the loop, and so is its load: both run once, and every iteration stores the same 11. Load through the store's own view (<code>%x = load %v</code>) and the load depends on <code>%i</code>, runs every iteration, and the result is 13.</p>
+</div>
+
+<h2>Resets and chains of versions inside a loop</h2>
+<div class="prose">
+<p>The row-sum exercise needs a reset per row. The reset store has to depend on <code>%i</code> so it runs inside the i loop, and it does: it stores into <code>shrink %out %i</code>. Then the j loop accumulates into the version after the reset:</p>
+<pre><code>%i    = range 3
+%o    = shrink %out %i shape=[]
+%z    = store %o 0              # reset out[i]: runs once per i
+%out0 = after %out %z           # a version that lives inside the i loop
+%j    = range 4
+...
+%o0   = shrink %out0 %i shape=[]
+%cur  = load %o0                # loop-carried in the j loop
+%s    = store %o0 %sum
+%ej   = end %s %j
+%ei   = end %ej %i
+%out1 = after %out %ei          # the output: no open ranges</code></pre>
+<p><code>%out0</code> has <code>{i}</code> open, so it's local to one iteration of the i loop. Only an <code>after</code> with nothing open counts as the buffer's output, which is why <code>%out1</code> builds on <code>%out</code>, not on <code>%out0</code>. When the effect is an <code>end</code>, the rule is that the loop must store into the same memory <code>after</code> names.</p>
+</div>
+
+<div class="exercise small" data-ex="w3-02-max">
+<h3>The largest of five</h3>
+<p>Slot 0 holds five f32s. Put their maximum into slot 1's only element. Slot 1 starts with junk, so start the running max from something no input can beat.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="11">
+<p class="q">The split-use program above, without the second store. What's the final b[0]?</p>
+<pre><code>%b   = buffer 2 dtype=i32 slot=0 data=[5 0]
+%acc = shrink %b 0 shape=[]
+%cur = load %acc
+%k   = range 3
+%one = add %k 1
+%sum = add %cur %one
+%s   = store %acc %sum
+%e   = end %s %k
+%b1  = after %b %e</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Is <code>%cur</code> used anywhere outside the loop now?</p>
+<div class="why"><p>Its only use is inside the k loop, which stores into the version it reads, so it's loop-carried: 5 + 1 + 2 + 3 = 11.</p></div>
+</div>
+
+<div class="quiz" data-fill="8 5 | [8 5] | 8, 5 | [8, 5]">
+<p class="q">And the full split-use program, with the second store into b[1]. What are the final contents?</p>
+<div class="fill"><input aria-label="your answer" placeholder="e.g. 1 2"><button class="btn">Check</button></div>
+<p class="hint">Where does <code>%cur</code> run when one of its uses is outside the loop?</p>
+<div class="why"><p><code>%cur</code> runs once, before the loop, and reads 5. Each iteration stores 5 + (k + 1), so the last leaves 8. b[1] gets the pre-loop 5: [8 5].</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">In the accumulator example, where does <code>%tot = load %a1</code> run?</p>
+<div class="opts">
+<button data-k="a">Inside the k loop, because the k loop stores into the accumulator.</button>
+<button data-k="b">Once, after the loop.</button>
+<button data-k="c">Once, before the loop.</button>
+<button data-k="d">Nowhere: loads of an after are folded away.</button>
+</div>
+<p class="hint">Which version does it read, and where is its use?</p>
+<div class="why"><p><code>%tot</code> reads <code>%acc1</code>, the version after the loop, and its use (the store into <code>%out</code>) is outside every loop. So it runs once, after the loop's closing brace.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">A reset store <code>store %o 0</code> with <code>%o = shrink %acc 0 shape=[]</code> sits next to an i loop and a j loop. How often does it run?</p>
+<div class="opts">
+<button data-k="a">Once per i.</button>
+<button data-k="b">Once per (i, j).</button>
+<button data-k="c">Once, outside both loops.</button>
+<button data-k="d">It's invalid: a store next to a loop must be inside it.</button>
+</div>
+<p class="hint">What are the store's open ranges?</p>
+<div class="why"><p>The store depends on no range, so it has nothing open and runs once, outside both loops. To reset once per row, the store has to depend on <code>%i</code>, for example by storing into <code>shrink %out %i</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Which ops may consume an effect (a <code>store</code> or an <code>end</code>)?</p>
+<div class="opts">
+<button data-k="a"><code>after</code> and <code>end</code></button>
+<button data-k="b"><code>after</code> only</button>
+<button data-k="c">Any op, like a value</button>
+<button data-k="d"><code>end</code>, <code>after</code> and <code>assert</code></button>
+</div>
+<p class="hint">Effects are <code>void</code>.</p>
+<div class="why"><p>Effects have dtype <code>void</code>, and only <code>after</code> (to name the memory after it) and <code>end</code> (to repeat it) take them.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">Why does <code>%out1 = after %out %ei</code> build on <code>%out</code> and not on <code>%out0</code>, the version after the reset?</p>
+<div class="opts">
+<button data-k="a">Because <code>%out0</code> was never stored into.</button>
+<button data-k="b">Because an <code>after</code> can't build on another <code>after</code>.</button>
+<button data-k="c">Because the reset store runs after the loop.</button>
+<button data-k="d">Because <code>%out0</code> has <code>{i}</code> open: it's a version inside one iteration, not one that exists after the loop.</button>
+</div>
+<p class="hint">What are <code>%out0</code>'s open ranges?</p>
+<div class="why"><p><code>%out0</code> depends on the reset store, which depends on <code>%i</code>. A version with an open range exists once per iteration, so it can't be what the buffer holds after the loop. The output is the <code>after</code> with nothing open, built on the version before the loops.</p></div>
+</div>
+
+<nav class="pager">
+<a href="01-ranges.html">← Lesson 1: Ranges and ends</a>
+<a href="03-gemm.html">Lesson 3: A GEMM by hand →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const row = (name, vals, mark) => h('div', { class: 'row' }, h('span', { class: 'name', text: name }),
+    h('div', { class: 'mem' }, vals.map((v, i) => h('div', { class: 'cell' + (i === mark ? ' hit' : '') }, h('span', { class: 'addr', text: i }), String(v)))));
+  const src = `%k   = range 4
+%cur = load %a          # acc[0]
+%x   = load %iv         # in[k]
+%sum = add %cur %x
+%s   = store %a %sum
+%e   = end %s %k`;
+  const input = [1, 2, 3, 4];
+  const steps = [{ caption: 'Before the loop: <code>%acc</code> is a fresh alloc, so it holds 0.', hl: -1, acc: 0, k: -1, v: '' }];
+  let acc = 0;
+  for (let k = 0; k < 4; k++) {
+    steps.push({ caption: `k = ${k}: <code>%cur</code> is loaded fresh this iteration and reads ${acc}${k ? ', the previous iteration\'s store' : ''}.`, hl: 1, acc, k, v: `cur = ${acc}` });
+    const sum = acc + input[k];
+    steps.push({ caption: `k = ${k}: <code>%x</code> = in[${k}] = ${input[k]}, and the store writes ${acc} + ${input[k]} = ${sum} back into acc[0].`, hl: 4, acc: sum, k, v: `cur = ${acc}, x = ${input[k]}, sum = ${sum}`, mark: true });
+    acc = sum;
+  }
+  steps.push({ caption: 'The loop is done. <code>%acc1</code>, the version after the <code>end</code>, holds 10.', hl: 5, acc: 10, k: -1, v: 'acc1 = 10' });
+  CC.stepper(document.getElementById('run'), steps, (s, body) => body.append(h('div', { class: 'stack' }, CC.code(src, s.hl),
+    h('div', { class: 'strip' }, row('in', input, s.k), row('acc', [s.acc], s.mark ? 0 : -1), h('div', { class: 'vals', text: s.v || ' ' })))));
+});
+</script>
+</body>
+</html>

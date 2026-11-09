@@ -1,0 +1,25 @@
+# expect: pass
+# a max accumulator that meets nan stays nan
+%X = buffer 4 dtype=f32 slot=0 data=[1.0 nan 5.0 2.0]
+%Y = buffer 1 dtype=f32 slot=1
+%acc = alloc 1 dtype=f32
+%v3 = shrink %acc 0 shape=[]
+%v4 = store %v3 -inf
+%v5 = after %acc %v4
+%i = range 4
+%v7 = shrink %X %i shape=[]
+%v8 = load %v7
+%v9 = shrink %v5 0 shape=[]
+%v10 = load %v9
+%v11 = max %v10 %v8
+%v12 = store %v9 %v11
+%v13 = end %v12 %i
+%v14 = after %v5 %v13
+%v15 = shrink %v14 0 shape=[]
+%v16 = load %v15
+%v17 = shrink %Y 0 shape=[]
+%v18 = store %v17 %v16
+%Y1 = after %Y %v18
+%v20 = load %Y1
+%v21 = stack nan
+%v22 = assert %v20 %v21

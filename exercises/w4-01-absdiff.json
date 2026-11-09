@@ -1,0 +1,103 @@
+{
+ "id": "w4-01-absdiff",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "Absolute difference",
+ "starter": "%x  = buffer 4 dtype=i32 slot=0\n%y  = buffer 4 dtype=i32 slot=1\n%d  = buffer 4 dtype=i32 slot=2\n# d[i] = |x[i] - y[i]|, with i32 wraparound\n%vx = load %x\n%vy = load %y\n%m1 = expand -1 shape=[4]\n%ny = mul %vy %m1\n%df = add %vx %ny\n%s  = store %d %df\n%d1 = after %d %s\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     5,
+     1,
+     7,
+     0
+    ],
+    "1": [
+     2,
+     4,
+     7,
+     -3
+    ]
+   },
+   "expect": "[3 3 0 3]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     -10,
+     10,
+     0,
+     100
+    ],
+    "1": [
+     10,
+     -10,
+     0,
+     1
+    ]
+   },
+   "sample": true,
+   "expect": "[20 20 0 99]"
+  },
+  {
+   "data": {
+    "0": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "1": [
+     1,
+     2,
+     3,
+     4
+    ]
+   },
+   "expect": "[1 2 3 4]"
+  },
+  {
+   "data": {
+    "0": [
+     2147483647,
+     -2147483648,
+     1,
+     0
+    ],
+    "1": [
+     0,
+     0,
+     0,
+     -2147483648
+    ]
+   },
+   "expect": "[2147483647 -2147483648 1 -2147483648]"
+  },
+  {
+   "data": {
+    "0": [
+     2147483647,
+     5,
+     -5,
+     9
+    ],
+    "1": [
+     -1,
+     5,
+     -6,
+     8
+    ]
+   },
+   "expect": "[-2147483648 0 1 1]"
+  }
+ ],
+ "hints": [
+  "The starter stores `x - y`, which is negative when `y` is bigger. You want the larger of `x - y` and `y - x`.",
+  "Build `y - x` the same way (multiply `x` by an expanded `-1` and add `y`), then take `max` of the two vectors.",
+  "i32 wraps: `|INT_MIN - 0|` is still `INT_MIN`, because `0 - INT_MIN` wraps back to `INT_MIN`. The tests expect that."
+ ],
+ "explain": "`max(x - y, y - x)` is the absolute difference, computed elementwise on shape `(4,)`. With wraparound, a difference that overflows stays wrapped, so `INT_MIN - 0` and `0 - INT_MIN` are both `INT_MIN`, and the max of the two is `INT_MIN`."
+}

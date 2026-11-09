@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A GEMM by Hand</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .mats { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
+  .mat .name { font: 500 0.875rem var(--mono); color: var(--ink-2); margin-bottom: var(--s1); }
+  .mat .grid { display: grid; gap: var(--s1); }
+  .mat .grid div { min-width: 2.75rem; padding: 6px var(--s2); text-align: center; font: 0.875rem var(--mono); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+  .mat .grid div.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .mat .grid div.out { border-color: var(--good); }
+  .vals { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s3); }
+  .stack { display: grid; gap: var(--s3); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 3 · Lesson 3</p>
+<h1>A GEMM by hand</h1>
+<p class="lede">The syllabus says that with loops "we can write gemms and convs in this language". This lesson writes the GEMM: <code>C = A @ B</code> on flat row-major buffers, three nested ranges, and one accumulator per output element. Then it shows the C your renderer should produce, and why the order of the loops matters even though every order gives the same answer.</p>
+
+<div class="prose">
+<h2>The plan</h2>
+<p>A is M-by-K, B is K-by-N and C is M-by-N, all flat and row-major, as in lesson 0.5. Element (r, c) of an R-by-C matrix sits at <code>r*C + c</code>. For every output element:</p>
+<pre><code>C[i*N + j] = sum over k of  A[i*K + k] * B[k*N + j]</code></pre>
+<p>We'll use M = 2, K = 3, N = 2, the same matrices as lesson 0.5: A = [[1 2 3] [4 5 6]], B = [[7 8] [9 10] [11 12]], so C = [[58 64] [139 154]]. Each output element needs K multiply-adds. Step through which elements one iteration touches:</p>
+</div>
+
+<div class="fig" id="touch" data-title="what iteration (i, j, k) reads and writes"></div>
+
+<h2>Building it, one piece at a time</h2>
+<div class="prose">
+<p>The accumulator is C itself. For each (i, j), reset <code>C[i*N + j]</code> to 0, then let the k loop add into it. The reset stores into a view at offset <code>i*N + j</code>, so it depends on both ranges and runs once per output element. That's the trick from lesson 3.2.</p>
+</div>
+
+<div class="fig bleed" id="build" data-title="the GEMM in .uir"></div>
+
+<div class="prose">
+<p>The whole program checks out with the oracle, and its C, run on real arrays, prints 58 64 139 154. Here's the rendered kernel, with the wraparound casts trimmed for reading:</p>
+<pre><code>for (int32_t r6 = 0; r6 &lt; 2; r6++) {             /* i */
+  int32_t v7 = r6 * 2;                           /* i*N */
+  int32_t v8 = r6 * 3;                           /* i*K */
+  for (int32_t r9 = 0; r9 &lt; 2; r9++) {           /* j */
+    int32_t v10 = v7 + r9;                       /* i*N + j */
+    b2[v10] = 0x0.0p+0f;                         /* reset C[i][j] */
+    for (int32_t r15 = 0; r15 &lt; 3; r15++) {      /* k */
+      float v16 = b2[v10];                       /* loop-carried load */
+      int32_t v17 = v8 + r15;
+      float v19 = b0[v17];                       /* A[i][k] */
+      int32_t v21 = r15 * 2 + r9;
+      float v23 = b1[v21];                       /* B[k][j] */
+      float v24 = v19 * v23;                     /* two statements, as the oracle prints them: */
+      float v25 = v16 + v24;                     /* a*b + c on one line invites an FMA (lesson 2.4) */
+      b2[v10] = v25;
+    }
+  }
+}</code></pre>
+<p>Every index computation sits in the loop of its deepest range: <code>i*K</code> outside the j loop, <code>i*N + j</code> outside the k loop. You get that hoisting for free from open ranges.</p>
+</div>
+
+<div class="note">
+<span class="label">Bounds come for free too</span>
+<p>The view <code>shrink %A %ik</code> needs <code>i*3 + k</code> to be provably in [0, 5]. With <code>i</code> in [0, 1] and <code>k</code> in [0, 2], week 1's interval rules give <code>i*3</code> in [0, 3] and <code>i*3 + k</code> in [0, 5]. Make A five elements long and the same program is rejected: "can't prove the view is in bounds: offset in [0, 5], 1 element(s), parent has 5".</p>
+</div>
+
+<div class="exercise" data-ex="w3-03-gemm-bt">
+<h3>C = A @ B transposed</h3>
+<p>A and B are both 2-by-3 i32 matrices, row-major, in slots 0 and 1. Compute <code>C = A @ B^T</code> (2-by-2) into slot 2: <code>C[i*2 + j]</code> is the dot product of row i of A and row j of B. The starter is the plain GEMM from this page, which indexes B as if it were 3-by-2.</p>
+</div>
+
+<h2>Same answer, different speed</h2>
+<div class="prose">
+<p>The order of the <code>end</code>s picks the loop order. Here's a 2-by-3 fill written two ways. Both store <code>i*3 + j</code> into element <code>i*3 + j</code>, and both leave the buffer holding 0 to 5:</p>
+</div>
+
+<div class="split">
+<pre><code>%ej = end %s %j      # j inner
+%ei = end %ej %i     # i outer
+
+for (i ...)
+  for (j ...)
+    b[i*3 + j] = ...   /* 0 1 2 3 4 5 */</code></pre>
+<pre><code>%ei = end %s %i      # i inner
+%ej = end %ei %j     # j outer
+
+for (j ...)
+  for (i ...)
+    b[i*3 + j] = ...   /* 0 3 1 4 2 5 */</code></pre>
+</div>
+
+<div class="prose">
+<p>The left version walks memory in order: addresses 0, 1, 2, 3, 4, 5. The right one jumps by 3 each step. Lesson 0.2 showed what that costs: in-order access uses every byte of each cache line it loads, and strided access can miss on nearly every step once the arrays are bigger than the cache. In this GEMM, the inner k loop walks A along a row (stride 1) but B down a column (stride N). Reordering the loops so the innermost index is the one each array is contiguous in is one of the first speedups in week 6. For now, the grader only checks correctness.</p>
+</div>
+
+<div class="exercise small" data-ex="w3-03-dot">
+<h3>Dot product</h3>
+<p>The smallest GEMM: a 1-by-4 times a 4-by-1. Put the dot product of slots 0 and 1 (four i32s each) into slot 2's only element. The starter resets the output and stops.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="0 5 | [0, 5] | [0 5] | 0, 5 | 0 to 5">
+<p class="q">With <code>%i = range 2</code> and <code>%k = range 3</code>, what interval does the bounds check give <code>i*3 + k</code>? (low and high)</p>
+<div class="fill"><input aria-label="your answer" placeholder="low high"><button class="btn">Check</button></div>
+<p class="hint">A range's interval is [0, n-1]. Multiply, then add, end by end.</p>
+<div class="why"><p><code>i</code> is in [0, 1], so <code>i*3</code> is in [0, 3]. Adding <code>k</code> in [0, 2] gives [0, 5], which fits a six-element buffer exactly.</p></div>
+</div>
+
+<div class="quiz" data-fill="154">
+<p class="q">For the matrices on this page, what does <code>C[1*2 + 1]</code> end up holding?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Row 1 of A is [4 5 6]. Column 1 of B is [8 10 12].</p>
+<div class="why"><p>4*8 + 5*10 + 6*12 = 32 + 50 + 72 = 154, the same answer lesson 0.5 got with the triple loop in C.</p></div>
+</div>
+
+<div class="quiz" data-fill="58 122 261 415 | [58 122 261 415] | 58, 122, 261, 415">
+<p class="q">Suppose the accumulator is a one-element <code>alloc</code> that's never reset, and each (i, j) copies it into C after its k loop. What does C hold?</p>
+<div class="fill"><input aria-label="your answer" placeholder="four numbers"><button class="btn">Check</button></div>
+<p class="hint">The alloc starts at 0 once, not once per output element.</p>
+<div class="why"><p>The sum carries over from one output element to the next: 58, then 58 + 64 = 122, then 122 + 139 = 261, then 261 + 154 = 415. That's why the reset has to depend on <code>i</code> and <code>j</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">Change A to five elements, leaving the rest of the GEMM alone. What exit code does <code>run</code> give?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The interval of <code>i*3 + k</code> doesn't change.</p>
+<div class="why"><p>The offset is still in [0, 5], and a five-element buffer can't hold a view at 5, so the bounds check fails and the program is invalid: exit 2.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">How many multiply-adds does an M-by-K times K-by-N GEMM do?</p>
+<div class="opts">
+<button data-k="a">M * N</button>
+<button data-k="b">M * N * K</button>
+<button data-k="c">M * K + K * N</button>
+<button data-k="d">(M + N) * K</button>
+</div>
+<p class="hint">How many output elements are there, and how many multiply-adds does each one take?</p>
+<div class="why"><p>There are M*N outputs, and each is a sum of K products, so the innermost body runs M*N*K times. That's the trip count of the three nested ranges.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Swapping the order of two <code>end</code>s in the fill example changes...</p>
+<div class="opts">
+<button data-k="a">the final contents of the buffer</button>
+<button data-k="b">whether the program passes the bounds check</button>
+<button data-k="c">the order memory is visited in, and so the speed, but not the result</button>
+<button data-k="d">nothing at all: the renderer always picks the same order</button>
+</div>
+<p class="hint">Each element is written exactly once in both versions.</p>
+<div class="why"><p>Each element gets the same value either way, so the result is identical and the bounds don't change. What changes is the loop nest the renderer emits, and so the access pattern: stride 1 versus stride 3. That decides cache behavior, which week 6 starts measuring.</p></div>
+</div>
+
+<nav class="pager">
+<a href="02-memory-in-loops.html">← Lesson 2: Memory in loops</a>
+<a href="04-conv.html">Lesson 4: Convolutions →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const A = [1, 2, 3, 4, 5, 6], B = [7, 8, 9, 10, 11, 12];
+  const mat = (name, vals, cols, on, out) => h('div', { class: 'mat' }, h('div', { class: 'name', text: name }),
+    h('div', { class: 'grid', style: `grid-template-columns: repeat(${cols}, auto)` }, vals.map((v, i) => h('div', { class: (on.includes(i) ? 'on' : '') + (out === i ? ' out' : ''), text: String(v) }))));
+  // ---- what one iteration touches ----
+  const trips = [[0, 0, 0], [0, 0, 1], [0, 0, 2], [0, 1, 0], [1, 1, 2]];
+  const C = [58, 64, 139, 154];
+  const touch = trips.map(([i, j, k]) => {
+    const partial = [0, 1, 2].slice(0, k + 1).reduce((s, kk) => s + A[i * 3 + kk] * B[kk * 2 + j], 0);
+    return { i, j, k, partial, caption: `(i, j, k) = (${i}, ${j}, ${k}): read A[${i * 3 + k}] = ${A[i * 3 + k]} (row ${i}) and B[${k * 2 + j}] = ${B[k * 2 + j]} (column ${j}), and add their product into C[${i * 2 + j}]. After this iteration C[${i * 2 + j}] holds ${partial}${k === 2 ? ', its final value' : ''}.` };
+  });
+  CC.stepper(document.getElementById('touch'), touch, (s, body) => {
+    const cvals = C.map((v, idx) => idx === s.i * 2 + s.j ? s.partial : (idx < s.i * 2 + s.j ? v : 0));
+    body.append(h('div', { class: 'mats' }, mat('A (2x3)', A, 3, [s.i * 3 + s.k]), mat('B (3x2)', B, 2, [s.k * 2 + s.j]), mat('C (2x2)', cvals, 2, [], s.i * 2 + s.j)));
+  });
+  // ---- building the program ----
+  const prog = `%A   = buffer 6 dtype=f32 slot=0
+%B   = buffer 6 dtype=f32 slot=1
+%C   = buffer 4 dtype=f32 slot=2
+%i   = range 2
+%j   = range 2
+%i2  = mul %i 2
+%ij  = add %i2 %j
+%cv  = shrink %C %ij shape=[]
+%z   = store %cv 0.0
+%C0  = after %C %z
+%k   = range 3
+%i3  = mul %i 3
+%ik  = add %i3 %k
+%av  = shrink %A %ik shape=[]
+%a   = load %av
+%k2  = mul %k 2
+%kj  = add %k2 %j
+%bv  = shrink %B %kj shape=[]
+%b   = load %bv
+%p   = mul %a %b
+%cv0 = shrink %C0 %ij shape=[]
+%cur = load %cv0
+%sum = add %cur %p
+%s   = store %cv0 %sum
+%ek  = end %s %k
+%ej  = end %ek %j
+%ei  = end %ej %i
+%C1  = after %C %ei`;
+  const lines = prog.split('\n');
+  const build = [
+    { upto: 3, hl: 2, caption: 'Three buffers. C has no data, but it doesn\'t matter: every element gets reset before it\'s used.' },
+    { upto: 7, hl: 6, caption: 'Two ranges for the output element, and its offset <code>i*N + j</code> = <code>i*2 + j</code>.' },
+    { upto: 10, hl: 8, caption: 'Reset <code>C[i*2 + j]</code> to 0. The view depends on i and j, so the reset runs once per output element. <code>%C0</code> names C after the reset, inside the (i, j) loops.' },
+    { upto: 19, hl: 13, caption: 'The k range, and the two inputs: <code>A[i*3 + k]</code> (row i) and <code>B[k*2 + j]</code> (column j). Both offsets are proven in [0, 5].' },
+    { upto: 24, hl: 21, caption: 'The accumulate: load <code>C[i*2 + j]</code> from <code>%C0</code>, add the product, store it back. The load\'s only use is inside the k loop, which stores into <code>%C0</code>, so it\'s loop-carried.' },
+    { upto: 27, hl: 24, caption: 'Close the loops, innermost first: k, then j, then i. That order makes k the inner loop.' },
+    { upto: 28, hl: 27, caption: '<code>%C1</code> has nothing open: it\'s C after the whole nest, the buffer\'s output.' },
+  ];
+  CC.stepper(document.getElementById('build'), build, (s, body) => body.append(CC.code(lines.slice(0, s.upto).join('\n'), s.hl)));
+});
+</script>
+</body>
+</html>

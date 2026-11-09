@@ -1,0 +1,57 @@
+{
+ "id": "w1-02-f32-round",
+ "lang": "ocaml",
+ "title": "Round to f32",
+ "show": "(Printf.sprintf \"%.9g\")",
+ "starter": "(* OCaml floats are f64. f32 x rounds x to the nearest f32 (ties to even),\n   overflowing to inf. add32 adds two f32 values the way your interpreter must. *)\nlet f32 (x : float) : float = x\n\nlet add32 (a : float) (b : float) : float = a +. b\n",
+ "tests": [
+  {
+   "expr": "f32 0.1",
+   "expect": "0.100000001",
+   "sample": true
+  },
+  {
+   "expr": "f32 16777217.",
+   "expect": "16777216",
+   "sample": true
+  },
+  {
+   "expr": "f32 1e39",
+   "expect": "inf"
+  },
+  {
+   "expr": "f32 (-1e39)",
+   "expect": "-inf"
+  },
+  {
+   "expr": "f32 (-0.0)",
+   "expect": "-0"
+  },
+  {
+   "expr": "f32 3.4028235e38",
+   "expect": "3.40282347e+38"
+  },
+  {
+   "expr": "f32 2e-45",
+   "expect": "1.40129846e-45"
+  },
+  {
+   "expr": "if add32 (f32 0.1) (f32 0.2) = f32 0.3 then 1. else 0.",
+   "expect": "1"
+  },
+  {
+   "expr": "add32 16777216. 1.",
+   "expect": "16777216"
+  },
+  {
+   "expr": "add32 3e38 3e38",
+   "expect": "inf"
+  }
+ ],
+ "hints": [
+  "OCaml has no f32 type, but the `Int32` module can convert a float to its 32-bit IEEE bit pattern and back.",
+  "`Int32.bits_of_float` rounds to the nearest f32 (ties to even, overflow to inf) on the way to bits; `Int32.float_of_bits` turns those bits back into a float.",
+  "`add32` must round the sum, not just the inputs: add in f64, then round once to f32."
+ ],
+ "explain": "`Int32.bits_of_float` performs the f64 to f32 conversion the hardware does, including ties to even, subnormals and overflow to inf, and `Int32.float_of_bits` widens it back exactly. Adding two f32 values in f64 is exact enough that rounding the sum once gives the correctly rounded f32 result."
+}

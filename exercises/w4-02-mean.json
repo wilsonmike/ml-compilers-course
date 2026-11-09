@@ -1,0 +1,123 @@
+{
+ "id": "w4-02-mean",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "The mean of eight",
+ "starter": "%x  = buffer 8 dtype=f32 slot=0\n%m  = buffer 1 dtype=f32 slot=1\n# m[0] = (x[0] + ... + x[7]) * 0.125\n%v  = load %x\n%s  = reduce %v op=add\n%mv = shrink %m 0 shape=[]\n%st = store %mv %s\n%m1 = after %m %st\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     7.0,
+     8.0
+    ]
+   },
+   "expect": "[4.5]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     -1.0,
+     1.0,
+     -1.0,
+     1.0,
+     -1.0,
+     1.0,
+     -1.0,
+     1.0
+    ]
+   },
+   "expect": "[0.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1
+    ]
+   },
+   "expect": "[0.10000000894069672]"
+  },
+  {
+   "data": {
+    "0": [
+     100000000.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     -100000000.0
+    ]
+   },
+   "expect": "[0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     100000000.0,
+     -100000000.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "expect": "[0.75]"
+  },
+  {
+   "data": {
+    "0": [
+     3e+38,
+     3e+38,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "expect": "[inf]"
+  },
+  {
+   "data": {
+    "0": [
+     -0.0,
+     -0.0,
+     -0.0,
+     -0.0,
+     -0.0,
+     -0.0,
+     -0.0,
+     -0.0
+    ]
+   },
+   "expect": "[-0.0]"
+  }
+ ],
+ "hints": [
+  "The starter stores the sum. The mean is the sum times one eighth.",
+  "Multiply the reduced scalar by `0.125` (exact in f32) before storing it.",
+  "Don't reorder the sum: `reduce` folds left to right from `x[0]`, and the tests with `1e8` check that order bit for bit."
+ ],
+ "explain": "The sum folds left to right from the first element, so `1e8 + 1 + ... + 1 - 1e8` loses every 1 (each `1e8 + 1` rounds back to `1e8`) and the mean is 0, while putting `-1e8` second keeps all six ones. Overflow is real too: `3e38 + 3e38` is `inf` in f32, so the mean is `inf`. Eight `-0.0`s sum to `-0.0`, because the fold starts from `x[0]`, not from `+0.0`."
+}

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matmul and Conv from Movement</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .cube { display: grid; gap: var(--s4); }
+  .vlabel { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
+  .planes { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
+  .plane .vlabel { margin-bottom: var(--s1); }
+  .grid { display: grid; gap: 3px; }
+  .grid .c { font: 0.875rem var(--mono); text-align: center; padding: 6px var(--s1); min-width: 2.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+  .grid .c.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 5 · Lesson 4</p>
+<h1>Matmul and conv from movement</h1>
+<p class="lede">A matrix multiply is a few movement ops, one <code>mul</code> and one <code>reduce</code>. So is a convolution. Once your compiler handles movement ops, it can express the two operations that do almost all the work in a neural network, and the syllabus says that from here it can compile any model.</p>
+
+<div class="prose">
+<h2>The syllabus GEMM</h2>
+<p>The public syllabus opens with a <code>.uir</code> program that multiplies two 256x256 matrices. In our format, where broadcasts are written out with <code>expand</code>, it reads:</p>
+</div>
+<pre><code>%a  = load %A                         # 65536 floats
+%b  = load %B                         # 65536 floats
+%a3 = reshape %a shape=[256 256 1]    # axes: k, m, 1
+%b3 = reshape %b shape=[256 1 256]    # axes: k, 1, n
+%ax = expand %a3 shape=[256 256 256]
+%bx = expand %b3 shape=[256 256 256]
+%p  = mul %ax %bx                     # p[k][m][n] = a[k][m] * b[k][n]
+%c  = reduce %p op=add pop=1          # c[m][n] = sum over k, in order k = 0, 1, ...</code></pre>
+<div class="prose">
+<p>Both inputs are lifted into a cube with axes <code>(k, m, n)</code>. Each one is missing an axis, so <code>expand</code> repeats it along that axis: <code>a</code> is the same for every <code>n</code>, <code>b</code> the same for every <code>m</code>. The <code>mul</code> fills the cube with every product <code>a[k][m] · b[k][n]</code>, and <code>reduce pop=1</code> folds away the leading axis, <code>k</code>, leaving <code>c[m][n]</code>. Step through it on a 2x2 by 2x3 case.</p>
+</div>
+
+<div class="fig" id="cube" data-title="the broadcast cube [K M N] folding to [M N]"></div>
+
+<div class="trap">
+<span class="label">The syllabus stores A transposed</span>
+<p><code>reshape %a shape=[K M 1]</code> reads the buffer as K rows of M. For the product to be <code>A @ B</code>, row <code>k</code> of that buffer must hold column <code>k</code> of A: the buffer holds A <strong>transposed</strong>. Lesson 0.5 met the same fact from the other side. If your A arrives row-major as M x K, the syllabus form silently computes <code>Aᵀ @ B</code> instead, with the right shape and wrong values.</p>
+</div>
+
+<div class="prose">
+<h2>The general form</h2>
+<p>When A arrives as M x K, row-major, add one <code>permute</code> to move <code>k</code> to the front. The reduce still folds the first axis, so whatever you want to sum over has to be first:</p>
+</div>
+<pre><code># %A, %B: loaded values (load the buffers first: memory can't be reshaped)
+%a3 = reshape %A shape=[M K 1]
+%aT = permute %a3 order=[1 0 2]       # K M 1
+%ax = expand %aT shape=[K M N]
+%b3 = reshape %B shape=[K 1 N]
+%bx = expand %b3 shape=[K M N]
+%p  = mul %ax %bx
+%C  = reduce %p op=add pop=1          # M N</code></pre>
+<div class="prose">
+<p>The cube is never stored. It's a description: element <code>(k, m, n)</code> of <code>%p</code> is one multiply of two loaded values. Lesson 5.5 shows how rangeify turns this description into loops, with the cube gone: one loop over the outputs, one over k.</p>
+</div>
+
+<div class="exercise" data-ex="w5-04-gemm">
+<h3>A matmul from movement ops</h3>
+<p>Slot 0 holds A, 2x3, row-major. Slot 1 holds B, 3x2, row-major. Store <code>C = A @ B</code> (2x2, row-major) into slot 2, using only <code>load</code>, movement ops, <code>expand</code>, one <code>mul</code>, one <code>reduce</code> and a <code>store</code>. No hand-written <code>range</code>. The starter is the syllabus form, which assumes A is stored transposed.</p>
+</div>
+
+<div class="prose">
+<h2>A convolution is shifted windows and a reduce</h2>
+<p>A 1D convolution (in the machine learning sense, which is a correlation) computes <code>y[i] = x[i-1]·w[0] + x[i]·w[1] + x[i+1]·w[2]</code>, with zeros past the ends of <code>x</code>. Build it from movement: pad <code>x</code> so every window is full, cut one shifted window per tap with <code>shrink</code>, stack the windows, and reduce over the tap axis.</p>
+</div>
+<pre><code>%p   = pad %x pads=[1 1]              # 7: one zero each side
+%s0  = shrink %p 0 shape=[5]          # x[i-1] for every i
+%s1  = shrink %p 1 shape=[5]          # x[i]
+%s2  = shrink %p 2 shape=[5]          # x[i+1]
+%win = stack %s0 %s1 %s2              # 3 5: one row per tap
+%w2  = reshape %w shape=[3 1]
+%wx  = expand %w2 shape=[3 5]
+%pr  = mul %win %wx
+%y   = reduce %pr op=add pop=1        # 5</code></pre>
+<div class="prose">
+<p>The stack of shifted windows is the <strong>im2col</strong> view: it turns the convolution into a multiply and a sum over taps, the same shape of computation as the matmul above. With <code>x = 1..5</code> and <code>w = [1 0 -1]</code>, the oracle gives <code>y[0] = 0·1 + 1·0 + 2·(-1) = -2</code> and <code>y[4] = 4·1 + 5·0 + 0·(-1) = 4</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w5-04-conv1d">
+<h3>A same-size conv1d</h3>
+<p>Slot 0 holds <code>x</code> (6 f32), slot 1 holds <code>w</code> (3 f32). Store <code>y[i] = x[i-1]·w[0] + x[i]·w[1] + x[i+1]·w[2]</code> into slot 2 (6 f32), with <code>x</code> read as zero outside its 6 elements. The starter pads on the wrong side.</p>
+</div>
+
+<div class="note">
+<span class="label">Where this goes</span>
+<p>The syllabus says that after week 5 the compiler "is now capable of compiling <em>any</em> model", splitting it into kernels and printing C. What's left is making it learn and making it fast: week 6 adds autodiff and starts timing kernels, weeks 7 and 8 bring threads, GPUs, memory hierarchies and fast GEMMs, and weeks 9 and 10 run real models. Every one of those builds on the ops in this lesson.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="256 256|[256 256]|(256, 256)|256,256|256x256">
+<p class="q">In the syllabus GEMM, <code>%p</code> has shape <code>(256, 256, 256)</code>. What shape is <code>%c = reduce %p op=add pop=1</code>? Write the sizes separated by a space.</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint"><code>pop=1</code> drops one leading axis.</p>
+<div class="why"><p><code>(256, 256)</code>: the leading axis, k, is folded away, leaving m and n.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">The syllabus form reshapes slot 0 to <code>[K M 1]</code> and reduces over the first axis. What must slot 0 hold for the result to be <code>A @ B</code>?</p>
+<div class="opts">
+<button data-k="a">A, row-major (M x K)</button>
+<button data-k="b">B transposed</button>
+<button data-k="c">A transposed (K x M)</button>
+<button data-k="d">Anything: reduce sums every axis</button>
+</div>
+<p class="hint">Row k of the buffer becomes the k-th plane of the cube.</p>
+<div class="why"><p>Plane k needs <code>A[m][k]</code> for every m, which is column k of A. Stored as rows, that's A transposed.</p></div>
+</div>
+
+<div class="quiz" data-fill="61">
+<p class="q">A = <code>[[1 2] [3 4]]</code> is stored transposed as <code>[1 3 2 4]</code>, and B = <code>[[5 6 7] [8 9 10]]</code>. What is <code>c[1][2]</code> from the syllabus form?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">It's row 1 of A dotted with column 2 of B.</p>
+<div class="why"><p><code>3·7 + 4·10 = 61</code>. The oracle agrees.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why does our version of the syllabus program need <code>expand</code> before the <code>mul</code>?</p>
+<div class="opts">
+<button data-k="a">Because <code>mul</code> only works on scalars</button>
+<button data-k="b">Because ALU ops need operands of one shared shape: there's no implicit broadcast</button>
+<button data-k="c">Because expand copies the data into a bigger buffer</button>
+</div>
+<p class="hint">Try <code>mul</code> on shapes <code>(2, 2)</code> and <code>(1, 2)</code>.</p>
+<div class="why"><p>The oracle rejects it: "ALU operands must share one shape (no implicit broadcast: use expand)". And expand copies nothing: it only changes which index each element reads.</p></div>
+</div>
+
+<div class="quiz" data-fill="3 5|[3 5]|(3, 5)|3,5|3x5">
+<p class="q"><code>x</code> has 5 elements and the kernel has 3 taps. After <code>pad %x pads=[1 1]</code> and stacking the three length-5 shrinks, what shape is <code>%win</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">stack adds a new leading axis of size 3.</p>
+<div class="why"><p><code>(3, 5)</code>: one row per tap, one column per output. With <code>x = 1..5</code>, summing over taps gives <code>[3 6 9 12 9]</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="-2">
+<p class="q">With <code>x = 1 2 3 4 5</code>, <code>w = 1 0 -1</code> and <code>pads=[1 1]</code>, what is <code>y[0]</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The window for <code>y[0]</code> is <code>0, 1, 2</code>: one padded zero, then the first two elements.</p>
+<div class="why"><p><code>0·1 + 1·0 + 2·(-1) = -2</code>.</p></div>
+</div>
+
+<nav class="pager">
+<a href="03-pad-shrink-expand.html">← Lesson 3: Pad, shrink, expand, stack</a>
+<a href="05-rangeify-movement.html">Lesson 5: Rangeify movement ops →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  // A = [[1 2] [3 4]] stored transposed: K=2, M=2. B = [[5 6 7] [8 9 10]]: K=2, N=3.
+  const At = [[1, 3], [2, 4]], B = [[5, 6, 7], [8, 9, 10]];
+  const grid = (rows, cols, val, hit) => h('div', { class: 'grid', style: `grid-template-columns: repeat(${cols}, auto)` },
+    Array.from({ length: rows * cols }, (_, n) => { const r = Math.floor(n / cols), c = n % cols; return h('div', { class: 'c' + (hit && hit(r, c) ? ' on' : ''), text: val(r, c) }); }));
+  const plane = (label, g) => h('div', { class: 'plane' }, h('div', { class: 'vlabel', text: label }), g);
+  const hit12 = (r, c) => r === 1 && c === 2;
+  const steps = [
+    { caption: 'Slot 0, read as <code>[2 2 1]</code>: plane k holds column k of A. <code>a[0][m]</code> is <code>1, 3</code>; <code>a[1][m]</code> is <code>2, 4</code>.',
+      draw: () => [h('div', { class: 'planes' }, [0, 1].map(k => plane(`a: k = ${k}  (M x 1)`, grid(2, 1, (m) => At[k][m]))))] },
+    { caption: 'Slot 1, read as <code>[2 1 3]</code>: plane k is row k of B.',
+      draw: () => [h('div', { class: 'planes' }, [0, 1].map(k => plane(`b: k = ${k}  (1 x N)`, grid(1, 3, (_, n) => B[k][n]))))] },
+    { caption: '<code>expand</code> both to <code>[2 2 3]</code>. In each plane, <code>a</code> repeats across n and <code>b</code> repeats across m. Nothing is copied: the size-1 axis is just read at index 0.',
+      draw: () => [h('div', { class: 'planes' }, [0, 1].flatMap(k => [plane(`a, k = ${k}`, grid(2, 3, (m) => At[k][m])), plane(`b, k = ${k}`, grid(2, 3, (_, n) => B[k][n]))]))] },
+    { caption: '<code>mul</code>: every cell of the cube is one product <code>a[k][m] · b[k][n]</code>. The highlighted cells feed <code>c[1][2]</code>: <code>3·7 = 21</code> and <code>4·10 = 40</code>.',
+      draw: () => [h('div', { class: 'planes' }, [0, 1].map(k => plane(`p, k = ${k}`, grid(2, 3, (m, n) => At[k][m] * B[k][n], hit12))))] },
+    { caption: '<code>reduce op=add pop=1</code> folds the planes together in order k = 0, 1. <code>c[1][2] = 21 + 40 = 61</code>, and the whole result is <code>A @ B</code>.',
+      draw: () => [plane('c = reduce p op=add pop=1  (M x N)', grid(2, 3, (m, n) => At[0][m] * B[0][n] + At[1][m] * B[1][n], hit12))] },
+  ];
+  CC.stepper(document.getElementById('cube'), steps, (s, body) => body.append(h('div', { class: 'cube' }, s.draw())));
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# C (2x2) = A (2x3) @ B (3x2), all row-major
+%Ab = buffer 6 dtype=f32 slot=0
+%Bb = buffer 6 dtype=f32 slot=1
+%Cb = buffer 4 dtype=f32 slot=2
+%A  = load %Ab
+%B  = load %Bb
+%a3 = reshape %A shape=[2 3 1]
+%aT = permute %a3 order=[1 0 2]
+%ax = expand %aT shape=[3 2 2]
+%b3 = reshape %B shape=[3 1 2]
+%bx = expand %b3 shape=[3 2 2]
+%p  = mul %ax %bx
+%c  = reduce %p op=add pop=1
+%cf = reshape %c shape=[4]
+%s  = store %Cb %cf
+%C1 = after %Cb %s

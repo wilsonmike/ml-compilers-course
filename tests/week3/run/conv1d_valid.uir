@@ -1,0 +1,26 @@
+# expect: pass
+# a valid 1-d convolution: output o sums x[o+k]*w[k]
+%X = buffer 6 dtype=f32 slot=0 data=[1.0 2.0 3.0 4.0 5.0 6.0]
+%W = buffer 3 dtype=f32 slot=1 data=[1.0 0.0 -1.0]
+%Y = buffer 4 dtype=f32 slot=2
+%o = range 4
+%v4 = shrink %Y %o shape=[]
+%v5 = store %v4 0.0
+%v6 = after %Y %v5
+%k = range 3
+%v8 = add %o %k
+%v9 = shrink %X %v8 shape=[]
+%v10 = load %v9
+%v11 = shrink %W %k shape=[]
+%v12 = load %v11
+%v13 = mul %v10 %v12
+%v14 = shrink %v6 %o shape=[]
+%v15 = load %v14
+%v16 = add %v15 %v13
+%v17 = store %v14 %v16
+%v18 = end %v17 %k
+%v19 = end %v18 %o
+%Y1 = after %Y %v19
+%v21 = load %Y1
+%v22 = stack -2.0 -2.0 -2.0 -2.0
+%v23 = assert %v21 %v22

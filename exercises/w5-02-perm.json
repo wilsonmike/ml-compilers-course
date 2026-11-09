@@ -1,0 +1,53 @@
+{
+ "id": "w5-02-perm",
+ "lang": "ocaml",
+ "title": "Permuted shape and source index",
+ "show": "(fun l -> String.concat \" \" (List.map string_of_int l))",
+ "starter": "(* permute x order=[p0 p1 ...]: the result's axis k is x's axis p_k. *)\n\n(* The result's shape. *)\nlet permute_shape (shape : int list) (order : int list) : int list =\n  shape\n\n(* The index into x that output index idx reads. *)\nlet src_index (order : int list) (idx : int list) : int list =\n  idx\n",
+ "tests": [
+  {
+   "expr": "permute_shape [2; 3; 4] [2; 0; 1]",
+   "expect": "4 2 3",
+   "sample": true
+  },
+  {
+   "expr": "src_index [2; 0; 1] [1; 0; 2]",
+   "expect": "0 2 1",
+   "sample": true
+  },
+  {
+   "expr": "permute_shape [3; 4] [1; 0]",
+   "expect": "4 3"
+  },
+  {
+   "expr": "src_index [1; 0] [3; 2]",
+   "expect": "2 3"
+  },
+  {
+   "expr": "permute_shape [5; 6; 7] [0; 1; 2]",
+   "expect": "5 6 7"
+  },
+  {
+   "expr": "src_index [0; 1; 2] [4; 5; 6]",
+   "expect": "4 5 6"
+  },
+  {
+   "expr": "permute_shape [2; 3; 4; 5] [3; 1; 0; 2]",
+   "expect": "5 3 2 4"
+  },
+  {
+   "expr": "src_index [3; 1; 0; 2] [4; 2; 1; 3]",
+   "expect": "1 2 3 4"
+  },
+  {
+   "expr": "src_index [1; 2; 0] [7; 8; 9]",
+   "expect": "9 7 8"
+  }
+ ],
+ "hints": [
+  "The result's axis k has the size of x's axis `p_k`. That's a `List.map` over `order`.",
+  "For the index, output axis k carries the value `idx_k` to source axis `p_k`. So source axis `a` gets the `idx_k` whose `p_k = a`.",
+  "`src_index` scatters: build a list of length n where position `List.nth order k` holds `List.nth idx k` (find, for each source axis a, the k with `p_k = a`)."
+ ],
+ "explain": "`permute_shape` gathers: output axis k has size `shape[p_k]`. `src_index` is the inverse direction, a scatter: the output index sends `idx_k` to source axis `p_k`. For order `[2 0 1]` and index `(1, 0, 2)` that's source `(0, 2, 1)`, so `p[1][0][2]` reads `x[0][2][1]`. Mixing up gather and scatter gives the inverse permutation, which only agrees with the right answer when the permutation is its own inverse (like a transpose)."
+}

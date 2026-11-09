@@ -1,0 +1,16 @@
+# expect: pass
+# a load whose only use is inside a loop that stores into its version is reloaded every iteration: 10, 11, 12, 13
+%b  = buffer 1 dtype=i32 slot=0 data=[10]
+%i  = range 3
+%z  = mul %i 0
+%v  = shrink %b %z shape=[]
+%v0 = shrink %b 0 shape=[]
+%x  = load %v0
+%xz = add %x %z
+%y  = add %xz 1
+%s  = store %v %y
+%e  = end %s %i
+%b1 = after %b %e
+%r  = load %b1
+%q  = stack 13
+%t  = assert %r %q

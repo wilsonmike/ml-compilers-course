@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reshape and Permute</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .views { display: grid; gap: var(--s4); }
+  .vlabel { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
+  .planes { display: flex; gap: var(--s4); flex-wrap: wrap; }
+  .grid { display: grid; gap: 3px; }
+  .grid .c { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; min-width: 2.5rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+  .grid .c.on, .flat .cell.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 5 · Lesson 2</p>
+<h1>Reshape and permute</h1>
+<p class="lede">Both ops rearrange a tensor without computing anything. <code>reshape</code> keeps every number in its place and changes how you count. <code>permute</code> keeps the numbers and changes which axis is which. They look alike, and the difference is the most common shape bug there is.</p>
+
+<div class="prose">
+<h2>reshape reinterprets the same sequence</h2>
+<p><code>reshape %x shape=[d0 d1 ...]</code> reads the elements of <code>x</code> in row-major order and lays them out again, row-major, in the new shape. The element counts must match: 12 can become <code>[3 4]</code>, <code>[2 2 3]</code> or <code>[12 1]</code>, never <code>[5 3]</code>. A shape of <code>[]</code> turns a one-element value into a scalar.</p>
+<p>Nothing moves. If the buffer holds <code>0..11</code>, the number 9 is the tenth element in every view, wherever the new shape puts its row and column.</p>
+</div>
+
+<div class="fig" id="views" data-title="0 to 11: three reshapes and a transpose"></div>
+
+<h2>permute reorders axes</h2>
+<div class="prose">
+<p><code>permute %x order=[p0 p1 ...]</code> makes a new tensor whose axis <code>k</code> is <code>x</code>'s axis <code>p_k</code>. The new shape is <code>shape[p_k]</code> for each <code>k</code>, and the element at output index <code>i</code> is <code>x</code> at the index whose axis <code>p_k</code> holds <code>i_k</code>.</p>
+<p>For a matrix there's one interesting order, <code>[1 0]</code>: the transpose. Element <code>[i][j]</code> of the result is <code>x[j][i]</code>. For rank 3 there are six orders. With <code>order=[2 0 1]</code>, a <code>(2, 3, 4)</code> tensor becomes <code>(4, 2, 3)</code>, and output <code>[1][0][2]</code> reads <code>x[0][2][1]</code>: output axis 0 carries its index to source axis 2, axis 1 to source axis 0, axis 2 to source axis 1.</p>
+<p>The order must be a permutation of <code>0..r-1</code>. <code>order=[0 0]</code> is invalid.</p>
+</div>
+
+<div class="exercise" data-ex="w5-02-transpose">
+<h3>Transpose a 3x4 matrix</h3>
+<p>Slot 0 holds a <code>3x4</code> f32 matrix, row-major. Store its <code>4x3</code> transpose into slot 1, row-major. The starter reshapes to <code>[4 3]</code>, which is not a transpose.</p>
+</div>
+
+<div class="exercise small" data-ex="w5-02-perm">
+<h3>Permuted shape and source index</h3>
+<p>Write <code>permute_shape shape order</code>, the shape of <code>permute x order=...</code>, and <code>src_index order idx</code>, the index into <code>x</code> that output index <code>idx</code> reads.</p>
+</div>
+
+<h2>Order of operations matters</h2>
+<div class="prose">
+<p>Take <code>[[0 1 2] [3 4 5]]</code>, shape <code>(2, 3)</code>. Transpose it and flatten: the result reads down the columns, <code>0 3 1 4 2 5</code>. Reshape it to <code>[3 2]</code> instead and flatten: <code>0 1 2 3 4 5</code>, the original order, because reshape never moves anything. Both intermediate results have shape <code>(3, 2)</code>, and only one of them is a transpose.</p>
+</div>
+
+<div class="trap">
+<span class="label">A transpose is not a reshape</span>
+<p>Reshaping a <code>(3, 4)</code> to <code>(4, 3)</code> gives the right shape with the wrong contents. They agree only when a dimension is 1, or for special data: constant values, symmetric square matrices, or values that differ only at the first and last positions (those stay put under both). That's why a transpose test with constant data passes for any wrong answer: test with distinct values everywhere.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="9">
+<p class="q">A buffer holds <code>0..11</code>. After <code>reshape shape=[3 4]</code>, what is element <code>[2][1]</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Rows of 4: row 2 starts at element 8.</p>
+<div class="why"><p><code>4·2 + 1 = 9</code>, and the buffer holds its own positions, so the value is 9.</p></div>
+</div>
+
+<div class="quiz" data-fill="9">
+<p class="q">Same buffer, reshaped to <code>[3 4]</code>, then <code>permute order=[1 0]</code>. What is element <code>[1][2]</code> of the result?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The transpose's <code>[i][j]</code> is the original's <code>[j][i]</code>.</p>
+<div class="why"><p>It reads <code>[2][1]</code> of the <code>3x4</code>, which is 9.</p></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q"><code>[[0 1 2] [3 4 5]]</code> is transposed with <code>permute order=[1 0]</code> and flattened with <code>reshape shape=[6]</code>. What is the second element of the result?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The transpose's first row is the original's first column.</p>
+<div class="why"><p>The transpose is <code>[[0 3] [1 4] [2 5]]</code>, which flattens to <code>0 3 1 4 2 5</code>. The second element is 3.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">What shape is <code>permute %t order=[2 0 1]</code> for <code>%t</code> of shape <code>(2, 3, 4)</code>?</p>
+<div class="opts">
+<button data-k="a"><code>(2, 3, 4)</code></button>
+<button data-k="b"><code>(3, 4, 2)</code></button>
+<button data-k="c"><code>(4, 3, 2)</code></button>
+<button data-k="d"><code>(4, 2, 3)</code></button>
+</div>
+<p class="hint">Output axis k has the size of input axis <code>p_k</code>.</p>
+<div class="why"><p><code>(shape[2], shape[0], shape[1]) = (4, 2, 3)</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Is <code>permute %m order=[0 0]</code> valid for a <code>(2, 3)</code> <code>%m</code>?</p>
+<div class="opts">
+<button data-k="a">Yes: it repeats axis 0.</button>
+<button data-k="b">No: the order must be a permutation of <code>0..r-1</code>.</button>
+<button data-k="c">Yes: it's the identity.</button>
+</div>
+<p class="hint">Where would axis 1 go?</p>
+<div class="why"><p>Every axis must appear exactly once. <code>[0 0]</code> drops axis 1 and repeats axis 0, so the oracle rejects it.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>0..5</code> is reshaped to <code>[3 2]</code> and then back to <code>[6]</code>. What do you get?</p>
+<div class="opts">
+<button data-k="a"><code>0 1 2 3 4 5</code></button>
+<button data-k="b"><code>0 2 4 1 3 5</code></button>
+<button data-k="c"><code>0 3 1 4 2 5</code></button>
+</div>
+<p class="hint">Does reshape ever change the order of the elements?</p>
+<div class="why"><p>Never. Both reshapes keep row-major order, so the round trip is the identity.</p></div>
+</div>
+
+<nav class="pager">
+<a href="01-shapes.html">← Lesson 1: Any rank, flat memory</a>
+<a href="03-pad-shrink-expand.html">Lesson 3: Pad, shrink, expand, stack →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const grid = (rows, cols, val, hit) => h('div', { class: 'grid', style: `grid-template-columns: repeat(${cols}, auto)` },
+    Array.from({ length: rows * cols }, (_, n) => { const v = val(Math.floor(n / cols), n % cols); return h('div', { class: 'c' + (v === hit ? ' on' : ''), text: v }); }));
+  const flat = (vals, hit) => h('div', { class: 'mem flat' }, vals.map((v, n) => h('div', { class: 'cell' + (v === hit ? ' on' : '') }, h('span', { class: 'addr', text: n }), String(v))));
+  const seq = Array.from({ length: 12 }, (_, i) => i);
+  const T = (i, j) => 4 * j + i;                       // transpose of the 3x4: [i][j] reads [j][i]
+  const steps = [
+    { caption: 'Shape <code>(12,)</code>: the buffer as loaded. 9 is element 9.',
+      draw: () => [h('div', { class: 'vlabel', text: 'shape (12,)' }), flat(seq, 9)] },
+    { caption: '<code>reshape shape=[3 4]</code>: cut into rows of 4. 9 is at <code>[2][1]</code>, because <code>4·2 + 1 = 9</code>. Nothing moved.',
+      draw: () => [h('div', { class: 'vlabel', text: 'shape (3, 4)' }), grid(3, 4, (i, j) => 4 * i + j, 9)] },
+    { caption: '<code>reshape shape=[2 2 3]</code>: two planes of 2 rows of 3. 9 is at <code>[1][1][0]</code>: <code>6·1 + 3·1 + 0 = 9</code>. Still the same sequence.',
+      draw: () => [h('div', { class: 'vlabel', text: 'shape (2, 2, 3)' }), h('div', { class: 'planes' }, [0, 1].map(p => grid(2, 3, (i, j) => 6 * p + 3 * i + j, 9)))] },
+    { caption: 'Back to <code>(3, 4)</code>, then <code>permute order=[1 0]</code>: shape <code>(4, 3)</code>, and <code>[i][j]</code> reads <code>[j][i]</code>. 9 moved to <code>[1][2]</code>.',
+      draw: () => [h('div', { class: 'vlabel', text: 'permute order=[1 0]: shape (4, 3)' }), grid(4, 3, T, 9)] },
+    { caption: 'Flatten the transpose with <code>reshape shape=[12]</code>: it reads down the original columns. Unlike a reshape, the permute changed the order: 9 is now element 5.',
+      draw: () => [h('div', { class: 'vlabel', text: 'reshape the transpose to (12,)' }), flat(Array.from({ length: 12 }, (_, n) => T(Math.floor(n / 3), n % 3)), 9)] },
+  ];
+  CC.stepper(document.getElementById('views'), steps, (s, body) => body.append(h('div', { class: 'views' }, s.draw())));
+});
+</script>
+</body>
+</html>

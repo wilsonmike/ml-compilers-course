@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 0 Study Guide</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 0 study guide</h1>
+  <p class="lede">Week 0 is the toolbox: C and memory, what an IR is, tensors as views of flat memory, matrix multiply, and enough OCaml to write a compiler. Use this page to review before week 1, or to find the one idea that didn't stick.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week0/01-c-and-pointers.html">0.1 C and pointers</a></h3>
+  <p>Memory is a long row of numbered bytes, and a pointer is one of those numbers. An array is a base address plus an offset, so <code>p[i]</code> is just <code>*(p + i)</code>, with the offset scaled by the element size. Signed overflow, <code>INT_MIN / -1</code> and division by zero are undefined behavior in C, which is why your compiler will wrap integers through <code>uint32_t</code>.</p>
+  <h3><a href="../week0/02-memory-and-caches.html">0.2 Memory and caches</a></h3>
+  <p>The CPU reads memory in 64-byte cache lines (128 on Apple M-series), and a cache miss costs roughly a hundred times a hit. Walking a row-major 2D array row by row uses every byte of each line. Walking it column by column touches a new line on almost every step. Loop order is a performance decision your compiler will make.</p>
+  <h3><a href="../week0/03-compilers-and-irs.html">0.3 Compilers and IRs</a></h3>
+  <p>A compiler turns text into tokens, tokens into a tree, the tree into an IR, and the IR into code. Sharing equal subtrees turns the tree into a DAG, which is what week 1's UOps are. Printing code from a DAG means visiting sources before the nodes that use them: a toposort.</p>
+  <h3><a href="../week0/04-tensors-and-shapes.html">0.4 Tensors and shapes</a></h3>
+  <p>A tensor is a flat buffer plus a shape plus strides. The element at <code>[i, j]</code> lives at <code>offset + i*stride0 + j*stride1</code>. Reshape, permute, broadcast (stride 0) and shrink are all just different strides and offsets over the same buffer, and pad adds a validity mask.</p>
+  <h3><a href="../week0/05-matmul.html">0.5 Matrix multiply</a></h3>
+  <p>Each output of <code>A @ B</code> is a dot product of a row of A with a column of B. For M×K times K×N, that's M·N outputs and 2·M·N·K floating-point operations. The syllabus writes it as a broadcast multiply followed by a sum over the shared axis.</p>
+  <h3><a href="../week0/06-ocaml.html">0.6 OCaml crash course</a></h3>
+  <p>Variants plus pattern matching are the heart of a compiler written in OCaml. OCaml's <code>int</code> is 63 bits, so the course's 32-bit integers need <code>Int32</code> or explicit wrapping. Floats are doubles, so round to f32 with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>C fact</th><th>value</th></tr></thead>
+    <tbody>
+      <tr><td><code>sizeof(char)</code>, <code>int</code>, <code>double</code>, pointer (64-bit)</td><td>1, 4, 8, 8 bytes</td></tr>
+      <tr><td><code>int32_t</code> range</td><td>−2,147,483,648 to 2,147,483,647</td></tr>
+      <tr><td>signed overflow, <code>INT_MIN / -1</code>, <code>x / 0</code>, shift ≥ width</td><td>undefined behavior</td></tr>
+      <tr><td>unsigned overflow</td><td>defined: wraps modulo 2<sup>n</sup></td></tr>
+      <tr><td><code>-7 / 2</code>, <code>-7 % 2</code></td><td><code>-3</code>, <code>-1</code> (truncate toward zero, and the remainder takes the dividend's sign)</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>memory and tensors</th><th>rule</th></tr></thead>
+    <tbody>
+      <tr><td>cache line</td><td>64 bytes (16 floats); 128 on Apple M-series</td></tr>
+      <tr><td>row-major strides of shape <code>(d0, d1, d2)</code></td><td><code>(d1·d2, d2, 1)</code>: each stride is the product of the sizes after it</td></tr>
+      <tr><td>flat index of <code>[i, j, k]</code></td><td><code>i·d1·d2 + j·d2 + k</code></td></tr>
+      <tr><td>unravel a flat index <code>f</code> in shape <code>(d0, d1)</code></td><td><code>[f / d1, f % d1]</code></td></tr>
+      <tr><td>broadcast an axis</td><td>stride 0</td></tr>
+      <tr><td><code>(M, K) @ (K, N)</code></td><td>shape <code>(M, N)</code>, 2·M·N·K flops</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>OCaml</th><th>meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>type t = A | B of int * t</code></td><td>a variant whose <code>B</code> carries a pair</td></tr>
+      <tr><td><code>match e with A -&gt; 0 | B (n, _) -&gt; n</code></td><td>pattern matching</td></tr>
+      <tr><td><code>let x = 3 in x + 1</code>, <code>fun x -&gt; x + 1</code></td><td>local name, anonymous function</td></tr>
+      <tr><td><code>Some v | None</code></td><td>an option</td></tr>
+      <tr><td><code>let r = ref 0 in r := !r + 1</code></td><td>a mutable cell</td></tr>
+      <tr><td><code>Hashtbl.replace t k v</code>, <code>Hashtbl.find_opt t k</code></td><td>a hash table</td></tr>
+      <tr><td><code>max_int</code></td><td>4611686018427387903 (63-bit)</td></tr>
+      <tr><td><code>Int32.add Int32.max_int 1l</code></td><td><code>-2147483648l</code> (wraps)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Mistakes people make</h2>
+  <ol>
+    <li><strong>Adding two <code>int32_t</code> and expecting wraparound.</strong> Signed overflow is undefined, so the optimizer may assume it never happens. Add as <code>uint32_t</code> and convert back. The <code>w0-01-wrap-add</code> exercise is built around this.</li>
+    <li><strong>Treating C's <code>/</code> like Python's <code>//</code>.</strong> C truncates toward zero (<code>-7 / 2 == -3</code>), Python floors (<code>-4</code>). Week 1's i32 division follows C, and the week 1 test <code>i32_div_trunc</code> catches the Python version.</li>
+    <li><strong>Mixing up bytes and elements.</strong> Lesson 0.2 counts addresses in bytes, and lesson 0.4 counts strides in elements. A float at element 5 is at byte 20.</li>
+    <li><strong>Computing a size in <code>int</code> before widening.</strong> <code>4 * n</code> overflows before it reaches a <code>long long</code>. Write <code>4LL * n</code>.</li>
+    <li><strong>Forgetting the clamp on a padded read.</strong> Reading <code>x[-1]</code> is undefined even if you throw the value away. Check the index first.</li>
+    <li><strong>Assuming OCaml's <code>int</code> is 32 bits.</strong> It's 63, so <code>2147483647 + 1</code> is <code>2147483648</code>, not <code>INT_MIN</code>. Use <code>Int32</code> or wrap by hand.</li>
+    <li><strong>Comparing floats with <code>=</code> and expecting NaN to equal itself.</strong> <code>nan = nan</code> is false in OCaml and C. Week 1's <code>assert</code> deliberately treats two NaNs as equal, and your own code has to do the same on purpose.</li>
+  </ol>
+
+  <h2>Stuck on an exercise?</h2>
+  <ol>
+    <li><strong>Read the examples under the prompt first.</strong> They show the exact call and the expected output. Run your code on them with Run before Submit.</li>
+    <li><strong>A C exercise crashes or times out on one test.</strong> The runner traps undefined behavior, so a crash usually means signed overflow, <code>INT_MIN / -1</code>, or reading past an array. On Windows, a naive <code>INT_MIN / -1</code> can hang instead of crashing.</li>
+    <li><strong>An OCaml exercise says "keep the function name and type".</strong> The tests call your function by name. If you renamed it or changed its argument types, the harness can't compile.</li>
+    <li><strong>A hidden test fails and you can't see why.</strong> Submit shows the input and expected value of the first failing hidden test. Re-create that case by hand and trace your code on it.</li>
+    <li><strong>Still stuck.</strong> Each exercise has hints that build up one at a time, and Show answer explains the reference solution. Try one hint, then one more attempt, before looking.</li>
+  </ol>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-fill="4">
+    <p class="q">In C, <code>unsigned char c = 250; c += 10;</code> leaves what in <code>c</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">An <code>unsigned char</code> holds 0 to 255, and unsigned arithmetic wraps.</p>
+    <div class="why">260 wraps modulo 256 to 4. Unsigned overflow is defined in C, unlike signed overflow.</div>
+  </div>
+  <div class="quiz" data-fill="9">
+    <p class="q">For <code>int a[3][4];</code>, how many <code>int</code>s apart are <code>&amp;a[2][1]</code> and <code>&amp;a[0][0]</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Each row is 4 ints. Count whole rows, then the column.</p>
+    <div class="why">2 rows of 4 plus 1: <code>2·4 + 1 = 9</code>. Pointer subtraction counts elements, not bytes.</div>
+  </div>
+  <div class="quiz" data-fill="1 1 1 | [1 1 1] | [1, 1, 1] | 1, 1, 1">
+    <p class="q">In a row-major tensor of shape <code>(2, 3, 4)</code>, which index <code>[i j k]</code> is at flat position 17?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">The strides are 12, 4 and 1. Take out as many 12s as fit, then 4s.</p>
+    <div class="why"><code>17 = 1·12 + 1·4 + 1</code>, so <code>[1 1 1]</code>.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">A loop reads 1024 floats that sit back to back, starting at the beginning of a cache line. How many 64-byte cache lines does it touch?</p>
+    <div class="opts"><button data-k="a">16</button><button data-k="b">64</button><button data-k="c">1024</button></div>
+    <p class="hint">How many floats fit in one line?</p>
+    <div class="why">A line holds 16 floats (64 bytes / 4), so 1024 / 16 = 64 lines.</div>
+  </div>
+  <div class="quiz" data-fill="48">
+    <p class="q">How many floating-point operations does a <code>(2, 3) @ (3, 4)</code> matrix multiply take, counting each multiply and each add?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">The rule of thumb is 2·M·N·K.</p>
+    <div class="why">M=2, K=3, N=4: <code>2·2·4·3 = 48</code>. (Strictly each output needs K multiplies and K−1 adds, but the 2·M·N·K count is the standard convention.)</div>
+  </div>
+  <div class="quiz" data-fill="-1">
+    <p class="q">In C, what is <code>-9 % 4</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">C's remainder takes the sign of the left operand.</p>
+    <div class="why"><code>-9 / 4</code> truncates to <code>-2</code>, and <code>-9 - (-2)·4 = -1</code>.</div>
+  </div>
+  <div class="quiz" data-answer="c">
+    <p class="q">In OCaml, what does <code>Int32.to_int (Int32.add Int32.max_int 1l)</code> evaluate to?</p>
+    <div class="opts"><button data-k="a"><code>2147483648</code></button><button data-k="b">an exception</button><button data-k="c"><code>-2147483648</code></button></div>
+    <p class="hint"><code>Int32</code> arithmetic wraps at 32 bits, exactly like the course's <code>i32</code>.</p>
+    <div class="why"><code>Int32.add</code> wraps, so <code>max_int + 1</code> becomes <code>min_int</code>, which converts to <code>-2147483648</code> as a native int. Plain <code>int</code> would give <code>2147483648</code>.</div>
+  </div>
+  <p>More practice: the <a href="review.html?week=0">week 0 quiz review</a> has every quiz from this week's lessons, or only the ones you missed.</p>
+
+  <h2>Go deeper</h2>
+  <ul>
+    <li><a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">What Every Programmer Should Know About Memory</a> (Ulrich Drepper). The long version of lesson 0.2: caches, TLBs and why access order matters.</li>
+    <li><a href="https://blog.regehr.org/archives/213">A Guide to Undefined Behavior in C and C++</a> (John Regehr). Why compilers exploit undefined behavior, with examples that will surprise you.</li>
+    <li><a href="https://en.cppreference.com/w/c/language/behavior">cppreference: undefined behavior</a>. The precise list of what C leaves undefined.</li>
+    <li><a href="https://dev.realworldocaml.org/">Real World OCaml</a>. A free book that goes well past the crash course: modules, functors, and the standard library you'll lean on.</li>
+    <li><a href="https://ocaml.org/docs">OCaml documentation</a>. The standard library reference for <code>Int32</code>, <code>Hashtbl</code> and <code>Printf</code>.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Row-_and_column-major_order">Row- and column-major order</a>. Short, with pictures of how the same array is laid out both ways.</li>
+  </ul>
+  <h3>Challenges</h3>
+  <ol>
+    <li><strong>Time the cache effect yourself.</strong> Write a C program that sums a 4096×4096 float array row by row, then column by column, and time both with <code>clock()</code>. Predict the ratio before you run it.</li>
+    <li><strong>Strides for any view.</strong> Extend <code>view_at</code> so it also handles a negative stride (a flipped axis). Check by hand that flipping twice gives the original.</li>
+    <li><strong>A tiny expression evaluator in OCaml.</strong> Define a variant for <code>+</code>, <code>*</code> and integer constants, write a function that evaluates it, and another that counts nodes. This is the shape of week 1, on a toy you control.</li>
+  </ol>
+</main>
+</body>
+</html>

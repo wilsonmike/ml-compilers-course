@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C and Pointers</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .ptrs { display: flex; flex-wrap: wrap; gap: var(--s4); margin-top: var(--s4); font: 0.875rem var(--mono); color: var(--ink-2); }
+  .ptrs b { color: var(--accent); font-weight: 600; }
+  .memrow { display: flex; gap: var(--s4); flex-wrap: wrap; align-items: flex-start; }
+  .memrow .grp { display: flex; flex-direction: column; gap: var(--s1); }
+  .memrow .grp .name { font: 0.875rem var(--mono); color: var(--ink-3); }
+  .mem .cell { min-width: 4rem; }
+  .mem .cell.tgt { outline: 2px dashed var(--accent); outline-offset: 2px; }
+  .bits { font: 0.875rem var(--mono); display: flex; flex-wrap: wrap; gap: 2px; }
+  .bits span { width: 1.375rem; text-align: center; padding: 2px 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px; }
+  .bits span.one { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .bits span.sign { border-bottom: 3px solid var(--warn); }
+  .bitrow { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-bottom: var(--s3); }
+  .bitrow .label { margin: 0; }
+  .bitrow input { font: 0.9375rem var(--mono); padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--bg); color: var(--ink); width: 14rem; max-width: 100%; }
+  #bitsnote { margin: var(--s3) 0 0; }
+</style>
+</head>
+<body data-root="../">
+<main>
+  <p class="eyebrow">Week 0 · Lesson 1</p>
+  <h1>C and pointers</h1>
+  <p class="lede">Every compiler in this course ends by printing C. To read that C, you need one picture in your head: memory is a long row of numbered bytes, and a pointer is just one of those numbers.</p>
+
+  <div class="note">
+    <span class="label">What you need installed</span>
+    <p>The course tools are written in Python 3, so install Python 3 first. The C exercises need a C compiler on your PATH: <code>clang</code> or <code>gcc</code>. On Windows the easiest route is a MinGW-w64 build (from WinLibs, or through MSYS2). The LLVM installer alone can't link programs unless Visual Studio's build tools are also installed. Check with <code>gcc --version</code> or <code>clang --version</code> in a new terminal.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Memory is a row of bytes</h2>
+    <p>Your program's memory is one huge array of bytes. Each byte has an <b>address</b>, which is just its position in the row. A variable is a name for a few consecutive bytes. An <code>int</code> is usually 4 bytes, a <code>char</code> is 1, a <code>double</code> is 8, and on a 64-bit machine a pointer is 8.</p>
+    <p>A <b>pointer</b> is a variable that holds an address. <code>&amp;x</code> means "the address of x". <code>*p</code> means "the value at the address stored in p". That's it. Everything else is bookkeeping about how many bytes each thing takes.</p>
+
+    <h2>Arrays are a base address plus an offset</h2>
+    <p>An array <code>int a[4]</code> is 4 ints laid out back to back, 16 bytes in total. If <code>a[0]</code> lives at address <code>0x1000</code>, then <code>a[1]</code> is at <code>0x1004</code>, <code>a[2]</code> at <code>0x1008</code>, and so on. (<code>0x</code> means the number is written in <b>hexadecimal</b>: base 16, with digits 0 to 9 then a to f. So <code>0x1004</code> is 4 more than <code>0x1000</code>, and <code>0x100c</code> is 12 more.) In general:</p>
+  </div>
+  <pre><code>address of a[i]  =  base  +  i * sizeof(element)</code></pre>
+  <div class="prose">
+    <p>This formula is the most important line in the whole course. By week 5 you'll be generating code that turns a 4D tensor index into exactly this: one base address plus one computed offset.</p>
+    <p>Step through the snippet below. Watch what <code>p + 1</code> does: it moves 4 bytes, not 1, because C scales pointer arithmetic by the size of what <code>p</code> points to.</p>
+  </div>
+
+  <div class="fig" id="ptrfig" data-title="pointer walk"></div>
+
+  <div class="prose">
+    <h3>p[i] is *(p + i)</h3>
+    <p>Indexing is defined as pointer arithmetic. <code>p[2]</code> is <em>exactly</em> <code>*(p + 2)</code>: add 2 elements to the address, then read. That's why C has no bounds checking. It computes an address and reads whatever is there. In week 2 your compiler will bounds check every load and store, because C won't.</p>
+
+    <h3>sizeof</h3>
+    <p><code>sizeof</code> gives a size in bytes, computed at compile time. <code>sizeof(int)</code> is 4 on every machine you'll use. For <code>int a[4]</code>, <code>sizeof(a)</code> is 16. But pass <code>a</code> to a function and it "decays" into a plain <code>int *</code>, and inside that function <code>sizeof</code> gives 8, the size of a pointer. The array's length is gone. That's why every function your compiler generates (we'll call those generated functions <b>kernels</b>) will pass sizes separately, or bake them in as constants.</p>
+
+  </div>
+
+  <div class="key">
+    <span class="label">C in 30 seconds</span>
+    <p>Enough C for the exercises on this page:</p>
+    <pre><code>int f(int a) {                 // a function: return type, name, parameters
+  int t = 0;                   // a local variable
+  for (int i = 0; i &lt; a; i++)  // a loop: start; keep going while true; step
+    t += i;                    // t = t + i
+  return t;                    // the function's result
+}
+printf("%d\n", x);             // prints the int x and a newline
+(uint32_t)a                    // a cast: converts a to an unsigned 32-bit int</code></pre>
+  </div>
+
+  <div class="exercise" data-ex="w0-c-sum-array">
+    <h3>Sum an array with a pointer</h3>
+    <p>Write <code>int sum(const int *p, int n)</code>: add up the <code>n</code> ints starting at address <code>p</code> and return the total. Use <code>p[i]</code>, or move <code>p</code> itself with <code>p++</code>. Both are the same address math.</p>
+    <p class="muted">When <code>n</code> is 0, <code>p</code> may be <code>NULL</code>. Don't read through it.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Why does <code>const int *p</code> say const?</summary>
+    <p><code>const int *p</code> is a pointer to ints you promise not to write through. The pointer itself can still move, so <code>p++</code> is fine. Generated kernels mark their input buffers this way so the C compiler knows they aren't modified.</p>
+  </details>
+
+  <div class="prose">
+    <h2>Integers are 32 bits of two's complement</h2>
+    <p>An <code>int32</code> has 32 bits. Read as an unsigned number they go from 0 to 2<sup>32</sup>−1. <b>Two's complement</b> reads the top bit as worth −2<sup>31</sup> instead of +2<sup>31</sup>. So the range is −2,147,483,648 (<code>INT_MIN</code>) to 2,147,483,647 (<code>INT_MAX</code>), and <code>-1</code> is all ones, <code>0xffffffff</code>.</p>
+    <p>Check that last one: with all 32 bits set, the top bit is worth −2,147,483,648 and the other 31 ones add up to +2,147,483,647. Together that's −1.</p>
+    <p>Type a number to see its bits. The top bit (the sign bit) is underlined.</p>
+  </div>
+
+  <div class="panel">
+    <div class="bitrow">
+      <label for="bitin" class="label">int32</label>
+      <input id="bitin" value="-1">
+      <button class="btn" type="button" data-v="2147483647">INT_MAX</button>
+      <button class="btn" type="button" data-v="-2147483648">INT_MIN</button>
+      <button class="btn" type="button" data-v="2147483648">INT_MAX + 1</button>
+    </div>
+    <div class="bits" id="bits"></div>
+    <p class="muted" id="bitsnote"></p>
+  </div>
+
+  <div class="prose">
+    <p>If you add 1 to <code>INT_MAX</code> and keep only the low 32 bits, you get <code>INT_MIN</code>. That's called <b>wrapping</b>. The hardware does it, and the language you'll compile in this course defines <code>add</code> and <code>mul</code> to wrap exactly like that.</p>
+  </div>
+  <div class="trap">
+    <span class="label">C does not promise wrapping</span>
+    <p>In C, signed overflow (<code>INT_MAX + 1</code> on an <code>int</code>) is <b>undefined behavior</b>. The compiler is allowed to assume it never happens, and optimizers really do use that. Unsigned arithmetic (<code>uint32_t</code>) <em>is</em> defined to wrap. When your compiler prints C for a wrapping <code>i32</code> add (<code>i32</code> is the course's 32-bit integer type), it'll need to cast to unsigned, add, and cast back, or pass a flag like <code>-fwrapv</code>. That last cast back is "implementation-defined": the C standard lets each compiler choose what happens, and every compiler you'll use wraps. Keep this in your back pocket for week 2.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-01-wrap-add">
+    <h3>Code quiz: add with wraparound, no UB</h3>
+    <p>Write <code>int32_t wrap_add(int32_t a, int32_t b)</code> returning <code>a + b</code> wrapped to 32 bits, so <code>wrap_add(INT_MAX, 1) == INT_MIN</code>. Don't add two signed ints directly: do the add in <code>uint32_t</code>, where wrapping is defined, then convert back. A cast is written <code>(uint32_t)a</code>, and <code>int32_t</code> and <code>uint32_t</code> come from <code>&lt;stdint.h&gt;</code>, which the exercise already includes for you.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Integer division truncates toward zero</h2>
+    <p>Since C99, <code>/</code> on integers rounds toward zero, and <code>%</code> is defined so that <code>(a / b) * b + a % b == a</code>. That means the remainder takes the sign of the left operand:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>expression</th><th>C result</th><th>why</th></tr>
+    <tr><td><code>7 / 2</code></td><td><code>3</code></td><td>3.5 rounds toward zero</td></tr>
+    <tr><td><code>-7 / 2</code></td><td><code>-3</code></td><td>−3.5 rounds toward zero, <em>not</em> down to −4</td></tr>
+    <tr><td><code>-7 % 2</code></td><td><code>-1</code></td><td>−3 × 2 + (−1) = −7</td></tr>
+    <tr><td><code>7 % -2</code></td><td><code>1</code></td><td>−3 × −2 + 1 = 7</td></tr>
+    <tr><td><code>INT_MIN / -1</code></td><td>undefined</td><td>the true quotient, 2147483648, doesn't fit in an <code>int</code></td></tr>
+    <tr><td><code>x / 0</code></td><td>undefined</td><td>traps on x86; ARM64 quietly returns 0</td></tr>
+  </table></div>
+  <div class="trap">
+    <span class="label">Python disagrees</span>
+    <p>Python's <code>//</code> rounds <em>down</em> (<code>-7 // 2 == -4</code>) and its <code>%</code> follows the right operand's sign (<code>-7 % 2 == 1</code>). Lots of tutorials are written in Python. The course's <code>div</code> and <code>mod</code> follow C.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-01-floor-div">
+    <h3>Code quiz: Python's // from C's /</h3>
+    <p>Write <code>int floor_div(int a, int b)</code> that rounds <em>down</em> like Python: <code>floor_div(-7, 2) == -4</code>. Start from C's truncating <code>a / b</code> and fix it up. When does truncation differ from flooring? Only when there's a remainder and the signs of <code>a</code> and <code>b</code> differ. <code>b</code> is never 0.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">On the 64-bit machines this course targets, what is <code>sizeof(int)</code>?</p>
+    <div class="opts"><button data-k="a">2</button><button data-k="b">4</button><button data-k="c">8</button></div>
+    <p class="hint">Going from 32-bit to 64-bit machines doubled the size of pointers. Did it change <code>int</code>?</p>
+    <div class="why"><p>4 bytes, 32 bits. Pointers are 8 bytes on a 64-bit machine, but <code>int</code> stayed at 4.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="0x100c | 100c | 0x100C">
+    <p class="q"><code>int a[4]</code> starts at address <code>0x1000</code>. What's the address of <code>a[3]</code>? (hex)</p>
+    <div class="fill"><input placeholder="0x...." aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Each <code>int</code> is 4 bytes, so element <code>k</code> starts at base + 4k.</p>
+    <p class="hint">3 &times; 4 is 12. What is 12 in hex?</p>
+    <div class="why"><p>base + 3 × 4 = 0x1000 + 12 = <code>0x100c</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="30">
+    <p class="q">Predict the output.</p>
+<pre><code>int a[4] = {10, 20, 30, 40};
+int *p = a + 1;
+printf("%d\n", p[1]);</code></pre>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint"><code>p</code> starts at <code>a + 1</code>, which is the address of <code>a[1]</code>. Then <code>p[1]</code> moves one more element.</p>
+    <div class="why"><p><code>p</code> points at <code>a[1]</code>, so <code>p[1]</code> is <code>*(a + 1 + 1)</code>, which is <code>a[2]</code> = 30.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="-3">
+    <p class="q">Predict the output of <code>printf("%d", -7 / 2);</code> in C.</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">The exact answer is -3.5. Which way does C round: down, or toward zero?</p>
+    <div class="why"><p>C truncates toward zero. −3.5 becomes −3.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="-1">
+    <p class="q">Predict the output of <code>printf("%d", -7 % 2);</code> in C.</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">C guarantees <code>(a / b) * b + a % b == a</code>. You know <code>-7 / 2</code> from the previous quiz.</p>
+    <div class="why"><p>Since <code>-7 / 2 == -3</code>, the remainder must satisfy −3 × 2 + r = −7, so r = −1.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">What does the C standard say <code>INT_MAX + 1</code> evaluates to, for a plain <code>int</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>INT_MIN</code>, by two's complement wraparound</button>
+      <button data-k="b"><code>INT_MAX</code>, it saturates</button>
+      <button data-k="c">Nothing. Signed overflow is undefined behavior.</button>
+    </div>
+    <p class="hint">The section above has a trap box about this. Think about what the C standard promises, not what the hardware does.</p>
+    <div class="why"><p>Your hardware would wrap to <code>INT_MIN</code>, but C promises nothing, and optimizers rely on that. Unsigned types are the ones defined to wrap.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="0xffffffff | ffffffff | 0xFFFFFFFF">
+    <p class="q">What is <code>-1</code> as a 32-bit two's complement number, in hex?</p>
+    <div class="fill"><input placeholder="0x..." aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">In two's complement, -1 is the number that becomes 0 when you add 1.</p>
+    <p class="hint">Adding 1 to 0xffffffff carries out of all 32 bits.</p>
+    <div class="why"><p>All 32 bits set. Adding 1 to it wraps to 0, which is exactly what −1 + 1 should give.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">A function is declared <code>void f(int a[4])</code>. Inside <code>f</code>, what is <code>sizeof(a)</code> on a 64-bit machine?</p>
+    <div class="opts"><button data-k="a">8, the size of a pointer</button><button data-k="b">16, four ints</button><button data-k="c">4, one int</button></div>
+    <p class="hint">Can C pass a whole array to a function by value? What does an array turn into when it's passed?</p>
+    <div class="why"><p>Array parameters decay to pointers. The <code>[4]</code> in the signature is decoration, and the length is lost.</p></div>
+  </div>
+  <nav class="pager"><a href="../index.html">← course home</a><a href="02-memory-and-caches.html">memory and caches →</a></nav>
+</main>
+
+<script>
+// Pointer walk. Memory: a[0..3] at 0x1000.., p at 0x1010 (8 bytes), x at 0x1018.
+(() => {
+  const { h } = CC;
+  const src = `int a[4] = {10, 20, 30, 40};
+int *p = a;      // p holds the address of a[0]
+int x = p[2];    // same as *(p + 2)
+p = p + 1;       // moves 4 bytes, not 1
+*p = 99;         // writes into a[1]`;
+  const hex = n => '0x' + n.toString(16);
+  const S = [
+    { line: -1, a: [null, null, null, null], p: null, x: null, caption: 'Memory before anything runs. The four <code>a</code> boxes are 4-byte <code>int</code>s, <code>p</code> is an 8-byte pointer, and <code>x</code> is another <code>int</code>. Each is labelled with its address. Nothing is initialized yet.' },
+    { line: 0, a: [10, 20, 30, 40], p: null, x: null, on: [0, 1, 2, 3], caption: '<code>a</code> gets 16 consecutive bytes starting at <code>0x1000</code>. Each element is 4 bytes after the previous one.' },
+    { line: 1, a: [10, 20, 30, 40], p: 0x1000, x: null, tgt: 0, caption: '<code>p</code> is its own 8-byte variable. Its <em>value</em> is the number <code>0x1000</code>, which is the address of <code>a[0]</code>.' },
+    { line: 2, a: [10, 20, 30, 40], p: 0x1000, x: 30, tgt: 0, read: 2, on: [2], caption: '<code>p[2]</code> means <code>*(p + 2)</code>: address <code>0x1000 + 2*4 = 0x1008</code>. That holds 30, so <code>x = 30</code>.' },
+    { line: 3, a: [10, 20, 30, 40], p: 0x1004, x: 30, tgt: 1, caption: '<code>p + 1</code> adds <code>1 * sizeof(int)</code> = 4. Now <code>p</code> holds <code>0x1004</code> and points at <code>a[1]</code>.' },
+    { line: 4, a: [10, 99, 30, 40], p: 0x1004, x: 30, tgt: 1, on: [1], caption: '<code>*p = 99</code> writes through the pointer. The variable <code>a</code> was never named, but <code>a[1]</code> changed.' },
+  ];
+  const cell = (addr, v, cls) => h('div', { class: 'cell ' + (cls || '') }, h('span', { class: 'addr', text: hex(addr) }), v == null ? '?' : String(v));
+  CC.stepper(document.getElementById('ptrfig'), S, (s, body) => {
+    const arr = s.a.map((v, i) => cell(0x1000 + 4 * i, v, [(s.on || []).includes(i) ? 'on' : '', s.tgt === i ? 'tgt' : ''].join(' ')));
+    body.append(h('div', { class: 'split' }, CC.code(src, s.line), h('div', {},
+      h('div', { class: 'memrow' },
+        h('div', { class: 'grp' }, h('span', { class: 'name', text: 'a[0..3]' }), h('div', { class: 'mem' }, arr)),
+        h('div', { class: 'grp' }, h('span', { class: 'name', text: 'p' }), h('div', { class: 'mem' }, cell(0x1010, s.p == null ? null : hex(s.p), s.line === 1 || s.line === 3 ? 'on' : ''))),
+        h('div', { class: 'grp' }, h('span', { class: 'name', text: 'x' }), h('div', { class: 'mem' }, cell(0x1018, s.x, s.line === 2 ? 'on' : '')))),
+      h('div', { class: 'ptrs' }, s.p == null ? 'p is not set yet' : h('span', {}, 'p → ', h('b', { text: hex(s.p) }), ` (a[${(s.p - 0x1000) / 4}], dashed box)` + (s.read != null ? `; reading a[${s.read}]` : ''))))));
+  });
+})();
+
+// int32 bit viewer: keeps the low 32 bits, then reads them back as two's complement.
+(() => {
+  const inp = document.getElementById('bitin'), out = document.getElementById('bits'), note = document.getElementById('bitsnote');
+  const paint = () => {
+    let n; try { n = BigInt(inp.value.trim()); } catch { note.textContent = 'Type a whole number.'; return; }
+    const u = BigInt.asUintN(32, n), s = BigInt.asIntN(32, n), bits = u.toString(2).padStart(32, '0');
+    out.replaceChildren(...[...bits].map((b, i) => CC.h('span', { class: (b === '1' ? 'one' : '') + (i === 0 ? ' sign' : ''), text: b })));
+    note.textContent = `hex 0x${u.toString(16).padStart(8, '0')}   as int32: ${s}` + (s !== n ? `   (${n} does not fit, so it wrapped)` : '');
+  };
+  inp.oninput = paint;
+  document.querySelectorAll('[data-v]').forEach(b => (b.onclick = () => { inp.value = b.dataset.v; paint(); }));
+  paint();
+})();
+</script>
+</body>
+</html>

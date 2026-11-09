@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rangeify</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .stack { display: grid; gap: var(--s4); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 4 · Lesson 3</p>
+<h1>Rangeify</h1>
+<p class="lede">The syllabus puts it in one line: "rangeify removes shapes from all ops." Your <code>run</code> can evaluate vectors directly, but your <code>render</code> can't unroll a 4096-element vector into 4096 lines of C. It has to turn every vector back into a loop, and the way to do that is to ask each value one question: what is your element at index i?</p>
+
+<div class="prose">
+<h2>One question per value</h2>
+<p>Pick an index variable <code>i</code>. Every vector value can answer "what is my element at <code>i</code>" with a <em>scalar</em> graph, and the answers are short:</p>
+</div>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>value</th><th>its element at <code>i</code></th></tr></thead>
+<tbody>
+<tr><td>an elementwise op <code>add %a %b</code></td><td><code>add</code> of a's element at i and b's element at i</td></tr>
+<tr><td><code>load</code> of a view at offset o</td><td>a scalar load of <code>shrink view i shape=[]</code>, element <code>o + i</code></td></tr>
+<tr><td><code>expand %s shape=[n]</code></td><td><code>%s</code> itself: the index doesn't matter</td></tr>
+<tr><td><code>stack a b c</code></td><td><code>index</code> of the stack at i</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="prose">
+<p>The answers recurse: asking the <code>add</code> asks both operands, with the same <code>i</code>. Elementwise is what makes that work. Element i of the result never needs element <code>i + 1</code> of anything, so one index flows down the whole graph and every shape disappears on the way.</p>
+<p>Two things consume a vector and produce a scalar or an effect, and those are where the loops come from:</p>
+<ul>
+<li>A <strong>rank-1 store</strong> becomes a loop: <code>range n</code>, then store element i of the value into element i of the view, then <code>end</code>.</li>
+<li>A <strong>reduce</strong> becomes an accumulator loop, exactly week 3's pattern: seed a one-element <code>alloc</code> with the element at 0, loop over 1 to n-1 folding in the element at each index, and load the result after the loop.</li>
+</ul>
+</div>
+
+<div class="fig" id="steps" data-title="rangeify y = x * 2.0, one rule at a time"></div>
+
+<div class="prose">
+<p>That's the oracle's real output for <code>store %y (mul (load %x) (expand 2.0))</code> on four floats: one loop, with the constant folded right into the loop body because <code>expand</code>'s element at any index is just <code>2.0</code>. In the C, <code>0x1.0000000000000p+1f</code> is 2.0 written as a hex float, which round-trips exactly (lesson 2.4).</p>
+
+<h2>reduce becomes an accumulator loop</h2>
+<p>Here's what the oracle renders for <code>reduce (load %x) op=add</code> on four floats, stored into a one-element buffer. Compare it with lesson 3.2's accumulator:</p>
+<pre><code>float a4[1] = {0};
+float v7 = b0[0];                /* the element at 0 seeds the fold */
+a4[0] = v7;
+for (int32_t r14 = 0; r14 &lt; 3; r14++) {
+  float v15 = a4[0];             /* loop-carried: reloaded every iteration */
+  int32_t v16 = (int32_t)((uint32_t)r14 + (uint32_t)1);
+  int32_t v17 = (v16 % 4);       /* decoding the flat counter; always equal to v16 here */
+  float v19 = b0[v17];           /* the element at r + 1 */
+  float v20 = (v15 + v19);
+  a4[0] = v20;
+}
+float v24 = a4[0];
+b1[0] = v24;</code></pre>
+<p>The <code>% 4</code> line comes from decoding a flat loop counter back into an index. Here <code>r + 1</code> is always below 4, so it's provably redundant. Lesson 5.5 shows how a simplifier removes lines like it.</p>
+<p>The loop runs n-1 times over indices 1 to n-1, so the fold is left to right from <code>x[0]</code>, as the spec requires. The accumulator's load sits inside the loop because of week 3's placement rule: its only use is in the loop, and the loop stores into the version it reads.</p>
+</div>
+
+<div class="key">
+<span class="label">Rangeify reuses everything you built</span>
+<p>After rangeify, the graph has no vector values left: only scalars, <code>range</code>, <code>end</code>, <code>alloc</code>, loads and stores. That's a week 3 program, and your week 3 renderer already knows how to place each value at the right loop depth and print it. Week 4's new work is entirely in the lowering.</p>
+</div>
+
+<div class="exercise" data-ex="w4-03-lower">
+<h3>The element at index i</h3>
+<p>On a toy type of vector expressions (buffers, broadcasts, adds and multiplies), write <code>at e i</code>: the scalar expression for element <code>i</code> of <code>e</code>. The printer is given.</p>
+</div>
+
+<h2>Why the C must be small</h2>
+<div class="prose">
+<p>Week 4 render tests include vectors of 4096 floats, and the grader rejects rendered C over 20,000 bytes. A renderer that kept vectors as C arrays and unrolled every elementwise op would emit thousands of lines, but a rangeified one emits a few loops no matter how big n is. The <code>x / sum(x)</code> example from lesson 4.2, on 4096 floats, renders to about 800 bytes (801 with the current oracle) with two loops: the reduce's 4095 iterations, then the 4096-iteration store.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-03-sumleft">
+<h3>The reduce loop in C</h3>
+<p>Write <code>float sum_left(const float *x, int n)</code> (with n ≥ 1) so that it computes exactly what <code>reduce op=add</code> does: start from <code>x[0]</code>, then add <code>x[1]</code> to <code>x[n-1]</code> in order. The starter is right for every input but one kind. The tests compare the 32 bits of your result, printed in hex, so <code>-0.0</code> (<code>80000000</code>) and <code>0.0</code> (<code>00000000</code>) differ.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="a">
+<p class="q">What is the element at <code>i</code> of <code>add %a %b</code>, where both are vectors?</p>
+<div class="opts">
+<button data-k="a"><code>add</code> of a's element at i and b's element at i</button>
+<button data-k="b"><code>add</code> of a's element at i and b's element at <code>i + 1</code></button>
+<button data-k="c">A loop over every element of a and b</button>
+<button data-k="d">The sum of all of a and all of b</button>
+</div>
+<p class="hint">What does "elementwise" promise about which elements an op reads?</p>
+<div class="why"><p>An elementwise op's element i depends only on its operands' elements i, so the same index flows down to both operands.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">What is the element at <code>i</code> of <code>expand %s shape=[4096]</code>?</p>
+<div class="opts">
+<button data-k="a">A load from a 4096-element temp buffer at i</button>
+<button data-k="b"><code>index</code> of a stack of 4096 copies at i</button>
+<button data-k="c"><code>%s</code> itself</button>
+<button data-k="d">Invalid: expand can't be rangeified</button>
+</div>
+<p class="hint">Does the answer depend on i at all?</p>
+<div class="why"><p>Every element of a broadcast is the same scalar, so its element at any index is <code>%s</code>. That's why a broadcast costs nothing in the generated loop.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">How many <code>for</code> loops does the oracle render for <code>x / sum(x)</code> (reduce, recip, expand, mul, then a rank-1 store) on 4096 floats?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Which two ops turn into loops?</p>
+<div class="why"><p>The reduce becomes one loop and the rank-1 store another. The recip is a scalar, computed once between them, and the expand disappears into the store loop.</p></div>
+</div>
+
+<div class="quiz" data-fill="4095">
+<p class="q">In that rendering, how many iterations does the reduce loop run?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Where does the fold start, and what's left to add?</p>
+<div class="why"><p>The accumulator is seeded with element 0, so the loop folds in elements 1 to 4095: 4095 iterations.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why does the grader cap rendered C at 20,000 bytes in week 4?</p>
+<div class="opts">
+<button data-k="a">Big C files compile too slowly for the grader's timeout.</button>
+<button data-k="b">So a renderer that unrolls vectors instead of rangeifying them fails on big inputs.</button>
+<button data-k="c">C compilers reject functions over that size.</button>
+<button data-k="d">To force every program into a single loop.</button>
+</div>
+<p class="hint">What does a renderer that doesn't rangeify emit for a 4096-element vector?</p>
+<div class="why"><p>Unrolled vector code grows with n, but rangeified code doesn't. The cap is a simple way to check that your renderer really turns shapes into loops. It doesn't force one loop: <code>x / sum(x)</code> needs two.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">After rangeify, which of these can still appear in the graph your renderer prints?</p>
+<div class="opts">
+<button data-k="a">An <code>add</code> of two <code>(4096,)</code> vectors</button>
+<button data-k="b">A <code>reduce</code></button>
+<button data-k="c">An <code>expand</code></button>
+<button data-k="d">A <code>range</code>, an <code>end</code> and an <code>alloc</code></button>
+</div>
+<p class="hint">"Removes shapes from all ops."</p>
+<div class="why"><p>Rangeify lowers every vector op into scalar ops inside loops. What's left is week 3 material: ranges, ends, allocs, scalar loads and stores.</p></div>
+</div>
+
+<nav class="pager">
+<a href="02-reduce-expand.html">← Lesson 2: Reduce and expand</a>
+<a href="04-materialization.html">Lesson 4: Materialization →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const N = (id, op, sub, src, cls) => ({ id, op, sub, src: src || [], cls });
+  const vec = [N('bx', 'buffer x', 'f32 (4,)'), N('ld', 'load', '(4,)', ['bx']), N('c2', '2.0'), N('ex', 'expand', '[4]', ['c2']),
+    N('m', 'mul', '(4,)', ['ld', 'ex']), N('by', 'buffer y', 'f32 (4,)'), N('st', 'store', '', ['by', 'm'])];
+  const c = `void kernel(float *b0, float *b1) {
+  for (int32_t r4 = 0; r4 < 4; r4++) {
+    float v7 = b0[r4];
+    float v8 = (v7 * 0x1.0000000000000p+1f);
+    b1[r4] = v8;
+  }
+}`;
+  const steps = [
+    { caption: 'The vector program. Three values have shape <code>(4,)</code>; the store writes a whole vector.', nodes: vec },
+    { caption: 'A rank-1 store becomes a loop: make <code>range 4</code>, store into <code>y</code> at <code>i</code>, and ask the value for its element at <code>i</code>.',
+      nodes: [N('i', 'range', '4', [], 'new'), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i'], 'new'), N('mi', 'mul @ i', '?', [], 'hit'), N('st', 'store', '', ['yv', 'mi'], 'new')] },
+    { caption: 'The <code>mul</code> is elementwise, so its element at <code>i</code> is a scalar <code>mul</code> of its operands\' elements at <code>i</code>.',
+      nodes: [N('i', 'range', '4'), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i']), N('li', 'load @ i', '?', [], 'hit'), N('ei', 'expand @ i', '?', [], 'hit'), N('mi', 'mul', 'scalar', ['li', 'ei'], 'new'), N('st', 'store', '', ['yv', 'mi'])] },
+    { caption: 'The load\'s element at <code>i</code> is a scalar load through <code>shrink x i</code>. The expand\'s element at <code>i</code> is just <code>2.0</code>.',
+      nodes: [N('i', 'range', '4'), N('bx', 'buffer x'), N('xv', 'shrink', 'x, i', ['bx', 'i'], 'new'), N('li', 'load', 'scalar', ['xv'], 'new'), N('c2', '2.0', '', [], 'new'),
+        N('mi', 'mul', 'scalar', ['li', 'c2']), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i']), N('st', 'store', '', ['yv', 'mi'])] },
+    { caption: 'Close the loop with <code>end</code>. No vectors are left: this is a week 3 program, and the week 3 renderer prints it. (<code>0x1.0p+1f</code> is 2.0 as a C hex float.)', code: true,
+      nodes: [N('i', 'range', '4'), N('bx', 'buffer x'), N('xv', 'shrink', 'x, i', ['bx', 'i']), N('li', 'load', 'scalar', ['xv']), N('c2', '2.0'),
+        N('mi', 'mul', 'scalar', ['li', 'c2']), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i']), N('st', 'store', '', ['yv', 'mi']), N('e', 'end', '', ['st', 'i'], 'new')] },
+  ];
+  CC.stepper(document.getElementById('steps'), steps, (s, body) => body.append(h('div', { class: 'stack' }, CC.graph(s.nodes), s.code ? CC.code(c) : null)));
+});
+</script>
+</body>
+</html>

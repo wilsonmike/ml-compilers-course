@@ -1,0 +1,73 @@
+{
+ "id": "w5-03-pad",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "A ring of zeros",
+ "starter": "%x  = buffer 4 dtype=f32 slot=0\n%y  = buffer 16 dtype=f32 slot=1\n# x is 2x2. Store the 4x4 grid with x in the middle and zeros all around.\n%v  = load %x\n%m  = reshape %v shape=[2 2]\n%p  = pad %m pads=[2 0 2 0]\n%f  = reshape %p shape=[16]\n%s  = store %y %f\n%y1 = after %y %s\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0 0.0 1.0 2.0 0.0 0.0 3.0 4.0 0.0 0.0 0.0 0.0 0.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     5.0,
+     6.0,
+     7.0,
+     8.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0 0.0 5.0 6.0 0.0 0.0 7.0 8.0 0.0 0.0 0.0 0.0 0.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     -0.0,
+     "nan",
+     "inf",
+     -1.5
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0 0.0 -0.0 nan 0.0 0.0 inf -1.5 0.0 0.0 0.0 0.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1e+30,
+     -1e+30,
+     0.25,
+     3.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0 0.0 1.0000000150474662e+30 -1.0000000150474662e+30 0.0 0.0 0.25 3.0 0.0 0.0 0.0 0.0 0.0]"
+  }
+ ],
+ "hints": [
+  "The starter's grid is 4x4, but x sits in the bottom-right corner. Where do the zeros go?",
+  "`pads` lists a left and a right amount per axis: `[top bottom left right]` for a 2D value.",
+  "One zero on every side: `pads=[1 1 1 1]`."
+ ],
+ "explain": "`pad` takes `(left, right)` per axis, so `[1 1 1 1]` adds one row above and below and one column on each side: 2x2 becomes 4x4 with x at rows and columns 1 and 2. The fill is `0.0`, the f32 zero. A `-0.0` or `nan` inside x is copied as is; only the new cells are zero."
+}

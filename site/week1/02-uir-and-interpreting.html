@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The .uir Format</title>
+<link rel="stylesheet" href="../assets/course.css">
+<style>
+  .anat { font: 0.9375rem/1 var(--mono); display: flex; flex-wrap: wrap; gap: var(--s2); align-items: flex-end; margin: var(--s4) 0; }
+  .anat span { display: inline-flex; flex-direction: column; align-items: center; gap: var(--s2); }
+  .anat b { font-weight: 500; padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: 6px; background: var(--code-bg); }
+  .anat i { font: 0.875rem var(--sans); font-style: normal; color: var(--ink-3); }
+  .anat .acc b { border-color: var(--ink); background: var(--hover); }
+</style>
+</head>
+<body data-crumbs="Week 1|The .uir format" data-root="../">
+<main>
+  <p class="eyebrow">Week 1 · Lesson 2</p>
+  <h1>The .uir format, and running it</h1>
+  <p class="lede">.uir is the text form of a UOp graph: one node per line. Your first milestone is an interpreter (a program that runs another program directly instead of translating it). It reads the file, builds hash-consed nodes, type-checks them, evaluates what the asserts need, and exits with the right code.</p>
+
+  <div class="note"><span class="label">The spec is the source of truth</span><p>Everything here summarizes <a href="../../spec/uir-week1.md">spec/uir-week1.md</a>. The official course hasn't published its grammar yet, so this one is ours and provisional. If this page and the spec disagree, the spec wins.</p></div>
+
+  <h2>Anatomy of a line</h2>
+  <div class="anat" aria-label="parts of a .uir line">
+    <span class="acc"><b>%b</b><i>name</i></span><span><b>=</b><i>&nbsp;</i></span><span class="acc"><b>cast</b><i>op</i></span><span><b>%a</b><i>operand</i></span><span class="acc"><b>dtype=f32</b><i>attribute</i></span><span><b># comment</b><i>ignored</i></span>
+  </div>
+  <div class="prose">
+    <ul>
+      <li>One statement per line, always <code>%name = op operand* key=value*</code>.</li>
+      <li>Names are letters, digits and underscores. Define a name <em>above</em> its first use, and only once. So the file is already in a valid evaluation order.</li>
+      <li>An operand is a <code>%name</code> or a literal. A literal is just an inline <code>const</code>.</li>
+    </ul>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>you write</th><th>it means</th></tr>
+    <tr><td><code>3</code>, <code>-7</code></td><td><code>const</code>, dtype <code>i32</code> (must fit in 32 bits)</td></tr>
+    <tr><td><code>1.5</code>, <code>2e3</code>, <code>inf</code>, <code>-inf</code>, <code>nan</code></td><td><code>const</code>, dtype <code>f32</code> (any <code>.</code> or <code>e</code> makes it a float)</td></tr>
+    <tr><td><code>true</code>, <code>false</code></td><td><code>const</code>, dtype <code>bool</code></td></tr>
+    <tr><td><code>%x = const 3 dtype=f32</code></td><td>an explicit const. This one is <code>3.0</code>.</td></tr>
+  </table></div>
+
+  <div class="key"><span class="label">Params in one paragraph</span><p><code>%x = param 0 dtype=i32</code> declares an input: slot 0, an i32. The exercises in lessons 1 to 4 use this: the tests fill slot 0 (and 1, and so on) with numbers and print what your <code>%out</code> computes. Lesson 5 shows how <code>call</code> fills params inside a program. Until then, think of a param as "a number the test hands in".</p></div>
+
+  <h2>Four dtypes, zero conversions</h2>
+  <div class="tablewrap"><table>
+    <tr><th>dtype</th><th>values</th><th>watch out</th></tr>
+    <tr><td><code>void</code></td><td>none</td><td>Only <code>assert</code> makes one, and it can't be an operand.</td></tr>
+    <tr><td><code>bool</code></td><td><code>true</code>, <code>false</code></td><td>What <code>cmplt</code> returns, and what <code>where</code> takes.</td></tr>
+    <tr><td><code>i32</code></td><td>-2³¹ to 2³¹-1</td><td><code>add</code>, <code>mul</code> and <code>shl</code> wrap around.</td></tr>
+    <tr><td><code>f32</code></td><td>IEEE single precision</td><td>Rounded to nearest-even after <em>every</em> op.</td></tr>
+  </table></div>
+  <div class="trap"><span class="label">No implicit conversion</span><p><code>add 1.5 1</code> is a <strong>type error</strong>, not <code>2.5</code>. <code>1</code> is an <code>i32</code> and <code>1.5</code> is an <code>f32</code>, and binary ops need matching dtypes. Write <code>add 1.5 1.0</code>, or <code>cast</code> one side. C would quietly convert for you. Here, the conversion has to be its own visible node.</p></div>
+
+  <h2>Evaluating: sources first</h2>
+  <div class="prose">
+    <p>To evaluate a node, first evaluate its sources. Because names are defined before use, the file order is already a <strong>topological order</strong>: every node comes after its sources. So the simplest correct evaluator is a recursive <code>eval node</code> that evaluates the sources first and caches each result. Calling it on each assert, in file order, only ever touches what the asserts need. (Once <code>call</code> arrives in lesson 5, that cache must be per call, because the same param node means different values in different calls.) Step through it:</p>
+  </div>
+  <div class="fig" id="ev" data-title="evaluating a program one node at a time"></div>
+
+  <div class="prose">
+    <h3>Asserts are the roots</h3>
+    <p>A program's outputs are its <code>assert</code>s. They're checked in file order. A node no assert depends on is <strong>never evaluated</strong>. That makes this a valid program that exits 0, even though it contains a division by zero:</p>
+  </div>
+  <div class="split">
+<pre><code>%bad = div 1 0     # never needed
+%t   = assert 1 1  # the only root</code></pre>
+    <div id="lazy"></div>
+  </div>
+  <p class="prose">Change the assert to <code>assert %bad 0</code> and now the bad division is needed. That's a runtime error, so exit 2. Type errors are different: they're found while <em>building</em> nodes, so a type error anywhere in the file is exit 2, used or not.</p>
+
+  <h2>Exit codes</h2>
+  <p class="prose">Your compiler is one program, run from the command line as <code>yourcompiler run FILE</code>. Its exit code says what happened. A second subcommand, <code>simplify</code>, arrives in lessons 3 and 4.</p>
+  <div class="tablewrap"><table>
+    <tr><th>exit</th><th>when</th><th>example</th></tr>
+    <tr><td><code>0</code></td><td>every assert passed</td><td><code>%s = add 2 3</code><br><code>%t = assert %s 5</code></td></tr>
+    <tr><td><code>1</code></td><td>an assert failed. Print <code>assert failed: %name</code> to stderr for the first one in file order.</td><td><code>%s = add 2 2</code><br><code>%t = assert %s 5</code></td></tr>
+    <tr><td><code>2</code></td><td>invalid: a parse error, type error, undefined name, or a runtime error in something an assert needs</td><td><code>%a = add 1.5 1</code>, or<br><code>%d = div 1 0</code><br><code>%t = assert %d 0</code></td></tr>
+  </table></div>
+
+  <h2>i32: what a C programmer expects, made exact</h2>
+  <div class="prose">
+    <p><strong>Wraparound.</strong> <code>add 2147483647 1</code> is <code>-2147483648</code>. In C, signed overflow is undefined behaviour. Here it's defined: the result is reduced mod 2³² into the signed range.</p>
+    <p><strong>Division truncates toward zero</strong> (like C, unlike Python's <code>//</code>). <code>mod</code> is whatever makes <code>a = (a div b) * b + (a mod b)</code> true, so its sign follows <code>a</code>.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>a</th><th>b</th><th>div a b</th><th>mod a b</th><th>Python a // b, a % b</th></tr>
+    <tr><td>7</td><td>2</td><td>3</td><td>1</td><td>3, 1</td></tr>
+    <tr><td>-7</td><td>2</td><td>-3</td><td>-1</td><td>-4, 1</td></tr>
+    <tr><td>7</td><td>-2</td><td>-3</td><td>1</td><td>-4, -1</td></tr>
+    <tr><td>-2147483648</td><td>-1</td><td>-2147483648</td><td>0</td><td>2147483648, 0 (no wrap)</td></tr>
+  </table></div>
+  <p class="prose"><code>div</code> or <code>mod</code> by 0 is a runtime error. So is <code>shl</code> by anything outside <code>[0, 31]</code>. <code>shl 1 31</code> is <code>-2147483648</code>.</p>
+
+  <div class="exercise small" data-ex="w1-02-div32">
+    <h3>i32 division, exactly</h3>
+    <p>Write <code>div32 a b</code> for i32 values held in OCaml <code>int</code>s. Return <code>Some q</code>, where <code>q</code> is the quotient truncated toward zero and wrapped to 32 bits, or <code>None</code> when <code>b = 0</code>. (Lesson 0.6 had a version that raises, but this one returns an option instead. The tests print <code>None</code> as <code>error</code>.)</p>
+    <p class="muted">Check the table above against what OCaml's own <code>/</code> does. One row needs extra care.</p>
+  </div>
+
+  <h2>f32: rounding after every step</h2>
+  <div class="prose">
+    <p>An <code>f32</code> has 24 bits of precision. After every op, the exact result is rounded to the nearest representable f32. A tie goes to the even neighbour, like rounding 2.5 to 2 and 3.5 to 4. If your language computes in 64-bit doubles, round back to 32 bits after <em>each</em> op, not once at the end.</p>
+  </div>
+  <div class="trap"><span class="label">16777216 + 1</span><p>2²⁴ = 16777216 is where f32 runs out of integers. <code>add 16777216.0 1.0</code> is exactly halfway between 16777216 and 16777218, and it rounds to even, giving <code>16777216.0</code>. The 1 just disappears.</p></div>
+  <div class="trap"><span class="label">0.1 + 0.2</span><p>In 64-bit doubles, <code>0.1 + 0.2 == 0.3</code> is famously false. In f32 it happens to be <strong>true</strong>: <code>%s = add 0.1 0.2</code> then <code>%t = assert %s 0.3</code> passes. If your interpreter uses doubles and forgets to round, it gets this wrong.</p></div>
+  <div class="prose">
+    <h3>What assert means by "equal"</h3>
+    <ul>
+      <li>i32 and bool compare exactly.</li>
+      <li>f32 compares by value, so <code>0.0</code> equals <code>-0.0</code>.</li>
+      <li>Two NaNs count as equal, so <code>assert nan nan</code> passes. In IEEE, <code>nan == nan</code> is false. Our rule is chosen so tests can say "this should be NaN".</li>
+      <li><code>max</code> with a NaN operand is NaN. <code>cmplt</code> with a NaN is <code>false</code>.</li>
+    </ul>
+    <details class="toggle"><summary>cast rules</summary>
+    <p><code>cast 3.9 dtype=i32</code> is <code>3</code> and <code>cast -3.9 dtype=i32</code> is <code>-3</code>, because f32 to i32 truncates toward zero. A NaN, or a value outside the i32 range, is a runtime error. bool to a number gives 0 or 1. A number to bool means "not zero".</p>
+    </details>
+  </div>
+
+  <div class="exercise small" data-ex="w1-02-f32-round">
+    <h3>Round to f32</h3>
+    <p>OCaml's <code>float</code> is a 64-bit double. Write <code>f32 x</code>, which rounds <code>x</code> to the nearest f32 (ties to even, overflow to <code>inf</code>), and <code>add32 a b</code>, which adds two f32 values the way your interpreter must: compute, then round.</p>
+    <p class="muted">The <code>Int32</code> module can move a float through its 32-bit bit pattern. Look for <code>bits_of_float</code>.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="-3">
+    <p class="q">What is <code>div -7 2</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">The exact quotient is -3.5. C-style division truncates toward zero, not toward minus infinity.</p>
+    <div class="why"><p>Truncate toward zero: -3.5 becomes -3. Python's <code>//</code> would give -4.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="-1">
+    <p class="q">What is <code>mod -7 2</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Use <code>a - (a div b) * b</code>, with the truncated quotient from the previous quiz.</p>
+    <div class="why"><p><code>-7 - (-3)*2 = -1</code>. The sign follows the dividend.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="-2147483648">
+    <p class="q">What is <code>add 2147483647 1</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">i32 addition wraps around. What comes after the largest i32?</p>
+    <div class="why"><p>i32 wraps: <code>INT_MAX + 1 = INT_MIN</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">What does <code>run</code> exit with for this file?</p>
+<pre><code>%a = add 1.5 1
+%t = assert %a 2.5</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>0</code>, since 1.5 + 1 = 2.5</button>
+      <button data-k="b"><code>1</code>, the assert fails</button>
+      <button data-k="c"><code>2</code>, a type error</button>
+    </div>
+    <p class="hint">Look at the dtypes of the two literals. Does .uir ever convert between them for you?</p>
+    <div class="why"><p><code>1</code> is an i32 literal and <code>1.5</code> is f32. There's no implicit conversion, so <code>add</code> rejects mismatched dtypes when the node is built.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Exit code?</p>
+<pre><code>%bad = div 1 0
+%t   = assert 1 1</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>0</code></button>
+      <button data-k="b"><code>1</code></button>
+      <button data-k="c"><code>2</code></button>
+    </div>
+    <p class="hint">The program's roots are its asserts. Is <code>%bad</code> reachable from one?</p>
+    <div class="why"><p>No assert depends on <code>%bad</code>, so it's never evaluated. Runtime errors only count when an assert needs the value.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Exit code?</p>
+<pre><code>%a = add 2 2
+%t = assert %a 5</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>0</code></button>
+      <button data-k="b"><code>1</code>, and stderr says <code>assert failed: %t</code></button>
+      <button data-k="c"><code>2</code></button>
+    </div>
+    <p class="hint">The program parses and type checks. What does the assert compare, and what's the exit code for a false one?</p>
+    <div class="why"><p>A valid program whose assert is false.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Does this pass?</p>
+    <pre><code>%s = add 16777216.0 1.0
+%t = assert %s 16777216.0</code></pre>
+    <div class="opts">
+      <button data-k="a">Yes. The sum rounds back to 16777216.0.</button>
+      <button data-k="b">No. The sum is 16777217.0.</button>
+      <button data-k="c">It's invalid. The number is too big for f32.</button>
+    </div>
+    <p class="hint">f32 has 24 bits of precision, and 16777216 is 2 to the 24th. Can f32 represent 16777217?</p>
+    <p class="hint">When a value sits exactly halfway between two f32 numbers, the tie goes to the one whose last bit is even.</p>
+    <div class="why"><p>16777217 isn't representable in f32. It's a tie between 16777216 and 16777218, and ties round to even.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Does <code>assert nan nan</code> pass?</p>
+    <div class="opts">
+      <button data-k="a">Yes. Assert treats two NaNs as equal.</button>
+      <button data-k="b">No. In IEEE, NaN never equals NaN.</button>
+    </div>
+    <p class="hint">IEEE says NaN never equals NaN, but this course's spec defines assert equality on purpose. Check section 3.</p>
+    <div class="why"><p>The spec defines assert equality so you can test for NaN. Inside the program, <code>cmplt</code> still follows IEEE: any NaN gives <code>false</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="-3">
+    <p class="q">What is <code>cast -3.9 dtype=i32</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Casting f32 to i32 truncates toward zero. Which integer is closer to zero, -3 or -4?</p>
+    <div class="why"><p>Truncate toward zero, not floor. <code>cast 3000000000.0 dtype=i32</code> would be a runtime error, because it's out of range.</p></div>
+  </div>
+  <h2>Code it</h2>
+  <div class="exercise" data-ex="w1-uir-abs">
+    <h3>Absolute value in .uir</h3>
+    <p>Define <code>%out</code> as <code>|x|</code> for the i32 param <code>%x</code>, using <code>cmplt</code>, <code>where</code> and <code>mul</code>. There's no <code>sub</code> or <code>neg</code> op: <code>-x</code> is <code>mul %x -1</code>.</p>
+    <p class="muted">What should <code>|INT_MIN|</code> be when i32 wraps? The tests have an opinion.</p>
+  </div>
+
+
+  <nav class="pager"><a href="01-the-uop.html">← The UOp</a><a href="03-rewrites-and-folding.html">Rewrites and constant folding →</a></nav>
+</main>
+<script src="../assets/course.js"></script>
+<script>
+(() => {
+  const { h, graph, parseUir, stepper, code } = CC;
+  const lit = nodes => nodes.map(n => (!n.src.length && n.op !== 'param' && n.op !== 'const') ? { ...n, op: 'const', sub: n.op, val: n.op } : { ...n });
+
+  // evaluation stepper
+  const prog = '%a = add 2 3\n%b = mul %a 4\n%c = cmplt %b 30\n%d = where %c %b 0\n%t = assert %d 20';
+  const lines = prog.split('\n');
+  const { nodes, names } = parseUir(prog);
+  const vals = { a: '5', b: '20', c: 'true', d: '20', t: 'pass' };
+  const why = {
+    a: '<code>%a = add 2 3</code>: both sources are constants, already known. 2 + 3 = <b>5</b>.',
+    b: '<code>%b = mul %a 4</code>: %a is cached as 5, so 5 * 4 = <b>20</b>.',
+    c: '<code>%c = cmplt %b 30</code>: 20 &lt; 30 is <b>true</b>. The dtype is bool.',
+    d: '<code>%d = where %c %b 0</code>: c is true, so pick b, which is <b>20</b>. Both branches were evaluated (where is strict: it evaluates both branches even though it returns only one), but 0 was free.',
+    t: '<code>%t = assert %d 20</code>: 20 equals 20, so it <b>passes</b>. That was the last root, so exit 0.',
+  };
+  const order = Object.keys(vals);
+  const steps = [{ k: 0, caption: 'Constants are their own values. Everything else is unknown. We go down the file, which is already a topological order.' }]
+    .concat(order.map((nm, i) => ({ k: i + 1, caption: why[nm] })));
+  stepper(document.getElementById('ev'), steps, (s, body) => {
+    const done = new Map(order.slice(0, s.k).map(nm => [names[nm], vals[nm]]));
+    const curId = s.k ? names[order[s.k - 1]] : null;
+    const g = lit(nodes).map(n => ({ ...n, val: n.val ?? done.get(n.id), cls: n.id === curId ? 'hit' : '' }));
+    body.append(h('div', { class: 'split' }, code(prog, s.k - 1), graph(g)));
+  });
+
+  // laziness picture: the unused div is dimmed
+  const L = parseUir('%bad = div 1 0\n%t = assert 1 1');
+  document.getElementById('lazy').append(graph(lit(L.nodes).map(n => ({ ...n, cls: n.id === L.names.bad ? 'dead' : n.id === L.names.t ? 'hit' : '' }))));
+})();
+</script>
+</body>
+</html>

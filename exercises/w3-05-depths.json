@@ -1,0 +1,45 @@
+{
+ "id": "w3-05-depths",
+ "lang": "ocaml",
+ "title": "Which loop does a node live in?",
+ "show": "string_of_int",
+ "starter": "type node =\n  | Range of int * string      (* nesting depth (1 = outermost) and name *)\n  | Op of string * node list\n\n(* The loop depth a node must be computed at: the deepest range it depends on, or 0 for none. *)\nlet rec depth (n : node) : int =\n  0\n",
+ "tests": [
+  {
+   "expr": "depth (Op (\"const\", []))",
+   "expect": "0",
+   "sample": true
+  },
+  {
+   "expr": "let i = Range (1, \"i\") and j = Range (2, \"j\") and k = Range (3, \"k\") in depth (Op (\"add\", [i; j]))",
+   "expect": "2",
+   "sample": true
+  },
+  {
+   "expr": "let i = Range (1, \"i\") and j = Range (2, \"j\") and k = Range (3, \"k\") in depth k",
+   "expect": "3"
+  },
+  {
+   "expr": "let i = Range (1, \"i\") and j = Range (2, \"j\") and k = Range (3, \"k\") in depth (Op (\"mul\", [Op (\"add\", [i; Op (\"const\", [])]); Op (\"const\", [])]))",
+   "expect": "1"
+  },
+  {
+   "expr": "let i = Range (1, \"i\") and j = Range (2, \"j\") and k = Range (3, \"k\") in depth (Op (\"store\", [Op (\"shrink\", [Op (\"add\", [Op (\"mul\", [i; Op (\"c\", [])]); j])]); Op (\"add\", [Op (\"load\", [k]); i])]))",
+   "expect": "3"
+  },
+  {
+   "expr": "let i = Range (1, \"i\") and j = Range (2, \"j\") and k = Range (3, \"k\") in depth (Op (\"where\", [Op (\"cmplt\", [j; i]); i; Op (\"c\", [])]))",
+   "expect": "2"
+  },
+  {
+   "expr": "depth (Op (\"a\", [Op (\"b\", [Op (\"c\", [Range (4, \"l\")])])]))",
+   "expect": "4"
+  }
+ ],
+ "hints": [
+  "A value has to be computed inside every loop whose counter it uses, and nowhere deeper. So its depth is the deepest range it can reach.",
+  "Recurse: a `Range` knows its own depth; an `Op` takes the maximum over its sources, and an op with no sources (a constant) is depth 0.",
+  "`List.fold_left (fun acc s -> max acc (depth s)) 0 srcs` does the whole `Op` case."
+ ],
+ "explain": "Depth is the maximum range depth reachable from a node, with constants at 0. In a real compiler you'd memoize this on a shared DAG (each node visited once) and check that the ranges nest, but the rule is this one line."
+}

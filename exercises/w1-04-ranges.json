@@ -1,0 +1,62 @@
+{
+ "id": "w1-04-ranges",
+ "lang": "ocaml",
+ "title": "Interval arithmetic for i32",
+ "show": "(fun r -> Printf.sprintf \"[%d, %d]\" r.lo r.hi)",
+ "starter": "type range = { lo : int; hi : int }\n\nlet int_min = -2147483648\nlet int_max = 2147483647\nlet full = { lo = int_min; hi = int_max }\n\n(* [a.lo, a.hi] + [b.lo, b.hi]. If either end could leave the i32 range, the sum may wrap: return full. *)\nlet add_range (a : range) (b : range) : range =\n  full\n\n(* Same for multiplication. Watch the signs: the extremes can come from any pair of ends. *)\nlet mul_range (a : range) (b : range) : range =\n  full\n",
+ "tests": [
+  {
+   "expr": "add_range { lo = 0; hi = 7 } { lo = 1; hi = 1 }",
+   "expect": "[1, 8]",
+   "sample": true
+  },
+  {
+   "expr": "add_range { lo = (-3); hi = 2 } { lo = 10; hi = 20 }",
+   "expect": "[7, 22]",
+   "sample": true
+  },
+  {
+   "expr": "add_range { lo = 0; hi = 2147483647 } { lo = 1; hi = 1 }",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "add_range { lo = (-2147483648); hi = 0 } { lo = (-1); hi = 0 }",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "add_range { lo = (-2147483648); hi = (-1) } { lo = 1; hi = 2147483647 }",
+   "expect": "[-2147483647, 2147483646]"
+  },
+  {
+   "expr": "mul_range { lo = (-3); hi = 2 } { lo = (-5); hi = 4 }",
+   "expect": "[-12, 15]",
+   "sample": true
+  },
+  {
+   "expr": "mul_range { lo = 0; hi = 1 } { lo = 2; hi = 2 }",
+   "expect": "[0, 2]"
+  },
+  {
+   "expr": "mul_range { lo = 65536; hi = 65536 } { lo = 32768; hi = 32768 }",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "mul_range { lo = (-65536); hi = 65536 } { lo = (-32767); hi = 32768 }",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "mul_range { lo = (-2147483648); hi = 2147483647 } { lo = (-2147483648); hi = 2147483647 }",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "mul_range { lo = (-1); hi = (-1) } { lo = (-2147483648); hi = (-2147483648) }",
+   "expect": "[-2147483648, 2147483647]"
+  }
+ ],
+ "hints": [
+  "Compute the result interval with plain OCaml ints, then decide whether it still fits in i32. OCaml ints are 63 bits, so every sum fits and every product fits except one: `INT_MIN * INT_MIN` is 2^62, one past `max_int`, and wraps to `min_int` (see the toggle above).",
+  "For add, the new low is `a.lo + b.lo` and the new high is `a.hi + b.hi`. For mul, the extremes can come from any of the four products of the ends, so take the min and max of all four.",
+  "If the low end is below `int_min` or the high end is above `int_max`, the i32 result could wrap, so the only safe answer is `full`. Write one small helper that does this check and use it for both."
+ ],
+ "explain": "OCaml's 63-bit ints hold every sum of two i32 ends exactly, and every product except `INT_MIN * INT_MIN` = 2^62, which wraps to `min_int`. That wrapped value lands below `int_min`, so the same range check still returns `full`. A helper returns `full` whenever an end leaves the i32 range, and for multiplication it takes the min and max of all four end products, because negative ends can swap which product is largest."
+}

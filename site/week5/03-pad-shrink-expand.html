@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pad, Shrink, Expand, Stack</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .ops { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
+  .vlabel { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
+  .planes { display: flex; gap: var(--s4); flex-wrap: wrap; }
+  .grid { display: grid; gap: 3px; }
+  .grid .c { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; min-width: 2.5rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+  .grid .c.z { color: var(--ink-3); background: var(--panel); border-style: dashed; } /* design-ok: dashed is the diagram notation for padding and out-of-bounds cells, named in the captions */
+  .grid .c.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 5 · Lesson 3</p>
+<h1>Pad, shrink, expand, stack</h1>
+<p class="lede">Four more ways to rearrange without computing: grow a tensor with zeros, cut a window out of it, repeat it along a size-1 axis, or join several into one. With these, lesson 5.2's two, and <code>index</code> from lesson 5.1, you can write down most of the data movement in a neural network.</p>
+
+<div class="fig" id="ops" data-title="one 2x2 grid, four movement ops"></div>
+
+<div class="prose">
+<h2>pad adds zeros</h2>
+<p><code>pad %x pads=[l0 r0 l1 r1 ...]</code> takes two numbers per axis: how many zeros go before it and how many after. A 2D value has four, <code>[top bottom left right]</code>. The new cells hold the dtype's zero (<code>0</code>, <code>0.0</code> or <code>false</code>), and element <code>[i][j]</code> of the result is <code>x[i - l0][j - l1]</code> when that's inside <code>x</code>.</p>
+<p><code>pad [[1 2] [3 4]] pads=[0 1 2 0]</code> adds a row below and two columns on the left: shape <code>(3, 4)</code>, rows <code>0 0 1 2</code>, <code>0 0 3 4</code>, <code>0 0 0 0</code>. The pads must be at least 0; to cut, use <code>shrink</code>.</p>
+</div>
+
+<div class="exercise" data-ex="w5-03-pad">
+<h3>A ring of zeros</h3>
+<p>Slot 0 holds a <code>2x2</code> f32 grid. Store the <code>4x4</code> grid with it in the middle and zeros all around into slot 1. The starter's grid is the right size with the zeros in the wrong place.</p>
+</div>
+
+<h2>shrink cuts a window</h2>
+<div class="prose">
+<p><code>shrink %x o0 o1 shape=[s0 s1]</code> takes one offset per axis and a window size: element <code>[i][j]</code> is <code>x[i + o0][j + o1]</code>. It's week 2's memory view, applied to a value. The first operand decides which one you get: memory gives a view, a value gives a window.</p>
+<p>The offsets can be any i32 expression, but as with views they must be <b>provably</b> in range, using week 1's intervals (lesson 2.3): for every axis, <code>lo ≥ 0</code> and <code>hi + s ≤ size</code>. A window of 2 over 4 elements at offset <code>mod (max %i 0) 3</code> is fine, since the offset is in <code>[0, 2]</code> and <code>2 + 2 ≤ 4</code>. At <code>mod (max %i 0) 4</code> the offset can reach 3, and <code>3 + 2 &gt; 4</code>, so it's rejected. A raw loaded <code>%i</code> could be anything, so it's rejected too.</p>
+</div>
+
+<div class="note">
+<span class="label">Pad, then shrink, is the identity</span>
+<p>Padding by one on every side and then shrinking at offsets <code>1 1</code> with the original shape gives the original back. Shrinking anywhere else sees some of the zeros. That pair, pad and a sliding window, is how a padded convolution is built (lesson 5.4).</p>
+</div>
+
+<h2>expand repeats along size-1 axes</h2>
+<div class="prose">
+<p>Week 4's <code>expand</code> took a scalar. Now it also takes a value of the same rank, and grows only its size-1 axes: <code>(3, 1)</code> can become <code>(3, 4)</code>, and element <code>[i][j]</code> reads <code>x[i][0]</code>. A size-2 axis can't become 3, and the rank can't change. To broadcast a vector across rows, give it a size-1 axis first with <code>reshape</code>: <code>(4,)</code> becomes <code>(1, 4)</code>, then expands to <code>(3, 4)</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w5-03-rowbias">
+<h3>Add a bias to every row</h3>
+<p>Slot 0 holds a <code>3x4</code> f32 matrix and slot 1 a bias of 4 values. Store <code>y[i][j] = x[i][j] + b[j]</code> into slot 2. The starter adds <code>b[0]</code> everywhere.</p>
+</div>
+
+<h2>stack joins along a new axis</h2>
+<div class="prose">
+<p><code>stack %a %b</code> needs operands of one shape and puts a new axis in front: two <code>(2, 2)</code> grids become a <code>(2, 2, 2)</code> tensor, and <code>index</code> on the new axis gets each one back. In week 1 it only stacked scalars, but now it stacks anything, as long as the shapes match.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="c">
+<p class="q">What shape is <code>pad %x pads=[1 0 0 2]</code> for a <code>(2, 2)</code> <code>%x</code>?</p>
+<div class="opts">
+<button data-k="a"><code>(4, 4)</code></button>
+<button data-k="b"><code>(2, 5)</code></button>
+<button data-k="c"><code>(3, 4)</code></button>
+<button data-k="d"><code>(3, 3)</code></button>
+</div>
+<p class="hint">The pairs are per axis: <code>(1, 0)</code> for rows, <code>(0, 2)</code> for columns.</p>
+<div class="why"><p>Rows grow by <code>1 + 0</code> to 3, columns by <code>0 + 2</code> to 4.</p></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q"><code>%x = [[0 1] [2 3]]</code>. What is element <code>[2][1]</code> of <code>pad %x pads=[1 0 0 2]</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Subtract the left pads: <code>[2 - 1][1 - 0]</code>.</p>
+<div class="why"><p>It reads <code>x[1][1]</code>, which is 3. Element <code>[0][0]</code> would be a padding zero, and so would any column past 1.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q"><code>%c</code> has shape <code>(3, 1)</code> and holds <code>0, 1, 2</code>. What is element <code>[2][3]</code> of <code>expand %c shape=[3 4]</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The size-1 axis is read at 0, whatever the output index is.</p>
+<div class="why"><p>It reads <code>c[2][0]</code>, which is 2. Every column of row 2 is 2.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%a = stack 1 2</code>. Is <code>expand %a shape=[3]</code> valid?</p>
+<div class="opts">
+<button data-k="a">Yes: it repeats the vector to <code>[1 2 1]</code>.</button>
+<button data-k="b">No: only size-1 axes grow, and <code>%a</code>'s axis has size 2.</button>
+<button data-k="c">Yes: it pads with a zero.</button>
+</div>
+<p class="hint">Which axes can <code>expand</code> grow?</p>
+<div class="why"><p>An axis of size 2 can't become 3. The oracle says: "can't expand [2] to [3]: same rank, and only size-1 axes grow".</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>%v</code> has shape <code>(4,)</code> and <code>%i</code> is a loaded i32. Which <code>shrink %v %o shape=[2]</code> is valid?</p>
+<div class="opts">
+<button data-k="a"><code>%o = mod (max %i 0) 3</code></button>
+<button data-k="b"><code>%o = mod (max %i 0) 4</code></button>
+<button data-k="c"><code>%o = %i</code></button>
+<button data-k="d">None: shrink offsets must be constants.</button>
+</div>
+<p class="hint">The rule is <code>lo ≥ 0</code> and <code>hi + 2 ≤ 4</code>. What's each offset's interval?</p>
+<div class="why"><p><code>mod (max %i 0) 3</code> is in <code>[0, 2]</code>, and <code>2 + 2 ≤ 4</code>. With <code>mod ... 4</code> it can reach 3, and a raw load can be anything, so both are rejected. Offsets can be symbolic as long as they're provable.</p></div>
+</div>
+
+<div class="quiz" data-fill="2 2 2 | (2, 2, 2) | [2 2 2] | 2, 2, 2 | (2,2,2)">
+<p class="q">What shape is <code>stack %x %x</code> for a <code>(2, 2)</code> <code>%x</code>? Answer like <code>2 3</code>.</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">stack puts one new axis in front, sized by the number of operands.</p>
+<div class="why"><p>Two operands of shape <code>(2, 2)</code> give <code>(2, 2, 2)</code>.</p></div>
+</div>
+
+<nav class="pager">
+<a href="02-reshape-permute.html">← Lesson 2: Reshape and permute</a>
+<a href="04-matmul-conv.html">Lesson 4: Matmul and conv from movement →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const X = [[1, 2], [3, 4]];
+  // a grid of cells; cell(i, j) returns [text, class]
+  const grid = (rows, cols, cell) => h('div', { class: 'grid', style: `grid-template-columns: repeat(${cols}, auto)` },
+    Array.from({ length: rows * cols }, (_, n) => { const [t, c] = cell(Math.floor(n / cols), n % cols); return h('div', { class: 'c' + (c ? ' ' + c : ''), text: t }); }));
+  const P = (i, j) => (i >= 1 && i <= 2 && j >= 1 && j <= 2) ? X[i - 1][j - 1] : 0;    // pad [1 1 1 1]
+  const box = (label, el) => h('div', {}, h('div', { class: 'vlabel', text: label }), el);
+  const steps = [
+    { caption: 'The input: <code>%x</code>, shape <code>(2, 2)</code>.',
+      draw: () => [box('%x (2, 2)', grid(2, 2, (i, j) => [X[i][j], '']))] },
+    { caption: '<code>pad %x pads=[1 1 1 1]</code>: one zero on every side, shape <code>(4, 4)</code>. Dashed cells are the new zeros; element <code>[i][j]</code> reads <code>x[i-1][j-1]</code>.',
+      draw: () => [box('pad [1 1 1 1]: (4, 4)', grid(4, 4, (i, j) => [P(i, j), P(i, j) && i && j && i < 3 && j < 3 ? '' : 'z']))] },
+    { caption: '<code>shrink %p 1 1 shape=[2 2]</code> cuts the window at row 1, column 1: the original comes back.',
+      draw: () => [box('the padded grid, window at (1, 1)', grid(4, 4, (i, j) => [P(i, j), (i >= 1 && i <= 2 && j >= 1 && j <= 2) ? 'on' : 'z'])),
+        box('shrink: (2, 2)', grid(2, 2, (i, j) => [P(i + 1, j + 1), '']))] },
+    { caption: '<code>shrink %p 0 0 shape=[2 2]</code>: a window in the corner sees three zeros and the 1.',
+      draw: () => [box('the padded grid, window at (0, 0)', grid(4, 4, (i, j) => [P(i, j), (i <= 1 && j <= 1) ? 'on' : (i >= 1 && i <= 2 && j >= 1 && j <= 2 ? '' : 'z')])),
+        box('shrink: (2, 2)', grid(2, 2, (i, j) => [P(i, j), P(i, j) ? '' : 'z']))] },
+    { caption: '<code>shrink %x 0 0 shape=[2 1]</code> takes column 0, shape <code>(2, 1)</code>. Then <code>expand ... shape=[2 3]</code> repeats it along the size-1 axis: <code>[i][j]</code> reads <code>[i][0]</code>.',
+      draw: () => [box('column 0: (2, 1)', grid(2, 1, (i) => [X[i][0], ''])), box('expand [2 3]: (2, 3)', grid(2, 3, (i) => [X[i][0], '']))] },
+    { caption: '<code>stack %x %x</code>: a new axis in front, shape <code>(2, 2, 2)</code>. <code>index %s 1</code> gives the second copy back.',
+      draw: () => [box('stack: (2, 2, 2)', h('div', { class: 'planes' }, [0, 1].map(p => box(`[${p}]`, grid(2, 2, (i, j) => [X[i][j], p ? 'on' : ''])))))] },
+  ];
+  CC.stepper(document.getElementById('ops'), steps, (s, body) => body.append(h('div', { class: 'ops' }, s.draw())));
+});
+</script>
+</body>
+</html>

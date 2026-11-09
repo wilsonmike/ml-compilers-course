@@ -1,0 +1,37 @@
+# expect: pass
+# a valid 2-d convolution: four nested loops
+%X = buffer 16 dtype=f32 slot=0 data=[0.0 1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0 12.0 13.0 14.0 15.0]
+%W = buffer 4 dtype=f32 slot=1 data=[1.0 0.0 0.0 -1.0]
+%Y = buffer 9 dtype=f32 slot=2
+%oy = range 3
+%ox = range 3
+%v5 = mul %oy 3
+%v6 = add %v5 %ox
+%v7 = shrink %Y %v6 shape=[]
+%v8 = store %v7 0.0
+%v9 = after %Y %v8
+%ky = range 2
+%kx = range 2
+%v12 = add %oy %ky
+%v13 = add %ox %kx
+%v14 = mul %v12 4
+%v15 = add %v14 %v13
+%v16 = shrink %X %v15 shape=[]
+%v17 = load %v16
+%v18 = mul %ky 2
+%v19 = add %v18 %kx
+%v20 = shrink %W %v19 shape=[]
+%v21 = load %v20
+%v22 = mul %v17 %v21
+%v23 = shrink %v9 %v6 shape=[]
+%v24 = load %v23
+%v25 = add %v24 %v22
+%v26 = store %v23 %v25
+%v27 = end %v26 %kx
+%v28 = end %v27 %ky
+%v29 = end %v28 %ox
+%v30 = end %v29 %oy
+%Y1 = after %Y %v30
+%v32 = load %Y1
+%v33 = stack -5.0 -5.0 -5.0 -5.0 -5.0 -5.0 -5.0 -5.0 -5.0
+%v34 = assert %v32 %v33

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 3 Study Guide</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 3 study guide</h1>
+  <p class="lede">Week 3 adds loops. A <code>range</code> is a loop counter, an <code>end</code> repeats an effect for every value of it, and your compiler learns to place each value at the right loop depth and print <code>for</code> loops. This page recaps the week, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week3/01-ranges.html">3.1 Ranges and end</a></h3>
+  <p><code>%i = range 4</code> is a loop counter that takes the values 0, 1, 2, 3, named by its statement. <code>end %s %i</code> runs the effect <code>%s</code> once for every value of <code>%i</code>. Every node has a set of open ranges: the ranges it depends on that no <code>end</code> has closed yet. Asserts, calls and range bounds may not depend on an open range.</p>
+  <h3><a href="../week3/02-memory-in-loops.html">3.2 Memory in loops</a></h3>
+  <p>A value is computed inside every loop whose range it uses, and no deeper. A load is the one exception: if the innermost loop holding every use of it stores into the version it reads, the load moves into that loop and sees the current contents on each iteration. That is the accumulator. A use counts as inside a loop only if it is placed there itself.</p>
+  <h3><a href="../week3/03-gemm.html">3.3 A matmul by hand</a></h3>
+  <p>Three ranges i, j, k. Reset <code>C[i*N + j]</code> to zero with a store that depends on i and j, then let the k loop add into it. Bounds come free: a range's interval is <code>[0, n-1]</code>, so <code>i*K + k</code> is provably inside a buffer of M·K elements.</p>
+  <h3><a href="../week3/04-conv.html">3.4 A convolution by hand</a></h3>
+  <p>A valid convolution sums <code>x[o + k] * w[k]</code>. Padding is a clamped index (so the read stays in bounds) plus a <code>where</code> that zeroes the taps outside the input. A 2D convolution is four loops on flat buffers.</p>
+  <h3><a href="../week3/05-rendering-loops.html">3.5 Rendering loops</a></h3>
+  <p>Give every node a path of loops, outermost first, from its open ranges. Linearize into nested blocks where sources come first and loads of a version come before the store that overwrites it, then print each block as a <code>for</code> loop. Values that depend on no range end up outside the loops for free.</p>
+  <h3><a href="../week3/06-lab.html">3.6 Lab</a></h3>
+  <p><code>run</code> and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>goto</code> or recursion). The suite has 89 tests, and weeks 1 and 2 must stay green.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>op</th><th>operands</th><th>result</th><th>remember</th></tr></thead>
+    <tbody>
+      <tr><td><code>range n</code></td><td>an i32 scalar with no open ranges</td><td>i32</td><td>values 0 to n-1, <code>n ≤ 0</code> runs zero times, and the statement name is the loop's name</td></tr>
+      <tr><td><code>end x1 ... xk r</code></td><td>effects (stores or ends), then a range</td><td>effect</td><td>runs the effects for r = 0, 1, ..., closes r, and must use r</td></tr>
+      <tr><td><code>after m e</code></td><td>memory, then an effect</td><td>memory</td><td>may sit inside loops, but only an after with no open ranges is an output</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>rule</th><th>what it says</th></tr></thead>
+    <tbody>
+      <tr><td>open ranges</td><td>a range is open in itself, <code>end ... r</code> removes r, and everything else takes the union of its sources</td></tr>
+      <tr><td>no open ranges allowed in</td><td><code>assert</code>, <code>call</code> (and call bodies), range bounds, buffer and alloc sizes, outputs</td></tr>
+      <tr><td>one end per range</td><td>each range is closed by exactly one end, and the ends' nesting is the loop nesting</td></tr>
+      <tr><td>placement</td><td>a value sits in every loop whose range it uses, no deeper</td></tr>
+      <tr><td>load exception</td><td>if the innermost loop holding every use is deeper and stores into the load's version, the load moves in and sees current contents</td></tr>
+      <tr><td>bounds</td><td>a range's interval is <code>[0, hi(n) - 1]</code></td></tr>
+    </tbody>
+  </table></div>
+  <pre><code>python tools/test.py --compiler PATH/TO/main.exe --week 3        # grade
+python tools/test.py --compiler PATH/TO/main.exe --week 2        # keep week 2 green
+python _reference/uirc.py render FILE                            # the oracle's C</code></pre>
+
+  <h2>Mistakes people make</h2>
+  <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week3.html">week 3 test guide</a> lists every test with the bugs known to fail it.</p>
+  <ol>
+    <li><strong>Never moving loads into loops.</strong> An accumulator load whose only use is inside the k loop is then read once, and each iteration overwrites the sum instead of adding to it. Caught by <code>r_conv1d_padded</code> and <code>r_conv1d_valid</code>.</li>
+    <li><strong>Moving a load to its deepest use instead of the loop holding all of its uses.</strong> A load used both inside and after a loop must run once, before it. Caught by <code>split_use_across_asserts</code>.</li>
+    <li><strong>Deciding load placement from one assert at a time.</strong> Where a load runs depends on every use in the program, so <code>run</code> and <code>render</code> must agree. Caught by <code>split_use_across_asserts</code> and <code>r_split_use_across_asserts</code>.</li>
+    <li><strong>Off-by-one loops.</strong> Printing <code>&lt;=</code>, starting at 1, or running one extra trip. Caught by <code>r_conv2d_valid</code>, <code>r_bounds_from_ranges</code> and <code>bounds_from_ranges</code>.</li>
+    <li><strong>Running a zero-trip loop once.</strong> <code>range 0</code> and negative bounds run zero times. Caught by <code>zero_trip</code> and <code>negative_trip</code>.</li>
+    <li><strong>Running a loop backwards.</strong> f32 sums depend on the order: <code>1e8 + 1 + -1e8 + 1</code> is 1.0 left to right. Caught by <code>reduce_sum_f32_order</code> and <code>prefix_sum</code>.</li>
+    <li><strong>Too-tight or missing range bounds.</strong> A range's interval must be <code>[0, n-1]</code>, no tighter, or an overrunning view slips through. Caught by <code>err_range_overrun</code> and <code>err_wrong_stride</code>.</li>
+    <li><strong>Treating an after inside a loop as an output.</strong> Only top-level afters are outputs. Caught by <code>inloop_after_not_output</code> in week 4's suite.</li>
+    <li><strong>Skipping the static loop rules.</strong> A range closed twice, a loop never closed, an <code>end</code> that doesn't use its range, an assert that reads a range: all exit 2. Caught by <code>err_range_two_ends</code>, <code>err_loop_never_closed</code>, <code>err_end_unused_range_closed</code> and <code>err_assert_closed_range</code>.</li>
+    <li><strong>Hoisting a value out of a loop it depends on.</strong> Caught by <code>r_bounds_from_ranges</code> and <code>r_conv1d_padded</code>.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py run FILE</code>), comparing exit codes.</p>
+  <ol>
+    <li><strong>Parse and type range and end.</strong> Done when this exits 0: a loop that writes <code>b[i] = i</code>, then reads <code>b[3]</code>.
+<pre><code>%b  = buffer 4 dtype=i32 slot=0
+%i  = range 4
+%v  = shrink %b %i shape=[]
+%s  = store %v %i
+%e  = end %s %i
+%b1 = after %b %e
+%v3 = shrink %b1 3 shape=[]
+%x  = load %v3
+%t  = assert %x 3</code></pre>
+      If it exits 1, check the trip count and the start value.</li>
+    <li><strong>Open ranges and the static rules.</strong> Done when closing a range the effect doesn't use exits 2 with <code>invalid:</code>. Check: the same program with an extra <code>%j = range 2</code> and <code>%ej = end %e %j</code> wrapped around a store that never uses <code>%j</code>.</li>
+    <li><strong>Bounds through ranges.</strong> Done when <code>range 5</code> indexing a 4-element buffer exits 2 (the offset is in <code>[0, 4]</code>), while <code>shrink %b (mul %k 2) shape=[2]</code> with <code>%k = range 5</code> on a 10-element buffer exits 0 (offset in <code>[0, 8]</code>, plus 2, fits in 10). If both pass or both fail, look at the range case of your interval analysis.</li>
+    <li><strong>Loop placement and the load rule.</strong> Done when this sums 1 to 4 into <code>o</code>:
+<pre><code>%x   = buffer 4 dtype=i32 slot=0 data=[1 2 3 4]
+%o   = buffer 1 dtype=i32 slot=1
+%ov  = shrink %o 0 shape=[]
+%z   = store %ov 0
+%o0  = after %o %z
+%k   = range 4
+%xv  = shrink %x %k shape=[]
+%xk  = load %xv
+%ov0 = shrink %o0 0 shape=[]
+%cur = load %ov0
+%sum = add %cur %xk
+%s   = store %ov0 %sum
+%e   = end %s %k
+%o1  = after %o0 %e
+%ov1 = shrink %o1 0 shape=[]
+%r   = load %ov1
+%t   = assert %r 10</code></pre>
+      If you get 4, <code>%cur</code> was loaded once before the loop: its only use, <code>%sum</code>, depends on <code>%k</code>, and the loop stores into its version, so it must move in.</li>
+    <li><strong>Linearize.</strong> Done when the suite's <code>old_version_after_loop</code> passes: a load of the version before a loop, used after the loop, must run before the loop overwrites it.</li>
+    <li><strong>Execute in run.</strong> Done when every week 3 run test passes and weeks 1 and 2 still do.</li>
+    <li><strong>Render.</strong> Done when <code>python _reference/uirc.py render</code> and your <code>render</code> agree on the program from step 4 (same results, not necessarily the same text), and every render test passes.</li>
+  </ol>
+  <div class="trap"><span class="label">The pinned load</span>
+    <p>If a use of a load doesn't depend on the range, the load stays outside the loop. <code>%nx = add %cur 1</code> through a view at a constant offset runs once per outer iteration, not once per inner one. The fix is to make the view (and so the load) depend on the inner range. Quiz 3 below shows it.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-fill="0">
+    <p class="q">How many times does the store run, with <code>%n = add 0 -3</code> and <code>%i = range %n</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">What does a range do when its bound is zero or less?</p>
+    <div class="why">A negative bound runs zero times, just like <code>range 0</code>. The buffer keeps its data.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">With <code>%k = range 5</code>, is <code>shrink %b (mul %k 2) shape=[2]</code> provably inside a 10-element buffer? (Written as two statements.)</p>
+    <div class="opts"><button data-k="a">No: the offset reaches 10</button><button data-k="b">Yes: the offset is in [0, 8], and 8 + 2 = 10 fits</button><button data-k="c">No: ranges have no interval</button></div>
+    <p class="hint">What's the interval of <code>%k</code>, and what does <code>mul</code> by 2 do to it?</p>
+    <div class="why"><code>%k</code> is in [0, 4], so the offset is in [0, 8]. A 2-element view at offset 8 ends at 10, which fits.</div>
+  </div>
+  <div class="quiz" data-fill="3">
+    <p class="q">This program counts with two nested loops (3 and 4 trips). What does <code>%r</code> end up as?</p>
+    <pre><code>%o   = buffer 1 dtype=i32 slot=0
+%i   = range 3
+%j   = range 4
+%z   = mul %i 0
+%ov  = shrink %o %z shape=[]
+%cur = load %ov
+%nx  = add %cur 1
+%jj  = mul %j 0
+%nx2 = add %nx %jj
+%s   = store %ov %nx2
+%ej  = end %s %j
+%ei  = end %ej %i
+%o1  = after %o %ei
+%ov1 = shrink %o1 0 shape=[]
+%r   = load %ov1</code></pre>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Which loop is <code>%cur</code> placed in? Its use <code>%nx</code> depends on <code>%i</code> but not on <code>%j</code>.</p>
+    <p class="hint">So <code>%cur</code> runs once per i, and the j loop stores the same value four times.</p>
+    <div class="why">3. The view depends only on <code>%i</code>, and <code>%cur</code>'s only use (<code>%nx</code>) depends only on <code>%i</code>, so the load runs once per i iteration. The j loop writes <code>cur + 1</code> four times. Making the view's offset depend on <code>%j</code> too (<code>add %z (mul %j 0)</code>) moves the load into the j loop and gives 12.</div>
+  </div>
+  <div class="quiz" data-fill="1.0|1">
+    <p class="q">An f32 accumulator starts at <code>x[0]</code> and adds <code>x[1]</code>, <code>x[2]</code>, <code>x[3]</code> in a loop over k. With <code>x = [1e8 1.0 -1e8 1.0]</code>, what's the result?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint"><code>1e8 + 1.0</code> in f32: is 100000001 representable?</p>
+    <div class="why"><code>1e8 + 1.0</code> rounds back to <code>1e8</code> (f32 has about 7 decimal digits). Then <code>- 1e8</code> gives 0.0, and <code>+ 1.0</code> gives 1.0.</div>
+  </div>
+  <div class="quiz" data-answer="c">
+    <p class="q">Which program is invalid?</p>
+    <div class="opts"><button data-k="a">a range whose bound is <code>add 2 3</code></button><button data-k="b">one end repeating two stores into two different buffers</button><button data-k="c">an <code>end</code> over <code>%j</code> wrapped around a store that never uses <code>%j</code></button><button data-k="d">a loop whose body ignores an outer range</button></div>
+    <p class="hint">One of these has an end that closes a range its effects don't depend on.</p>
+    <div class="why">An <code>end</code> must close a range its effects use. A computed bound is fine (it has no open ranges), one end may repeat several effects, and an inner loop body may ignore an outer range: it just reruns.</div>
+  </div>
+  <div class="quiz" data-answer="a">
+    <p class="q">A load of buffer version <code>%b</code> is used both inside a loop that stores into <code>%b</code> and in an assert after the loop. Where does it run?</p>
+    <div class="opts"><button data-k="a">Once, before the loop: every use sees the pre-loop contents</button><button data-k="b">Inside the loop, every iteration</button><button data-k="c">After the loop</button></div>
+    <p class="hint">What is the innermost loop that contains <em>every</em> use?</p>
+    <div class="why">The uses are split, so the innermost loop holding all of them is the outer block. The load runs once, before the loop, and the use inside the loop sees the same pre-loop value every iteration.</div>
+  </div>
+  <div class="quiz" data-fill="12">
+    <p class="q">In a looped matmul over i &lt; 3, j &lt; 4 and k &lt; 5, how many times does the reset store <code>C[i*4 + j] = 0</code> run?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">The reset depends on i and j but not on k. Which loops is it inside?</p>
+    <div class="why">It depends on i and j, so it runs once per (i, j) pair: 3 · 4 = 12 times, before each k loop.</div>
+  </div>
+  <p>More practice: the <a href="review.html?week=3">week 3 quiz review</a>.</p>
+
+  <h2>Go deeper</h2>
+  <ul>
+    <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a> and its <a href="https://docs.tinygrad.org/">documentation</a>. RANGE and END come from tinygrad's IR; its codegen places values by their ranges just as lesson 3.5 does.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Loop-invariant_code_motion">Loop-invariant code motion</a>. The classic name for what placement gives you for free: values that don't depend on a loop leave it.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Loop_nest_optimization">Loop nest optimization</a>. Tiling and interchange, the transformations that make a looped matmul fast (week 6 onward).</li>
+    <li><a href="https://siboehm.com/articles/22/Fast-MMM-on-CPU">Fast multidimensional matrix multiplication on CPU from scratch</a>. Takes exactly this week's triple loop and speeds it up step by step.</li>
+    <li><a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">What Every Programmer Should Know About Memory</a> (Drepper). Why loop order changes speed but not results. Read the cache chapters.</li>
+    <li><a href="https://cs231n.github.io/convolutional-networks/">CS231n: Convolutional Neural Networks</a>. The convolution arithmetic of lesson 3.4, with pictures, from the machine learning side.</li>
+  </ul>
+  <h3>Challenges</h3>
+  <ol>
+    <li><strong>Loop order without changing results.</strong> Write the 2×3 by 3×2 matmul twice, once with the k loop innermost and once with j innermost. Check with the oracle that both leave identical bits. Then explain why an f32 matmul would change bits if you moved k outermost and accumulated partial sums differently.</li>
+    <li><strong>A strided view.</strong> Write a loop that copies every other element of an 8-element buffer into a 4-element one. Prove the offsets in bounds in your head first, then confirm the oracle accepts it, and that changing the stride to 3 is rejected.</li>
+    <li><strong>A 2D running max.</strong> For a 3×4 buffer, write each row's running maximum into an output of the same shape, with a reset per row. Compare your expected values (computed by hand or in Python) with <code>python _reference/uirc.py run</code>.</li>
+  </ol>
+</main>
+</body>
+</html>

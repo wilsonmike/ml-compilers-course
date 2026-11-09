@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Debugging Your Compiler</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Debugging your compiler</h1>
+  <p class="lede">A red test is information. This page is the routine: read what the grader says, find out what the test is for, shrink it until the bug has nowhere to hide, and compare with the oracle.</p>
+
+  <h2>1. Read the grader's output</h2>
+  <p>Run the suite with <code>-v</code> so every failure prints its details, and <code>-k</code> to run only the tests whose path contains a word:</p>
+  <pre><code>python tools/test.py --compiler path/to/main.exe --week 1 -v
+python tools/test.py --compiler path/to/main.exe --week 1 -k div -v</code></pre>
+  <p>Each failure is a <code>FAIL</code> line with the test's path, then one or more indented lines saying what was wrong. These are real messages from the grader:</p>
+  <pre><code>FAIL tests/week1/run/i32_div_trunc.uir
+    expected exit 0 (pass), got 1
+    stderr: assert failed: %t0</code></pre>
+  <p>Your compiler said an assert failed, but the oracle says every assert passes. So one of your values is wrong, and <code>%t0</code> is the first assert that saw it.</p>
+  <pre><code>FAIL tests/week1/run/err_div_zero.uir
+    exit 2 is right, but stderr needs a line starting 'invalid:' (an uncaught exception isn't a diagnosis)</code></pre>
+  <p>Your compiler exited 2, but by crashing. OCaml exits 2 on an uncaught exception, so the grader also requires an <code>invalid:</code> line on stderr. Catch your errors and print the reason.</p>
+
+  <h3>The run contract in one table</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>exit</th><th>meaning</th><th>stderr must contain</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td>every assert passed</td><td>anything</td></tr>
+      <tr><td>1</td><td>an assert failed</td><td>exactly one line <code>assert failed: %name</code>, naming the first failing assert in file order</td></tr>
+      <tr><td>2</td><td>invalid program: parse error, type error, or a runtime error an assert depends on</td><td>a line starting with <code>invalid:</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Other messages you'll see, and what they point at:</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>message starts with</th><th>look at</th></tr></thead>
+    <tbody>
+      <tr><td><code>expected exit 2 (invalid), got 0</code></td><td>a check you don't do yet: a type rule, a bounds proof, an ordering rule. The <code>oracle:</code> line under it says which.</td></tr>
+      <tr><td><code>N ops in your output, the target is &lt;= M</code></td><td>a simplification you're missing, or duplicate statements in your output (hash cons what you print)</td></tr>
+      <tr><td><code>wrong value: original gives ..., yours gives ...</code></td><td>a rewrite that isn't true for every input. The <code>args:</code> line is the input that breaks it.</td></tr>
+      <tr><td><code>rendered C is N bytes; the limit is 20000</code></td><td>a vector you unrolled instead of looping over</td></tr>
+      <tr><td><code>your C doesn't compile</code></td><td>the compiler's error is printed right below, so check names, types and missing semicolons in your printer</td></tr>
+      <tr><td><code>your kernel crashed</code></td><td>undefined behavior caught by the sanitizer (see section 5)</td></tr>
+      <tr><td><code>buffer 2[3]: expected ..., your kernel left ...</code></td><td>the first wrong output element: which buffer slot, which index</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>2. Find out what the test is for</h2>
+  <p>Every test starts with a comment saying what it checks. The test guides collect all of them, with the plausible bugs known to fail each test: <a href="tests-week1.html">week 1</a>, <a href="tests-week2.html">week 2</a>, <a href="tests-week3.html">week 3</a>, <a href="tests-week4.html">week 4</a>, <a href="tests-week5.html">week 5</a>. Read the matching section of the spec for that week before changing code: most failures are a rule read differently, not a typo.</p>
+
+  <h2>3. Shrink the failing test</h2>
+  <p>A test with ten statements has ten places for the bug. Copy it to a scratch file and delete lines until it stops failing, then put back the last thing you removed. What's left is the bug.</p>
+  <p>Here's <code>i32_div_trunc.uir</code>, which failed above:</p>
+  <pre><code>%a = div -7 2
+%t0 = assert %a -3
+%b = div 7 -2
+%t1 = assert %b -3
+%c = div -7 -2
+%t2 = assert %c 3
+%d = div 7 2
+%t3 = assert %d 3</code></pre>
+  <p>The failure named <code>%t0</code>, so keep only what <code>%t0</code> needs:</p>
+  <pre><code>%a = div -7 2
+%t0 = assert %a -3</code></pre>
+  <p>Ask the oracle what should happen, then try your own guess for the value:</p>
+  <pre><code>&gt; python _reference/uirc.py run small.uir
+(exit 0: -7 div 2 really is -3)
+
+&gt; python _reference/uirc.py run guess.uir      # the same program asserting -4
+assert failed: %t0
+(exit 1)</code></pre>
+  <p>Your compiler computes -4: it rounds toward minus infinity, like OCaml's <code>floor</code> or Python's <code>//</code>. The spec says division truncates toward zero, like C. Two lines, one rule.</p>
+  <div class="key"><span class="label">Shrinking tips</span>
+    <ul>
+      <li>Delete asserts after the failing one first. They never run.</li>
+      <li>Replace a computed operand with the constant it should be. If the bug disappears, the bug is upstream.</li>
+      <li>For simplify failures, put the grader's <code>args:</code> values in by hand and compare both programs.</li>
+      <li>Keep a folder of shrunk cases. They make good tests for your own suite.</li>
+    </ul>
+  </div>
+
+  <h2>4. Compare with the oracle</h2>
+  <p>The oracle is the reference compiler. Running it is fine and encouraged, but reading its source would hand you the answers.</p>
+  <pre><code>python _reference/uirc.py run FILE        # exit code and assert line, exactly what the grader expects
+python _reference/uirc.py simplify FILE   # one valid simplification of %out (not the only one)
+python _reference/uirc.py render FILE     # the oracle's C for a week 2+ program</code></pre>
+  <p>An example: this program should simplify to its input, and the oracle shows it does.</p>
+  <pre><code>%x = param 0 dtype=i32
+%a = add %x 0
+%out = mul %a 1
+
+&gt; python _reference/uirc.py simplify s.uir
+%out = param 0 dtype=i32</code></pre>
+  <p>Your output doesn't have to match the oracle's text. It has to compute the same values and stay within the op limit. For render, compare your C's behavior, not its look: the oracle's C shows one correct schedule, and yours can differ.</p>
+
+  <h2>5. When render fails</h2>
+  <p>The grader compiles your C with these flags, then runs it on the test's data and compares every buffer bit for bit:</p>
+  <pre><code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined</code></pre>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>symptom</th><th>usual cause</th><th>fix</th></tr></thead>
+    <tbody>
+      <tr><td>your C doesn't compile</td><td>a name used before it's declared, a type printed wrong, a missing include</td><td>save your output to a file and compile it yourself with the flags above to read the full error</td></tr>
+      <tr><td>your kernel crashed (exit code nonzero)</td><td>signed overflow, <code>INT_MIN / -1</code>, a shift outside 0..31: the sanitizer turns undefined behavior into a crash</td><td>wrap i32 <code>add</code>, <code>mul</code> and <code>shl</code> through <code>uint32_t</code>, and guard <code>div</code> and <code>mod</code> against <code>-1</code></td></tr>
+      <tr><td>didn't finish in time</td><td>on Windows a plain <code>INT_MIN / -1</code> can hang instead of trapping</td><td>the same <code>-1</code> guard</td></tr>
+      <tr><td>rendered C over 20,000 bytes</td><td>unrolled vectors</td><td>emit a <code>for</code> loop per rank-1 store and per reduce</td></tr>
+      <tr><td>f32 off in the last bits</td><td>a decimal literal that doesn't round-trip, the wrong fold order, or <code>a * b + c</code> fused into one rounding</td><td>print f32 constants as hex floats (<code>%a</code> style, <code>0x1.8p+1f</code>), and fold reduces left to right from the first element</td></tr>
+      <tr><td>wrong element, right neighbors</td><td>an off-by-one in an index or loop bound</td><td>check <code>&lt;</code> vs <code>&lt;=</code> and where offsets add</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>To see exactly which bits differ, print a float's bits in your own test harness:</p>
+  <pre><code>#include &lt;stdint.h&gt;
+#include &lt;string.h&gt;
+uint32_t bits_of(float x) { uint32_t u; memcpy(&amp;u, &amp;x, 4); return u; }
+/* printf("%08x\n", bits_of(v)); */</code></pre>
+  <p><code>3e99999a</code> and <code>3e99999b</code> differ in the last bit: one rounding step somewhere.</p>
+
+  <h2>6. Print your IR between passes</h2>
+  <p>Most bugs live between two passes: the graph was right after parsing and wrong after simplifying, or right before rangeify and wrong after. Give your compiler a debug flag that prints the graph as .uir after each pass, then diff the printouts. Printing .uir has a bonus: you can feed any intermediate stage back to the oracle and ask what it computes.</p>
+
+  <h2>7. Usual suspects, week by week</h2>
+  <p>These are mistakes planted into the reference compiler to prove the tests catch them. If a test below fails, start with the advice next to it.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>week</th><th>check that</th><th>tests that catch it</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>div</code> truncates toward zero, and <code>mod</code> takes the sign of the left operand</td><td><code>i32_div_trunc</code>, <code>i32_mod_sign</code></td></tr>
+      <tr><td>1</td><td>every f32 op rounds to f32, not just the final result</td><td><code>f32_rounding_step</code>, <code>f32_product_rounds</code>, <code>f32_overflow</code></td></tr>
+      <tr><td>1</td><td>you cache each node's value, so shared work runs once</td><td><code>dag_sharing_300</code>, <code>dag_sharing_mix</code></td></tr>
+      <tr><td>1</td><td>the cache is per call, not global</td><td><code>call_memo_per_call</code>, <code>call_composition</code></td></tr>
+      <tr><td>1</td><td>a nested call's body only sees its own args</td><td><code>call_closed_body</code></td></tr>
+      <tr><td>1</td><td>asserts run in file order, and an assert compares NaN equal to NaN</td><td><code>fail_first_in_order</code>, <code>f32_assert_equality</code></td></tr>
+      <tr><td>1</td><td><code>x * 0.0</code> isn't <code>0.0</code>, and <code>(x * 2) / 2</code> isn't <code>x</code></td><td><code>trap_mul_zero_f32</code>, <code>trap_div_mul_wrap</code></td></tr>
+      <tr><td>2</td><td>offsets of a view of a view add up</td><td><code>view_shrink_of_shrink</code></td></tr>
+      <tr><td>2</td><td>loads of a version run before the store that overwrites it</td><td><code>swap_schedule</code>, <code>old_version_late_use</code></td></tr>
+      <tr><td>2</td><td>a view's bounds are proven, including the last element</td><td><code>err_bounds_past_end</code>, <code>err_bounds_mask_too_wide</code></td></tr>
+      <tr><td>2</td><td>your C wraps i32 through <code>uint32_t</code> and guards <code>div</code>/<code>mod</code> by <code>-1</code></td><td><code>i32_add_wrap</code>, <code>i32_div_mod_intmin</code></td></tr>
+      <tr><td>2</td><td>f32 constants print exactly (hex floats)</td><td><code>f32_exact_literals</code></td></tr>
+      <tr><td>3</td><td>an accumulator's load moves into the loop that writes it</td><td><code>r_conv1d_valid</code>, <code>r_conv1d_padded</code></td></tr>
+      <tr><td>3</td><td>a loop runs exactly <code>n</code> times, and zero times for <code>n &lt;= 0</code></td><td><code>bounds_from_ranges</code>, <code>zero_trip</code>, <code>negative_trip</code></td></tr>
+      <tr><td>3</td><td>an <code>after</code> inside a loop isn't a buffer's output</td><td><code>inloop_after_not_output</code></td></tr>
+      <tr><td>4</td><td>a reduce folds left to right, starting from the first element (not from 0)</td><td><code>reduce_add_f32_order</code>, <code>reduce_add_negzero</code></td></tr>
+      <tr><td>4</td><td>vectors become loops in render, even a plain 4096-element copy</td><td><code>normalize_4096</code>, <code>r_copy_4096</code></td></tr>
+      <tr><td>5</td><td>reshape is row-major (the last axis changes fastest)</td><td><code>broadcast_column_sums_back</code>, <code>expand_rank3_middle</code></td></tr>
+      <tr><td>5</td><td><code>permute</code> applies the order you were given, not its inverse</td><td><code>permute_rank3_all_orders</code>, <code>permute_inverse_roundtrip</code></td></tr>
+      <tr><td>5</td><td><code>pads</code> are (left, right) per axis, and the mask is exact at both edges</td><td><code>pad_2d_mixed</code>, <code>pad_2d</code>, <code>r_conv2d_16x16</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>8. Asking for help well</h2>
+  <p>Whoever helps you, a classmate or Claude, needs the same four things:</p>
+  <ol>
+    <li>The smallest program that fails (section 3), not the whole test.</li>
+    <li>What you expected, what you got, and what the oracle says.</li>
+    <li>The rule from the spec you think applies.</li>
+    <li>What you already tried.</li>
+  </ol>
+  <div class="note"><span class="label">Claude in your repo</span>
+    <p>The <code>CLAUDE.md</code> from <code>templates/</code> sets the rule for your compiler repo: Claude may explain concepts, draw diagrams, run the oracle, and ask you questions that lead to the bug, but it doesn't write or edit your compiler code. Ask "why would this give -4?" rather than "fix my div".</p>
+  </div>
+
+  <h2>9. When the test itself looks wrong</h2>
+  <p>It happens. The format is provisional and the tests are written by people. Check in this order:</p>
+  <ol>
+    <li>Read the spec section again, slowly. Most "wrong tests" are a rule that says something subtler than it first seemed.</li>
+    <li>Run the oracle on the test. The grader compares you to the oracle, not to the header, so the oracle's answer is what you're held to.</li>
+    <li>If the spec and the oracle disagree, that's a real bug in the course. Write it up with the smallest program that shows it, the spec sentence, and what the oracle does, and report it to whoever maintains your copy of the course.</li>
+  </ol>
+</main>
+</body>
+</html>

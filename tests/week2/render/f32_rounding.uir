@@ -1,0 +1,41 @@
+# render
+# every f32 op rounds; -ffp-contract=off keeps a*b+c from fusing
+%in  = buffer 6 dtype=f32 slot=0 data=[0.1 0.2 3.0 16777216.0 1.0 1e38]
+%out = buffer 6 dtype=f32 slot=1
+%e0 = shrink %in 0 shape=[]
+%x0 = load %e0
+%e1 = shrink %in 1 shape=[]
+%x1 = load %e1
+%e2 = shrink %in 2 shape=[]
+%x2 = load %e2
+%e3 = shrink %in 3 shape=[]
+%x3 = load %e3
+%e4 = shrink %in 4 shape=[]
+%x4 = load %e4
+%e5 = shrink %in 5 shape=[]
+%x5 = load %e5
+%m0 = mul %x0 %x2
+%r0 = add %x0 %x1
+%o0 = shrink %out 0 shape=[]
+%s0 = store %o0 %r0
+%v0 = after %out %s0
+%r1 = mul %x0 %x2
+%o1 = shrink %v0 1 shape=[]
+%s1 = store %o1 %r1
+%v1 = after %v0 %s1
+%r2 = add %x3 %x4
+%o2 = shrink %v1 2 shape=[]
+%s2 = store %o2 %r2
+%v2 = after %v1 %s2
+%r3 = mul %x5 10.0
+%o3 = shrink %v2 3 shape=[]
+%s3 = store %o3 %r3
+%v3 = after %v2 %s3
+%r4 = add %m0 %x1
+%o4 = shrink %v3 4 shape=[]
+%s4 = store %o4 %r4
+%v4 = after %v3 %s4
+%r5 = mul %x1 %x1
+%o5 = shrink %v4 5 shape=[]
+%s5 = store %o5 %r5
+%v5 = after %v4 %s5

@@ -1,0 +1,125 @@
+{
+ "id": "w3-04-conv1d-valid",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "Valid 1D convolution",
+ "starter": "# y[i] = x[i]*w[0] + x[i+1]*w[1] + x[i+2]*w[2] for i in 0..3\n# The starter only uses w[0]. Add a k loop that accumulates into y[i].\n%x  = buffer 6 dtype=i32 slot=0\n%w  = buffer 3 dtype=i32 slot=1\n%y  = buffer 4 dtype=i32 slot=2\n%i  = range 4\n%xv = shrink %x %i shape=[]\n%xe = load %xv\n%wv = shrink %w 0 shape=[]\n%we = load %wv\n%p  = mul %xe %we\n%yv = shrink %y %i shape=[]\n%s  = store %yv %p\n%ei = end %s %i\n%y1 = after %y %ei\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "1": [
+     1,
+     0,
+     -1
+    ]
+   },
+   "sample": true,
+   "expect": "[-2 -2 -2 -2]"
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "1": [
+     1,
+     1,
+     1
+    ]
+   },
+   "expect": "[6 9 12 15]"
+  },
+  {
+   "data": {
+    "0": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "1": [
+     9,
+     9,
+     9
+    ]
+   },
+   "expect": "[0 0 0 0]"
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "1": [
+     3,
+     2,
+     1
+    ]
+   },
+   "expect": "[3 0 0 0]"
+  },
+  {
+   "data": {
+    "0": [
+     2147483647,
+     1,
+     0,
+     0,
+     0,
+     0
+    ],
+    "1": [
+     1,
+     1,
+     0
+    ]
+   },
+   "expect": "[-2147483648 1 0 0]"
+  },
+  {
+   "data": {
+    "0": [
+     -3,
+     7,
+     -2,
+     5,
+     0,
+     4
+    ],
+    "1": [
+     2,
+     -1,
+     3
+    ]
+   },
+   "expect": "[-19 31 -9 22]"
+  }
+ ],
+ "hints": [
+  "Each output reads a window of 3 inputs starting at its own index: y[i] uses x[i], x[i+1], x[i+2].",
+  "Inside the `i` loop: store `0` at `y[i]`, take the version after that store, then run a `k` loop over 3 that loads `y[i]` from it, adds `x[i+k] * w[k]`, and stores back.",
+  "The offset `i + k` has interval [0, 3] + [0, 2] = [0, 5], which fits a 6-element `x` without any masking. Close the loops inner first: `end %s %k`, then `end ... %i`, then one top-level `after %y`."
+ ],
+ "explain": "A valid convolution never reads outside the input, so `i + k` is provably in [0, 5] straight from the range intervals. The accumulator is the output element itself, reset once per `i` by a store that depends on `i`, and the `k` loop's load sees the current sum on every iteration. The INT_MAX test checks that the sum wraps like i32 should."
+}

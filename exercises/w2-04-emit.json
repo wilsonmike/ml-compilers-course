@@ -1,0 +1,54 @@
+{
+ "id": "w2-04-emit",
+ "lang": "ocaml",
+ "title": "Emit straight-line C",
+ "show": "(fun (ls, r) -> String.concat \" | \" ls ^ \" => \" ^ r)",
+ "starter": "type e = Lit of int | Var of string | Add of e * e | Mul of e * e\n\n(* emit e = (lines, result).\n   - Lit n is written inline as n, except -2147483648 which is \"(-2147483647 - 1)\".\n   - Var s is written inline as s.\n   - Add (a, b) / Mul (a, b): emit a, then b, then ONE line\n       int32_t vK = (int32_t)((uint32_t)A + (uint32_t)B);      ( * for Mul )\n     where K is the number of lines emitted before it, and the result is \"vK\".\n   - A node physically equal (==) to one already emitted reuses its name: no new line. *)\nlet emit (e : e) : string list * string =\n  ([], \"TODO\")\n",
+ "tests": [
+  {
+   "expr": "emit (Lit 5)",
+   "expect": "=> 5",
+   "sample": true
+  },
+  {
+   "expr": "emit (Add (Var \"a\", Lit 1))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); => v0",
+   "sample": true
+  },
+  {
+   "expr": "(let x = Add (Var \"a\", Lit 1) in emit (Mul (x, x)))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v1 = (int32_t)((uint32_t)v0 * (uint32_t)v0); => v1",
+   "sample": true
+  },
+  {
+   "expr": "emit (Add (Mul (Var \"a\", Var \"b\"), Mul (Var \"c\", Lit 2)))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a * (uint32_t)b); | int32_t v1 = (int32_t)((uint32_t)c * (uint32_t)2); | int32_t v2 = (int32_t)((uint32_t)v0 + (uint32_t)v1); => v2"
+  },
+  {
+   "expr": "emit (Add (Var \"x\", Lit (-2147483648)))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)x + (uint32_t)(-2147483647 - 1)); => v0"
+  },
+  {
+   "expr": "emit (Mul (Var \"x\", Lit (-3)))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)x * (uint32_t)-3); => v0"
+  },
+  {
+   "expr": "(let rec dbl n e = if n = 0 then e else (let d = dbl (n - 1) e in Add (d, d)) in emit (dbl 3 (Var \"x\")))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)x + (uint32_t)x); | int32_t v1 = (int32_t)((uint32_t)v0 + (uint32_t)v0); | int32_t v2 = (int32_t)((uint32_t)v1 + (uint32_t)v1); => v2"
+  },
+  {
+   "expr": "(let v () = Var (String.make 1 'a') in emit (Mul (Add (v (), Lit 1), Add (v (), Lit 1))))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v1 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v2 = (int32_t)((uint32_t)v0 * (uint32_t)v1); => v2"
+  },
+  {
+   "expr": "(let rec dbl n e = if n = 0 then e else (let d = dbl (n - 1) e in Add (d, d)) in let (ls, r) = emit (dbl 25 (Var \"x\")) in ([string_of_int (List.length ls)], r))",
+   "expect": "25 => v24"
+  }
+ ],
+ "hints": [
+  "Recurse: an `Add` needs the C text of both sources before it can write its own line. Lits and Vars produce text but no line. Keep a counter for K and a list of lines you've written so far.",
+  "For sharing, remember which nodes you've already emitted and the name you gave each one. Look it up with physical equality (`List.assq_opt` uses `==`), not structural equality: two separately built but equal trees are different nodes here.",
+  "Check the memo before recursing into the sources, not after. Otherwise `dbl 25` still walks 2^25 paths even though it only prints 25 lines. Build the lines in reverse with `::` and `List.rev` once at the end."
+ ],
+ "explain": "This is a renderer in miniature: post-order traversal (sources first, left before right) gives a valid schedule, each operation becomes one named C variable, and the memo keyed on physical identity makes shared nodes print once, which is what keeps a hash-consed DAG linear. Every i32 op goes through `uint32_t`, so wraparound is defined C, and INT_MIN is spelled `(-2147483647 - 1)` because `-2147483648` in C is unary minus applied to a literal that doesn't fit in `int`."
+}

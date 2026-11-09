@@ -1,0 +1,15 @@
+%b  = buffer 3 dtype=i32 slot=0 data=[1 2 3]
+%e0 = shrink %b 0 shape=[]
+%e1 = shrink %b 1 shape=[]
+%y  = load %e1
+%s0 = store %e0 %y          # b[0] = b[1]
+%b1 = after %b %s0
+%f1 = shrink %b1 1 shape=[]
+%f2 = shrink %b1 2 shape=[]
+%z  = load %f2
+%s1 = store %f1 %z          # b[1] = b[2]
+%b2 = after %b1 %s1
+%x  = load %e0              # the old b[0]: read version %b, before %s0 overwrites it
+%g2 = shrink %b2 2 shape=[]
+%s2 = store %g2 %x          # b[2] = old b[0]
+%b3 = after %b2 %s2

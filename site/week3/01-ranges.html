@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranges and Ends</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .nest { font: 0.875rem/1.7 var(--mono); color: var(--ink-2); }
+  .nest .box { border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s2) var(--s3); margin: var(--s2) 0 0; }
+  .nest .box .box { margin-left: var(--s4); }
+  .nest .lab { color: var(--ink); font-weight: 500; }
+  .stack { display: grid; gap: var(--s3); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 3 · Lesson 1</p>
+<h1>Ranges and ends</h1>
+<p class="lede">Week 2 programs touch every element by hand: one view, one store, one <code>after</code> per element. That stops working at four elements. This lesson adds the two ops that make a loop, <code>range</code> and <code>end</code>, and the one property your compiler has to track to place them: the set of open ranges.</p>
+
+<div class="prose">
+<h2>A range is a counter</h2>
+<p><code>%i = range 4</code> is an i32 value that takes the values 0, 1, 2 and 3. The statement's name is the range's name. Anything computed from <code>%i</code> is computed once per value of <code>%i</code>:</p>
+<pre><code>%b  = buffer 4 dtype=i32 slot=0
+%i  = range 4
+%sq = mul %i %i             # i * i, for each i
+%v  = shrink %b %i shape=[] # element i
+%s  = store %v %sq          # b[i] = i * i
+%e  = end %s %i             # repeat %s for i = 0, 1, 2, 3
+%b1 = after %b %e           # the buffer after the whole loop</code></pre>
+<p><code>end %s %i</code> says "run the store once for every value of <code>%i</code>, in order". After the loop, <code>%b1</code> holds 0, 1, 4, 9. A <code>range</code> on its own doesn't loop anything. The loop exists only where an <code>end</code> closes it.</p>
+<p>The bound can be any i32 expression that doesn't depend on another range. <code>range 0</code> (or anything 0 or below) runs zero times. Because the bound can't depend on another range, every loop nest in week 3 is a rectangle: no triangular loops yet.</p>
+</div>
+
+<h2>Open ranges</h2>
+<div class="prose">
+<p>Every UOp has a set of <strong>open ranges</strong>: the ranges it depends on that no <code>end</code> has closed yet. A <code>range</code> is open in itself. Any other op takes the union of its operands' sets. An <code>end</code> removes the range it closes. Step through the program above:</p>
+</div>
+
+<div class="fig bleed" id="opens" data-title="open ranges, node by node"></div>
+
+<div class="prose">
+<p>The open ranges tell your compiler where each value lives: a value with <code>{i}</code> open is computed inside the i loop, and a value with nothing open is computed once, outside every loop. That's the whole placement rule for ordinary values. Loads get one more rule, in lesson 3.2.</p>
+</div>
+
+<div class="exercise" data-ex="w3-01-square">
+<h3>Square every element</h3>
+<p>Slot 0 holds six i32s. Write <code>out[i] = in[i] * in[i]</code> into slot 1 for every <code>i</code> from 0 to 5. The starter handles only <code>i = 0</code>. Turn it into a loop.</p>
+<p class="muted">The grader sets both buffers' data for each test and checks slot 1's final contents.</p>
+</div>
+
+<h2>Nesting</h2>
+<div class="prose">
+<p>Two ranges make a loop nest. The order of the <code>end</code>s decides which loop is outside. Here the store depends on both <code>%i</code> and <code>%j</code>. <code>%j</code> is closed first, so it's the inner loop:</p>
+<pre><code>%b  = buffer 6 dtype=i32 slot=0
+%i  = range 2
+%j  = range 3
+%i3 = mul %i 3
+%o  = add %i3 %j            # row-major offset i*3 + j
+%v  = shrink %b %o shape=[]
+%s  = store %v %o
+%ej = end %s %j             # inner loop: j
+%ei = end %ej %i            # outer loop: i
+%b1 = after %b %ei</code></pre>
+</div>
+
+<div class="split">
+<div class="nest">
+<div class="box"><span class="lab">loop i</span> (end %ei)
+<div>%i3 = mul %i 3</div>
+<div class="box"><span class="lab">loop j</span> (end %ej)
+<div>%o = add %i3 %j</div>
+<div>%s = store ...</div>
+</div>
+</div>
+</div>
+<pre><code>for (int32_t r3 = 0; r3 &lt; 2; r3++) {
+  int32_t v4 = r3 * 3;      /* i*3: outside the j loop */
+  for (int32_t r5 = 0; r5 &lt; 3; r5++) {
+    int32_t v6 = v4 + r5;
+    b0[v6] = v6;
+  }
+}</code></pre>
+</div>
+
+<div class="prose">
+<p class="muted">The C is the oracle's rendering, with the wraparound casts trimmed for reading.</p>
+<p>Notice where <code>%i3</code> went. It depends only on <code>%i</code>, so it's computed in the i loop, not the j loop. That's open ranges doing the hoisting for free. Swap the two <code>end</code>s and you get the same answers with the loops the other way round. Lesson 3.3 shows why that choice matters.</p>
+</div>
+
+<div class="exercise small" data-ex="w3-01-reverse">
+<h3>Reverse into a second buffer</h3>
+<p>Copy slot 0 (five i32s) into slot 1 backwards: <code>out[i] = in[4 - i]</code>. There's no subtract op, and the view has to pass the bounds check.</p>
+</div>
+
+<h2>What makes a loop invalid</h2>
+<div class="prose">
+<p>The oracle checks these statically. Each one is a mistake that would otherwise produce C that means something different from your graph:</p>
+<ul>
+<li><strong>Closing a range the effect doesn't use.</strong> <code>end %s %j</code> when <code>%s</code> doesn't depend on <code>%j</code> is an error, not a pointless loop.</li>
+<li><strong>A bound that depends on a range.</strong> <code>%j = range %i</code> is rejected in week 3.</li>
+<li><strong>An open range where none is allowed.</strong> <code>assert</code>, <code>call</code> and a range's bound must have nothing open. An assert inside a loop would have to pass once per iteration, which the format doesn't say how to report.</li>
+<li><strong>Closing a range twice.</strong> Each range has exactly one <code>end</code>, so each range is exactly one loop.</li>
+<li><strong>Out of bounds.</strong> A range's interval is <code>[0, n-1]</code>, and week 2's bounds check uses it. <code>shrink %b %i</code> with <code>%i = range 5</code> on a four-element buffer is invalid.</li>
+</ul>
+</div>
+
+<div class="exercise small" data-ex="w3-01-opens">
+<h3>Open ranges on a toy graph</h3>
+<p>Here's a five-constructor toy version of the graph. Write <code>opens</code>: the sorted, duplicate-free names of the ranges a node depends on that no <code>End</code> has closed. This is the property your compiler computes for every UOp.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="0 1 4 9 | [0 1 4 9] | 0, 1, 4, 9 | [0, 1, 4, 9]">
+<p class="q">After the first program on this page runs, what does <code>%b1</code> hold?</p>
+<div class="fill"><input aria-label="your answer" placeholder="e.g. 1 2 3 4"><button class="btn">Check</button></div>
+<p class="hint">The store writes <code>i * i</code> into element <code>i</code>, for i from 0 to 3.</p>
+<div class="why"><p>The loop runs the store four times: b[0] = 0, b[1] = 1, b[2] = 4, b[3] = 9. The oracle agrees.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">In the loop-nest example, which loop computes <code>%i3 = mul %i 3</code>?</p>
+<div class="opts">
+<button data-k="a">The j loop, because the store that uses it is in the j loop.</button>
+<button data-k="b">The i loop, because its only open range is <code>%i</code>.</button>
+<button data-k="c">Neither: it's computed once, before both loops.</button>
+<button data-k="d">Both: once per i and once per j.</button>
+</div>
+<p class="hint">Where a value lives depends on what it depends on, not on who uses it.</p>
+<div class="why"><p><code>%i3</code> has open ranges <code>{i}</code>, so it's computed once per value of i, in the i loop, outside the j loop. Its user <code>%o</code> has <code>{i, j}</code> open and lives in the j loop.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q"><code>%s</code> stores into <code>shrink %b %i shape=[]</code>, with <code>%i = range 4</code> and <code>%j = range 2</code>. What does <code>%e = end %s %j</code> do?</p>
+<div class="opts">
+<button data-k="a">Runs the store twice per element.</button>
+<button data-k="b">Nothing: the loop over j is empty.</button>
+<button data-k="c">The program is invalid.</button>
+<button data-k="d">Closes both i and j.</button>
+</div>
+<p class="hint">Does <code>%s</code> depend on <code>%j</code>?</p>
+<div class="why"><p><code>%s</code> doesn't use <code>%j</code>, and closing a range the effect doesn't use is an error: "end closes a range its effects don't use". Repeating a store that doesn't change is almost always a bug in the graph, so the format refuses it.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">The bound of a range is <code>add 0 0</code>. What happens to a buffer that loop stores into?</p>
+<div class="opts">
+<button data-k="a">It keeps its original contents: the loop runs zero times.</button>
+<button data-k="b">The program is invalid: a range must have a positive bound.</button>
+<button data-k="c">The loop runs once, with i = 0.</button>
+<button data-k="d">The bounds check fails, because the interval is empty.</button>
+</div>
+<p class="hint">The spec says what <code>n ≤ 0</code> does.</p>
+<div class="why"><p>A range with bound 0 or below runs zero times, so the store never happens and the buffer's final version holds its initial data. The oracle runs that program with exit 0.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">A buffer has 4 elements, and <code>%v = shrink %b %i shape=[]</code> with <code>%i = range 5</code>. What exit code does <code>run</code> give?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">What's the interval of <code>%i</code>?</p>
+<div class="why"><p><code>%i</code> is in [0, 4], so the view could start at element 4 of a four-element buffer. The bounds check fails, and the program is invalid: exit 2.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">Why must an <code>assert</code> have no open ranges?</p>
+<div class="opts">
+<button data-k="a">Because asserts are evaluated before loops run.</button>
+<button data-k="b">Because an assert can't read memory.</button>
+<button data-k="c">Because ranges are only allowed in render tests.</button>
+<button data-k="d">Because an assert inside a loop would pass or fail once per iteration, and there's no single answer to report.</button>
+</div>
+<p class="hint">What would "the first failing assert" mean for an assert that runs four times?</p>
+<div class="why"><p>An assert produces one pass or fail. Inside a loop it would produce one per iteration. To check something about every iteration, store it into a buffer inside the loop and assert on the buffer after the loop.</p></div>
+</div>
+
+<nav class="pager">
+<a href="../week2/06-lab.html">← Week 2 lab</a>
+<a href="02-memory-in-loops.html">Lesson 2: Memory in loops →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const src = `%b  = buffer 4 dtype=i32 slot=0
+%i  = range 4
+%sq = mul %i %i
+%v  = shrink %b %i shape=[]
+%s  = store %v %sq
+%e  = end %s %i
+%b1 = after %b %e`;
+  const { nodes, names } = CC.parseUir(src);
+  const c = `for (int32_t r2 = 0; r2 < 4; r2++) {
+  int32_t v4 = r2 * r2;
+  b0[r2] = v4;
+}`;
+  // each step: which statements are open in i, which one is the end, the highlighted .uir line, the C line
+  const steps = [
+    { open: ['i'], hl: 1, cl: 0, caption: '<code>%i = range 4</code> is open in itself: its open set is <code>{i}</code>. In C, it becomes the loop variable.' },
+    { open: ['i', 'sq'], hl: 2, cl: 1, caption: '<code>%sq</code> depends on <code>%i</code>, so it has <code>{i}</code> open too. It\'s computed inside the loop.' },
+    { open: ['i', 'sq', 'v'], hl: 3, cl: 2, caption: 'The view <code>shrink %b %i</code> moves with i, so it has <code>{i}</code> open. <code>%b</code> itself has nothing open: the buffer exists once.' },
+    { open: ['i', 'sq', 'v', 's'], hl: 4, cl: 2, caption: 'The store has <code>{i}</code> open. A store with an open range needs an <code>end</code> to say how often it runs.' },
+    { open: ['i', 'sq', 'v', 's'], closed: 'e', hl: 5, cl: 3, caption: '<code>end %s %i</code> closes i: its open set is <code>{i}</code> minus i, which is empty. In C, this is the closing brace.' },
+    { open: [], closed: 'e', done: ['b1'], hl: 6, cl: -1, caption: '<code>after %b %e</code> has nothing open. It sits outside every loop and names the buffer once the whole loop has run.' },
+  ];
+  CC.stepper(document.getElementById('opens'), steps, (s, body) => {
+    const id = n => names[n];
+    const g = nodes.map(n => ({ ...n, cls: s.open.some(x => id(x) === n.id) ? 'hit' : (s.closed && id(s.closed) === n.id) ? 'new' : (s.done || []).some(x => id(x) === n.id) ? 'new' : '' }));
+    body.append(h('div', { class: 'split' }, h('div', { class: 'stack' }, CC.code(src, s.hl), CC.code(c, s.cl)), CC.graph(g)));
+  });
+});
+</script>
+</body>
+</html>

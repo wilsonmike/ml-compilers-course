@@ -1,0 +1,27 @@
+# expect: pass
+# 3x3 same-size conv2d on a 4x5 image via pad and nine shrinks
+%v0 = buffer 20 dtype=i32 slot=0 data=[3 6 3 -3 0 5 -7 0 -9 4 9 0 6 0 -5 -4 6 8 6 1]
+%v1 = load %v0
+%v2 = reshape %v1 shape=[4 5]
+%v3 = buffer 9 dtype=i32 slot=1 data=[2 -1 1 2 2 -2 -2 -1 0]
+%v4 = load %v3
+%v5 = reshape %v4 shape=[3 3]
+%v6 = pad %v2 pads=[1 1 1 1]
+%v7 = shrink %v6 0 0 shape=[4 5]
+%v8 = shrink %v6 0 1 shape=[4 5]
+%v9 = shrink %v6 0 2 shape=[4 5]
+%v10 = shrink %v6 1 0 shape=[4 5]
+%v11 = shrink %v6 1 1 shape=[4 5]
+%v12 = shrink %v6 1 2 shape=[4 5]
+%v13 = shrink %v6 2 0 shape=[4 5]
+%v14 = shrink %v6 2 1 shape=[4 5]
+%v15 = shrink %v6 2 2 shape=[4 5]
+%v16 = stack %v7 %v8 %v9 %v10 %v11 %v12 %v13 %v14 %v15
+%v17 = reshape %v5 shape=[9 1 1]
+%v18 = expand %v17 shape=[9 4 5]
+%v19 = mul %v16 %v18
+%v20 = reduce %v19 op=add pop=1
+%v21 = buffer 20 dtype=i32 slot=2 data=[-11 9 38 9 8 18 -19 4 -29 -11 10 25 -31 13 -45 -29 12 10 33 19]
+%v22 = load %v21
+%v23 = reshape %v22 shape=[4 5]
+%v24 = assert %v20 %v23

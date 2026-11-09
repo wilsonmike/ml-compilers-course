@@ -1,0 +1,41 @@
+{
+ "id": "w1-01-dag-size",
+ "lang": "ocaml",
+ "title": "Count distinct nodes",
+ "show": "string_of_int",
+ "starter": "type t = Leaf of int | Add of t * t\n\n(* n doublings: one Leaf and n Adds, each Add using the node below it twice. *)\nlet rec dbl n = if n = 0 then Leaf 1 else let s = dbl (n - 1) in Add (s, s)\n\n(* Count DISTINCT nodes: physically different values (==).\n   dag_size (dbl 3) is 4, not 15, and dag_size (dbl 60) must finish. *)\nlet dag_size (t : t) : int =\n  let rec go t = match t with Leaf _ -> 1 | Add (a, b) -> 1 + go a + go b in\n  go t\n",
+ "tests": [
+  {
+   "expr": "dag_size (Leaf 5)",
+   "expect": "1",
+   "sample": true
+  },
+  {
+   "expr": "dag_size (dbl 3)",
+   "expect": "4",
+   "sample": true
+  },
+  {
+   "expr": "dag_size (Add (Leaf 3, Leaf 4))",
+   "expect": "3"
+  },
+  {
+   "expr": "let l = Leaf 7 in dag_size (Add (Add (l, Leaf 2), l))",
+   "expect": "4"
+  },
+  {
+   "expr": "let a = dbl 2 in dag_size (Add (a, Add (a, Leaf 9)))",
+   "expect": "6"
+  },
+  {
+   "expr": "dag_size (dbl 60)",
+   "expect": "61"
+  }
+ ],
+ "hints": [
+  "The naive version counts a shared node once for every path that reaches it. How many paths reach the bottom of `dbl 60`?",
+  "Walk the graph, but remember which nodes you have already visited and skip them the second time.",
+  "Compare nodes with physical equality (`==`, or `List.memq`), not structural `=`. Structural equality would walk the whole tree again just to compare."
+ ],
+ "explain": "The walk records each node the first time it sees it and never descends into a node twice, so it visits each distinct node once instead of once per path. With `List.memq` as the visited list, each lookup scans the list, so the total is quadratic in the number of distinct nodes (a hash table makes it linear); for `dbl 60` that's 61 nodes, which is instant. `List.memq` uses physical equality; structural `=` on `dbl 60` would itself take 2^60 steps."
+}

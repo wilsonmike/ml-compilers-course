@@ -1,0 +1,49 @@
+{
+ "id": "w0-01-wrap-add",
+ "lang": "c",
+ "title": "Add with wraparound, no UB",
+ "starter": "#include <stdint.h>\n\n// Return a + b wrapped to 32 bits, like the course's i32 add.\n// Signed overflow is undefined in C, so don't add two int32_t directly.\nint32_t wrap_add(int32_t a, int32_t b) {\n  return 0;\n}\n",
+ "show": "%d",
+ "tests": [
+  {
+   "expr": "wrap_add(2, 3)",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "wrap_add(2147483647, 1)",
+   "expect": "-2147483648",
+   "sample": true
+  },
+  {
+   "expr": "wrap_add(-2147483648, -1)",
+   "expect": "2147483647"
+  },
+  {
+   "expr": "wrap_add(-5, 3)",
+   "expect": "-2"
+  },
+  {
+   "expr": "wrap_add(0, 0)",
+   "expect": "0"
+  },
+  {
+   "expr": "wrap_add(2147483647, 2147483647)",
+   "expect": "-2"
+  },
+  {
+   "expr": "wrap_add(-2147483648, -2147483648)",
+   "expect": "0"
+  },
+  {
+   "expr": "wrap_add(-1, 1)",
+   "expect": "0"
+  }
+ ],
+ "hints": [
+  "Unsigned arithmetic in C is defined to wrap modulo 2^32. Signed is not.",
+  "Convert both inputs to `uint32_t`, add them there, then convert the sum back to `int32_t`.",
+  "The add itself must happen on the unsigned values: cast before the `+`, not after."
+ ],
+ "explain": "`(uint32_t)a + (uint32_t)b` wraps by definition, so there is no undefined behavior. Converting that out-of-range 32-bit pattern back to `int32_t` is implementation-defined in C, and every compiler you'll use (GCC, Clang, MSVC) reads it as two's complement, so `INT_MAX + 1` comes out as `INT_MIN`."
+}

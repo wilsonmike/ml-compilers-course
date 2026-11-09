@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Any Rank, Flat Memory</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .tview { display: grid; gap: var(--s5); }
+  .planes { display: flex; gap: var(--s5); flex-wrap: wrap; }
+  .plane { display: grid; gap: var(--s1); }
+  .plane .name, .flatname { font: 0.875rem var(--mono); color: var(--ink-3); }
+  .grid { display: grid; grid-template-columns: repeat(4, 2.75rem); gap: 3px; }
+  .grid .c { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+  .grid .c.on, .flat .cell.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .flat .cell { min-width: 2.5rem; }
+  .math { font: 0.875rem var(--mono); color: var(--ink-2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 5 · Lesson 1</p>
+<h1>Any rank, flat memory</h1>
+<p class="lede">Until now every value was a scalar or a vector. From this week a value can have any number of axes: a matrix, a stack of matrices, a batch of images. Memory doesn't change at all. Buffers stay one long row of numbers, and the shape is just a way of reading that row.</p>
+
+<div class="prose">
+<h2>A shape is a way of counting</h2>
+<p>A shape is a tuple of positive sizes. <code>()</code> is a scalar, <code>(5,)</code> a vector, <code>(3, 4)</code> a matrix with 3 rows of 4, and <code>(2, 3, 4)</code> two such matrices. The number of axes is the <b>rank</b>.</p>
+<p>The elements are laid out in <b>row-major</b> order: the last axis changes fastest. That's the rule from lesson 0.4, and it gives each axis a stride, the distance in elements between neighbors along that axis. For <code>(2, 3, 4)</code> the strides are <code>(12, 4, 1)</code>, so element <code>[i][j][k]</code> is number <code>12i + 4j + k</code> in the flat row. Step through it:</p>
+</div>
+
+<div class="fig" id="tensor" data-title="a (2, 3, 4) tensor and the 24 numbers behind it"></div>
+
+<h2>Memory stays rank 1</h2>
+<div class="prose">
+<p>Buffers, allocs and memory views keep their week 2 shapes: a buffer is <code>(n,)</code>, a view is <code>[k]</code> or a single element. So a rank-3 value is always made the same way. Load a vector, then <code>reshape</code> it:</p>
+<pre><code>%x  = buffer 24 dtype=i32 slot=0
+%v  = load %x                      # (24,)
+%t  = reshape %v shape=[2 3 4]     # (2, 3, 4): same numbers, new shape</code></pre>
+<p>Storing goes the other way: <code>store</code> needs a value with the view's shape, so you reshape back to <code>[24]</code> first. Because the layout is row-major on both sides, neither reshape moves a single number.</p>
+</div>
+
+<div class="trap">
+<span class="label">Storing a matrix directly</span>
+<p><code>store %y %m</code> with <code>%m</code> of shape <code>(3, 4)</code> and <code>%y</code> a 12-element buffer is a type error (the oracle reports "the value must match the view's dtype and shape"). Reshape to <code>[12]</code> first. Params also keep their week 1 rule, so <code>param 0 dtype=i32 shape=[2 3]</code> is invalid. Shaped data comes from buffers.</p>
+</div>
+
+<h2>Popping leading axes</h2>
+<div class="prose">
+<p>Two ops take axes off the front of a shape.</p>
+<ul>
+<li><code>index %t 1</code> picks plane 1 and drops axis 0: shape <code>(3, 4)</code>. <code>index %t 1 2</code> drops two axes, leaving row 2 of plane 1, shape <code>(4,)</code>, and <code>index %t 1 2 3</code> is one scalar.</li>
+<li><code>reduce %t op=add pop=m</code> folds the first <code>m</code> axes away. <code>pop=1</code> (the default) adds the two planes, giving <code>(3, 4)</code>. <code>pop=2</code> adds all six rows, giving <code>(4,)</code>.</li>
+</ul>
+<p>When <code>pop</code> is more than 1, the fold visits the popped axes in row-major order, starting from the first element, exactly like week 4's left fold. For the tensor holding <code>0..23</code>, <code>reduce pop=2</code> at column 0 is <code>0 + 4 + 8 + 12 + 16 + 20 = 60</code>.</p>
+</div>
+
+<div class="key">
+<span class="label">Only leading axes</span>
+<p><code>index</code> and <code>reduce</code> work on the front of the shape. To pick or sum along another axis, move it to the front first with <code>permute</code> (lesson 5.2). That's one rule to implement instead of one per axis.</p>
+</div>
+
+<div class="exercise" data-ex="w5-01-planesum">
+<h3>Add the two planes</h3>
+<p>Slot 0 holds 24 i32s: a <code>(2, 3, 4)</code> tensor in row-major order. Store <code>y[j][k] = x[0][j][k] + x[1][j][k]</code>, a <code>(3, 4)</code> result, into slot 1 as 12 numbers. The starter stores plane 0 only.</p>
+</div>
+
+<div class="exercise small" data-ex="w5-01-coord">
+<h3>Unflatten a flat index</h3>
+<p>Write <code>coord(f, d1, d2, axis)</code>: for a row-major tensor of shape <code>[d0 d1 d2]</code>, return the coordinate of flat index <code>f</code> along <code>axis</code> 0, 1 or 2. For <code>[2 3 4]</code>, flat 23 is <code>[1][2][3]</code>.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="23">
+<p class="q">In a <code>(2, 3, 4)</code> tensor, what is the flat position of element <code>[1][2][3]</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The strides are <code>(12, 4, 1)</code>.</p>
+<div class="why"><p><code>12·1 + 4·2 + 3 = 23</code>, the last element. It's the last because every index is at its maximum.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%t</code> has shape <code>(2, 3, 4)</code>. What shape is <code>reduce %t op=add pop=1</code>?</p>
+<div class="opts">
+<button data-k="a"><code>(2, 3)</code></button>
+<button data-k="b"><code>(3, 4)</code></button>
+<button data-k="c"><code>(2, 4)</code></button>
+<button data-k="d"><code>()</code></button>
+</div>
+<p class="hint">Which end of the shape does <code>pop</code> take axes from?</p>
+<div class="why"><p><code>pop=1</code> folds away the leading axis, so what's left is <code>(3, 4)</code>: the two planes added together.</p></div>
+</div>
+
+<div class="quiz" data-fill="60">
+<p class="q"><code>%t</code> is <code>(2, 3, 4)</code> holding <code>0, 1, ..., 23</code> in row-major order. What is element 0 of <code>reduce %t op=add pop=2</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The result has shape <code>(4,)</code>. Element 0 sums column 0 of all six rows. Column 0 holds every fourth number.</p>
+<div class="why"><p>Column 0 is <code>0, 4, 8, 12, 16, 20</code>, and their sum is 60.</p></div>
+</div>
+
+<div class="quiz" data-fill="3 4 | (3, 4) | [3 4] | 3, 4 | (3,4)">
+<p class="q">What shape is <code>index %t 1</code> for <code>%t</code> of shape <code>(2, 3, 4)</code>? Answer like <code>3 4</code>.</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">One index drops one leading axis.</p>
+<div class="why"><p>It picks plane 1 and drops axis 0, leaving <code>(3, 4)</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q"><code>%m</code> has shape <code>(3, 4)</code> and <code>%y</code> is a 12-element buffer. How do you write <code>%m</code> into <code>%y</code>?</p>
+<div class="opts">
+<button data-k="a"><code>store %y %m</code> works as is.</button>
+<button data-k="b">Declare <code>%y</code> with <code>shape=[3 4]</code>.</button>
+<button data-k="c">Reshape <code>%m</code> to <code>[12]</code>, then store that.</button>
+<button data-k="d">Store each row with its own <code>store</code>, since there's no other way.</button>
+</div>
+<p class="hint">Memory stays rank 1. What does <code>store</code> require of its value's shape?</p>
+<div class="why"><p>The value must match the view's shape, and buffers are rank 1. <code>reshape %m shape=[12]</code> moves nothing, because both sides are row-major, and then one store writes all 12.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Is <code>%p = param 0 dtype=i32 shape=[2 3]</code> valid in week 5?</p>
+<div class="opts">
+<button data-k="a">No: params keep their week 1 rule, rank 0 or 1.</button>
+<button data-k="b">Yes: week 5 removes every rank limit.</button>
+<button data-k="c">Yes, but only inside a call body.</button>
+</div>
+<p class="hint">Section 1 of the week 5 spec has one exception to "any rank".</p>
+<div class="why"><p>The spec keeps params at rank 0 or 1. Shaped data comes from buffers, loaded and reshaped.</p></div>
+</div>
+
+<nav class="pager">
+<a href="../week4/06-lab.html">← Week 4 lab</a>
+<a href="02-reshape-permute.html">Lesson 2: Reshape and permute →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const picks = [[0, 0, 0], [0, 0, 3], [0, 1, 0], [0, 2, 3], [1, 0, 0], [1, 2, 3]];
+  const steps = picks.map(([i, j, k]) => {
+    const f = 12 * i + 4 * j + k;
+    return { i, j, k, f, caption: `Element <code>[${i}][${j}][${k}]</code> is number <code>12·${i} + 4·${j} + ${k} = ${f}</code> in the buffer.` +
+      (k === 3 && j === 0 ? ' The last axis runs out at 3, so the next number, 4, starts row 1. Each row is 4 numbers, the stride of axis 1.' : '') +
+      (i === 1 && j === 0 && k === 0 ? ' A whole plane is 12 numbers, so plane 1 starts at 12.' : '') };
+  });
+  CC.stepper(document.getElementById('tensor'), steps, (s, body) => {
+    const plane = p => h('div', { class: 'plane' }, h('span', { class: 'name', text: `plane ${p}` }),
+      h('div', { class: 'grid' }, Array.from({ length: 12 }, (_, n) => {
+        const j = Math.floor(n / 4), k = n % 4, v = 12 * p + n;
+        return h('div', { class: 'c' + (p === s.i && j === s.j && k === s.k ? ' on' : ''), text: v });
+      })));
+    body.append(h('div', { class: 'tview' },
+      h('div', { class: 'planes' }, plane(0), plane(1)),
+      h('div', {}, h('span', { class: 'flatname', text: 'the buffer: 24 numbers, row-major' }),
+        h('div', { class: 'mem flat' }, Array.from({ length: 24 }, (_, n) => h('div', { class: 'cell' + (n === s.f ? ' on' : '') }, h('span', { class: 'addr', text: n }), String(n))))),
+      h('div', { class: 'math', text: `strides (12, 4, 1): offset = ${12 * s.i} + ${4 * s.j} + ${s.k} = ${s.f}` })));
+  });
+});
+</script>
+</body>
+</html>

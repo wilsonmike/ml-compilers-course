@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 4 Test Guide</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .guide td:first-child { white-space: nowrap; }
+  .guide td { font-size: 0.9375rem; }
+  .filter { width: 100%; max-width: 28rem; font: 1rem var(--sans); padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); color: var(--ink); margin: 0 0 var(--s4); }
+</style>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 4 test guide</h1>
+  <p class="lede">A test failed and you don't know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the <a href="../../spec/uir-week4.md">week 4 spec</a>.</p>
+  <div class="note"><span class="label">How to use this</span>
+    <p>Run <code>python tools/test.py --compiler PATH --week 4 -v</code>, copy the failing test's name, and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
+  </div>
+  <input class="filter" type="search" placeholder="Filter by test name, kind, or words" aria-label="Filter tests" oninput="for (const r of document.querySelectorAll('.guide tbody tr')) r.hidden = !r.textContent.toLowerCase().includes(this.value.toLowerCase())">
+  <div class="tablewrap">
+  <table class="guide">
+    <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
+    <tbody>
+    <tr><td><code>render/normalize_4096</code></td><td>render</td><td></td><td>render elementwise at 0<br>render expand zero<br>render load at offset 0<br>render reduce reversed<br>render skips rangeify<br>render store loop short</td></tr>
+    <tr><td><code>render/normalize_stage_4096</code></td><td>render</td><td></td><td>render elementwise at 0<br>render expand zero<br>render load at offset 0<br>render reduce reversed<br>render skips rangeify<br>render stage reads x[0]<br>render store loop short</td></tr>
+    <tr><td><code>render/r_add_f32_2048</code></td><td>render</td><td>elementwise add of two large f32 vectors</td><td>render elementwise at 0<br>render load at offset 0<br>render skips rangeify<br>render store loop short</td></tr>
+    <tr><td><code>render/r_cast_f32_i32_1024</code></td><td>render</td><td>f32 to i32 casts in range, truncating</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_cast_i32_f32_1024</code></td><td>render</td><td>i32 to f32 rounds to nearest-even for big values</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_chained_reduce_1024</code></td><td>render</td><td>subtract the max, then scale by the inverse sum of squares</td><td>render expand zero</td></tr>
+    <tr><td><code>render/r_copy_4096</code></td><td>render</td><td>a plain 4096-element copy (load, then store): still has to be a loop to fit in 20 KB</td><td>no size threshold</td></tr>
+    <tr><td><code>render/r_differences_2047</code></td><td>render</td><td>adjacent differences from two overlapping views of one buffer</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_divmod_1024</code></td><td>render</td><td>C-style div and mod with negatives and -1 divisors (UB-free)</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_dot_4096</code></td><td>render</td><td>a 4096-wide dot product</td><td>render reduce reversed</td></tr>
+    <tr><td><code>render/r_expand_dtypes_1024</code></td><td>render</td><td>expand i32, f32 and bool scalars into buffers</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_index_computed</code></td><td>render</td><td>index into a computed vector at a loaded, masked index</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_max_specials_1024</code></td><td>render</td><td>elementwise max with nan, signed zeros and infinities</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_mean_variance_2048</code></td><td>render</td><td>mean and variance of 2048 values, written to two slots</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_mul_i32_wrap_1024</code></td><td>render</td><td>i32 elementwise mul wraps per element, in a loop</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_recip_1024</code></td><td>render</td><td>recip per element, signed zeros included</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_reduce_add_i32_4096</code></td><td>render</td><td>a 4096-wide i32 sum wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_reduce_add_order_4096</code></td><td>render</td><td>a 4096-wide f32 sum whose bits depend on folding left to right</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_reduce_in_hand_loop</code></td><td>render</td><td>a reduce result feeding a hand-written week 3 loop</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_reduce_max_nan_2048</code></td><td>render</td><td>max with a nan in the middle is nan. Without the nan it is the true max</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_reduce_max_signed_zero</code></td><td>render</td><td>max over only signed zeros gives +0.0 if any +0.0 is present</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_reduce_mul_i32_1024</code></td><td>render</td><td>i32 product of 1024 values wraps at every step</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_reduce_single</code></td><td>render</td><td>a one-element reduce is a zero-trip loop after the first element</td><td>render reduce from zero</td></tr>
+    <tr><td><code>render/r_relu_4096</code></td><td>render</td><td>relu by cmplt and where, 4096 wide</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_shl_1024</code></td><td>render</td><td>shl per element wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_stage_scalar</code></td><td>render</td><td>stage on a scalar is just that scalar</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_stage_twice_4096</code></td><td>render</td><td>a staged vector read by two reduces and a store</td><td>render stage reads x[0]</td></tr>
+    <tr><td><code>render/r_two_outputs_2048</code></td><td>render</td><td>one loaded vector feeding two outputs</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_used_twice_2048</code></td><td>render</td><td>a squared vector used in a reduce and elementwise, recomputed</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_used_twice_stage_2048</code></td><td>render</td><td>a squared vector used in a reduce and elementwise, materialized with stage</td><td>render stage reads x[0]</td></tr>
+    <tr><td><code>render/r_view_slices_1500</code></td><td>render</td><td>rank-1 views at an offset: copy b[3..1502] + 1 into c[1..1500]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_where_i32_2048</code></td><td>render</td><td>clamp i32 to [-100, 100] with where</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_xor_bool_1024</code></td><td>render</td><td>bool xor into a bool buffer</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/add_i32_vec</code></td><td>run: pass</td><td>elementwise i32 add on rank-1 values</td><td>elementwise uses x[0]</td></tr>
+    <tr><td><code>run/add_i32_wrap_vec</code></td><td>run: pass</td><td>elementwise add wraps per element</td><td>elementwise uses x[0]</td></tr>
+    <tr><td><code>run/cast_vec</code></td><td>run: pass</td><td>cast works per element</td><td>elementwise uses x[0]</td></tr>
+    <tr><td><code>run/chained_reduce</code></td><td>run: pass</td><td>max, then a sum of squares of x - max</td><td>expand scalar is zero</td></tr>
+    <tr><td><code>run/cmplt_where_vec</code></td><td>run: pass</td><td>cmplt gives a bool vector, and where selects per element</td><td>expand scalar is zero</td></tr>
+    <tr><td><code>run/div_mod_vec</code></td><td>run: pass</td><td>C-style div and mod per element, INT_MIN / -1 wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/dot</code></td><td>run: pass</td><td>a dot product is reduce(mul(x, y))</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_div_zero_vec</code></td><td>run: invalid</td><td>one zero divisor in a vector is a runtime error</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_expand_grows_non1_axis</code></td><td>run: invalid</td><td>expand only grows size-1 axes: a size-2 axis cannot become size 3 (a scalar or same-rank value is fine from week 5)</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_expand_no_shape</code></td><td>run: invalid</td><td>expand needs shape=[n]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_expand_zero</code></td><td>run: invalid</td><td>shape=[0] isn&#x27;t a shape</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_missing_expand</code></td><td>run: invalid</td><td>no implicit broadcasting: a scalar must be expanded first</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_rank1_open_range</code></td><td>run: invalid</td><td>a rank-1 value can&#x27;t depend on an open range</td><td>shaped on open range ok</td></tr>
+    <tr><td><code>run/err_reduce_bad_op</code></td><td>run: invalid</td><td>reduce op must be add, mul or max</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_reduce_bool</code></td><td>run: invalid</td><td>reduce works on i32 or f32 only</td><td>reduce on bool</td></tr>
+    <tr><td><code>run/err_reduce_no_op</code></td><td>run: invalid</td><td>reduce needs op=</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_reduce_scalar</code></td><td>run: invalid</td><td>reduce takes a rank-1 value</td><td>reduce takes scalars</td></tr>
+    <tr><td><code>run/err_shape_mismatch</code></td><td>run: invalid</td><td>elementwise ops need equal shapes</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_where_scalar_cond</code></td><td>run: invalid</td><td>where needs its condition in the same shape as its branches</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/expand_dtypes</code></td><td>run: pass</td><td>expand broadcasts a scalar of any dtype</td><td>expand scalar is zero</td></tr>
+    <tr><td><code>run/fail_vec</code></td><td>run: assert_fail</td><td>a computed vector that doesn&#x27;t match</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/index_computed_vec</code></td><td>run: pass</td><td>index into a computed rank-1 value</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/inloop_after_not_output</code></td><td>run: pass</td><td>an after inside a loop is local to an iteration, not an output: no top-level after builds on %b, so %b&#x27;s output is unchanged</td><td>in-loop afters are outputs</td></tr>
+    <tr><td><code>run/load_view_rank1</code></td><td>run: pass</td><td>load a [k] view, add an expanded scalar, store into another buffer&#x27;s view</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/max_f32_nan_vec</code></td><td>run: pass</td><td>elementwise max: nan wins, -0.0 vs 0.0 gives +0.0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mean_variance</code></td><td>run: pass</td><td>mean, then variance from the deviations</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mul_add_f32_vec</code></td><td>run: pass</td><td>f32 elementwise ops round after every op</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/normalize_small</code></td><td>run: pass</td><td>x / sum(x): x is used twice, once inside the reduce and once after</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/normalize_small_stage</code></td><td>run: pass</td><td>the same with stage: identical results</td><td>stage zeroes</td></tr>
+    <tr><td><code>run/recip_vec</code></td><td>run: pass</td><td>recip per element, including signed zeros</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/reduce_add_f32_order</code></td><td>run: pass</td><td>reduce add folds left to right from x[0]; right to left would give 0.0</td><td>fold right to left</td></tr>
+    <tr><td><code>run/reduce_add_i32_wrap</code></td><td>run: pass</td><td>reduce add on i32 wraps at each step</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/reduce_add_negzero</code></td><td>run: pass</td><td>a fold that starts from x[0] keeps -0.0; starting from 0.0 would lose the sign</td><td>fold from zero</td></tr>
+    <tr><td><code>run/reduce_in_hand_loop</code></td><td>run: pass</td><td>a reduce result (no open ranges) used inside a week 3 loop</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/reduce_max_i32</code></td><td>run: pass</td><td>reduce max of negatives</td><td>fold from zero<br>reduce op ignored</td></tr>
+    <tr><td><code>run/reduce_max_nan</code></td><td>run: pass</td><td>reduce max: any nan makes the result nan</td><td>fold skips nan</td></tr>
+    <tr><td><code>run/reduce_max_signed_zero</code></td><td>run: pass</td><td>reduce max of -0.0 and 0.0 is +0.0</td><td>fold from zero</td></tr>
+    <tr><td><code>run/reduce_mul_f32</code></td><td>run: pass</td><td>reduce mul on f32 rounds after every step (and overflows to inf)</td><td>reduce op ignored</td></tr>
+    <tr><td><code>run/reduce_mul_i32_wrap</code></td><td>run: pass</td><td>reduce mul on i32 wraps at each step</td><td>reduce op ignored</td></tr>
+    <tr><td><code>run/reduce_of_expand</code></td><td>run: pass</td><td>reducing an expanded scalar</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/reduce_single</code></td><td>run: pass</td><td>a one-element reduce is that element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_vec</code></td><td>run: pass</td><td>shl per element wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/stage_identity</code></td><td>run: pass</td><td>stage doesn&#x27;t change the value, rank 1 or scalar</td><td>stage zeroes</td></tr>
+    <tr><td><code>run/xor_vec</code></td><td>run: pass</td><td>xor on bool and i32 vectors</td><td><span class=muted>none recorded</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,53 @@
+{
+ "id": "w1-01-hashcons",
+ "lang": "ocaml",
+ "title": "Hash cons a toy node",
+ "show": "(fun s -> s)",
+ "starter": "(* A toy node. Don't change the type. *)\ntype node = { id : int; op : string; src : node list }\n\n(* create () returns a fresh make function with its own table.\n   make op src returns the SAME node (==) when called again with the same\n   op and the same source nodes, and otherwise a new node with the next id:\n   0, 1, 2, ... *)\nlet create () : string -> node list -> node =\n  fun op src -> { id = 0; op; src }\n",
+ "tests": [
+  {
+   "expr": "let mk = create () in let a = mk \"x\" [] in let b = mk \"x\" [] in string_of_bool (a == b)",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "let mk = create () in let a = mk \"x\" [] in let b = mk \"y\" [] in Printf.sprintf \"%d %d\" a.id b.id",
+   "expect": "0 1",
+   "sample": true
+  },
+  {
+   "expr": "let mk = create () in let x = mk \"x\" [] in let a = mk \"add\" [x; x] in let b = mk \"add\" [x; x] in string_of_bool (a == b)",
+   "expect": "true"
+  },
+  {
+   "expr": "let mk = create () in let x = mk \"x\" [] in let _ = mk \"add\" [x; x] in let _ = mk \"add\" [x; x] in string_of_int (mk \"z\" []).id",
+   "expect": "2"
+  },
+  {
+   "expr": "let mk = create () in let x = mk \"x\" [] in let y = mk \"y\" [] in string_of_bool (mk \"add\" [x; y] == mk \"add\" [y; x])",
+   "expect": "false"
+  },
+  {
+   "expr": "let m1 = create () in let m2 = create () in let _ = m1 \"a\" [] in string_of_int (m2 \"b\" []).id",
+   "expect": "0"
+  },
+  {
+   "expr": "let mk = create () in let x = mk \"x\" [] in string_of_bool (mk \"neg\" [x] == mk \"neg\" [x; x])",
+   "expect": "false"
+  },
+  {
+   "expr": "let mk = create () in let a = mk \"add\" [mk \"x\" []; mk \"x\" []] in let b = mk \"add\" [mk \"x\" []; mk \"x\" []] in string_of_bool (a == b && a.id = 1)",
+   "expect": "true"
+  },
+  {
+   "expr": "let mk = create () in let last = ref (mk \"c\" []) in for _ = 1 to 1000 do last := mk \"s\" [!last] done; string_of_int (mk \"s\" [mk \"c\" []]).id",
+   "expect": "1"
+  }
+ ],
+ "hints": [
+  "The shape: `let create () = let tbl = Hashtbl.create 16 in let next = ref 0 in fun op src -> ...`. A function can return a function, and the one it returns still sees `tbl` and `next`.",
+  "Keep a `Hashtbl` and an id counter inside `create`, so each call gets its own. The key is the op plus the ids of the sources, because sources are already hash consed.",
+  "On a hit, return the stored node itself, not a copy, so `==` holds. Only bump the counter when you actually build a new node."
+ ],
+ "explain": "Each `create ()` makes its own table and counter, so tables never share ids. The key `(op, source ids)` is enough because the sources were themselves hash consed: equal sources already have equal ids. Returning the stored record on a hit is what makes `make` give back the physically same node."
+}

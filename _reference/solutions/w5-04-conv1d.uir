@@ -1,0 +1,17 @@
+# y = x correlated with w, same size: y[i] = x[i-1]*w[0] + x[i]*w[1] + x[i+1]*w[2], zeros outside x
+%xb = buffer 6 dtype=f32 slot=0
+%wb = buffer 3 dtype=f32 slot=1
+%yb = buffer 6 dtype=f32 slot=2
+%x  = load %xb
+%w  = load %wb
+%p  = pad %x pads=[1 1]
+%s0 = shrink %p 0 shape=[6]
+%s1 = shrink %p 1 shape=[6]
+%s2 = shrink %p 2 shape=[6]
+%win = stack %s0 %s1 %s2
+%w2 = reshape %w shape=[3 1]
+%wx = expand %w2 shape=[3 6]
+%pr = mul %win %wx
+%y  = reduce %pr op=add pop=1
+%st = store %yb %y
+%y1 = after %yb %st

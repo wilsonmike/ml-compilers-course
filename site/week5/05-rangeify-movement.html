@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rangeify Movement Ops</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .padview { display: grid; gap: var(--s4); }
+  .vlabel { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
+  .mem .cell.read { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .mem .cell.out { background: var(--panel); border-color: var(--ink-3); }
+  .facts { font: 0.875rem/1.7 var(--mono); color: var(--ink-2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 5 · Lesson 5</p>
+<h1>Rangeify movement ops</h1>
+<p class="lede">Movement ops never compute anything, so rangeify can make them disappear. Each one becomes a little index arithmetic in front of a load: a multiply, a divide, a clamp. After rangeify, a matmul written as a broadcast cube is two loops (one over the flattened outputs, one over k) and a few integer ops, and the cube was never there.</p>
+
+<div class="prose">
+<h2>Every op is a rule for indices</h2>
+<p>Week 4's rangeify asked each value one question: what is your element at index <code>i</code>? Week 5 asks the same question with an index <em>tuple</em> <code>(i0, i1, ...)</code>, one entry per axis. A movement op answers by rewriting the tuple and passing the question to its operand:</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>op</th><th>element at <code>(i0, ..., ik)</code> becomes</th></tr></thead>
+<tbody>
+<tr><td><code>reshape</code></td><td>flatten the index in the new shape (<code>f = i0·stride0 + i1·stride1 + ...</code>, row-major strides), then unflatten <code>f</code> in the old shape: axis k is <code>(f div stride_k) mod size_k</code></td></tr>
+<tr><td><code>permute order=p</code></td><td>the operand at the index whose axis <code>p_k</code> is <code>i_k</code>: just a reordering, no arithmetic</td></tr>
+<tr><td><code>pad pads=[l r ...]</code></td><td>the operand at the clamped index <code>clamp(i - l, 0, n - 1)</code>, then <code>where(valid, that, 0)</code>, with <code>valid = l ≤ i &lt; l + n</code></td></tr>
+<tr><td><code>shrink</code></td><td>the operand at <code>(i0 + o0, ...)</code></td></tr>
+<tr><td><code>expand</code></td><td>the operand with every size-1 axis read at 0</td></tr>
+<tr><td><code>stack</code></td><td>item <code>i0</code> at the rest of the index: a chain of <code>where</code>s on <code>i0</code>, or a plain C array index when the items are scalars</td></tr>
+<tr><td><code>reduce pop=m</code></td><td>one accumulator loop over all <code>m</code> leading axes together: a flat counter <code>t</code>, unflattened into the m indices with div and mod</td></tr>
+</tbody></table></div>
+<div class="prose">
+<p>Eventually every question reaches a <code>load</code> of a rank-1 buffer, which answers with a scalar load at <code>offset + i</code>. Everything above it was index arithmetic.</p>
+
+<h2>Pad: a clamp and a mask</h2>
+<p>Here is the oracle's C for <code>pad %x pads=[1 2]</code> on a 3-element <code>x</code>, stored into a 6-element buffer:</p>
+</div>
+<pre><code>for (int32_t r9 = 0; r9 &lt; 6; r9++) {
+  bool v11 = (0 &lt; r9);
+  bool v12 = (r9 &lt; 4);
+  bool v13 = (v11 ? v12 : false);                 /* valid: 1 &lt;= r9 &lt; 4 */
+  int32_t v14 = (int32_t)((uint32_t)r9 + (uint32_t)-1);
+  int32_t v15 = (v14 &gt; 0 ? v14 : 0);             /* clamp below */
+  int32_t v16 = (int32_t)((uint32_t)v15 * (uint32_t)-1);
+  int32_t v17 = (v16 &gt; -2 ? v16 : -2);
+  int32_t v18 = (int32_t)((uint32_t)v17 * (uint32_t)-1);   /* clamp above: min(v15, 2) */
+  float v20 = b0[v18];
+  float v21 = (v13 ? v20 : 0x0.0p+0f);
+  b1[r9] = v21;
+}</code></pre>
+<div class="prose">
+<p>There's no <code>min</code> op, so the upper clamp is written as <code>-max(-x, -(n-1))</code>. Step through the loop to see what each iteration reads.</p>
+</div>
+
+<div class="fig" id="pad" data-title="pad x pads=[1 2]: what each iteration reads"></div>
+
+<div class="trap">
+<span class="label">The mask doesn't make the read safe</span>
+<p>The <code>where</code> throws away the loaded value outside the real elements, so it's tempting to drop the clamp and read <code>b0[r9 - 1]</code>. But the load still runs, every iteration: at <code>r9 = 0</code> it reads <code>b0[-1]</code>, and at <code>r9 = 5</code> it reads <code>b0[4]</code> of a 3-element buffer. Reading out of bounds is undefined behavior in C, even if the value is discarded. The clamp is what keeps every read inside the buffer.</p>
+</div>
+
+<div class="exercise" data-ex="w5-05-padidx">
+<h3>Pad: clamp and mask</h3>
+<p>Write the two halves of a padded read. For a pad with <code>l</code> zeros on the left of an <code>n</code>-element <code>x</code>: <code>pad_valid(i, l, n)</code> is 1 when position <code>i</code> lands on a real element and 0 otherwise, and <code>pad_src(i, l, n)</code> is the index to read, <code>i - l</code> clamped into <code>[0, n-1]</code>. Positions may be anywhere, including negative.</p>
+</div>
+
+<div class="prose">
+<h2>The movement GEMM, rendered</h2>
+<p>And here is the syllabus GEMM from lesson 5.4 (K = 2, M = 2, N = 3), after rangeify. The store of the <code>[2 3]</code> result became one loop over its 6 elements, and the <code>reduce pop=1</code> became a seeded accumulator and a loop over the remaining K - 1 = 1 values of k:</p>
+</div>
+<pre><code>float a4[1] = {0};
+for (int32_t r11 = 0; r11 &lt; 6; r11++) {          /* output element: (m, n) = (r11 / 3, r11 % 3) */
+  int32_t v13 = (r11 / 3);
+  int32_t v14 = (v13 % 2);
+  int32_t v15 = (v14 % 4);
+  float v17 = b0[v15];                          /* a at k = 0 */
+  int32_t v18 = (r11 % 3);
+  int32_t v19 = (v18 % 6);
+  float v21 = b1[v19];                          /* b at k = 0 */
+  float v22 = (v17 * v21);
+  a4[0] = v22;                                  /* seed with the k = 0 product */
+  for (int32_t r26 = 0; r26 &lt; 1; r26++) {       /* k = 1 */
+    float v27 = a4[0];
+    int32_t v28 = (int32_t)((uint32_t)r26 + (uint32_t)1);
+    int32_t v29 = (v28 % 2);
+    ...
+    float v40 = (v34 * v39);
+    float v41 = (v27 + v40);
+    a4[0] = v41;
+  }
+  float v45 = a4[0];
+  b2[r11] = v45;
+}</code></pre>
+<div class="prose">
+<p>The <code>[K M N]</code> cube from lesson 5.4 is gone. Every element of it was a multiply of two loads, and rangeify only ever asked for the elements the reduce needed, one k at a time.</p>
+
+<h2>Cleaning up the index math</h2>
+<p>Look at <code>v15 = (v14 % 4)</code>. <code>v14</code> is <code>(r11 / 3) % 2</code>, which is always 0 or 1, so the <code>% 4</code> does nothing. The same goes for <code>v19 = (v18 % 6)</code>. These come from composing an unflatten with the next flatten, and week 1 already gave you the tool to remove them: bounds analysis proves <code>v14</code> is in <code>[0, 1]</code>, and the rule <code>mod(x, c) → x</code> when <code>0 ≤ x &lt; c</code> deletes the op. Constant folding (lesson 1.3) handles any arithmetic on constants that's left. The output is correct either way. Cleaner index math is smaller, and from week 6 it's faster.</p>
+</div>
+
+<div class="exercise small" data-ex="w5-05-shape">
+<h3>The shape after a chain of movement ops</h3>
+<p>Given a starting shape and a list of movement ops, compute the final shape. <code>Reshape</code> and <code>Expand</code> give the new shape directly, <code>Permute</code> reorders axes, <code>Pad</code> adds a left and right amount per axis, and <code>Reduce m</code> drops the first m axes. The inputs are always valid.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="5">
+<p class="q">A <code>[6]</code> value is reshaped to <code>[2 3]</code>. Element <code>[1][2]</code> of the result reads which flat position of the original?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Row-major strides for <code>[2 3]</code> are 3 and 1.</p>
+<div class="why"><p><code>1·3 + 2·1 = 5</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A flat index <code>f</code> is unflattened in shape <code>[2 3 4]</code>. What is the coordinate on axis 1?</p>
+<div class="opts">
+<button data-k="a"><code>f mod 3</code></button>
+<button data-k="b"><code>(f div 4) mod 3</code></button>
+<button data-k="c"><code>(f div 12) mod 3</code></button>
+<button data-k="d"><code>f div 3</code></button>
+</div>
+<p class="hint">Axis 1's stride is the product of the sizes after it.</p>
+<div class="why"><p>The stride of axis 1 is 4, so divide by 4, then take the coordinate mod its size, 3. For <code>f = 23</code>: <code>(23 div 4) mod 3 = 2</code>, and element 23 of a <code>[2 3 4]</code> is <code>[1][2][3]</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">In the rendered pad loop above, which index of <code>b0</code> does iteration <code>r9 = 5</code> read?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint"><code>5 - 1 = 4</code>, then clamp into <code>[0, 2]</code>.</p>
+<div class="why"><p>2, the last real element. The mask then replaces it with 0, because position 5 is past the end of <code>x</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Why does a rendered pad clamp the index when the mask already zeroes the value outside <code>x</code>?</p>
+<div class="opts">
+<button data-k="a">Because the load runs anyway, and reading outside the buffer is undefined behavior</button>
+<button data-k="b">Because the mask only works on f32</button>
+<button data-k="c">Because the clamp makes the result faster</button>
+</div>
+<p class="hint">Does <code>where</code> stop the load from happening?</p>
+<div class="why"><p>No: both branches are evaluated, as in week 1. Without the clamp the loop reads <code>b0[-1]</code> and past the end, which is undefined behavior even if the value is thrown away.</p></div>
+</div>
+
+<div class="quiz" data-fill="1">
+<p class="q">In the rendered syllabus GEMM with K = 2, how many times does the inner accumulator loop run per output element?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The accumulator is seeded with the k = 0 product.</p>
+<div class="why"><p>Once: <code>r26 &lt; 1</code>. The reduce folds K values. The first seeds the accumulator, and the loop folds the remaining K - 1.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">How does rangeify answer "your element at <code>(k, m, n)</code>" for <code>expand %b3 shape=[K M N]</code>, where <code>%b3</code> has shape <code>[K 1 N]</code>?</p>
+<div class="opts">
+<button data-k="a">It copies b into a K x M x N temp and reads that</button>
+<button data-k="b">It asks <code>%b3</code> for element <code>(k, m, n)</code></button>
+<button data-k="c">It asks <code>%b3</code> for element <code>(k, 0, n)</code></button>
+</div>
+<p class="hint">Which axis of <code>%b3</code> has size 1?</p>
+<div class="why"><p>The size-1 axis is read at 0, so <code>m</code> is ignored. No memory is involved: expand is pure index rewriting.</p></div>
+</div>
+
+<nav class="pager">
+<a href="04-matmul-conv.html">← Lesson 4: Matmul and conv from movement</a>
+<a href="06-lab.html">Lesson 6: Lab →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const x = [1, 2, 3];
+  const strip = (vals, cls, labelOf) => h('div', { class: 'mem' }, vals.map((v, n) => h('div', { class: 'cell' + (cls(n) ? ' ' + cls(n) : '') }, h('span', { class: 'addr', text: labelOf(n) }), String(v))));
+  const steps = [0, 1, 2, 3, 4, 5].map(r => {
+    const valid = r >= 1 && r < 4, src = Math.min(Math.max(r - 1, 0), 2), out = valid ? x[src] : 0;
+    const done = (n) => n < r ? 'out' : n === r ? 'read' : '';
+    const outs = [0, 1, 2, 3, 4, 5].map(n => n <= r ? ((n >= 1 && n < 4) ? x[n - 1] : 0) : '');
+    return {
+      caption: `<code>r9 = ${r}</code>: valid is <code>${valid}</code>, the clamped index is <code>${src}</code>, so the loop reads <code>b0[${src}] = ${x[src]}</code> and stores <code>${out}</code>.` +
+        (valid ? '' : ' The read is still inside the buffer; the mask throws its value away.'),
+      draw: () => [h('div', { class: 'vlabel', text: 'b0 (x)' }), strip(x, n => n === src ? 'read' : '', n => n),
+        h('div', { class: 'vlabel', text: 'b1 (the padded result so far)' }), strip(outs, done, n => n),
+        h('div', { class: 'facts', text: `valid = (0 < ${r}) && (${r} < 4) = ${valid};  src = min(max(${r} - 1, 0), 2) = ${src}` })]
+    };
+  });
+  CC.stepper(document.getElementById('pad'), steps, (s, body) => body.append(h('div', { class: 'padview' }, s.draw())));
+});
+</script>
+</body>
+</html>

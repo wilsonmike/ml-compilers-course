@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Runtime</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 2 · Lesson 5</p>
+<h1>The runtime</h1>
+<p class="lede">Rendering gives you C source. A runtime turns that source into answers: write it to a file next to a generated <code>main</code>, compile it, run the program, and read the buffers back out of its output, bit for bit.</p>
+
+<div class="prose">
+<h2>Why bother this week</h2>
+<p>Week 2's <code>run</code> may still interpret the graph. The spec only grades its exit code. But from week 6 on your kernels get timed, and an interpreter that walks the graph per element can't compete with compiled C. The plan for the rest of the course is that your compiler compiles, and the C does the work. This week you build the plumbing while the programs are still small enough to check by hand.</p>
+<p>A runtime has five steps. Step through them with one program: add <code>0.2</code> to the first element of an f32 buffer.</p>
+</div>
+
+<div class="fig bleed" id="pipe" data-title="from .uir to numbers"></div>
+
+<div class="prose">
+<h2>Generating main</h2>
+<p>The kernel only does the work. The program you compile also needs a <code>main</code> that sets up the buffers, calls <code>kernel</code>, and prints the results. Your compiler writes that <code>main</code> too, from the same graph:</p>
+<ul>
+<li>One array per <code>buffer</code>, sized from the op and filled from its <code>data</code> (or zeros). <code>static</code> arrays keep large buffers off the stack.</li>
+<li>A call to <code>kernel</code> with the arrays in slot order.</li>
+<li>One output line per element, in a format you can parse without losing anything.</li>
+</ul>
+<p>That last point matters for f32. <code>printf("%f")</code> prints <code>-0.0</code> as <code>-0.000000</code> and a tiny subnormal as <code>0.000000</code>, and <code>%g</code> drops digits. Print the <strong>32 bits</strong> instead, as 8 hex digits. Nothing can get lost, and reading them back is one function call.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-05-f32-bits">
+<h3>A float's bits, not its value</h3>
+<p>Write <code>uint32_t f32_bits(float x)</code>, returning the 32 bits that represent <code>x</code>: <code>f32_bits(1.0f)</code> is <code>0x3f800000</code>. No undefined behavior.</p>
+</div>
+
+<div class="prose">
+<h2>Calling the compiler from OCaml</h2>
+<p>You need three things from the standard library: somewhere to put files, a way to run a command, and a way to read a file back.</p>
+<ul>
+<li><code>Filename.temp_dir "uir" ""</code> (OCaml 5.1 and later) creates a fresh, empty directory and returns its path. <code>Filename.concat dir "kernel.c"</code> builds paths inside it.</li>
+<li><code>Filename.quote_command</code> builds a command line with every argument quoted correctly for your platform, including paths with spaces. Its <code>~stdout</code> argument redirects output into a file.</li>
+<li><code>Sys.command</code> runs that command line and returns the exit code.</li>
+</ul>
+<pre><code>Filename.quote_command "clang" ~stdout:"out.txt" ["-O2"; "my file.c"; "-o"; "a.out"]
+(* "'clang' '-O2' 'my file.c' '-o' 'a.out' >'out.txt'" on Linux *)</code></pre>
+<p>Check every exit code. A compile error from clang is your renderer's bug, so show clang's message. A nonzero exit from the program means the kernel crashed.</p>
+</div>
+
+<div class="note">
+<span class="label">Why a separate program, not a shared library</span>
+<p>The fastest-looking design compiles the kernel into a <code>.so</code> or <code>.dll</code>, loads it into your compiler's process, and calls it directly. In OCaml that means the <code>ctypes</code> and <code>ctypes-foreign</code> packages, libffi, and describing every C type from OCaml. It works, but it's a lot of machinery, and a crashing kernel takes your compiler down with it. A separate program costs a few milliseconds of process startup and gives you isolation and plain-text output for free. Start there. You can always switch later.</p>
+</div>
+
+<div class="trap">
+<span class="label">Timeouts and leftovers</span>
+<p><code>Sys.command</code> waits forever. A kernel with an infinite loop, or one that faults on Windows and sits in the error reporter, will hang your compiler. If you need a timeout, the <code>unix</code> library (add <code>unix</code> to your dune <code>libraries</code>) has <code>Unix.create_process</code> and <code>Unix.waitpid</code>. And delete what you write: <code>Fun.protect ~finally:(fun () -&gt; ...)</code> runs your cleanup even when something in the middle raises.</p>
+</div>
+
+<div class="prose">
+<h2>Reading results back exactly</h2>
+<p>The program's output is text like <code>0 3e99999a</code>: a slot, a space, and 32 bits. Turn each line back into a float by its bits, never by parsing a decimal: <code>Int32.of_string ("0x" ^ bits)</code> reads the hex (even with the top bit set, <code>0x80000000</code> becomes <code>Int32.min_int</code>), and <code>Int32.float_of_bits</code> reinterprets it. Watch for Windows line endings: lines end in <code>\r\n</code> there.</p>
+</div>
+
+<h2>Code it</h2>
+<div class="exercise" data-ex="w2-05-read-slot">
+<h3>Read a buffer back from the harness</h3>
+<p>The compiled program prints one line per f32 element: the slot number, a space, and the element's 32 bits as 8 hex digits, like <code>0 3f800000</code>. Write <code>read_slot : string -&gt; int -&gt; float list</code>, returning slot <code>k</code>'s values in output order. Lines may end in <code>\r\n</code>, blank lines can appear, and a slot that never appears gives <code>[]</code>.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why print f32 results as hex bits instead of with <code>printf("%g")</code>?</p>
+<div class="opts">
+<button data-k="a">Hex output is faster to print</button>
+<button data-k="b"><code>%g</code> keeps 6 digits, which loses bits, and decimal output makes signed zeros and NaNs awkward to compare exactly</button>
+<button data-k="c">C can't print floats in decimal</button>
+</div>
+<p class="hint">The grader compares f32 results bit for bit. How many digits does <code>%g</code> print, and how many does it take to pin down an f32?</p>
+<div class="why"><p>The hex bits are the value, exactly: sign of zero, every mantissa bit, subnormals, NaN. <code>%g</code> rounds to 6 significant digits, and 9 are needed to round-trip an f32.</p></div>
+</div>
+
+<div class="quiz" data-fill="80000000 | 0x80000000">
+<p class="q">What are the 32 bits of <code>-0.0f</code>, as 8 hex digits?</p>
+<div class="fill"><input aria-label="hex bits"><button class="btn">Check</button></div>
+<p class="hint">Zero has an all-zero exponent and mantissa. Only one bit differs between <code>0.0f</code> and <code>-0.0f</code>.</p>
+<div class="why"><p><code>80000000</code>: just the sign bit. <code>0.0f</code> is <code>00000000</code>. That one bit is why <code>recip -0.0</code> is <code>-inf</code>, and why the runtime must keep it.</p></div>
+</div>
+
+<div class="quiz" data-fill="-1 | -1l">
+<p class="q">What does OCaml's <code>Int32.of_string "0xffffffff"</code> return?</p>
+<div class="fill"><input aria-label="value"><button class="btn">Check</button></div>
+<p class="hint">For hex input, <code>Int32.of_string</code> accepts the full 32-bit unsigned range and reinterprets it as a signed int32.</p>
+<div class="why"><p><code>-1l</code>: all 32 bits set is -1 in two's complement. That's what lets <code>Int32.of_string ("0x" ^ bits)</code> read any f32 bit pattern, including ones with the sign bit set.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your runtime compiles the kernel and runs the program as a separate process. What's the main thing you give up compared with loading the kernel as a shared library?</p>
+<div class="opts">
+<button data-k="a">Correctness: the results can differ</button>
+<button data-k="b">Portability: it only works on Linux</button>
+<button data-k="c">A few milliseconds of process startup per run</button>
+<button data-k="d">The ability to use <code>-ffp-contract=off</code></button>
+</div>
+<p class="hint">Both designs run the same compiled C. What extra work does starting a new process add?</p>
+<div class="why"><p>Process startup time. The arithmetic is the same machine code either way, and the separate process works everywhere clang does. In exchange you skip ctypes and libffi, and a crashing kernel can't crash your compiler.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>Sys.command (Filename.quote_command "clang" [...])</code> returns <code>1</code>. What happened?</p>
+<div class="opts">
+<button data-k="a">clang failed, most likely a compile error in the C you rendered</button>
+<button data-k="b">The kernel produced one wrong value</button>
+<button data-k="c">Everything worked: 1 means one file was compiled</button>
+</div>
+<p class="hint"><code>Sys.command</code> returns the command's exit code. What does a nonzero exit code from a compiler mean?</p>
+<div class="why"><p>A nonzero exit code from clang means it didn't produce a program, almost always because of an error in the C. Print clang's own message: it points at the line your renderer got wrong.</p></div>
+</div>
+
+<nav class="pager">
+<a href="04-rendering-c.html">← Lesson 4: Rendering C</a>
+<a href="06-lab.html">Lesson 6: Lab →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const steps = [
+    { caption: 'The program. One f32 buffer, slot 0, with two elements. The result should be <code>0.1 + 0.2</code> in f32 at index 0, and <code>-0.0</code> untouched at index 1.',
+      file: 'program.uir', text: '%b  = buffer 2 dtype=f32 slot=0 data=[0.1 -0.0]\n%e  = shrink %b 0 shape=[]\n%x  = load %e\n%y  = add %x 0.2\n%s  = store %e %y\n%b1 = after %b %s', hl: 3 },
+    { caption: '<strong>1. Render.</strong> Your compiler prints the kernel. The constant <code>0.2</code> becomes a hex float, so it means exactly one f32.',
+      file: 'kernel.c', text: 'void kernel(float *b0) {\n  float v0 = b0[0];\n  float v1 = (v0 + 0x1.99999ap-3f);\n  b0[0] = v1;\n}', hl: 2 },
+    { caption: '<strong>2. Generate main.</strong> Arrays from the buffer ops, filled from <code>data</code> (written as hex floats so the start values are exact too; the grader\'s own harness uses raw bits and <code>memcpy</code>), one call to <code>kernel</code>, then one line per element. <code>print_bits</code> stands for whatever prints a float\'s 32 bits.',
+      file: 'main.c', text: 'void kernel(float *b0);\n\nint main(void) {\n  static float b0[2] = {0x1.99999ap-4f, -0x0p+0f};\n  kernel(b0);\n  print_bits(0, b0[0]);   /* prints "0 " then 8 hex digits */\n  print_bits(0, b0[1]);\n  return 0;\n}', hl: 4 },
+    { caption: '<strong>3. Compile.</strong> Both files, into one program, in a temp directory. Use the same strict flags the grader uses, so your runtime and the grader agree.',
+      file: 'shell', text: 'clang -std=c11 -O2 -ffp-contract=off \\\n      -fsanitize=undefined -fsanitize-trap=undefined \\\n      kernel.c main.c -o prog', hl: 0 },
+    { caption: '<strong>4. Run.</strong> Capture stdout into a file. A nonzero exit here means the kernel crashed: with these flags, usually undefined behavior.',
+      file: 'stdout', text: '0 3e99999a\n0 80000000', hl: -1 },
+    { caption: '<strong>5. Read back.</strong> Each line\'s bits become a float again. <code>0x3e99999a</code> is the f32 nearest 0.3, and the sign of <code>-0.0</code> survived because nothing ever went through decimal.',
+      file: 'values', text: 'slot 0: [0x1.333334p-2 (= 0.3 in f32), -0x0p+0 (= -0.0)]', hl: 0 },
+  ];
+  CC.stepper(document.getElementById('pipe'), steps, (s, body) => {
+    body.append(CC.h('p', { class: 'muted', text: s.file }), CC.code(s.text, s.hl));
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# expect: pass
+# pop=1, 2, 3 on a rank-3 value, and pop defaults to 1
+%v0 = buffer 24 dtype=i32 slot=0 data=[-4 6 -3 8 -8 4 5 2 3 -7 9 -3 -2 2 -9 2 3 -1 4 -6 8 2 -8 8]
+%v1 = load %v0
+%v2 = reshape %v1 shape=[2 3 4]
+%v3 = reduce %v2 op=add pop=1
+%v4 = buffer 12 dtype=i32 slot=1 data=[-6 8 -12 10 -5 3 9 -4 11 -5 1 5]
+%v5 = load %v4
+%v6 = reshape %v5 shape=[3 4]
+%v7 = assert %v3 %v6
+%v8 = reduce %v2 op=add pop=2
+%v9 = buffer 4 dtype=i32 slot=2 data=[0 6 -2 11]
+%v10 = load %v9
+%v11 = assert %v8 %v10
+%v12 = reduce %v2 op=add pop=3
+%v13 = const 15
+%v14 = assert %v12 %v13
+%v15 = reduce %v2 op=max
+%v16 = buffer 12 dtype=i32 slot=3 data=[-2 6 -3 8 3 4 5 2 8 2 9 8]
+%v17 = load %v16
+%v18 = reshape %v17 shape=[3 4]
+%v19 = assert %v15 %v18

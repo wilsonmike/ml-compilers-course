@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Call and Param</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  svg.g .edge.body { stroke-dasharray: 5 4; }
+  svg.g .edge.body.hit { stroke: var(--accent); }
+  .idx { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s4); align-items: center; }
+  .idx .btn[aria-pressed="true"] { background: var(--cta); color: var(--on-cta); border-color: var(--cta); }
+  .out { font: 0.9375rem var(--mono); margin-top: var(--s4); }
+  .out.err { color: var(--bad); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 1 · Lesson 5</p>
+<h1>call, param, stack and index</h1>
+<p class="lede">Week 1 programs can define functions. A function is just a graph with holes in it: <code>param</code> marks a hole, and <code>call</code> fills the holes and evaluates the graph.</p>
+
+<div class="prose">
+<h2>The lambda calculus in one paragraph</h2>
+<p>In the 1930s Alonzo Church showed that a language with only three things (variables, function definitions, and function application) can express any computation. Evaluation is one move, <strong>beta reduction</strong>: to apply a function, replace its variable with the argument everywhere it appears. <code>(λx. x + 1) 41</code> becomes <code>41 + 1</code> (<code>λx. x + 1</code> is math notation for "the function taking x to x + 1"). That's exactly what <code>call</code> does to a graph.</p>
+
+<h2>param and call</h2>
+<pre><code>%x    = param 0 dtype=i32     # hole number 0, holds an i32
+%body = add %x 1              # a graph with a hole: "x + 1"
+%r    = call %body 41         # fill hole 0 with 41 and evaluate
+%t    = assert %r 42</code></pre>
+<p><code>call</code>'s first source is the <strong>body</strong>. The rest are the <strong>args</strong>: arg i fills every <code>param i</code> reachable from the body. Args are checked statically. A missing arg, or one with the wrong dtype or shape, is a type error (exit 2). Extra args are allowed and ignored.</p>
+<p>A body is just an ordinary UOp. Nothing marks <code>%body</code> as "a function". It becomes one when a <code>call</code> uses it as src 0. In the graphs below, that src 0 edge is drawn dashed.</p>
+</div>
+
+<div class="exercise small" data-ex="w1-05-sum-squares">
+<h3>Call one body twice</h3>
+<p>Define <code>%out</code> as <code>x*x + y*y</code> for i32 params <code>x</code> (slot 0) and <code>y</code> (slot 1). Write the squaring <strong>once</strong>, as a body over its own <code>param 0</code>, and <code>call</code> it twice.</p>
+<p class="muted">Your body's param 0 and the outer <code>%x</code> are the same hash-consed node. Why is that fine?</p>
+</div>
+
+<h2>Beta reduction on a graph</h2>
+<p class="prose">The spec's nested example, traced. <code>%inner</code> doubles its param. <code>%outer</code> passes its <em>own</em> param 0 into inner's slot 0.</p>
+<div class="split">
+<pre><code>%p0    = param 0 dtype=i32
+%inner = mul %p0 2
+%outer = call %inner %p0
+%r     = call %outer 5
+%t     = assert %r 10</code></pre>
+<div class="fig" id="beta" data-title="evaluate %r by substitution"></div>
+</div>
+
+<div class="key">
+<span class="label">Bodies are closed</span>
+<p>Substitution walks the body, but it <strong>does not walk into the body (src 0) of a nested <code>call</code></strong>. It <em>does</em> walk into that call's args. A nested function's params belong to that function, and the only way to give them a value is through its args.</p>
+</div>
+
+<div class="prose">
+<p>Why does this matter? Look at this variant, where inner uses slot 0 and outer passes its slot 1:</p>
+<pre><code>%p0    = param 0 dtype=i32
+%p1    = param 1 dtype=i32
+%inner = add %p0 100
+%outer = call %inner %p1      # inner's slot 0 := outer's slot 1
+%r     = call %outer 1 2      # outer: slot 0 := 1, slot 1 := 2</code></pre>
+<p>Done right, outer substitutes into its args only: <code>call %inner 2</code>, which gives <code>2 + 100 = 102</code>. If your substitution wrongly walked into inner's body too, it would turn inner's <code>%p0</code> into <code>1</code> (outer's slot 0) and get <code>101</code>.</p>
+</div>
+
+<h2>Code it</h2>
+<div class="exercise" data-ex="w1-05-subst">
+<h3>Substitution with closed bodies</h3>
+<p>Here is a toy term language with numbers, params, <code>Add</code>, and <code>Call (body, args)</code>. Write <code>subst args t</code>: replace every <code>Param i</code> reachable from <code>t</code> with the i-th element of <code>args</code>.</p>
+<ul>
+<li>A nested <code>Call</code>'s <strong>body is closed</strong>: leave it exactly as it is.</li>
+<li>Its <strong>args are not</strong>: substitute inside them.</li>
+<li>If there is no i-th arg, leave <code>Param i</code> alone.</li>
+</ul>
+<p class="muted">This is the 101 vs 102 bug from above, on a type small enough to see in one screen. Keep the given <code>show</code> function, because the tests print with it.</p>
+</div>
+
+<div class="trap">
+<span class="label">Params are hash consed too</span>
+<p><code>%a = param 0 dtype=i32</code> and <code>%b = param 0 dtype=i32</code> are the <strong>same UOp</strong>, even when they're written for two different functions. That's fine: a param doesn't have a value on its own. Its value comes from whichever <code>call</code> is evaluating it right now. So never cache "the value of this node" globally. Cache it per call.</p>
+<p>Substitution, as traced above, is the mental model. The usual implementation doesn't build new nodes: it evaluates the body with an <strong>environment</strong>, a map from slot number to value for the current call, and a fresh cache for that call.</p>
+</div>
+
+<div class="prose">
+<p>Two more rules. A <code>param</code> evaluated outside of any call has no value, so it's a runtime error (exit 2). And since a <code>call</code> has no side effects (it's <strong>pure</strong>), the simplifier can always <strong>inline</strong> it (replace the call with its body, params substituted), whether the args are constants or params: replace it with the substituted body, then keep folding. <code>call %body 41</code> with <code>%body = add %x 1</code> simplifies all the way to <code>const 42</code>.</p>
+
+<h2>stack and index: rank 1</h2>
+<p><code>stack</code> takes scalars of one dtype and adds a new leading axis: <code>stack 10 20 30</code> has shape <code>(3,)</code> (a shape with one axis of size 3; in .uir text you write it <code>shape=[3]</code>). <code>index x i</code> pops that axis back off and returns one element as a scalar. The index is checked at runtime: <code>i &lt; 0</code> or <code>i ≥ n</code> is a runtime error.</p>
+</div>
+
+<div class="fig">
+<div class="head"><span class="title">%s = stack 10 20 30, then %r = index %s i</span></div>
+<div class="body">
+<div class="idx" id="picks"><span class="count">i =</span></div>
+<div class="mem" id="cells"></div>
+<div class="out" id="res" aria-live="polite"></div>
+</div>
+<div class="cap">Shape <code>(3,)</code>, so the valid indices are 0, 1 and 2. Try -1 and 3.</div>
+</div>
+
+<div class="prose">
+<p>ALU ops only take rank-0 operands, so a rank-1 value can only be passed around, indexed, or compared whole with <code>assert</code>. A <code>param</code> can be rank 1 too, which makes it look like an array argument:</p>
+<pre><code>%v = param 0 dtype=i32 shape=[3]
+%k = param 1 dtype=i32
+%f = index %v %k
+%s = stack 7 8 9
+%r = call %f %s 1             # 8</code></pre>
+</div>
+
+<div class="exercise small" data-ex="w1-05-rotate">
+<h3>Rotate with stack and index</h3>
+<p>Params <code>a</code>, <code>b</code>, <code>c</code> and <code>i</code> are i32. Stack <code>a b c</code>. Compute <code>j = i + 1</code> with i32 <code>add</code> (so <code>INT_MAX + 1</code> wraps to <code>INT_MIN</code>), then return the element at <code>j mod 3</code>, fixed into 0, 1, 2. So <code>i = 0</code> gives <code>b</code> and <code>i = 2</code> gives <code>a</code>.</p>
+<p class="muted">The tests include <code>i = 300</code>, <code>i = -2</code> and <code>i = INT_MAX</code>. Remember that <code>mod</code> keeps the sign of the dividend, and that an out-of-range <code>index</code> is a runtime error.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="102">
+<p class="q">Predict <code>%r</code>.</p>
+<pre><code>%p0    = param 0 dtype=i32
+%p1    = param 1 dtype=i32
+%inner = add %p0 100
+%outer = call %inner %p1
+%r     = call %outer 1 2</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
+<p class="hint">Outer's call binds outer's slots: p0 = 1, p1 = 2. Which of those does outer hand to inner's slot 0?</p>
+<div class="why"><p><code>102</code>. Outer's slot 1 (which is 2) fills inner's slot 0. Inner's body is never touched by outer's substitution.</p></div>
+</div>
+
+<div class="quiz" data-fill="7">
+<p class="q">Predict <code>%r</code>. Careful with the closed-body rule.</p>
+<pre><code>%p0    = param 0 dtype=i32
+%inc   = add %p0 1
+%twice = call %inc %inc
+%r     = call %twice 5</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
+<p class="hint"><code>%inc</code> appears twice in <code>call %inc %inc</code>: once as the body and once as the arg. Substitution goes into args but never into bodies.</p>
+<p class="hint">Evaluate the arg first: <code>%inc</code> with p0 = 5. Then run the body <code>%inc</code> on that result.</p>
+<div class="why"><p><code>7</code>. Calling <code>%twice</code> with 5 substitutes into its <em>arg</em>, <code>%inc</code>, giving <code>6</code>. The body <code>%inc</code> is left alone. Then <code>call %inc 6</code> gives <code>7</code>. The same node is used once as a body and once as an arg, and the two roles never mix.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">What does <code>run</code> do with this program?</p>
+<pre><code>%x    = param 0 dtype=i32
+%body = add %x 1
+%r    = call %body
+%t    = assert %r 1</code></pre>
+<div class="opts">
+<button data-k="a">Exit 0: a missing param defaults to 0</button>
+<button data-k="b">Exit 2: param 0 has no arg, which is a type error</button>
+<button data-k="c">Exit 1: the assert fails</button>
+<button data-k="d">Exit 0: the call is never evaluated</button>
+</div>
+<p class="hint">The call passes zero args, but the body uses <code>param 0</code>. Is that caught before anything runs, or only when the assert is evaluated?</p>
+<div class="why"><p>Every param reachable from the body needs a matching arg, and that's checked statically, before anything runs. It's an invalid program.</p></div>
+</div>
+
+<div class="quiz" data-fill="1">
+<p class="q">How many distinct UOps do these two lines create?</p>
+<pre><code>%a = param 0 dtype=i32
+%b = param 0 dtype=i32</code></pre>
+<div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Hash consing keys a node on (op, src, arg), with dtype and shape as part of the key. Compare the two lines on each of those.</p>
+<div class="why"><p>One. Same op, same sources (none), same arg and dtype, so hash consing returns the existing node.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">What exit code does <code>run</code> give?</p>
+<pre><code>%s = stack 10 20 30
+%i = index %s 3
+%t = assert %i 30</code></pre>
+<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>%s</code> has shape (3,). Which indices are in range, and what kind of error is an out-of-range index?</p>
+<div class="why"><p><code>2</code>. Index 3 is out of range for shape (3,), so it's a runtime error in a value the assert depends on.</p></div>
+</div>
+
+<div class="quiz" data-fill="8">
+<p class="q">Predict <code>%r</code>.</p>
+<pre><code>%v = param 0 dtype=i32 shape=[3]
+%k = param 1 dtype=i32
+%f = index %v %k
+%s = stack 7 8 9
+%r = call %f %s 1</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
+<p class="hint">The call binds <code>%v</code> to the stack and <code>%k</code> to 1. Indexing counts from 0.</p>
+<div class="why"><p><code>8</code>, element 1 of <code>[7 8 9]</code>. The rank-1 arg matches the param's <code>shape=[3]</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">What does <code>run</code> do with <code>%x = param 0 dtype=i32</code> followed by <code>%t = assert %x 1</code>?</p>
+<div class="opts">
+<button data-k="a">Exit 0</button>
+<button data-k="b">Exit 1</button>
+<button data-k="c">Asks for input</button>
+<button data-k="d">Exit 2: a param evaluated outside any call is a runtime error</button>
+</div>
+<p class="hint">Is there any call around this <code>param</code> to give slot 0 a value?</p>
+<div class="why"><p>There's no call supplying slot 0, so <code>%x</code> has no value. The program is invalid.</p></div>
+</div>
+
+<nav class="pager">
+<a href="04-symbolic.html">← Lesson 4: Symbolic simplification</a>
+<a href="06-lab.html">Lesson 6: The week 1 lab →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const N = (id, op, src = [], cls = '', sub, ecls) => ({ id, op, src, cls, sub, ecls });
+  const B = 'body', BH = 'body hit';
+  const steps = [
+    { caption: 'The graph. Dashed edges go from a body into the <code>call</code> that uses it. <code>%p0</code> is one node, used both inside inner\'s body and as outer\'s arg.',
+      nodes: [N('p', 'param', [], '', '0 i32'), N('c2', '2'), N('c5', '5'), N('in', 'mul', ['p', 'c2'], '', '%inner'),
+              N('out', 'call', ['in', 'p'], '', '%outer', [B]), N('r', 'call', ['out', 'c5'], '', '%r', [B])] },
+    { caption: 'Evaluate <code>%r = call %outer 5</code>. Outer\'s body is <code>call %inner %p0</code>. Substitute slot 0 := 5 into it: walk into its <em>arg</em> <code>%p0</code>, but not into its body <code>%inner</code>.',
+      nodes: [N('p', 'param', [], 'hit', '0 i32'), N('c2', '2'), N('c5', '5', [], 'hit'), N('in', 'mul', ['p', 'c2'], '', '%inner'),
+              N('out', 'call', ['in', 'p'], 'hit', '%outer', [B, 'hit']), N('r', 'call', ['out', 'c5'], 'hit', '%r', [BH])] },
+    { caption: 'The result is a new node, <code>call %inner 5</code>. Inner\'s <code>%p0</code> is untouched: it still means "inner\'s slot 0".',
+      nodes: [N('p', 'param', [], '', '0 i32'), N('c2', '2'), N('c5', '5'), N('in', 'mul', ['p', 'c2'], '', '%inner'),
+              N('n1', 'call', ['in', 'c5'], 'new', '%r', [B])] },
+    { caption: 'Now evaluate <code>call %inner 5</code>: substitute slot 0 := 5 into inner\'s body <code>mul %p0 2</code>.',
+      nodes: [N('p', 'param', [], 'hit', '0 i32'), N('c2', '2'), N('c5', '5', [], 'hit'), N('in', 'mul', ['p', 'c2'], 'hit', '%inner'),
+              N('n1', 'call', ['in', 'c5'], 'hit', '%r', [BH])] },
+    { caption: 'That gives <code>mul 5 2</code>. There are no params left, so this is an ordinary expression.',
+      nodes: [N('c5', '5'), N('c2', '2'), N('m', 'mul', ['c5', 'c2'], 'new', '%r')] },
+    { caption: 'Constant folding finishes the job: <code>%r = 10</code>, and <code>assert %r 10</code> passes.',
+      nodes: [N('k', '10', [], 'new', '%r')] },
+  ];
+  CC.stepper(document.getElementById('beta'), steps, (s, body) => body.append(CC.graph(s.nodes)));
+
+  const vals = [10, 20, 30], picks = document.getElementById('picks'), cells = document.getElementById('cells'), res = document.getElementById('res');
+  const show = i => {
+    picks.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.i === i)));
+    cells.replaceChildren(...vals.map((v, k) => h('div', { class: 'cell' + (k === i ? ' on' : '') }, h('span', { class: 'addr', text: '[' + k + ']' }), String(v))));
+    const ok = i >= 0 && i < vals.length;
+    res.className = 'out' + (ok ? '' : ' err');
+    res.textContent = ok ? `index %s ${i}  =  ${vals[i]}` : `index %s ${i}  →  runtime error: index ${i} out of range (exit 2)`;
+  };
+  for (const i of [-1, 0, 1, 2, 3]) { const b = h('button', { class: 'btn', type: 'button', 'data-i': i, text: String(i) }); b.onclick = () => show(i); picks.append(b); }
+  show(1);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buffers and Views</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .strip { display: grid; gap: var(--s2); }
+  .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+  .strip .name { font: 0.875rem var(--mono); color: var(--ink-3); min-width: 6.5rem; }
+  .mem .cell.out { border-style: dashed; color: var(--ink-3); } /* design-ok: dashed is the diagram notation for padding and out-of-bounds cells, named in the captions */
+  .mem .cell.bad { border-color: var(--bad); color: var(--bad); }
+  .vlab { font: 0.875rem var(--mono); color: var(--ink-2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 2 · Lesson 1</p>
+<h1>Buffers and views</h1>
+<p class="lede">Week 1 programs computed values from constants and call arguments. Real kernels read and write memory that lives outside the program: model weights, activations, the output you hand back. This week adds that memory, and this lesson starts with the two things you can name: buffers, and windows into them.</p>
+
+<div class="prose">
+<h2>Memory lives outside the program</h2>
+<p>A <code>buffer</code> is a block of n elements that exists before your program runs and after it ends. The program can read it and write it. When your compiler renders C, each buffer becomes one pointer argument of the kernel.</p>
+<pre><code>%b = buffer 6 dtype=i32 slot=0 data=[10 20 30 40 50 60]
+%w = buffer 3 dtype=f32 slot=1</code></pre>
+<ul>
+<li>The operand is the size, an integer literal.</li>
+<li><code>dtype</code> is the element type, and <code>slot</code> is the buffer's position in the kernel's argument list. Two buffers can't share a slot.</li>
+<li><code>data=[...]</code> gives exactly n starting values. Without it the buffer starts as zeros. In real use the data comes from outside, but in tests it's written into the file.</li>
+</ul>
+<p>An <code>alloc</code> is the same shape of thing, but it's scratch space that belongs to the program, like a local <code>float a[3];</code> in C. It always starts as zeros, and nothing outside sees it.</p>
+<pre><code>%a = alloc 3 dtype=f32</code></pre>
+
+<h2>A view is a window</h2>
+<p>You rarely want a whole buffer. <code>shrink</code> makes a <strong>view</strong>: a window that starts some number of elements in and covers a fixed number of them. Nothing is copied. A view is just a buffer plus an offset plus a length.</p>
+<pre><code>%v = shrink %b 2 shape=[3]     # elements 2, 3, 4
+%e = shrink %b 5 shape=[]      # just element 5</code></pre>
+<p><code>shape=[k]</code> gives a rank-1 window of k elements. <code>shape=[]</code> gives a single element, a rank-0 view, which is what you load and store scalars through. Step through the picture: the window slides over the same six cells.</p>
+</div>
+
+<div class="fig" id="win" data-title="one buffer, several views"></div>
+
+<div class="prose">
+<h2>Views of views</h2>
+<p>A view can be shrunk again. The offsets add up, and the new window has to fit inside the <em>view</em> it was cut from, not just inside the buffer.</p>
+<pre><code>%v = shrink %b 2 shape=[3]     # elements 2..4 of %b
+%w = shrink %v 1 shape=[]      # element 1 of %v, which is element 3 of %b</code></pre>
+<p><code>shrink %v 3 shape=[]</code> would be invalid, even though <code>%b</code> has an element 5: <code>%v</code> only has three elements, numbered 0 to 2.</p>
+</div>
+
+<div class="exercise" data-ex="w2-01-resolve">
+<h3>Resolve a view</h3>
+<p>Here views are an OCaml type: a <code>Buffer n</code>, a <code>Shrink (parent, off, k)</code> for <code>shape=[k]</code>, or an <code>Elem (parent, off)</code> for <code>shape=[]</code>. Write <code>resolve v</code>, returning <code>(start, len)</code>: where the view starts inside its buffer, and how many elements it covers.</p>
+<p>Raise <code>Invalid_argument "out of bounds"</code> if any step in the chain doesn't fit inside its parent: a negative offset, or a window that runs past the end of the parent.</p>
+</div>
+
+<div class="prose">
+<h2>Memory is not a value</h2>
+<p>Every week 1 value lived in what we'll call the <strong>ALU</strong> address space: numbers your program computes with. Buffers, allocs and views live in <strong>GLOBAL</strong>: they're places, not numbers. (GLOBAL here just means "memory", not a C global variable.) You can't add a buffer to 1, compare it, stack it, or pass it to a call. You have to <code>load</code> it first.</p>
+<pre><code>%x = add %b 1          # invalid: memory can't be an operand of add
+%e = shrink %b 0 shape=[]
+%y = load %e           # 10, an i32 value
+%z = add %y 1          # 11</code></pre>
+<p>A load takes the view's dtype and shape. Loading a <code>shape=[]</code> view gives a scalar. Loading a <code>shape=[3]</code> view, or a whole buffer, gives a rank-1 value, the same kind of value <code>stack</code> builds, so you can compare it with <code>assert</code> or pick from it with <code>index</code>.</p>
+<pre><code>%r = load %v           # the rank-1 value [30 40 50]
+%s = stack 30 40 50
+%t = assert %r %s      # passes</code></pre>
+</div>
+
+<div class="note">
+<span class="label">Why the split matters</span>
+<p>Keeping places and values apart is what lets the compiler reason about memory later. A value can be copied, folded and shared freely. A place can't: reading it twice might give two answers if something wrote in between. The next lesson is about exactly that.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-01-fits">
+<h3>Does the view fit?</h3>
+<p>Write <code>fits(n, off, k)</code> in C: return 1 if a view of <code>k</code> elements starting at <code>off</code> fits inside a parent of <code>n</code> elements, else 0. <code>n</code> and <code>k</code> are at least 1, but <code>off</code> can be any <code>int</code>, including <code>INT_MAX</code> and <code>INT_MIN</code>.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="2 3 4 | 2, 3, 4 | [2 3 4] | [2, 3, 4] | 2..4 | 2-4">
+<p class="q">Which element indices of <code>%b</code> does <code>shrink %b 2 shape=[3]</code> cover?</p>
+<div class="fill"><input aria-label="your answer" placeholder="e.g. 0 1 2"><button class="btn">Check</button></div>
+<p class="hint">It starts at the offset and covers k elements.</p>
+<div class="why"><p>Offset 2, three elements: indices 2, 3 and 4.</p></div>
+</div>
+
+<div class="quiz" data-fill="40">
+<p class="q">What does <code>%x</code> hold?</p>
+<pre><code>%b = buffer 6 dtype=i32 slot=0 data=[10 20 30 40 50 60]
+%v = shrink %b 2 shape=[3]
+%w = shrink %v 1 shape=[]
+%x = load %w</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Offsets add up: where does <code>%v</code> start, and how far into <code>%v</code> is <code>%w</code>?</p>
+<div class="why"><p><code>%v</code> starts at element 2, and <code>%w</code> is one further in: element 3 of <code>%b</code>, which holds 40.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">On <code>%b = buffer 6 ...</code>, which view is invalid?</p>
+<div class="opts">
+<button data-k="a"><code>shrink %b 5 shape=[]</code></button>
+<button data-k="b"><code>shrink %b 4 shape=[3]</code></button>
+<button data-k="c"><code>shrink %b 0 shape=[6]</code></button>
+<button data-k="d"><code>shrink %b 3 shape=[3]</code></button>
+</div>
+<p class="hint">A window of k elements starting at off ends at index <code>off + k - 1</code>. The last valid index is 5.</p>
+<div class="why"><p>Offset 4 with three elements would cover indices 4, 5 and 6, and there is no index 6. The others end exactly at index 5 or earlier.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">What happens with <code>%x = add %b 1</code>, where <code>%b</code> is a buffer?</p>
+<div class="opts">
+<button data-k="a">It adds 1 to every element.</button>
+<button data-k="b">It adds 1 to element 0.</button>
+<button data-k="c">The program is invalid (exit 2).</button>
+<button data-k="d">It moves the buffer's start by one element.</button>
+</div>
+<p class="hint">Is a buffer a value or a place?</p>
+<div class="why"><p>A buffer is memory, not a value. ALU ops only take values, so you have to <code>load</code> first. The oracle reports "memory can't be an operand here (load it first)".</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">What does <code>load %a</code> give for <code>%a = alloc 3 dtype=f32</code>, before anything is stored?</p>
+<div class="opts">
+<button data-k="a">The rank-1 value <code>[0.0 0.0 0.0]</code></button>
+<button data-k="b">Whatever was in memory before: undefined</button>
+<button data-k="c">The scalar <code>0.0</code></button>
+<button data-k="d">Nothing: the program is invalid</button>
+</div>
+<p class="hint">The spec says what an alloc starts as. And loading a whole 3-element alloc keeps its shape.</p>
+<div class="why"><p>Allocs start as zeros, and loading all three elements gives a rank-1 value. In C, a local array starts as garbage, so your renderer will have to initialize it.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">Why is <code>shrink %v 3 shape=[]</code> invalid when <code>%v = shrink %b 2 shape=[3]</code> and <code>%b</code> has six elements?</p>
+<div class="opts">
+<button data-k="a">Views can't be shrunk again.</button>
+<button data-k="b"><code>shape=[]</code> views need offset 0.</button>
+<button data-k="c">Element 5 of <code>%b</code> doesn't exist.</button>
+<button data-k="d"><code>%v</code> only has elements 0 to 2.</button>
+</div>
+<p class="hint">Check the new window against the view it was cut from.</p>
+<div class="why"><p>A view must fit inside its parent. <code>%v</code> has three elements, so offset 3 is past its end, even though it would land on element 5 of <code>%b</code>, which does exist.</p></div>
+</div>
+
+<nav class="pager">
+<a href="../week1/06-lab.html">← Lesson 1.6: Lab</a>
+<a href="02-load-store-after.html">Lesson 2: Load, store, after →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const data = [10, 20, 30, 40, 50, 60];
+  // one strip of cells; [lo, hi) is the window, anything past the end shows as a dashed ghost cell
+  function strip(name, lo, len, ghost) {
+    const cells = data.map((v, i) => h('div', { class: 'cell' + (i >= lo && i < lo + len ? ' on' : '') }, h('span', { class: 'addr', text: i }), String(v)));
+    for (let i = data.length; i < lo + len; i++) cells.push(h('div', { class: 'cell out bad' }, h('span', { class: 'addr', text: i }), '?'));
+    return h('div', { class: 'row' }, h('span', { class: 'name', text: name }), h('div', { class: 'mem' }, cells));
+  }
+  const steps = [
+    { caption: 'The buffer: six i32 elements, numbered 0 to 5.', code: '%b = buffer 6 dtype=i32 slot=0 data=[10 20 30 40 50 60]', lo: 0, len: 0, label: '' },
+    { caption: '<code>shrink %b 2 shape=[3]</code>: start 2 elements in, cover 3. Loading it gives the rank-1 value <code>[30 40 50]</code>.', code: '%v = shrink %b 2 shape=[3]', lo: 2, len: 3, label: 'start 2, length 3' },
+    { caption: '<code>shape=[]</code> is a single element. This is how you load or store one scalar.', code: '%e = shrink %b 5 shape=[]', lo: 5, len: 1, label: 'start 5, length 1' },
+    { caption: 'A view of a view: <code>%w</code> is element 1 <em>of %v</em>. Offsets add, 2 + 1 = 3, so it\'s element 3 of the buffer.', code: '%w = shrink %v 1 shape=[]', lo: 3, len: 1, label: 'start 2 + 1 = 3, length 1' },
+    { caption: 'The whole buffer is a view too: start 0, all six elements. <code>load %b</code> gives all of them.', code: '%r = load %b', lo: 0, len: 6, label: 'start 0, length 6' },
+    { caption: 'Out of bounds: start 4 with three elements needs index 6, which doesn\'t exist. The compiler rejects this before anything runs.', code: '%bad = shrink %b 4 shape=[3]', lo: 4, len: 3, label: 'start 4, length 3: invalid' },
+  ];
+  CC.stepper(document.getElementById('win'), steps, (s, body) => body.append(
+    h('div', { class: 'strip' }, CC.code(s.code, 0), strip('%b', s.lo, s.len), s.label ? h('span', { class: 'vlab', text: s.label }) : null)));
+});
+</script>
+</body>
+</html>

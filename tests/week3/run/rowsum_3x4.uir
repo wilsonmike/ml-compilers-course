@@ -1,0 +1,23 @@
+# expect: pass
+# row sums: one accumulator per row, reset by a store that depends on the row
+%X = buffer 12 dtype=f32 slot=0 data=[0.0 1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0]
+%Y = buffer 3 dtype=f32 slot=1
+%i = range 3
+%v3 = shrink %Y %i shape=[]
+%v4 = store %v3 0.0
+%v5 = after %Y %v4
+%j = range 4
+%v7 = mul %i 4
+%v8 = add %v7 %j
+%v9 = shrink %X %v8 shape=[]
+%v10 = load %v9
+%v11 = shrink %v5 %i shape=[]
+%v12 = load %v11
+%v13 = add %v12 %v10
+%v14 = store %v11 %v13
+%v15 = end %v14 %j
+%v16 = end %v15 %i
+%Y1 = after %Y %v16
+%v18 = load %Y1
+%v19 = stack 6.0 22.0 38.0
+%v20 = assert %v18 %v19

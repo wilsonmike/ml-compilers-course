@@ -1,0 +1,41 @@
+{
+ "id": "w4-03-lower",
+ "lang": "ocaml",
+ "title": "The element at index i",
+ "show": "show",
+ "starter": "type vexp =\n  | Vec of string            (* a whole buffer, read as a vector *)\n  | Bcast of float           (* expand: the same scalar at every index *)\n  | Add of vexp * vexp\n  | Mul of vexp * vexp\n\ntype sexp =\n  | Load of string * string  (* buffer name, index variable: buf[i] *)\n  | Const of float\n  | SAdd of sexp * sexp\n  | SMul of sexp * sexp\n\nlet rec show = function\n  | Load (b, i) -> b ^ \"[\" ^ i ^ \"]\"\n  | Const c -> Printf.sprintf \"%g\" c\n  | SAdd (a, b) -> \"(\" ^ show a ^ \" + \" ^ show b ^ \")\"\n  | SMul (a, b) -> \"(\" ^ show a ^ \" * \" ^ show b ^ \")\"\n\n(* The element of vector expression e at index variable i. This is rangeify on a toy type. *)\nlet rec at (e : vexp) (i : string) : sexp =\n  match e with\n  | Vec b -> Load (b, i)\n  | _ -> Const 0.0\n",
+ "tests": [
+  {
+   "expr": "at (Vec \"x\") \"i\"",
+   "sample": true,
+   "expect": "x[i]"
+  },
+  {
+   "expr": "at (Add (Vec \"x\", Bcast 1.0)) \"i\"",
+   "sample": true,
+   "expect": "(x[i] + 1)"
+  },
+  {
+   "expr": "at (Mul (Vec \"x\", Vec \"y\")) \"r0\"",
+   "expect": "(x[r0] * y[r0])"
+  },
+  {
+   "expr": "at (Bcast 2.5) \"k\"",
+   "expect": "2.5"
+  },
+  {
+   "expr": "at (Add (Mul (Vec \"a\", Bcast 2.0), Vec \"b\")) \"i\"",
+   "expect": "((a[i] * 2) + b[i])"
+  },
+  {
+   "expr": "at (Mul (Add (Vec \"x\", Vec \"x\"), Add (Bcast 0.5, Vec \"y\"))) \"j\"",
+   "expect": "((x[j] + x[j]) * (0.5 + y[j]))"
+  }
+ ],
+ "hints": [
+  "Each constructor has one rule. What is the element at `i` of a broadcast scalar?",
+  "`Bcast c` is `Const c` at every index. `Add (a, b)` at `i` is `SAdd (at a i, at b i)`, and `Mul` is the same with `SMul`.",
+  "Pass the same index variable down to both children: elementwise means index `i` of the result only needs index `i` of the operands."
+ ],
+ "explain": "Rangeify asks every value for its element at an index. An elementwise op at `i` needs only its operands at `i`, a buffer read becomes a scalar load at `i`, and a broadcast ignores the index. The result has no shapes left, so it can sit inside a `for` loop over `i`."
+}

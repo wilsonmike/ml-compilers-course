@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rewrites and Folding</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Week 1|Rewrites and folding" data-root="../">
+<main>
+<p class="eyebrow">Week 1 · Lesson 3</p>
+<h1>Rewrites and constant folding</h1>
+<p class="lede">A compiler pass is mostly a list of small rules like <code>add(x, 0) → x</code>, applied over and over until none of them fire. This lesson shows how that loop works, one rule at a time.</p>
+
+<div class="prose">
+<h2>A rule is a pattern and a replacement</h2>
+<p>A <strong>rewrite rule</strong> has two halves. The <em>pattern</em> describes a shape of graph to look for. The <em>replacement</em> says what to build instead. We'll write rules like this:</p>
+<pre><code>add(x, 0)          → x                  # adding zero does nothing (i32)
+mul(x, 1)          → x                  # multiplying by one does nothing
+add(c1, c2)        → const(c1 + c2)     # both inputs known: compute it now
+mul(c, x)          → mul(x, c)          # move the constant to the right</code></pre>
+<p><code>x</code> and <code>y</code> match <em>any</em> node. Names starting with <code>c</code> (<code>c</code>, <code>c1</code>, <code>c2</code>) match only <code>const</code> nodes. <code>add(x, 0)</code> is shorthand for the .uir node <code>add %x 0</code>, and in the OCaml exercise below the same pattern is written <code>Add (x, Const 0)</code>. A rule <strong>fires</strong> on a node when the pattern matches it, and then the node is replaced by whatever the right side builds.</p>
+<p>The engine itself is tiny, and you'll write one this week:</p>
+<ol>
+<li><strong>Sources first.</strong> Visit nodes in topological order, sources before their users. By the time you look at a node, its sources have already been simplified.</li>
+<li><strong>Greedy.</strong> At each node, try the rules. If one fires, try them all again on the result, until nothing matches.</li>
+<li><strong>To a fixpoint.</strong> Keep running whole passes until a pass changes nothing. That graph is your answer.</li>
+</ol>
+</div>
+
+<h2>Watch it, one rule per step</h2>
+<p class="prose">This is the program being simplified. Use the buttons or the arrow keys. A bold outline means a pattern matched. Green means the rule just built that node. Faded nodes are no longer used by anything.</p>
+<div class="split bleed">
+<pre><code>%x   = param 0 dtype=i32
+%a   = add 2 3
+%b   = add 4 %a
+%c   = mul %b %x
+%out = add %c 0</code></pre>
+<div class="fig" id="steps" data-title="simplify %out"></div>
+</div>
+
+<div class="prose">
+<p>Notice the sources-first order doing its job. <code>add 4 %a</code> can't fold until <code>%a</code> has become the constant <code>5</code>. Because sources are visited first, that has already happened by the time the engine reaches <code>%b</code>. Visiting results before their sources, you'd need an extra pass for every level of the graph.</p>
+</div>
+
+<div class="exercise small" data-ex="w1-03-by-hand">
+<h3>Be the simplifier</h3>
+<p>The starter has five ops that compute <code>((x + 3) * 1 + 0) + 2 * 5</code>. Write a <code>%out</code> with the same value for every <code>x</code> in at most 1 op.</p>
+<p class="muted">Is <code>(x + 3) + 10</code> really <code>x + 13</code> when <code>x + 3</code> wraps? For i32, yes. Lesson 4 says why.</p>
+</div>
+
+<div class="prose">
+
+<h2>Constant folding</h2>
+<p><strong>Constant folding</strong> is the rule family "every input is a <code>const</code>, so compute the answer now." For each arithmetic or logic op (the spec calls these ALU ops) it's one rule, and it evaluates the op with <em>exactly the same semantics as your interpreter</em>: i32 wraps around, f32 rounds to nearest-even, division truncates toward zero.</p>
+<p>That last part matters. If your folder computes <code>mul 1073741824 4</code> with 64-bit integers, it gets <code>4294967296</code>, which isn't an i32. The interpreter would give <code>0</code>. A simplifier that changes the answer is a bug, so share one implementation of each op between folding and interpreting.</p>
+</div>
+
+<div class="trap">
+<span class="label">Don't fold errors into values</span>
+<p><code>div 1 0</code> has two constant inputs, so the folding rule matches it. But there's no i32 that is "one divided by zero". It's a runtime error, and a program whose asserts depend on it must exit 2. If your folder catches the error and returns something like <code>const 0</code>, the program silently "works". The right move is to <strong>not fire</strong>: leave <code>div 1 0</code> in the graph, and let evaluation report it.</p>
+</div>
+
+<div class="prose">
+<h2>Canonicalization: one way to write it</h2>
+<p><code>add 3 %x</code> and <code>add %x 3</code> mean the same thing. Without help, every rule would need two versions, one for each side. Instead we add one <strong>canonicalization</strong> rule for each commutative op (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>):</p>
+<pre><code>op(c, x) → op(x, c)      when c is a const and x is not</code></pre>
+<p class="muted"><code>max</code> is only commutative because the spec pins down its one ambiguous case: <code>max(-0.0, 0.0)</code> is <code>+0.0</code> in either order. A naive <code>if a &gt; b then a else b</code> returns whichever comes second, and <code>recip</code> can see the difference.</p>
+<p>Now every other rule can assume constants sit on the right. Canonical forms also help hash consing, because two equivalent expressions are more likely to become the <em>same</em> node.</p>
+
+<h2>Why hash consing makes this cheap</h2>
+<p>In a hash-consed graph, building a node that already exists hands you back the existing one. Two statements with the same (op, src, arg), where dtype and shape are part of the key, are a single UOp. Three things follow:</p>
+<ul>
+<li><strong>Shared work is rewritten once.</strong> If <code>add %x 1</code> appears ten times, it's one node, simplified once.</li>
+<li><strong>"Did anything change?" is an identity check.</strong> If the rule returns the very same object, nothing happened. No deep comparison of trees.</li>
+<li><strong>Rules like <code>xor(x, x) → 0</code> are a pointer comparison.</strong> "Both sources are the same node" is just "the two sources are the same node" (OCaml's physical equality, <code>==</code>).</li>
+</ul>
+</div>
+
+<div class="fig" id="hc" data-title="two equal statements, one node"></div>
+
+<div class="prose">
+<p>Above: <code>%a = add %x 1</code> and <code>%b = add %x 1</code> collapse into one <code>add</code>, and <code>mul %a %b</code> points at it twice. Simplifying <code>%out</code> here leaves exactly 2 ops.</p>
+
+<h2>Termination: every rule must make progress</h2>
+<p>"Repeat until nothing changes" only stops if each rule moves the graph toward something smaller or more canonical. A rule like</p>
+<pre><code>add(x, y) → add(y, x)        # always swap</code></pre>
+<p>matches its own output, so the engine swaps forever. The canonicalization rule above is safe because it only fires when the const is on the <em>left</em>, and its output has the const on the right, where the rule no longer matches. A good habit: for each rule, name what it shrinks (number of ops, number of non-const sources, constants on the left).</p>
+</div>
+
+<h2>Code it: a toy rewriter</h2>
+<p class="prose">Before rewriting UOps in your own compiler, write the loop on a toy expression type. Same engine: sources first, greedy, to a fixpoint.</p>
+<div class="exercise" data-ex="w1-03-toy-simplify">
+<h3>A toy rewriter</h3>
+<p>Write <code>simplify e</code>. Simplify both children first, then apply these rules to the node, and keep re-applying them to the result until none fires. Integers are i32: fold with 32-bit wraparound.</p>
+<pre><code>Add (Const a, Const b)        → Const (a + b)
+Mul (Const a, Const b)        → Const (a * b)
+Add (Const c, x)              → Add (x, Const c)     (x not a Const)
+Mul (Const c, x)              → Mul (x, Const c)     (x not a Const)
+Add (x, Const 0)              → x
+Mul (x, Const 1)              → x
+Mul (x, Const 0)              → Const 0
+Add (Add (x, Const a), Const b) → Add (x, Const (a + b))
+Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
+<p class="muted">Leave everything else alone. <code>Add (Const 1, Add (Const 2, Var "y"))</code> becomes <code>(y + 3)</code>, which takes three rules in a row.</p>
+</div>
+
+<div class="key">
+<span class="label">Key idea</span>
+<p>A simplifier is a small set of local, obviously-correct rules plus a dumb loop. All the cleverness lives in choosing rules, and every rule has to give exactly the same answer as the interpreter on every input.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="add %x 3 | add x 3">
+<p class="q">After simplifying, what does <code>%out = add 3 %x</code> become? Write it as <code>op %src %src</code>.</p>
+<div class="fill"><input aria-label="your answer" placeholder="op %a %b"><button class="btn">check</button></div>
+<p class="hint">No rule folds this, because <code>%x</code> isn't a constant. One rule still fires: where should constants sit?</p>
+<div class="why"><p>Canonicalization moves the constant to the right: <code>add %x 3</code>. Nothing else applies, so that's the fixpoint.</p></div>
+</div>
+
+<div class="quiz" data-fill="1">
+<p class="q">How many ops (non-const, non-param nodes) are left after simplifying this?</p>
+<pre><code>%x   = param 0 dtype=i32
+%a   = add 2 3
+%b   = mul %a %x
+%out = add %b 0</code></pre>
+<div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Apply the rules in order: fold the all-constant node, canonicalize, then drop the identity.</p>
+<div class="why"><p><code>add 2 3</code> folds to <code>5</code>, <code>mul 5 %x</code> canonicalizes to <code>mul %x 5</code>, and <code>add(.., 0)</code> disappears. One op: <code>mul %x 5</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="0">
+<p class="q">Your folder sees <code>mul 1073741824 4</code> (that's 2<sup>30</sup> × 4). What i32 constant should it produce?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
+<p class="hint">1073741824 is 2 to the 30th, so the product is 2 to the 32nd. Keep only the low 32 bits.</p>
+<div class="why"><p>2<sup>32</sup> wraps around to <code>0</code> in 32-bit two's complement. Folding has to wrap exactly like the interpreter does.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">The folding rule matches <code>div 1 0</code>. What should the simplifier do?</p>
+<div class="opts">
+<button data-k="a">Replace it with <code>const 0</code></button>
+<button data-k="b">Exit 2 immediately, since the program is invalid</button>
+<button data-k="c">Leave the node alone and let evaluation report the error</button>
+<button data-k="d">Replace it with <code>const inf</code></button>
+</div>
+<p class="hint">Is <code>div 1 0</code> always an error, or only when an assert needs its value?</p>
+<p class="hint">The simplifier only sees one node at a time. It can't know whether anything depends on it.</p>
+<div class="why"><p>Only programs that <em>depend</em> on the error are invalid, and the simplifier can't know that by looking at one node (an unused <code>div 1 0</code> is fine). Leaving the node in place keeps the error exactly where the interpreter will find it.</p></div>
+</div>
+
+<div class="quiz" data-fill="0">
+<p class="q">Predict the exit code of <code>run</code> on this program.</p>
+<pre><code>%d = div 1 0
+%t = assert 1 1</code></pre>
+<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Which nodes do the asserts actually depend on?</p>
+<div class="why"><p>Exit 0. The roots are the asserts, and <code>assert 1 1</code> doesn't depend on <code>%d</code>, so <code>%d</code> is never evaluated. (It is still type-checked. <code>div 1 0</code> is well typed.)</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why visit nodes sources first?</p>
+<div class="opts">
+<button data-k="a">It uses less memory</button>
+<button data-k="b">By the time a node is visited, its sources are already simplified, so rules see constants as early as possible</button>
+<button data-k="c">Top-down rewriting is not allowed to change nodes</button>
+<button data-k="d">It's the only order hash consing supports</button>
+</div>
+<p class="hint">Think about what <code>add 4 %a</code> needs before it can fold, and when <code>%a</code> becomes a constant.</p>
+<div class="why"><p>In the stepper, <code>add 4 %a</code> could only fold because <code>%a</code> had already become <code>5</code>. Top down, you'd need one extra pass per level of depth.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">You add the rule <code>add(x, y) → add(y, x)</code> with no condition. What happens?</p>
+<div class="opts">
+<button data-k="a">The engine never reaches a fixpoint: it swaps back and forth forever</button>
+<button data-k="b">Nothing, because hash consing dedupes the swap</button>
+<button data-k="c">It canonicalizes every add</button>
+<button data-k="d">It only fires once per node</button>
+</div>
+<p class="hint">After the swap, does the result still match the rule's pattern?</p>
+<div class="why"><p>The output matches the pattern again, so the rule always fires. Rules must make progress. Guard it as "only when the const is on the left".</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">How many ops are left after simplifying this?</p>
+<pre><code>%x   = param 0 dtype=i32
+%a   = add %x 1
+%b   = add %x 1
+%out = mul %a %b</code></pre>
+<div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Are <code>%a</code> and <code>%b</code> different nodes after hash consing?</p>
+<div class="why"><p>Two. <code>%a</code> and <code>%b</code> are the same hash-consed node, so the graph is one <code>add</code> and one <code>mul</code> that uses it twice.</p></div>
+</div>
+
+<nav class="pager">
+<a href="02-uir-and-interpreting.html">← Lesson 2: .uir and interpreting</a>
+<a href="04-symbolic.html">Lesson 4: Symbolic simplification →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const N = (id, op, src = [], cls = '', sub) => ({ id, op, src, cls, sub });
+  const x = c => N('x', 'param', [], c, '0 i32');
+  const steps = [
+    { caption: 'The starting graph. Sources sit on top and results flow down. <code>%out</code> is at the bottom.',
+      nodes: [x(), N('c2', '2'), N('c3', '3'), N('c4', '4'), N('c0', '0'), N('a', 'add', ['c2', 'c3']), N('b', 'add', ['c4', 'a']),
+              N('c', 'mul', ['b', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
+    { caption: 'Sources first, the first node with a match is <code>add 2 3</code>. Rule: <code>add(c1, c2) → const(c1 + c2)</code>.',
+      nodes: [x(), N('c2', '2', [], 'hit'), N('c3', '3', [], 'hit'), N('c4', '4'), N('c0', '0'), N('a', 'add', ['c2', 'c3'], 'hit'), N('b', 'add', ['c4', 'a']),
+              N('c', 'mul', ['b', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
+    { caption: 'Built <code>const 5</code>. The old <code>add</code> and its inputs are unused now.',
+      nodes: [x(), N('c2', '2', [], 'dead'), N('c3', '3', [], 'dead'), N('a', 'add', ['c2', 'c3'], 'dead'), N('c4', '4'), N('k5', '5', [], 'new'), N('c0', '0'),
+              N('b', 'add', ['c4', 'k5']), N('c', 'mul', ['b', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
+    { caption: 'Next up: <code>add 4 5</code>. It can fold because its source was simplified first.',
+      nodes: [x(), N('c4', '4', [], 'hit'), N('k5', '5', [], 'hit'), N('c0', '0'), N('b', 'add', ['c4', 'k5'], 'hit'), N('c', 'mul', ['b', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
+    { caption: 'Built <code>const 9</code>.',
+      nodes: [x(), N('c4', '4', [], 'dead'), N('k5', '5', [], 'dead'), N('b', 'add', ['c4', 'k5'], 'dead'), N('k9', '9', [], 'new'), N('c0', '0'),
+              N('c', 'mul', ['k9', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
+    { caption: '<code>mul 9 %x</code> has its const on the left. Canonicalize: <code>mul(c, x) → mul(x, c)</code>.',
+      nodes: [x('hit'), N('k9', '9', [], 'hit'), N('c0', '0'), N('c', 'mul', ['k9', 'x'], 'hit'), N('out', 'add', ['c', 'c0'], '', '%out')] },
+    { caption: 'Built <code>mul %x 9</code>. The rule doesn\'t match its own output, so it can\'t loop.',
+      nodes: [x(), N('k9', '9'), N('c', 'mul', ['k9', 'x'], 'dead'), N('m', 'mul', ['x', 'k9'], 'new'), N('c0', '0'), N('out', 'add', ['m', 'c0'], '', '%out')] },
+    { caption: 'Last match: <code>add(x, 0) → x</code>, valid for i32.',
+      nodes: [x(), N('k9', '9'), N('m', 'mul', ['x', 'k9']), N('c0', '0', [], 'hit'), N('out', 'add', ['m', 'c0'], 'hit', '%out')] },
+    { caption: 'The <code>add</code> is gone and <code>%out</code> now names the <code>mul</code> directly.',
+      nodes: [x(), N('k9', '9'), N('c0', '0', [], 'dead'), N('old', 'add', ['m', 'c0'], 'dead'), N('m', 'mul', ['x', 'k9'], 'new', '%out')] },
+    { caption: 'One more pass finds no matches. That\'s the fixpoint: <code>%out = mul %x 9</code>, 1 op instead of 4.',
+      nodes: [x(), N('k9', '9'), N('m', 'mul', ['x', 'k9'], '', '%out')] },
+  ];
+  CC.stepper(document.getElementById('steps'), steps, (s, body) => body.append(CC.graph(s.nodes)));
+
+  const hc = document.getElementById('hc'), src = '%x = param 0 dtype=i32\n%a = add %x 1\n%b = add %x 1\n%out = mul %a %b';
+  hc.replaceChildren(CC.h('div', { class: 'head' }, CC.h('span', { class: 'title', text: hc.dataset.title })),
+    CC.h('div', { class: 'body split' }, CC.code(src), CC.graph(CC.parseUir(src).nodes)));
+});
+</script>
+</body>
+</html>

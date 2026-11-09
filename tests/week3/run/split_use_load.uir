@@ -1,0 +1,22 @@
+# expect: pass
+# a load with uses inside and outside the loop runs once, before it: every iteration writes 10 + 1
+%b  = buffer 1 dtype=i32 slot=0 data=[10]
+%c  = buffer 1 dtype=i32 slot=1
+%v0 = shrink %b 0 shape=[]
+%x  = load %v0
+%i  = range 3
+%z  = mul %i 0
+%v  = shrink %b %z shape=[]
+%y  = add %x 1
+%s  = store %v %y
+%e  = end %s %i
+%b1 = after %b %e
+%w  = shrink %c 0 shape=[]
+%s2 = store %w %x
+%c1 = after %c %s2
+%r  = load %b1
+%rc = load %c1
+%q  = stack 11
+%qc = stack 10
+%t0 = assert %r %q
+%t1 = assert %rc %qc

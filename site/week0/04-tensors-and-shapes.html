@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tensors and Shapes</title>
+<link rel="stylesheet" href="../assets/course.css">
+<style>
+  .views { display: flex; flex-wrap: wrap; gap: var(--s2); }
+  .views .btn[aria-pressed="true"] { background: var(--cta); color: var(--on-cta); border-color: var(--cta); }
+  .tv { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s5); align-items: start; }
+  @media (max-width: 760px) { .tv { grid-template-columns: minmax(0, 1fr); } }
+  .tv .label { margin-bottom: var(--s3); }
+  .grid { display: inline-grid; gap: 2px; font: 0.875rem var(--mono); }
+  .grid .gc { min-width: 2.75rem; padding: var(--s2) var(--s1); text-align: center; background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; cursor: default; }
+  .grid .gc .addr { display: block; color: var(--ink-3); font-size: 0.875rem; }
+  .grid .gc.on .addr { color: inherit; }
+  .grid .gc.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .grid .gc.pad { background: var(--bg); border-style: dashed; color: var(--ink-3); } /* design-ok: dashed is the diagram notation for padding and out-of-bounds cells, named in the captions */
+  .grid .gc.pad.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .mem .cell.read { border-color: var(--good); color: var(--good); }
+  .formula { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s3); }
+</style>
+</head>
+<body data-crumbs="Week 0|Tensors and shapes" data-root="../">
+<main>
+  <p class="eyebrow">Week 0 · Lesson 4</p>
+  <h1>Tensors are a buffer plus a way to read it</h1>
+  <p class="lede">A tensor looks like a grid, but memory is a single row of numbers. Shape and strides are the rule that turns a grid position into a spot in that row. Most of an ML compiler is moving that rule around without moving any data.</p>
+
+  <div class="prose">
+    <h2>One row of memory</h2>
+    <p>A <b>tensor</b> is an array with any number of dimensions, also called <b>axes</b>. A single number has 0 axes, a vector has 1, a matrix has 2, a stack of matrices has 3.</p>
+    <p>Lesson 1 showed that memory is a long array of bytes. A 3 by 4 matrix of floats is 12 floats stored back to back. Nothing in memory says "3 rows". The grid is a story we tell about the buffer.</p>
+    <p>The story has three parts:</p>
+    <ul>
+      <li><strong>shape</strong>: how many positions each axis has, like <code>(3, 4)</code>. "3 rows, 4 columns."</li>
+      <li><strong>strides</strong>: how far to move in the buffer when one index goes up by 1. For <code>(3, 4)</code> stored row by row, they're <code>(4, 1)</code>. Moving down a row skips 4 cells, and moving right a column skips 1.</li>
+      <li><strong>offset</strong>: where element <code>[0, 0]</code> lives. Usually 0.</li>
+    </ul>
+    <p>To find a position, multiply each index by its stride and add them up:</p>
+    <pre><code>flat = offset + i * stride[0] + j * stride[1]</code></pre>
+    <p>That one formula is the whole lesson. Every view below just changes the shape, strides or offset. The buffer never changes.</p>
+    <p>Strides here count <b>elements</b>, not bytes, so lesson 2's "<code>C * 4</code> bytes" is a stride of <code>C</code> here. (NumPy counts strides in bytes, but PyTorch and this course count elements.)</p>
+    <p class="muted">Notation: <code>(4,)</code> is a shape with one axis of size 4 (the comma makes it a tuple of one number). "Contiguous" means stored back to back with no gaps. You'll also see <code>ndim</code>, the number of axes, and <code>numel</code>, the total number of elements.</p>
+
+    <h3>Row-major</h3>
+    <p>"Row-major" (C order) means the last axis is contiguous: its stride is 1. Each earlier stride is the product of all the sizes after it. For shape <code>(2, 3, 4)</code> the strides are <code>(12, 4, 1)</code>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-04-row-major-stride">
+    <h3>Row-major strides</h3>
+    <p>Write <code>row_major_stride(ndim, shape, d)</code>: the stride of axis <code>d</code> in a contiguous row-major buffer of that shape. It's the product of every size <em>after</em> axis <code>d</code>, and the last axis is always 1.</p>
+  </div>
+
+  <h2>Explore: one buffer, six views</h2>
+  <p class="prose">Pick a view, then hover a cell on the left, or step through the cells in order. The highlighted cell on the right is the one actually read. Watch which views read the buffer in order, and which ones jump around.</p>
+  <div class="fig" id="explorer">
+    <div class="head"><span class="title">views</span><div class="views" id="viewbtns"></div></div>
+    <div class="body">
+      <div class="tv">
+        <div><span class="label" id="lv">logical view</span><div id="logical"></div><div class="formula" id="formula">hover a cell</div></div>
+        <div><span class="label" id="pv">buffer</span><div id="buffer" class="mem"></div></div>
+      </div>
+    </div>
+    <div class="cap" id="vcap"></div>
+  </div>
+  <div class="fig" id="walk" data-title="read order: step through every logical index"></div>
+
+  <div class="prose">
+    <h2>Reshape: new shape, same buffer</h2>
+    <p>Reshaping <code>(3, 4)</code> to <code>(2, 6)</code> or <code>(4, 3)</code> just recomputes row-major strides for the new shape. The read order is still 0, 1, 2, ... 11, so no data moves. This works because the buffer is contiguous. Reshaping a buffer that has already been permuted isn't always possible without a copy, and week 5 deals with exactly that.</p>
+
+    <h2>Permute: swap the strides</h2>
+    <p>A transpose of <code>(3, 4)</code> is shape <code>(4, 3)</code> with strides <code>(1, 4)</code>. Same buffer, swapped strides. It's free to create, but reading it row by row now jumps 4 cells at a time. Lesson 2 showed why that's slow: every jump can land on a different cache line.</p>
+
+    <h2>Broadcast: stride 0</h2>
+    <p>Adding a 4-element vector to every row of a 3 by 4 matrix needs the vector to "look like" 3 by 4. Give the row axis stride 0. Moving down a row then moves 0 cells, so every row reads the same 4 numbers. No copy happens.</p>
+
+    <h2>Shrink and pad: index ranges and a mask</h2>
+    <p><strong>Shrink</strong> takes a window. The middle 2 by 2 of our matrix, written <code>[1:3, 1:3]</code> (rows 1 to 2 and columns 1 to 2; the end of a range is excluded), starts at offset 5, because element <code>[1, 1]</code> is at <code>1·4 + 1 = 5</code>. It keeps the same strides <code>(4, 1)</code>. Only the offset and shape change.</p>
+    <p><strong>Pad</strong> goes the other way and adds positions that have no memory behind them. A pad of 1 on each side of the columns turns <code>(3, 4)</code> into <code>(3, 6)</code>. A logical column <code>j</code> is <em>valid</em> only when <code>1 ≤ j &lt; 5</code>. Valid positions read buffer column <code>j - 1</code>. Invalid ones don't touch memory at all and produce 0. That "is this index valid" check is a <strong>mask</strong>. It's also why the course bounds-checks every load: a padded index that skipped its mask would read someone else's memory.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-04-padded-get">
+    <h3>Read through a pad</h3>
+    <p>A row of <code>n</code> real values is padded with <code>left</code> zeros in front and any number of zeros after. Write <code>padded_get(row, n, left, j)</code>, which returns logical element <code>j</code> of the padded view: <code>row[j - left]</code> when that is a real element, and 0 for every other <code>j</code>, including negative <code>j</code> and <code>j</code> past the end.</p>
+    <p class="muted">The starter forgets the mask. The tests put other numbers right next to the row, so reading outside it shows up as a wrong answer, which is exactly the bug a missing mask causes in a real kernel.</p>
+  </div>
+
+  <div class="trap"><span class="label">A view is not data</span><p>A view is not data. Writing to a broadcast view would mean three logical cells sharing one memory cell. Compilers either forbid it or copy first (materialize). Weeks 4 and 5 are mostly about deciding when to copy.</p></div>
+  <div class="note"><span class="label">Where this goes</span><p>In weeks 4 and 5 your compiler represents <code>RESHAPE</code>, <code>PERMUTE</code>, <code>PAD</code> and <code>SHRINK</code> exactly like this. They stay index math until a loop reads through them. A later step (called rangeify, in week 4) turns the shape into loops and the strides into the index math inside each memory read.</p></div>
+
+  <h2>Code it</h2>
+  <div class="exercise" data-ex="w0-04-view-at">
+    <h3>Where does logical element k live?</h3>
+    <p>A view is <code>shape</code>, <code>strides</code> and <code>offset</code> over a buffer. Number its logical positions <code>0 .. numel-1</code> in row-major order. Write <code>view_at(ndim, shape, strides, offset, k)</code>, which returns the buffer index that position <code>k</code> reads.</p>
+    <p>Turn <code>k</code> back into one index per axis (the last axis changes fastest), then apply <code>flat = offset + &Sigma; index[d] * strides[d]</code>. For shape <code>(3, 4)</code> and <code>k = 5</code>: the last index is <code>5 % 4 = 1</code>, then <code>5 / 4 = 1</code> is the row index, so the position is <code>[1, 1]</code>. It has to work for every view on this page: reshape, permute, broadcast (stride 0) and shrink (an offset).</p>
+    <p class="muted">With <code>ndim = 0</code> there is one element, and it lives at <code>offset</code>.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="(4, 1) | (4,1) | 4,1 | 4, 1 | 4 1 | ( 4, 1 )">
+    <p class="q">A row-major tensor of shape <code>(3, 4)</code>. What are its strides? Answer like <code>(a, b)</code>.</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">The last axis is contiguous, so its stride is 1.</p>
+    <p class="hint">One step down a row skips a whole row. How long is a row?</p>
+    <div class="why"><p>The last axis is contiguous (stride 1). The row stride is the row length, 4.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="9">
+    <p class="q">Same tensor. Which flat buffer index holds element <code>[2, 1]</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Multiply each index by its stride and add: <code>i * stride0 + j * stride1</code>.</p>
+    <div class="why"><p><code>2 * 4 + 1 * 1 = 9</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="(12, 4, 1) | (12,4,1) | 12,4,1 | 12, 4, 1 | 12 4 1 | ( 12, 4, 1 )">
+    <p class="q">Row-major strides for shape <code>(2, 3, 4)</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Each stride is the product of the sizes of every axis after it.</p>
+    <p class="hint">The last stride is 1; the middle one is the length of the last axis.</p>
+    <div class="why"><p>Each stride is the product of the sizes after it: <code>3*4 = 12</code>, <code>4</code>, then <code>1</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">You permute <code>(3, 4)</code> with strides <code>(4, 1)</code> to shape <code>(4, 3)</code>. What happens to the buffer?</p>
+    <div class="opts">
+      <button data-k="a">It's copied into transposed order, and the new strides are <code>(3, 1)</code></button>
+      <button data-k="b">Nothing. The new strides are <code>(1, 4)</code>.</button>
+      <button data-k="c">Nothing. The new strides are <code>(4, 1)</code>.</button>
+    </div>
+    <p class="hint">Permute only relabels the axes. Does that need to move any bytes?</p>
+    <p class="hint">Whatever happens to the shape happens to the strides, in the same order.</p>
+    <div class="why"><p>Permute reorders the axes, so it reorders the strides with them. The buffer is untouched.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="6">
+    <p class="q">Reshape the contiguous <code>(3, 4)</code> buffer to <code>(2, 6)</code>. Which flat index holds <code>[1, 0]</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Reshape of a contiguous buffer keeps the bytes and recomputes row-major strides for the new shape.</p>
+    <div class="why"><p>New strides <code>(6, 1)</code>, so <code>1 * 6 + 0 = 6</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">A 4-element vector is broadcast to shape <code>(3, 4)</code>. What are the strides?</p>
+    <div class="opts">
+      <button data-k="a"><code>(4, 1)</code></button>
+      <button data-k="b"><code>(1, 0)</code></button>
+      <button data-k="c"><code>(0, 1)</code></button>
+    </div>
+    <p class="hint">Every row of the result reads the same 4 values. How far does moving down one row need to move in the buffer?</p>
+    <div class="why"><p>Rows repeat, so the row axis moves 0 cells. Columns walk the vector with stride 1.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="0">
+    <p class="q">A <code>(4,)</code> buffer holding <code>[5, 6, 7, 8]</code> is padded by 1 on each side to <code>(6,)</code>. What does logical index 0 read?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Padding by 1 on the left shifts the real data: logical index <code>i</code> reads buffer index <code>i - 1</code>.</p>
+    <p class="hint">Is buffer index -1 a real element, or does the mask stop the read?</p>
+    <div class="why"><p>Index 0 is outside the valid range <code>1 ≤ i &lt; 5</code>, so the mask is false. Nothing is loaded and the value is 0. Index 1 would read buffer index 0, which is <code>5</code>.</p></div>
+  </div>
+
+  <nav class="pager"><a href="03-compilers-and-irs.html">← What a compiler and an IR are</a><a href="05-matmul.html">Matrix multiply →</a></nav>
+</main>
+<script src="../assets/course.js"></script>
+<script>
+(() => {
+  const { h, stepper } = CC;
+  // one physical buffer of 12 numbers; each view is (shape, strides, offset, pad-before, valid size)
+  const V = [
+    { k: 'base', name: '(3, 4)', shape: [3, 4], strides: [4, 1], offset: 0, buf: 12,
+      cap: 'Row-major: strides (4, 1). Reading row by row walks the buffer in order.' },
+    { k: 'reshape', name: 'reshape (2, 6)', shape: [2, 6], strides: [6, 1], offset: 0, buf: 12,
+      cap: 'Reshape recomputes contiguous strides (6, 1). Same order as before, nothing moved.' },
+    { k: 'permute', name: 'permute (4, 3)', shape: [4, 3], strides: [1, 4], offset: 0, buf: 12,
+      cap: 'Transpose swaps the strides to (1, 4). Reading a row now jumps 4 cells at a time.' },
+    { k: 'bcast', name: 'broadcast (4,) to (3, 4)', shape: [3, 4], strides: [0, 1], offset: 0, buf: 4,
+      cap: 'Row stride 0: every row reads the same 4 cells. 12 logical cells, 4 real ones.' },
+    { k: 'shrink', name: 'shrink [1:3, 1:3]', shape: [2, 2], strides: [4, 1], offset: 5, buf: 12,
+      cap: 'Shrink keeps the strides and moves the offset to 5, the address of [1, 1] in the original.' },
+    { k: 'pad', name: 'pad cols (1, 1)', shape: [3, 6], strides: [4, 1], offset: 0, buf: 12, pad: [0, 1], inner: [3, 4],
+      cap: 'Pad adds a column on each side. Dashed cells fail the mask: they read nothing and are 0.' },
+  ];
+  const read = (v, idx) => {
+    const pad = v.pad || idx.map(() => 0), inner = v.inner || v.shape;
+    const ok = idx.every((x, a) => x >= pad[a] && x < pad[a] + inner[a]);
+    return { ok, off: ok ? v.offset + idx.reduce((s, x, a) => s + (x - pad[a]) * v.strides[a], 0) : null, pad };
+  };
+  const formula = (v, idx, r) => {
+    if (!r.ok) return `[${idx}]: col ${idx[1]} is outside 1 ≤ j < 5, masked, value 0`;
+    const terms = idx.map((x, a) => `${r.pad[a] ? `(${x}-${r.pad[a]})` : x}*${v.strides[a]}`);
+    return `[${idx}] → ${v.offset ? v.offset + ' + ' : ''}${terms.join(' + ')} = ${r.off}`;
+  };
+  let cur = V[0];
+  const btns = document.getElementById('viewbtns');
+  V.forEach(v => btns.append(h('button', { class: 'btn', type: 'button', 'aria-pressed': v === cur, text: v.name })));
+  [...btns.children].forEach((b, i) => (b.onclick = () => { cur = V[i]; [...btns.children].forEach((x, j) => x.setAttribute('aria-pressed', i === j)); paint(); }));
+
+  function draw(v, sel, logical, buffer, fEl) {
+    const [R, C] = v.shape;
+    logical.replaceChildren(); buffer.replaceChildren();
+    const g = h('div', { class: 'grid', style: `grid-template-columns: repeat(${C}, auto)` });
+    const cells = [];
+    for (let i = 0; i < R; i++) for (let j = 0; j < C; j++) {
+      const r = read(v, [i, j]);
+      const c = h('div', { class: 'gc' + (r.ok ? '' : ' pad') + (sel && sel[0] === i && sel[1] === j ? ' on' : '') },
+        r.ok ? String(r.off) : '0', h('span', { class: 'addr', text: `${i},${j}` }));
+      if (fEl) c.onmouseenter = () => draw(v, [i, j], logical, buffer, fEl);
+      cells.push(c); g.append(c);
+    }
+    logical.append(g);
+    const hit = sel ? read(v, sel) : null;
+    for (let k = 0; k < v.buf; k++) buffer.append(h('div', { class: 'cell' + (hit && hit.ok && hit.off === k ? ' read' : '') }, String(k), h('span', { class: 'addr', text: '@' + k })));
+    if (fEl) fEl.textContent = sel ? formula(v, sel, hit) : 'hover a cell';
+  }
+  function paint() {
+    const L = document.getElementById('logical'), B = document.getElementById('buffer');
+    document.getElementById('lv').textContent = `logical view, shape (${cur.shape.join(', ')})`;
+    document.getElementById('pv').textContent = `buffer, ${cur.buf} cells (value = address here)`;
+    document.getElementById('vcap').textContent = cur.cap;
+    draw(cur, null, L, B, document.getElementById('formula'));
+    // walk every logical index in row-major order and show the address sequence it produces
+    const idxs = []; for (let i = 0; i < cur.shape[0]; i++) for (let j = 0; j < cur.shape[1]; j++) idxs.push([i, j]);
+    const seq = idxs.map(ix => read(cur, ix)).map(r => (r.ok ? r.off : '·'));
+    const steps = idxs.map((ix, n) => ({ ix, caption: `${formula(cur, ix, read(cur, ix))}<br><span class="muted">addresses so far: ${seq.slice(0, n + 1).join(' ')}</span>` }));
+    const fig = document.getElementById('walk');
+    stepper(fig, steps, (s, body) => {
+      const tv = h('div', { class: 'tv' }), a = h('div'), b = h('div', { class: 'mem' });
+      tv.append(a, b); body.append(tv); draw(cur, s.ix, a, b, null);
+    });
+  }
+  paint();
+})();
+</script>
+</body>
+</html>

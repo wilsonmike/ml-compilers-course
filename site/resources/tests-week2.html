@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 2 Test Guide</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .guide td:first-child { white-space: nowrap; }
+  .guide td { font-size: 0.9375rem; }
+  .filter { width: 100%; max-width: 28rem; font: 1rem var(--sans); padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); color: var(--ink); margin: 0 0 var(--s4); }
+</style>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 2 test guide</h1>
+  <p class="lede">A test failed and you don't know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the <a href="../../spec/uir-week2.md">week 2 spec</a>.</p>
+  <div class="note"><span class="label">How to use this</span>
+    <p>Run <code>python tools/test.py --compiler PATH --week 2 -v</code>, copy the failing test's name, and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
+  </div>
+  <input class="filter" type="search" placeholder="Filter by test name, kind, or words" aria-label="Filter tests" oninput="for (const r of document.querySelectorAll('.guide tbody tr')) r.hidden = !r.textContent.toLowerCase().includes(this.value.toLowerCase())">
+  <div class="tablewrap">
+  <table class="guide">
+    <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
+    <tbody>
+    <tr><td><code>render/alloc_read_before_write</code></td><td>render</td><td>reading an alloc before any store sees zeros</td><td>C alloc not zeroed<br>C rank-1 store one elem<br>final version not followed</td></tr>
+    <tr><td><code>render/alloc_scratch</code></td><td>render</td><td>a local alloc holds an intermediate, and it starts as zeros</td><td>final version not followed</td></tr>
+    <tr><td><code>render/alloc_two_distinct</code></td><td>render</td><td>two same-size allocs are separate arrays</td><td>C alloc not zeroed<br>C rank-1 store one elem<br>allocs share storage<br>final version not followed</td></tr>
+    <tr><td><code>render/asserts_ignored</code></td><td>render</td><td>render ignores asserts and statements the outputs don&#x27;t need</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/bool_ops</code></td><td>render</td><td>bool xor, where on bools, and bool to i32</td><td>C where swapped</td></tr>
+    <tr><td><code>render/call_inlined</code></td><td>render</td><td>calls render inline: the body runs on loaded args</td><td>C rank-1 store one elem</td></tr>
+    <tr><td><code>render/call_nested_closed</code></td><td>render</td><td>a nested call&#x27;s body keeps its own param 0 when inlined</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/casts_to_i32_and_bool</code></td><td>render</td><td>f32 to i32 truncates, and anything to bool is != 0, nan included</td><td>C cast to i32 rounds</td></tr>
+    <tr><td><code>render/copy_scalar</code></td><td>render</td><td>the smallest kernel: one load, one store</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/dynamic_offset_bool</code></td><td>render</td><td>a bool-derived offset picks one of two elements</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/dynamic_offset_store</code></td><td>render</td><td>store at a masked loaded offset</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/f32_chain</code></td><td>render</td><td>a longer f32 chain where every intermediate rounds</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/f32_exact_literals</code></td><td>render</td><td>f32 constants need every digit: 1/3 and the largest finite f32 must come out exact</td><td>C float literals 6 digits</td></tr>
+    <tr><td><code>render/f32_from_i32_cast</code></td><td>render</td><td>i32 to f32 rounds to nearest even, and bool to f32 is 0 or 1</td><td>C cast to i32 rounds</td></tr>
+    <tr><td><code>render/f32_max</code></td><td>render</td><td>max with nan on either side and both signed-zero orders</td><td>C max ignores -0.0<br>C max ignores nan</td></tr>
+    <tr><td><code>render/f32_recip</code></td><td>render</td><td>recip of zeros, infinities and a value that rounds</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/f32_rounding</code></td><td>render</td><td>every f32 op rounds; -ffp-contract=off keeps a*b+c from fusing</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/f32_signed_zero</code></td><td>render</td><td>-0.0 survives where it should and doesn&#x27;t where it shouldn&#x27;t</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/f32_specials</code></td><td>render</td><td>nan and inf arithmetic</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/f32_where_cmplt</code></td><td>render</td><td>cmplt with nan is false, and where picks a branch</td><td>C cmplt as &lt;=<br>C where swapped</td></tr>
+    <tr><td><code>render/i32_add_wrap</code></td><td>render</td><td>i32 add wraps, and in C that has to go through uint32_t</td><td>C plain signed add</td></tr>
+    <tr><td><code>render/i32_div_mod_intmin</code></td><td>render</td><td>INT_MIN / -1 and INT_MIN % -1 are UB in C; the kernel must not trap</td><td>C div without -1 guard<br>C mod without -1 guard</td></tr>
+    <tr><td><code>render/i32_div_mod_trunc</code></td><td>render</td><td>C division truncates toward zero, and mod takes the dividend&#x27;s sign</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/i32_max_cmp_xor</code></td><td>render</td><td>max, xor and a cmplt-driven where on i32 edges</td><td>C where swapped</td></tr>
+    <tr><td><code>render/i32_mul_wrap</code></td><td>render</td><td>i32 mul wraps without UB</td><td>C plain signed add</td></tr>
+    <tr><td><code>render/i32_shl_wrap</code></td><td>render</td><td>shl into the sign bit and past it</td><td>C plain signed add</td></tr>
+    <tr><td><code>render/load_whole_index</code></td><td>render</td><td>load a whole buffer and index it</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/mixed_dtypes</code></td><td>render</td><td>three buffers of different dtypes in one kernel</td><td>loads not before stores</td></tr>
+    <tr><td><code>render/nested_view_offsets</code></td><td>render</td><td>shrink of shrink: offsets add in the C too</td><td>C nested offsets lost<br>C rank-1 load no offset</td></tr>
+    <tr><td><code>render/old_version_late_use</code></td><td>render</td><td>an old-version load whose value is used two stores later</td><td>loads not before stores</td></tr>
+    <tr><td><code>render/rank1_copy</code></td><td>render</td><td>load a [3] view and store it into another buffer&#x27;s [3] view</td><td>C rank-1 load no offset</td></tr>
+    <tr><td><code>render/rmw_chain</code></td><td>render</td><td>three increments of the same element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/special_data_copy</code></td><td>render</td><td>special float data copies through bit for bit</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/stack_index_dynamic</code></td><td>render</td><td>index a stack with a loaded index</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/store_whole_buffer</code></td><td>render</td><td>store a rank-1 value into a whole buffer</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/swap_schedule</code></td><td>render</td><td>swap: the second store uses a load of the original version, so loads must be scheduled first</td><td>loads not before stores</td></tr>
+    <tr><td><code>render/unwritten_buffer</code></td><td>render</td><td>a buffer the kernel never writes keeps its data</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/alloc_distinct</code></td><td>run: pass</td><td>two allocs of the same size are different memory</td><td>alloc not zeroed</td></tr>
+    <tr><td><code>run/alloc_scratch</code></td><td>run: pass</td><td>alloc is local scratch that starts as zeros</td><td>alloc not zeroed</td></tr>
+    <tr><td><code>run/bounds_bool_offset</code></td><td>run: pass</td><td>a bool cast to i32 is in [0, 1], so it can index a 2-element buffer</td><td>load ignores the offset</td></tr>
+    <tr><td><code>run/bounds_const_arith_offset</code></td><td>run: pass</td><td>constant arithmetic offsets have exact bounds</td><td>load ignores the offset</td></tr>
+    <tr><td><code>run/bounds_last_window</code></td><td>run: pass</td><td>a [k] view that ends exactly at the end is in bounds</td><td>load ignores the offset</td></tr>
+    <tr><td><code>run/bounds_masked_offset</code></td><td>run: pass</td><td>a loaded index masked with max and mod is provably in [0, 3]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_bool</code></td><td>run: pass</td><td>bool buffers hold true/false</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_chain3</code></td><td>run: pass</td><td>three stores in a row, each into the previous version</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_data_load</code></td><td>run: pass</td><td>data= gives a buffer its initial contents, and a scalar view loads one element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_f32_rounding</code></td><td>run: pass</td><td>f32 data rounds like f32 literals, and stays f32 through memory</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_old_version</code></td><td>run: pass</td><td>a load of the old version still sees the old value, even if written after the store in the file</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_rmw</code></td><td>run: pass</td><td>read, modify, write back</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_store_after</code></td><td>run: pass</td><td>after names the version with the store applied</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_versions_differ</code></td><td>run: pass</td><td>every version keeps its own contents</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_zeros</code></td><td>run: pass</td><td>without data=, a buffer starts as zeros of its dtype</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/copy_between_buffers</code></td><td>run: pass</td><td>load from one buffer, store into another</td><td>rank-1 store writes one</td></tr>
+    <tr><td><code>run/err_after_not_store</code></td><td>run: invalid</td><td>the second operand of after must be a store</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_after_on_view</code></td><td>run: invalid</td><td>after takes a whole buffer version, not a view</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_after_stale_version</code></td><td>run: invalid</td><td>after names an older version of the right buffer: still wrong</td><td>after version unchecked</td></tr>
+    <tr><td><code>run/err_after_wrong_version</code></td><td>run: invalid</td><td>after must name the version the store writes into</td><td>after version unchecked</td></tr>
+    <tr><td><code>run/err_alloc_slot</code></td><td>run: invalid</td><td>alloc has no slot: it isn&#x27;t an input</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_bounds_mask_too_wide</code></td><td>run: invalid</td><td>masking to [0, 4] doesn&#x27;t fit a scalar view in a 4-element buffer</td><td>bounds off by one<br>bounds unchecked</td></tr>
+    <tr><td><code>run/err_bounds_mod_negative</code></td><td>run: invalid</td><td>mod alone keeps the sign, so the offset could be negative</td><td>bounds allow negative<br>bounds unchecked</td></tr>
+    <tr><td><code>run/err_bounds_negative</code></td><td>run: invalid</td><td>negative offsets are out of bounds</td><td>bounds allow negative<br>bounds unchecked</td></tr>
+    <tr><td><code>run/err_bounds_nested</code></td><td>run: invalid</td><td>a nested view must fit its parent view, not just the buffer</td><td>bounds off by one<br>nested view vs storage</td></tr>
+    <tr><td><code>run/err_bounds_past_end</code></td><td>run: invalid</td><td>elements 3 and 4 of a 4-element buffer: 4 is past the end</td><td>bounds off by one</td></tr>
+    <tr><td><code>run/err_bounds_raw_loaded</code></td><td>run: invalid</td><td>a raw loaded index could be anything, so the view can&#x27;t be proven in bounds</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_bounds_scalar_at_n</code></td><td>run: invalid</td><td>element 4 of a 4-element buffer doesn&#x27;t exist</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_bounds_unused</code></td><td>run: invalid</td><td>bounds are checked statically, even for a view nothing uses</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_buffer_no_slot</code></td><td>run: invalid</td><td>buffer needs slot=</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_buffer_size_zero</code></td><td>run: invalid</td><td>a buffer has at least one element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_data_dtype</code></td><td>run: invalid</td><td>data values must be literals of the buffer&#x27;s dtype</td><td>data dtype unchecked</td></tr>
+    <tr><td><code>run/err_data_length</code></td><td>run: invalid</td><td>data= must give exactly n values</td><td>data length unchecked</td></tr>
+    <tr><td><code>run/err_duplicate_slot</code></td><td>run: invalid</td><td>slots are unique</td><td>duplicate slots ok</td></tr>
+    <tr><td><code>run/err_duplicate_slot_identical</code></td><td>run: invalid</td><td>two identical buffer statements are still two buffers sharing a slot</td><td>duplicate slots ok<br>identical buffers merge</td></tr>
+    <tr><td><code>run/err_load_value</code></td><td>run: invalid</td><td>load reads memory, not a value</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mem_alu_operand</code></td><td>run: invalid</td><td>memory isn&#x27;t a value: load it first</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mem_assert</code></td><td>run: invalid</td><td>assert compares values, not memory</td><td>memory as ALU operand ok</td></tr>
+    <tr><td><code>run/err_mem_call_arg</code></td><td>run: invalid</td><td>memory can&#x27;t be passed to a call</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mem_in_call_body</code></td><td>run: invalid</td><td>memory can&#x27;t be used inside a call body</td><td>memory in call body ok</td></tr>
+    <tr><td><code>run/err_mem_stack</code></td><td>run: invalid</td><td>memory can&#x27;t be stacked</td><td>memory as ALU operand ok</td></tr>
+    <tr><td><code>run/err_offset_f32</code></td><td>run: invalid</td><td>offsets are i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_old_version_needed_late</code></td><td>run: invalid</td><td>the offset of a load from the old version depends on the new version: no order works</td><td>no ordering cycle check</td></tr>
+    <tr><td><code>run/err_shrink_no_shape</code></td><td>run: invalid</td><td>shrink needs shape=</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_store_dtype</code></td><td>run: invalid</td><td>the stored value must have the view&#x27;s dtype</td><td>store type unchecked</td></tr>
+    <tr><td><code>run/err_store_into_value</code></td><td>run: invalid</td><td>store writes into memory, not into a value</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_store_shape</code></td><td>run: invalid</td><td>the stored value must have the view&#x27;s shape</td><td>store type unchecked</td></tr>
+    <tr><td><code>run/err_two_stores_one_version</code></td><td>run: invalid</td><td>two stores into the same version are unordered</td><td>two stores per version</td></tr>
+    <tr><td><code>run/err_two_stores_unsequenced_second</code></td><td>run: invalid</td><td>a second store into a version is invalid even if only one is sequenced</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_unsequenced_store</code></td><td>run: invalid</td><td>a store no after sequences has no effect, so it&#x27;s an error</td><td>unsequenced store ok</td></tr>
+    <tr><td><code>run/err_view_alu_operand</code></td><td>run: invalid</td><td>a view isn&#x27;t a value either</td><td>memory as ALU operand ok</td></tr>
+    <tr><td><code>run/fail_memory_assert</code></td><td>run: assert_fail</td><td>a failing assert on a loaded value</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/load_after_values_in_call</code></td><td>run: pass</td><td>loaded values (not memory) can be call args</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/loaded_div_zero</code></td><td>run: invalid</td><td>a runtime error in a value an assert depends on: dividing by a loaded zero</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/special_float_data</code></td><td>run: pass</td><td>data can hold nan, inf, -inf and -0.0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/swap</code></td><td>run: pass</td><td>swap two elements: both loads read the original version</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/unread_store_ok</code></td><td>run: pass</td><td>a sequenced store that no assert reads is fine</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/view_rank1_load</code></td><td>run: pass</td><td>shape=[k] views k elements starting at the offset</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/view_rank1_store</code></td><td>run: pass</td><td>store a rank-1 value into a [k] view</td><td>rank-1 store writes one</td></tr>
+    <tr><td><code>run/view_shrink_of_shrink</code></td><td>run: pass</td><td>offsets add: shrink 1 then shrink 2 lands on element 3</td><td>shrink offsets don&#x27;t add</td></tr>
+    <tr><td><code>run/view_shrink_of_shrink_store</code></td><td>run: pass</td><td>a store through a nested view writes the right element</td><td>shrink offsets don&#x27;t add</td></tr>
+    <tr><td><code>run/view_whole_load_index</code></td><td>run: pass</td><td>load a whole buffer, then index the rank-1 value</td><td><span class=muted>none recorded</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</main>
+</body>
+</html>

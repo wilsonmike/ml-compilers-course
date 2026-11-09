@@ -1,0 +1,49 @@
+{
+ "id": "w4-04-stage-set",
+ "lang": "ocaml",
+ "title": "Which nodes are worth staging",
+ "show": "(fun l -> String.concat \" \" (List.map string_of_int l))",
+ "starter": "(* A graph is a list of (id, srcs): node id reads the nodes in srcs.\n   A leaf has srcs = []. Return, sorted ascending, every non-leaf id that has\n   two or more distinct consumers (a node read twice by the same consumer is\n   still one use: rangeify builds that element once per index). *)\nlet stage_set (g : (int * int list) list) : int list =\n  []\n",
+ "hints": [
+  "First find each node's consumers: for every (id, srcs), id consumes each node in srcs. Use `List.sort_uniq compare` on srcs so a consumer that reads a node twice counts once.",
+  "Then keep the ids that have at least 2 distinct consumers and a non-empty srcs list of their own (leaves like buffer loads aren't worth staging).",
+  "`List.sort compare` gives ascending order. An empty result prints as an empty line."
+ ],
+ "explain": "Counting uses is the first question a materialization pass asks: a value with one consumer can always be fused into it; a value with two consumers is the candidate for staging. A consumer that reads a node twice (like `mul c c`) is one use, because hash consing makes rangeify build that element once per index. Leaves are excluded because there is nothing to recompute.",
+ "tests": [
+  {
+   "expr": "stage_set [(1, []); (2, [1]); (3, [2]); (4, [2])]",
+   "expect": "2",
+   "sample": true
+  },
+  {
+   "expr": "stage_set [(1, []); (2, [1; 1]); (3, [2])]",
+   "expect": "",
+   "sample": true
+  },
+  {
+   "expr": "stage_set [(1, []); (2, [1]); (3, [2; 2])]",
+   "expect": ""
+  },
+  {
+   "expr": "stage_set []",
+   "expect": ""
+  },
+  {
+   "expr": "stage_set [(1, []); (2, [1]); (3, [1]); (4, [2; 3]); (5, [2; 3])]",
+   "expect": "2 3"
+  },
+  {
+   "expr": "stage_set [(9, []); (8, [9]); (7, [8]); (6, [8]); (5, [7; 6])]",
+   "expect": "8"
+  },
+  {
+   "expr": "stage_set [(1, []); (2, [1]); (3, [2]); (4, [3])]",
+   "expect": ""
+  },
+  {
+   "expr": "stage_set [(1, []); (2, [1]); (3, [2; 2]); (4, [2])]",
+   "expect": "2"
+  }
+ ]
+}

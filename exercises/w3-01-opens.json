@@ -1,0 +1,49 @@
+{
+ "id": "w3-01-opens",
+ "lang": "ocaml",
+ "title": "Open ranges on a toy graph",
+ "show": "(fun l -> \"[\" ^ String.concat \" \" l ^ \"]\")",
+ "starter": "type node =\n  | Range of string * int      (* a named loop counter and its bound *)\n  | Const of int\n  | Add of node * node\n  | Store of node * node        (* offset, value *)\n  | End of node * node          (* effect, range: closes that range *)\n\n(* The names of the ranges [n] depends on that no End has closed, sorted, no duplicates. *)\nlet rec opens (n : node) : string list =\n  []\n",
+ "tests": [
+  {
+   "expr": "opens (Const 3)",
+   "expect": "[]",
+   "sample": true
+  },
+  {
+   "expr": "let i = Range (\"i\", 4) in opens (Add (i, Const 1))",
+   "expect": "[i]",
+   "sample": true
+  },
+  {
+   "expr": "let i = Range (\"i\", 4) in opens (End (Store (i, i), i))",
+   "expect": "[]"
+  },
+  {
+   "expr": "let i = Range (\"i\", 2) and j = Range (\"j\", 3) in opens (Store (Add (i, j), Const 0))",
+   "expect": "[i j]"
+  },
+  {
+   "expr": "let i = Range (\"i\", 2) and j = Range (\"j\", 3) in opens (End (Store (Add (i, j), Const 0), j))",
+   "expect": "[i]"
+  },
+  {
+   "expr": "let i = Range (\"i\", 2) and j = Range (\"j\", 3) in opens (End (End (Store (Add (i, j), Const 0), j), i))",
+   "expect": "[]"
+  },
+  {
+   "expr": "let j = Range (\"j\", 3) and i = Range (\"i\", 2) in opens (Add (j, Add (i, j)))",
+   "expect": "[i j]"
+  },
+  {
+   "expr": "let k = Range (\"k\", 1) in opens (Add (Add (k, k), Add (k, Const 2)))",
+   "expect": "[k]"
+  }
+ ],
+ "hints": [
+  "A Range is open in itself; a Const has nothing open. Everything else takes the union of its children.",
+  "End (e, r) is the one exception: the opens of e, minus r's name.",
+  "Keep the result sorted and deduplicated, for example with `List.sort_uniq compare` on the combined lists."
+ ],
+ "explain": "Open ranges are a union over sources, with Range adding its own name and End removing the range it closes. `List.sort_uniq compare` keeps the result canonical. The real compiler memoizes this per node, because shared subgraphs would otherwise be walked many times."
+}

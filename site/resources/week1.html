@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 1 Study Guide</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 1 study guide</h1>
+  <p class="lede">Week 1 builds the core everything else stands on: the hash-consed UOp, a type checker, an interpreter, and a rewrite engine that simplifies programs. This page recaps it, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week1/01-the-uop.html">1.1 The UOp</a></h3>
+  <p>A program is a DAG of <code>UOp(op, src, arg)</code> nodes, each with a dtype and a shape. Hash consing makes two structurally equal nodes the same node, so equality is one comparison and shared work is computed once. Without sharing, a 300-level doubling DAG would take 2<sup>300</sup> steps.</p>
+  <h3><a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></h3>
+  <p>Each line is <code>%name = op operands attrs</code>. Every statement is type checked first. Then asserts run in file order, and the first failure or runtime error stops the program. i32 wraps, division truncates like C, and every f32 op rounds to f32.</p>
+  <h3><a href="../week1/03-rewrites-and-folding.html">1.3 Rewrites and folding</a></h3>
+  <p>A rewrite rule is a pattern and a replacement, like <code>add(x, 0) → x</code>. The engine visits sources first, applies rules until none fire, and repeats passes until nothing changes. Constant folding is the rule family "all inputs are constants, so compute it now", and it must never fold away a runtime error.</p>
+  <h3><a href="../week1/04-symbolic.html">1.4 Symbolic simplification</a></h3>
+  <p>i32 is a ring mod 2<sup>32</sup>, so reassociation is always safe. f32 isn't, so <code>x * 0.0</code> and <code>x + 0.0</code> can't simplify. Bounds analysis gives each i32 value an interval, which proves rules like <code>cmplt(mod(max(x, 0), 8), 8) → true</code>.</p>
+  <h3><a href="../week1/05-call-and-param.html">1.5 CALL, PARAM, STACK, INDEX</a></h3>
+  <p>A call binds argument i to <code>param i</code> in its body. Bodies are closed: substitution stops at a nested call's body but goes into its arguments. A param's value depends on which call is evaluating it, so values are cached per call, not globally.</p>
+  <h3><a href="../week1/06-lab.html">1.6 Lab</a></h3>
+  <p>Your compiler takes <code>run FILE</code> (exit 0, 1 or 2, with exact stderr lines) and <code>simplify FILE</code> (print a smaller equivalent <code>%out</code>). The suite has 142 tests, and every bug planted in the reference compiler to test them fails at least one.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>op</th><th>operand dtypes</th><th>result</th><th>remember</th></tr></thead>
+    <tbody>
+      <tr><td><code>add</code>, <code>mul</code></td><td>i32 or f32, same</td><td>same</td><td>i32 wraps, f32 rounds</td></tr>
+      <tr><td><code>max</code></td><td>i32 or f32</td><td>same</td><td>NaN if either is NaN; <code>max(-0.0, 0.0) = +0.0</code></td></tr>
+      <tr><td><code>div</code>, <code>mod</code></td><td>i32</td><td>i32</td><td>truncate toward zero, mod takes the dividend's sign, by 0 is a runtime error, and <code>INT_MIN / -1 = INT_MIN</code></td></tr>
+      <tr><td><code>shl</code></td><td>i32</td><td>i32</td><td>wraps, and a shift outside 0..31 is a runtime error</td></tr>
+      <tr><td><code>xor</code></td><td>i32 or bool</td><td>same</td><td>bitwise / logical</td></tr>
+      <tr><td><code>cmplt</code></td><td>i32 or f32</td><td>bool</td><td>any NaN gives false</td></tr>
+      <tr><td><code>where c a b</code></td><td>bool, then same</td><td>a's</td><td>strict: both branches evaluated</td></tr>
+      <tr><td><code>cast a dtype=D</code></td><td>any</td><td>D</td><td>f32→i32 truncates, and NaN, inf, or out of range is a runtime error</td></tr>
+      <tr><td><code>recip</code></td><td>f32</td><td>f32</td><td><code>recip 0.0 = inf</code>, <code>recip -0.0 = -inf</code></td></tr>
+      <tr><td><code>assert a b</code></td><td>same</td><td>void</td><td>f32 by value: <code>0.0 == -0.0</code>, NaN equals NaN</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>exit</th><th>stderr must contain</th><th>when</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td>anything</td><td>every assert passed</td></tr>
+      <tr><td>1</td><td>exactly one line <code>assert failed: %name</code></td><td>the first failing assert, in file order</td></tr>
+      <tr><td>2</td><td>a line starting <code>invalid:</code></td><td>parse or type error anywhere, or a runtime error in a value an assert needs</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>simplify rule</th><th>i32</th><th>f32</th></tr></thead>
+    <tbody>
+      <tr><td><code>x + 0 → x</code></td><td>yes</td><td>no (<code>-0.0 + 0.0 = +0.0</code>), but <code>x + -0.0 → x</code> is fine</td></tr>
+      <tr><td><code>x * 1 → x</code></td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>x * 0 → 0</code></td><td>yes</td><td>no (<code>nan * 0.0 = nan</code>)</td></tr>
+      <tr><td><code>(x + c1) + c2 → x + (c1 + c2)</code></td><td>yes (a ring)</td><td>no (rounding)</td></tr>
+      <tr><td><code>(x * c) / c → x</code></td><td>only when bounds prove no wrap</td><td>no</td></tr>
+    </tbody>
+  </table></div>
+  <pre><code>python tools/test.py --compiler PATH/TO/main.exe --week 1        # grade
+python tools/test.py --compiler PATH/TO/main.exe -k call -v      # one topic, details
+python _reference/uirc.py run FILE                               # what should this do?</code></pre>
+
+  <h2>Mistakes people make</h2>
+  <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week1.html">week 1 test guide</a> lists every test with the bugs known to fail it.</p>
+  <ol>
+    <li><strong>Using OCaml's native int for i32.</strong> It's 63 bits, so <code>2147483647 + 1</code> never wraps. Caught by <code>i32_wrap_add</code> and <code>i32_wrap_mul</code>.</li>
+    <li><strong>Dividing like Python.</strong> Floor division gives <code>-7 / 2 = -4</code>, but the spec says <code>-3</code>. Caught by <code>i32_div_trunc</code> and <code>i32_mod_sign</code>.</li>
+    <li><strong>Doing f32 math in doubles without rounding.</strong> Every op must round to f32, including the literals. Caught by <code>f32_tenths</code>, <code>f32_rounding_step</code> and <code>f32_literals</code>.</li>
+    <li><strong>Evaluating without memoization.</strong> A tree walk of a shared DAG is exponential. Caught by <code>dag_sharing_300</code> (it times out).</li>
+    <li><strong>One global cache across calls.</strong> The same body called with 3 and with 4 then returns the same thing twice. Caught by <code>call_memo_per_call</code>.</li>
+    <li><strong>Substituting into a nested call's body.</strong> Bodies are closed. Caught by <code>call_closed_body</code> and the simplify test <code>trap_nested_call</code>.</li>
+    <li><strong>Type checking lazily.</strong> A bad line no assert uses still makes the program invalid. Caught by <code>err_type_static</code> and <code>err_call_missing_arg_unused</code>.</li>
+    <li><strong>Checking asserts out of order, or stopping at the wrong error.</strong> Caught by <code>fail_first_in_order</code>, <code>fail_before_error</code> and <code>error_before_fail</code>.</li>
+    <li><strong>Simplifying f32 like i32.</strong> <code>x * 0.0 → 0.0</code> and <code>x + 0.0 → x</code> are wrong. Caught by <code>trap_mul_zero_f32</code> and <code>trap_add_zero_f32</code>.</li>
+    <li><strong>Letting an uncaught OCaml exception be your exit 2.</strong> <code>Fatal error: exception Division_by_zero</code> exits 2 but has no <code>invalid:</code> line, so every invalid test fails. Catch your exceptions and print a diagnosis.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order, and don't move on until the check passes. Each check is a tiny program: save it, run it through your compiler and through the oracle (<code>python _reference/uirc.py run FILE</code>), and compare exit codes.</p>
+  <ol>
+    <li><strong>Parse and print.</strong> Done when you can print every statement back in .uir form. Check: <code>%a = add 2 3</code> / <code>%t = assert %a 5</code> should exit 0. If a later test reports a parse error, look at literals first: <code>1.</code>, <code>.5</code> and <code>1E5</code> are floats, <code>+1</code> and <code>0x10</code> are not.</li>
+    <li><strong>The hash-consed UOp.</strong> Done when building the same node twice gives back the identical node. Check: the suite's <code>dag_sharing_300</code> runs in milliseconds. If it hangs, your table key uses whole child nodes instead of child ids.</li>
+    <li><strong>Types.</strong> Done when every type error is reported before anything runs. Check: <code>%a = add 1 1.0</code> / <code>%t = assert 1 1</code> must exit 2 with an <code>invalid:</code> line, even though no assert uses <code>%a</code>.</li>
+    <li><strong>Interpreter.</strong> Done when asserts pass and fail correctly. Check: <code>%a = div -7 2</code> / <code>%t = assert %a -3</code> / <code>%b = mod -7 2</code> / <code>%u = assert %b -1</code> exits 0. If it exits 1, your division floors.</li>
+    <li><strong>call and param.</strong> Done when bodies are closed and values are cached per call. Check: <code>%p0 = param 0 dtype=i32</code>, <code>%p1 = param 1 dtype=i32</code>, <code>%inner = add %p0 100</code>, <code>%outer = call %inner %p1</code>, <code>%r = call %outer 1 2</code>, <code>%t = assert %r 102</code> exits 0. If you get 101, substitution went into the nested body.</li>
+    <li><strong>The rewrite engine.</strong> Done when <code>simplify</code> folds constants. Check: <code>%x = param 0 dtype=i32</code>, <code>%k = mul 3 4</code>, <code>%out = add %k %x</code> should print a program whose <code>%out</code> is <code>add</code> of the param and 12, one op.</li>
+    <li><strong>Symbolic rules and bounds.</strong> Done when <code>cmplt (mod (max %x 0) 10) 10</code> simplifies to <code>true</code> but <code>cmplt (mod (max %x 0) 10) 9</code> does not (written as separate statements). If the second also folds, your comparison is off by one.</li>
+  </ol>
+  <div class="trap"><span class="label">When a test fails and none of this fits</span>
+    <p>Rerun it alone with <code>-k NAME -v</code>, copy the test file, delete lines until it still fails, and compare with the oracle on the smallest version. The <a href="debugging.html">debugging guide</a> walks through it.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-fill="-1073741824">
+    <p class="q">What does <code>%a = shl 3 30</code> give in .uir (i32)?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">3 · 2<sup>30</sup> = 3,221,225,472, which is more than INT_MAX. Subtract 2<sup>32</sup>.</p>
+    <div class="why"><code>3221225472 - 4294967296 = -1073741824</code>. shl wraps like add and mul.</div>
+  </div>
+  <div class="quiz" data-fill="3">
+    <p class="q">What does <code>%a = cast 2.9999999 dtype=i32</code> give?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">The literal is rounded to f32 before the cast. How close to 3 can an f32 get?</p>
+    <div class="why">Near 3, f32 values are about 0.00000024 apart, so 2.9999999 rounds to exactly 3.0, and truncating 3.0 gives 3. A cast of a value that really is below 3 would give 2.</div>
+  </div>
+  <div class="quiz" data-fill="1">
+    <p class="q">What does <code>%a = mod 2147483647 -2</code> give?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">In C-style mod, the sign of the result follows the left operand.</p>
+    <div class="why">INT_MAX is odd and positive, so the remainder is 1. The divisor's sign doesn't matter.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">This program has an unused division by zero and a failing assert. What does <code>run</code> exit with?</p>
+    <pre><code>%a = div 1 0
+%t = assert 1 2</code></pre>
+    <div class="opts"><button data-k="a">0</button><button data-k="b">1</button><button data-k="c">2</button></div>
+    <p class="hint">Runtime errors only matter in values an assert depends on.</p>
+    <div class="why">No assert uses <code>%a</code>, so the division never runs. The assert fails, so the exit is 1.</div>
+  </div>
+  <div class="quiz" data-fill="11">
+    <p class="q">What does <code>%r</code> evaluate to?</p>
+    <pre><code>%p0    = param 0 dtype=i32
+%inner = add %p0 1
+%outer = call %inner 10
+%r     = call %outer 5</code></pre>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">What does <code>%outer</code>'s body depend on? Does it use any param of its own?</p>
+    <div class="why"><code>%outer</code>'s body is <code>call %inner 10</code>, which is 11 and uses no param of <code>%outer</code>. The 5 is an extra argument and is ignored.</div>
+  </div>
+  <div class="quiz" data-fill="4">
+    <p class="q">With hash consing, how many distinct nodes does this program build, counting the constants? (Ignore the asserts. There are none.)</p>
+    <pre><code>%a = add 1 2
+%b = add 1 2
+%c = mul %a %b
+%d = mul %b %a</code></pre>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Which statements are the same node? Once <code>%a</code> and <code>%b</code> are one node, what are <code>%c</code> and <code>%d</code>?</p>
+    <div class="why">The constants 1 and 2 (two nodes), one <code>add</code>, and one <code>mul</code> of that add with itself: <code>%c</code> and <code>%d</code> are the same node. Four in total.</div>
+  </div>
+  <div class="quiz" data-answer="a">
+    <p class="q">Which simplification is <strong>wrong</strong> for an f32 <code>%x</code>?</p>
+    <div class="opts"><button data-k="a"><code>add %x 0.0 → %x</code></button><button data-k="b"><code>mul %x 1.0 → %x</code></button><button data-k="c"><code>add %x -0.0 → %x</code></button><button data-k="d"><code>max %x %x → %x</code></button></div>
+    <p class="hint">Try each with <code>x = -0.0</code>, and remember the grader compares f32 bit for bit.</p>
+    <div class="why"><code>-0.0 + 0.0 = +0.0</code>, so the result changes sign. Adding <code>-0.0</code> keeps every value's bits, including <code>-0.0</code>.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">Can bounds analysis simplify <code>cmplt (mod (max %x 0) 10) 9</code>?</p>
+    <div class="opts"><button data-k="a">Yes, to <code>true</code></button><button data-k="b">No: the value can be 9</button><button data-k="c">Yes, to <code>false</code></button></div>
+    <p class="hint">What interval does <code>mod (max %x 0) 10</code> have?</p>
+    <div class="why">The interval is [0, 9]. Values 0 to 8 are less than 9 and 9 is not, so the comparison depends on <code>%x</code>. Against 10 it would fold to <code>true</code>.</div>
+  </div>
+  <p>More practice: the <a href="review.html?week=1">week 1 quiz review</a>.</p>
+
+  <h2>Go deeper</h2>
+  <ul>
+    <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a> and its <a href="https://docs.tinygrad.org/">documentation</a>. The UOp, rewrite rules and symbolic simplification here follow tinygrad's design, and reading its pattern matcher shows the production version.</li>
+    <li><a href="https://gist.github.com/geohot/4768597d9dc536446ee2d5de1f29e89d">The 10-411 technical syllabus</a>. The source this course is built from.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Hash_consing">Hash consing</a>. The idea, its history, and where else it's used.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Interval_arithmetic">Interval arithmetic</a>. The math behind bounds analysis, including why it's always safe but sometimes loose.</li>
+    <li><a href="https://floating-point-gui.de/">The Floating-Point Guide</a>, then <a href="https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html">What Every Computer Scientist Should Know About Floating-Point Arithmetic</a> (Goldberg). Short first, thorough second: why f32 rewrites are so restricted.</li>
+    <li><a href="https://craftinginterpreters.com/">Crafting Interpreters</a>. A free book on parsing and tree-walking interpreters, a gentle companion to lessons 1.2 and 1.3.</li>
+  </ul>
+  <h3>Challenges</h3>
+  <ol>
+    <li><strong>Tighter mod bounds.</strong> The oracle widens <code>mod x c</code> to <code>[-(c-1), c-1]</code> when x can be negative. Find a program where a tighter rule would let <code>simplify</code> remove one more op, and check your rule never changes a value by running both versions through the oracle with a few params.</li>
+    <li><strong>A rule the oracle doesn't have.</strong> Find a valid i32 identity the reference simplifier misses (for example something with <code>xor</code> or <code>max</code>). Write it as a <code>simplify</code> test with a smaller <code>max_ops</code> and check that <code>python tools/test.py --check-tests</code> rejects it, which proves the oracle doesn't reach it yet.</li>
+    <li><strong>Break the grader.</strong> Write a wrong simplification that you think the grader's edge-case inputs won't catch. If you find one, you've found a hole in the course: the cross product covers every edge value in every slot, so think about values that aren't edges.</li>
+  </ol>
+</main>
+</body>
+</html>

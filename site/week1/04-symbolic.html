@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Symbolic Simplification</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  svg.nl { display: block; width: 100%; max-width: 40rem; height: auto; font-family: var(--mono); margin-top: var(--s4); }
+  svg.nl .axis { stroke: var(--line-2); stroke-width: 1.5; }
+  svg.nl .tick { stroke: var(--line-2); }
+  svg.nl text { fill: var(--ink-3); font-size: 0.875rem; }
+  svg.nl .seg { stroke: var(--accent); stroke-width: 6; stroke-linecap: round; }
+  svg.nl .arrow { fill: var(--accent); }
+  svg.nl .mark { stroke: var(--bad); stroke-width: 2; }
+  svg.nl text.lab { fill: var(--ink); font-weight: 600; }
+  td.ok { color: var(--good); font-family: var(--mono); } td.no { color: var(--bad); font-family: var(--mono); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 1 · Lesson 4</p>
+<h1>Symbolic simplification</h1>
+<p class="lede">Constant folding needs every input to be known. Symbolic simplification works on values you <em>don't</em> know yet, like a <code>param</code>. It uses algebra and ranges to prove things like "this compare is always true".</p>
+
+<div class="prose">
+<h2>Unknowns</h2>
+<p>Inside a function body, <code>param 0</code> (the input in slot 0, see lesson 1.2's params box) could be any i32. You can't fold <code>add %x 0</code> by computing it, but you can still prove it equals <code>%x</code> <em>for every possible x</em>. That's what makes a rule <strong>symbolic</strong>: it holds for all inputs, so it doesn't need the input.</p>
+<p>The <code>simplify</code> subcommand (your compiler's second command, after <code>run</code> from lesson 1.2: it reads a file defining <code>%out</code> and prints a smaller equivalent program) is graded exactly this way. Your output has to compute the same value as the original for every input where the original doesn't error. The grader checks that on every edge value in every param slot (a few hundred cases), including nasty ones like <code>INT_MIN</code>, <code>-0.0</code> and <code>nan</code>, and it compares f32 results bit for bit, so <code>-0.0</code> and <code>0.0</code> count as different there (all NaNs count as equal). Each test also has a <code>max_ops</code> budget, so leaving the graph untouched won't pass either.</p>
+
+<h2>i32 is a ring. f32 is not.</h2>
+<p>i32 arithmetic is arithmetic <strong>mod 2<sup>32</sup></strong>. Wraparound sounds messy, but it makes i32 a <em>ring</em>: addition and multiplication are associative and commutative, and multiplication distributes over addition, exactly like the integers you learned in school. Every identity built only from <code>+</code> and <code>×</code> holds, even when the values overflow.</p>
+<p>f32 has none of that. Every op rounds, and the special values <code>inf</code>, <code>-inf</code>, <code>nan</code> and <code>-0.0</code> break identities you'd expect to hold.</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>rule</th><th>i32</th><th>f32</th><th>why</th></tr></thead>
+<tbody>
+<tr><td><code>mul(x, 1) → x</code></td><td class="ok">valid</td><td class="ok">valid</td><td>Multiplying by one is exact, even for <code>nan</code>, <code>inf</code> and <code>-0.0</code>.</td></tr>
+<tr><td><code>mul(x, 0) → 0</code></td><td class="ok">valid</td><td class="no">wrong</td><td><code>nan × 0 = nan</code> and <code>inf × 0 = nan</code>.</td></tr>
+<tr><td><code>add(x, 0) → x</code></td><td class="ok">valid</td><td class="no">wrong</td><td><code>-0.0 + 0.0 = +0.0</code>, so x changes from <code>-0.0</code> to <code>+0.0</code>. <code>recip</code> can tell them apart (<code>-inf</code> vs <code>inf</code>), and so can the simplify grader, which compares f32 bit for bit. <code>add(x, -0.0) → x</code> <em>is</em> valid: adding <code>-0.0</code> changes nothing.</td></tr>
+<tr><td><code>add(add(x, c1), c2) → add(x, c1 + c2)</code></td><td class="ok">valid</td><td class="no">wrong</td><td>i32 addition is associative mod 2<sup>32</sup>. f32 rounds after each add, so regrouping changes the result.</td></tr>
+<tr><td><code>xor(x, x) → 0</code></td><td class="ok">valid</td><td class="muted">n/a</td><td>xor only takes i32 and bool.</td></tr>
+<tr><td><code>cmplt(x, x) → false</code></td><td class="ok">valid</td><td class="ok">valid</td><td>Nothing is less than itself, and <code>nan</code> compares false anyway.</td></tr>
+<tr><td><code>where(c, a, a) → a</code></td><td class="ok">valid</td><td class="ok">valid</td><td>Both branches are the same node.</td></tr>
+<tr><td><code>div(mul(x, c), c) → x</code></td><td class="no">only with bounds</td><td class="muted">n/a</td><td><code>mul</code> can wrap, and <code>div</code> can't undo a wrap: <code>(2<sup>30</sup> × 2) / 2</code> is <code>INT_MIN / 2</code>, not <code>2<sup>30</sup></code>. Safe when bounds prove the product fits, and always safe for <code>c = 1</code> or <code>c = -1</code>. See the trap below.</td></tr>
+</tbody></table></div>
+
+<div class="trap">
+<span class="label">f32 identities</span>
+<p>When a rule "obviously" holds, try it on <code>nan</code>, <code>inf</code>, <code>-inf</code> and <code>-0.0</code> before you trust it on f32. If you're not sure, don't add the rule. A missing rule costs you some ops. A wrong rule costs you correctness.</p>
+</div>
+
+<div class="exercise small" data-ex="w1-04-hand-simplify">
+<h3>Simplify by hand</h3>
+<p>You are the rewrite engine. The starter computes <code>((3 + x) + x * 0) + 5</code> in four ops. Rewrite <code>%out</code> so it computes the same i32 value for <strong>every</strong> x, using at most <strong>one</strong> op.</p>
+<p class="muted">Which rules from the table did you just apply? Is the answer still right when <code>x = INT_MAX</code>?</p>
+</div>
+
+<div class="exercise small" data-ex="w1-04-f32-zero">
+<h3>The f32 zero trap</h3>
+<p>Same job, now on f32: <code>%out = (x * 1.0) * 0.0</code>. Use at most one op. The tests feed in <code>nan</code>, <code>inf</code>, <code>-inf</code> and negative numbers, and the oracle prints <code>-0.0</code> as <code>-0.0</code>.</p>
+</div>
+
+<div class="prose">
+<h2>Bounds: what range can this value be in?</h2>
+<p>Some facts don't follow from algebra alone. <code>cmplt (mod %k 8) 8</code> is always true, but only because you know a remainder by 8 is at most 7. That calls for <strong>bounds analysis</strong> (also called interval analysis): give every i32 node a range <code>[lo, hi]</code> that its value is guaranteed to stay inside. Ranges are worked out sources first, just like rewriting. Below, <code>a.lo</code> and <code>a.hi</code> are the two ends of operand a's range:</p>
+<ul>
+<li><code>const c</code> is <code>[c, c]</code>. A <code>param</code> is the full range <code>[INT_MIN, INT_MAX]</code>.</li>
+<li><code>add</code>: <code>[a.lo + b.lo, a.hi + b.hi]</code>, but <strong>only if neither end overflows</strong>. If one could wrap, fall back to the full range.</li>
+<li><code>max</code>: <code>[max(a.lo, b.lo), max(a.hi, b.hi)]</code>.</li>
+<li><code>mod x c</code> with c &gt; 0: <code>[0, c-1]</code> if x ≥ 0, otherwise <code>[-(c-1), c-1]</code>, because the sign follows x.</li>
+<li><code>cast</code> from bool: <code>[0, 1]</code>.</li>
+</ul>
+<p>Ranges are <strong>conservative</strong>. Reporting a range that's too wide is always safe, because it just proves fewer things. Reporting one that's too narrow is a bug.</p>
+</div>
+
+<div class="split">
+<pre><code>%x   = param 0 dtype=i32
+%m   = max %x 0
+%k   = mod %m 8
+%out = cmplt %k 8</code></pre>
+<div class="fig" id="bounds" data-title="bounds flow from sources to results"></div>
+</div>
+
+<div class="prose">
+<h3>Rules powered by bounds</h3>
+<pre><code>cmplt(a, b) → true      if a.hi &lt; b.lo
+cmplt(a, b) → false     if a.lo ≥ b.hi
+max(a, b)   → a         if a.lo ≥ b.hi
+mod(x, c)   → x         if 0 ≤ x.lo and x.hi &lt; c
+div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
+<p>These rules matter for real. When week 3 adds loops, every index carries a range, and these rules are how bounds checks and index math disappear.</p>
+</div>
+
+<div class="trap">
+<span class="label">(x * 2) / 2 is not x</span>
+<p>It's tempting to cancel the 2s. In i32, <code>mul</code> wraps and <code>div</code> doesn't undo the wrap:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>x</th><th>x * 2</th><th>(x * 2) / 2</th><th>equals x?</th></tr></thead>
+<tbody>
+<tr><td><code>3</code></td><td><code>6</code></td><td><code>3</code></td><td class="ok">yes</td></tr>
+<tr><td><code>-5</code></td><td><code>-10</code></td><td><code>-5</code></td><td class="ok">yes</td></tr>
+<tr><td><code>1073741824</code> (2<sup>30</sup>)</td><td><code>-2147483648</code> (wrapped)</td><td><code>-1073741824</code></td><td class="no">no</td></tr>
+</tbody></table></div>
+<p>So <code>div(mul(x, c), c) → x</code> is only valid when bounds prove <code>mul(x, c)</code> can't wrap. With <code>%x = cast %b dtype=i32</code> (range [0, 1]) it's safe, and the oracle simplifies <code>(x * 2) / 2</code> down to the cast. With a raw param it must stay. The grader's edge-case inputs include 2<sup>30</sup> precisely to catch this.</p>
+</div>
+
+<h2>Code it</h2>
+<div class="exercise" data-ex="w1-04-ranges">
+<h3>Interval arithmetic for i32</h3>
+<p>Bounds analysis needs two operations on ranges. Write <code>add_range a b</code> and <code>mul_range a b</code>: the tightest <code>{ lo; hi }</code> that contains every <code>x + y</code> (or <code>x * y</code>) with <code>x</code> in <code>a</code> and <code>y</code> in <code>b</code>.</p>
+<p>The catch is wraparound. If any value in the result could fall outside the i32 range, the real i32 operation might wrap, so you know nothing: return <code>full</code>.</p>
+<ul>
+<li>Do the math in OCaml's 63-bit <code>int</code>, then check against <code>int_min</code> and <code>int_max</code>.</li>
+<li>For <code>mul</code>, the smallest and largest products can come from any pair of ends: <code>[-3, 2] * [-5, 4]</code> is <code>[-12, 15]</code>.</li>
+</ul>
+<details class="toggle"><summary>Does 63 bits always hold the product?</summary>
+<p>Almost. Two i32 values multiply to at most 2<sup>62</sup>, and that one product (<code>INT_MIN * INT_MIN</code>) is one past OCaml's <code>max_int</code>, so it wraps to a negative <code>int</code>. Work out whether that breaks your answer for <code>full * full</code>. There's a test for it.</p>
+</details>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Which rule is valid for f32?</p>
+<div class="opts">
+<button data-k="a"><code>mul(x, 0) → 0</code></button>
+<button data-k="b"><code>mul(x, 1) → x</code></button>
+<button data-k="c"><code>add(add(x, 3.0), 4.0) → add(x, 7.0)</code></button>
+<button data-k="d"><code>add(x, 0.0) → x</code></button>
+</div>
+<p class="hint">Try each rule on the awkward floats: <code>nan</code>, <code>inf</code>, and <code>-0.0</code>.</p>
+<div class="why"><p>Only multiplying by one is exact for every float. <code>nan × 0</code> is nan, regrouping changes rounding, and <code>-0.0 + 0.0</code> is <code>+0.0</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="[0, 7] | [0,7] | 0 7 | 0..7 | 0-7 | 0, 7">
+<p class="q">What are the bounds of <code>%k</code>? Write them as <code>[lo, hi]</code>.</p>
+<pre><code>%x = param 0 dtype=i32
+%m = max %x 0
+%k = mod %m 8</code></pre>
+<div class="fill"><input aria-label="your answer" placeholder="[lo, hi]"><button class="btn">check</button></div>
+<p class="hint">First find the range of <code>%m</code>. Can <code>max %x 0</code> ever be negative?</p>
+<p class="hint"><code>mod</code> by a positive constant on a value that is never negative lands in <code>[0, divisor - 1]</code>.</p>
+<div class="why"><p><code>%m</code> is <code>[0, INT_MAX]</code>, which is never negative, so <code>mod 8</code> gives <code>[0, 7]</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="true">
+<p class="q">Now drop the <code>max</code>. What does <code>%out</code> simplify to? (x is any i32.)</p>
+<pre><code>%x   = param 0 dtype=i32
+%k   = mod %x 8
+%out = cmplt %k 8</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
+<p class="hint">Without the <code>max</code>, x can be negative, and the sign of <code>mod</code> follows x. Which end of the range moved, and does that end matter for <code>&lt; 8</code>?</p>
+<div class="why"><p>Still <code>true</code>. A negative x makes the range <code>[-7, 7]</code>, but the top is still 7, and 7 &lt; 8. Only the low end changed.</p></div>
+</div>
+
+<div class="quiz" data-fill="-1073741824">
+<p class="q">Predict <code>%out</code> for <code>%x = 1073741824</code>.</p>
+<pre><code>%m   = mul %x 2
+%out = div %m 2</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
+<p class="hint">Work out <code>1073741824 * 2</code> first. Does 2<sup>31</sup> fit in i32?</p>
+<p class="hint">When a product passes <code>INT_MAX</code>, it wraps to a negative number. Then divide that by 2, truncating toward zero.</p>
+<div class="why"><p>2<sup>31</sup> doesn't fit in i32, so it wraps to <code>-2147483648</code>. Halving that gives <code>-1073741824</code>, not x.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Why is <code>add(add(x, 3), 4) → add(x, 7)</code> valid in i32, even when <code>x + 3</code> overflows?</p>
+<div class="opts">
+<button data-k="a">Overflow is undefined behavior, so anything goes</button>
+<button data-k="b">It isn't valid. It needs bounds.</button>
+<button data-k="c">Wraparound addition is still associative: everything is exact mod 2<sup>32</sup></button>
+<button data-k="d">The interpreter checks for overflow</button>
+</div>
+<p class="hint">Think about what kind of arithmetic i32 wraparound is. Does regrouping change anything when everything is computed mod 2<sup>32</sup>?</p>
+<div class="why"><p>i32 is the ring of integers mod 2<sup>32</sup>. In a ring, grouping doesn't matter. Overflow here is defined wrapping, not undefined behavior like in C.</p></div>
+</div>
+
+<div class="quiz" data-fill="1">
+<p class="q">After simplifying, what's the fewest ops <code>%out</code> can use?</p>
+<pre><code>%x   = param 0 dtype=i32
+%a   = add %x 3
+%out = add %a 4</code></pre>
+<div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Fold the two constants into one. How many adds are left, and would it vanish if the constants summed to 0?</p>
+<div class="why"><p>One: <code>add %x 7</code>. (With <code>-3</code> instead of <code>4</code>, it would be zero ops, since <code>add %x 0</code> becomes <code>%x</code>.)</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Here <code>%x = cast %b dtype=i32</code> with <code>%b</code> a bool param. Can <code>div(mul(%x, 2), 2)</code> simplify to <code>%x</code>?</p>
+<div class="opts">
+<button data-k="a">Yes. x is in [0, 1], so x × 2 is in [0, 2] and can't wrap.</button>
+<button data-k="b">No. That rule is never valid in i32.</button>
+<button data-k="c">No. Casts block every rewrite.</button>
+<button data-k="d">Only if b is true</button>
+</div>
+<p class="hint">A bool cast to i32 is always 0 or 1. What range does <code>%x * 2</code> have, and can that wrap?</p>
+<div class="why"><p>The rule is valid whenever bounds prove the multiply doesn't wrap. The oracle reduces this to a single <code>cast</code>.</p></div>
+</div>
+
+<nav class="pager">
+<a href="03-rewrites-and-folding.html">← Lesson 3: Rewrites and folding</a>
+<a href="05-call-and-param.html">Lesson 5: call and param →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  // number line from -10..10 with ends standing for INT_MIN / INT_MAX
+  function line(lo, hi, label) {
+    const X = v => 40 + (Math.max(-10, Math.min(10, v)) + 10) * 22, svg = h('svg', { class: 'nl', viewBox: '0 0 520 70', role: 'img', 'aria-label': label });
+    svg.append(h('line', { class: 'axis', x1: 20, y1: 30, x2: 500, y2: 30 }));
+    for (let v = -8; v <= 8; v += 4) svg.append(h('line', { class: 'tick', x1: X(v), y1: 24, x2: X(v), y2: 36 }), h('text', { x: X(v), y: 56, 'text-anchor': 'middle', text: v }));
+    svg.append(h('text', { x: 20, y: 56, text: 'MIN' }), h('text', { x: 500, y: 56, 'text-anchor': 'end', text: 'MAX' }));
+    if (lo == null) return svg;
+    const a = lo < -10 ? 22 : X(lo), b = hi > 10 ? 498 : X(hi);
+    svg.append(h('line', { class: 'seg', x1: a, y1: 30, x2: b, y2: 30 }));
+    if (lo < -10) svg.append(h('polygon', { class: 'arrow', points: '10,30 24,22 24,38' }));
+    if (hi > 10) svg.append(h('polygon', { class: 'arrow', points: '510,30 496,22 496,38' }));
+    svg.append(h('text', { class: 'lab', x: (a + b) / 2, y: 14, 'text-anchor': 'middle', text: label }));
+    return svg;
+  }
+  const N = (id, op, src = [], cls = '', sub) => ({ id, op, src, cls, sub });
+  const MIN = -2147483648, MAX = 2147483647;
+  const steps = [
+    { caption: 'No ranges known yet. We\'ll work sources first, like the rewriter.', line: [null, null, ''],
+      nodes: [N('x', 'param'), N('z', '0'), N('m', 'max', ['x', 'z']), N('e', '8'), N('k', 'mod', ['m', 'e']), N('out', 'cmplt', ['k', 'e'], '', '%out')] },
+    { caption: '<code>%x</code> is a param, so it could be anything: the full range.', line: [MIN, MAX, '%x ∈ [MIN, MAX]'],
+      nodes: [N('x', 'param', [], 'hit', '[MIN, MAX]'), N('z', '0', [], '', '[0, 0]'), N('m', 'max', ['x', 'z']), N('e', '8', [], '', '[8, 8]'), N('k', 'mod', ['m', 'e']), N('out', 'cmplt', ['k', 'e'], '', '%out')] },
+    { caption: '<code>max</code> with 0 cuts off everything below zero: <code>[max(MIN, 0), max(MAX, 0)]</code> = <code>[0, MAX]</code>.', line: [0, MAX, '%m ∈ [0, MAX]'],
+      nodes: [N('x', 'param', [], '', '[MIN, MAX]'), N('z', '0', [], '', '[0, 0]'), N('m', 'max', ['x', 'z'], 'hit', '[0, MAX]'), N('e', '8', [], '', '[8, 8]'), N('k', 'mod', ['m', 'e']), N('out', 'cmplt', ['k', 'e'], '', '%out')] },
+    { caption: '<code>mod 8</code> of a value that\'s never negative lands in <code>[0, 7]</code>.', line: [0, 7, '%k ∈ [0, 7]'],
+      nodes: [N('x', 'param', [], '', '[MIN, MAX]'), N('z', '0', [], '', '[0, 0]'), N('m', 'max', ['x', 'z'], '', '[0, MAX]'), N('e', '8', [], '', '[8, 8]'), N('k', 'mod', ['m', 'e'], 'hit', '[0, 7]'), N('out', 'cmplt', ['k', 'e'], '', '%out')] },
+    { caption: '<code>cmplt %k 8</code>: <code>k.hi = 7 &lt; 8 = b.lo</code>. Every possible k is less than 8, so the rule <code>cmplt(a, b) → true if a.hi &lt; b.lo</code> fires.', line: [0, 7, '%k ∈ [0, 7], always < 8'],
+      nodes: [N('x', 'param', [], '', '[MIN, MAX]'), N('z', '0'), N('m', 'max', ['x', 'z'], '', '[0, MAX]'), N('e', '8', [], 'hit', '[8, 8]'), N('k', 'mod', ['m', 'e'], 'hit', '[0, 7]'), N('out', 'cmplt', ['k', 'e'], 'hit', '%out')] },
+    { caption: 'The whole graph became <code>%out = const true</code>: 0 ops. The param, max and mod are unused now.', line: [null, null, ''],
+      nodes: [N('x', 'param', [], 'dead'), N('z', '0', [], 'dead'), N('m', 'max', ['x', 'z'], 'dead'), N('e', '8', [], 'dead'), N('k', 'mod', ['m', 'e'], 'dead'), N('t', 'true', [], 'new', '%out')] },
+  ];
+  CC.stepper(document.getElementById('bounds'), steps, (s, body) => body.append(CC.graph(s.nodes), line(...s.line)));
+});
+</script>
+</body>
+</html>

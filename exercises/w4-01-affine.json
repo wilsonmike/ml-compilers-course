@@ -1,0 +1,130 @@
+{
+ "id": "w4-01-affine",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "An affine map, elementwise",
+ "starter": "%x  = buffer 5 dtype=f32 slot=0\n%ab = buffer 2 dtype=f32 slot=1\n%y  = buffer 5 dtype=f32 slot=2\n# y[i] = a * x[i] + b, where a = ab[0] and b = ab[1]\n%av = shrink %ab 0 shape=[]\n%a  = load %av\n%v  = load %x\n%ea = expand %a shape=[5]\n%m  = mul %v %ea\n%s  = store %y %m\n%y1 = after %y %s\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0
+    ],
+    "1": [
+     2.0,
+     1.0
+    ]
+   },
+   "expect": "[3.0 5.0 7.0 9.0 11.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     -1.0,
+     0.5,
+     10.0,
+     -3.0
+    ],
+    "1": [
+     -1.0,
+     0.5
+    ]
+   },
+   "expect": "[0.5 1.5 0.0 -9.5 3.5]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0
+    ],
+    "1": [
+     0.0,
+     7.0
+    ]
+   },
+   "expect": "[7.0 7.0 7.0 7.0 7.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.1,
+     0.2,
+     0.3,
+     0.4,
+     0.5
+    ],
+    "1": [
+     3.0,
+     0.1
+    ]
+   },
+   "expect": "[0.4000000059604645 0.7000000476837158 1.0 1.3000000715255737 1.600000023841858]"
+  },
+  {
+   "data": {
+    "0": [
+     "inf",
+     "-inf",
+     "nan",
+     1.0,
+     -0.0
+    ],
+    "1": [
+     2.0,
+     0.0
+    ]
+   },
+   "expect": "[inf -inf nan 2.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1e+30,
+     -1e+30,
+     3e+38,
+     1.0,
+     2.0
+    ],
+    "1": [
+     10.0,
+     0.0
+    ]
+   },
+   "expect": "[9.999999848243207e+30 -9.999999848243207e+30 inf 10.0 20.0]"
+  },
+  {
+   "data": {
+    "0": [
+     -0.0,
+     -0.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "1": [
+     1.0,
+     -0.0
+    ]
+   },
+   "expect": "[-0.0 -0.0 1.0 1.0 1.0]"
+  }
+ ],
+ "hints": [
+  "The starter computes `a * x` and forgets `b`. You need `b` as a vector too.",
+  "Load `b` from `ab[1]` with a scalar view, then `expand` it to shape `[5]`, exactly like `a`.",
+  "Elementwise ops need equal shapes: `add` the product and the expanded `b`, then store that vector into `y`."
+ ],
+ "explain": "Both scalars become vectors with `expand`, because ALU ops never broadcast implicitly. The product and the sum are elementwise on shape `(5,)`, rounded to f32 after each op, so `0.1 * 3.0 + 0.1` rounds twice, the same way C's `a * x + b` does with `-ffp-contract=off`."
+}

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 4 Lab</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
+  .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
+  .build > li::before { content: counter(st, decimal-leading-zero); position: absolute; left: var(--s5); top: var(--s4); font: 500 0.875rem/1.7 var(--mono); color: var(--ink-3); }
+  .build h3 { margin: 0 0 var(--s2); }
+  .build p { margin: 0 0 var(--s2); }
+  .build .check { font-size: 0.9375rem; color: var(--ink-3); margin: 0; }
+  .checklist { list-style: none; padding: 0; margin: var(--s4) 0; max-width: var(--col); }
+  .checklist li { border-bottom: 1px solid var(--line); }
+  .checklist label { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) 0; cursor: pointer; }
+  .checklist input { margin-top: 5px; width: 1rem; height: 1rem; accent-color: var(--accent); flex: none; }
+  .checklist input:checked + span { color: var(--ink-3); text-decoration: line-through; }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 4 · Lesson 6</p>
+<h1>The week 4 lab</h1>
+<p class="lede">Teach your compiler to take whole-vector programs and turn them into loops itself: rank-1 ALU, <code>reduce</code>, <code>expand</code> and <code>stage</code> in the type checker and interpreter, and a rangeify pass in front of your week 3 renderer. You're done when every week 4 test passes, weeks 1 to 3 still pass, and you've written 10 new tests of your own.</p>
+
+<div class="prose">
+<h2>What you're building</h2>
+<ul>
+<li><strong>Shapes on ALU ops.</strong> Every ALU op accepts operands of one shared shape, <code>()</code> or <code>(n,)</code>, and works elementwise. Mismatched shapes are a type error: there is no implicit broadcast. See <a href="../../spec/uir-week4.md">spec/uir-week4.md</a>.</li>
+<li><strong>Three new ops.</strong> <code>expand x shape=[n]</code> broadcasts a scalar, <code>reduce x op=add|mul|max</code> folds a vector left to right from its first element, and <code>stage x</code> is the same value, materialized.</li>
+<li><strong>Vectors in <code>run</code>.</strong> Your interpreter can evaluate rank-1 values directly as arrays. Only the fold order of <code>reduce</code> needs care.</li>
+<li><strong>Rangeify in <code>render</code>.</strong> Lower every rank-1 value to scalars at an index, turning each rank-1 store and each reduce into a loop, and each stage into a filled temp. What comes out is a week 3 program, and your week 3 renderer prints it.</li>
+<li><strong>Small C.</strong> Rendered C must stay under 20,000 bytes, whatever the vector length.</li>
+</ul>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">A dot product is a whole-vector program in two ops.</p>
+<div class="exercise small" data-ex="w4-06-dot">
+<h3>Warm-up: a dot product</h3>
+<p>Slots 0 and 1 are <code>a</code> and <code>b</code> (4 f32 each). Write their dot product, the left fold of <code>a[i] * b[i]</code>, into the one-element buffer in slot 2. No hand-written <code>range</code>.</p>
+</div>
+
+<div class="prose">
+<h2>The command-line contract</h2>
+<p>Nothing new on the command line. What changes is which programs the commands accept and what <code>render</code> may print.</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>week 4 changes</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe run FILE</code></td><td>Programs may use rank-1 ALU, <code>expand</code>, <code>reduce</code> and <code>stage</code>. A shape mismatch, an <code>expand</code> that grows an axis that isn't size 1, a <code>reduce</code> of a scalar or with a missing or unknown <code>op</code>, or a rank-1 value that depends on an open range from a hand-written loop is a static error: exit 2 with an <code>invalid:</code> line.</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>The C must be at most 20,000 bytes. It may use <code>for</code> loops when the program contains a <code>range</code>, a <code>reduce</code>, an <code>expand</code>, a <code>stage</code>, an elementwise op on a rank-1 value, or any rank-1 value with more than 32 elements (so a plain 4096-element copy may loop too). Otherwise it stays loopless, as in week 2.</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>How render tests are graded</h2>
+<p>For each <code># render</code> test the grader:</p>
+<ol>
+<li>runs <code>your.exe render FILE</code> and fails the test on a nonzero exit;</li>
+<li>fails the test if your output is over 20,000 bytes (counted as UTF-8);</li>
+<li>parses the program with the oracle to decide whether loops are allowed (the rule in the table above), strips comments and string literals from your C, and fails the test if it finds <code>while</code>, <code>do</code> or <code>goto</code>, or <code>for</code> when loops aren't allowed;</li>
+<li>writes its own <code>main</code>, compiles both files with <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code>;</li>
+<li>runs it and compares every element of every buffer with the oracle: i32 and bool exactly, f32 bit for bit, any NaN matching any NaN.</li>
+</ol>
+<p>The bit-for-bit comparison is what makes the fold order matter. A reduce that folds right to left turns <code>1e8, 1, -1e8, 1</code> into 0 instead of 1, and one that starts from <code>0.0f</code> turns a lone <code>-0.0</code> into <code>+0.0</code>. Either way the bits differ and the test fails.</p>
+
+<h2>Running the suite</h2>
+<p>From the course repo root, and keep every earlier week green:</p>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 4
+python tools/test.py --compiler "C:/path/to/your.exe" --week 4 -k render -v   # the render tests, with details
+python tools/test.py --compiler "C:/path/to/your.exe" --week 3
+python tools/test.py --compiler "C:/path/to/your.exe" --week 2
+python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
+<p>Pass the built executable, not <code>dune exec</code>. Tests live in <code>tests/week4/run/</code> and <code>tests/week4/render/</code>.</p>
+
+<h2>Write your 10 tests</h2>
+<p>Ten tests in <code>path/to/your-repo/tests/week4/</code>, each aimed at a rule someone will get wrong. Check them against the oracle:</p>
+<pre><code>python tools/test.py --check-tests path/to/your-repo/tests/week4</code></pre>
+<p>Good targets: a reduce whose bits depend on the fold order, a one-element reduce, and <code>reduce op=max</code> over a vector containing NaN. Also try an <code>add</code> of a vector and a scalar without <code>expand</code> (invalid), and a value used by a reduce and a store, once with <code>stage</code> and once without (same answer). Finish with a render test with a vector long enough that unrolling breaks the size limit.</p>
+</div>
+
+<h2>A build order that works</h2>
+<ol class="build">
+<li><h3>Shapes on ALU ops</h3><p>Change the ALU type rule from "every operand is a scalar" to "every operand has the same shape". The result has that shape.</p><p class="check">Checkpoint: the shape-mismatch tests exit 2, and every week 1 test still passes.</p></li>
+<li><h3>Parse and type expand, reduce, stage</h3><p><code>expand</code> needs a scalar and <code>shape=[n]</code> (week 5 widens it to grow size-1 axes). <code>reduce</code> needs a vector and <code>op=</code>, and <code>stage</code> keeps its operand's type. Rank-1 values may not depend on an open range.</p><p class="check">Checkpoint: every file in <code>tests/week4/run/</code> parses or is rejected with exit 2.</p></li>
+<li><h3>Vectors in run</h3><p>Evaluate rank-1 values as arrays: elementwise ops per element, <code>expand</code> as n copies, <code>stage</code> as the identity, and <code>reduce</code> as a left fold seeded with element 0, rounding after every step.</p><p class="check">Checkpoint: every week 4 run test passes.</p></li>
+<li><h3>The element at an index</h3><p>Write the lowering as two mutually recursive functions: one that rebuilds scalars and effects, and one that answers "your element at index i" for a vector. Memoize both, so a value asked twice at the same index is built once.</p><p class="check">Checkpoint: print the lowered graph for <code>store %y (mul %v (expand 2.0))</code> and find no rank-1 nodes in it.</p></li>
+<li><h3>Stores and reduces become loops</h3><p>A rank-1 store becomes <code>range n</code>, a scalar store at the index, and <code>end</code>. A reduce becomes a seeded one-element accumulator and a loop over <code>1..n-1</code>, exactly week 3's pattern.</p><p class="check">Checkpoint: the small render tests pass bit for bit.</p></li>
+<li><h3>Stage becomes a temp</h3><p>A staged vector gets its own <code>alloc</code>, filled once in its own loop. Its element at an index is a load from that temp.</p><p class="check">Checkpoint: staged and unstaged versions of the same program leave identical bits.</p></li>
+<li><h3>Check the size</h3><p>Render the 4096-element tests and measure them. If the output grows with n, something reached the printer without being rangeified.</p><p class="check">Checkpoint: every render test passes, and your largest kernel is around a kilobyte, whatever n is.</p></li>
+<li><h3>Your 10 tests</h3><p>Write them, check them with <code>--check-tests</code>, and use them to break your compiler before the suite does.</p></li>
+</ol>
+
+<h2>Checklist</h2>
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="shapes"><span>ALU ops work elementwise on one shared shape, with no implicit broadcast</span></label></li>
+<li><label><input type="checkbox" data-k="ops"><span><code>expand</code>, <code>reduce</code> and <code>stage</code> parse and type check</span></label></li>
+<li><label><input type="checkbox" data-k="run"><span><code>run</code> evaluates vectors, and reduce folds left to right from element 0</span></label></li>
+<li><label><input type="checkbox" data-k="lower"><span>Rangeify answers "your element at index i" for every vector op</span></label></li>
+<li><label><input type="checkbox" data-k="loops"><span>Rank-1 stores and reduces become loops, and scalars stay between them</span></label></li>
+<li><label><input type="checkbox" data-k="stage"><span><code>stage</code> fills a temp once, and gives the same bits as recomputing</span></label></li>
+<li><label><input type="checkbox" data-k="size"><span>Rendered C stays under 20,000 bytes on the 4096-element tests</span></label></li>
+<li><label><input type="checkbox" data-k="suite4"><span><code>python tools/test.py --compiler ... --week 4</code> passes everything</span></label></li>
+<li><label><input type="checkbox" data-k="suite123"><span>Weeks 1 to 3 still pass everything</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 week 4 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+
+<div class="key">
+<span class="label">The AI policy, still</span>
+<p>Your repo's <code>CLAUDE.md</code> hasn't changed: Claude may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. That includes your rangeify pass. "Why does my staged program give different bits from the unstaged one?" is a fine question. "Write my element-at-index function" is not.</p>
+<p>The oracle in <code>_reference/</code> stays closed. Running <code>python _reference/uirc.py render FILE</code> on your own test to see the loops it produces is fine.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your renderer passes every small week 4 render test but fails the 4096-element ones with a size error. What's the likely cause?</p>
+<div class="opts">
+<button data-k="a">The fold order of your reduce</button>
+<button data-k="b">A missing <code>stage</code></button>
+<button data-k="c">Some rank-1 value is still printed element by element instead of becoming a loop</button>
+<button data-k="d">The grader's size limit counts the harness too</button>
+</div>
+<p class="hint">Which kind of code grows with n?</p>
+<div class="why"><p>Only unrolled code grows with the vector length. Fold order would show up as wrong bits, and <code>stage</code> never changes correctness or size limits.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">May the rendered C for this program contain a <code>for</code> loop?</p>
+<pre><code>%x = buffer 4 dtype=f32 slot=0
+%y = buffer 4 dtype=f32 slot=1
+%v = load %x
+%t = mul %v %v
+%s = store %y %t
+%y1 = after %y %s</code></pre>
+<div class="opts">
+<button data-k="a">No: there is no <code>range</code></button>
+<button data-k="b">Yes: it has an elementwise op on a rank-1 value</button>
+<button data-k="c">Only if the vector is longer than 16</button>
+<button data-k="d">Only if the program uses <code>stage</code></button>
+</div>
+<p class="hint">Read the loop rule in the contract table.</p>
+<div class="why"><p><code>mul %v %v</code> is an ALU op on a <code>(4,)</code> value, which is enough for the grader to allow <code>for</code> loops. The size threshold in the rule is 32 elements, not 16, and it applies to any rank-1 value even without an ALU op.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">What exit code should <code>run</code> give?</p>
+<pre><code>%x = buffer 4 dtype=f32 slot=0
+%v = load %x
+%w = add %v 1.0
+%s = reduce %w op=add
+%t = assert %s 4.0</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">What shapes does the <code>add</code> see?</p>
+<div class="why"><p>2. <code>%v</code> is <code>(4,)</code> and <code>1.0</code> is a scalar, and there is no implicit broadcast, so the <code>add</code> is a type error. It needs <code>expand 1.0 shape=[4]</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">Your staged and unstaged versions of the same program give different bits. Where is the bug?</p>
+<div class="opts">
+<button data-k="a">Nowhere: staging is allowed to round differently</button>
+<button data-k="b">In the grader</button>
+<button data-k="c">In the C compiler's handling of temp arrays</button>
+<button data-k="d">In your compiler: stage must never change the result, so something in your lowering differs between the two</button>
+</div>
+<p class="hint">Lesson 4.4: what can stage change?</p>
+<div class="why"><p>Stage changes work and memory traffic, never the result. Different bits mean your two lowerings compute different things, often a reduce that folds the temp in a different order than the recomputed value.</p></div>
+</div>
+
+<nav class="pager">
+<a href="05-rendering-vectors.html">← Lesson 5: Rendering vectors</a>
+<a href="../index.html">Back to the course →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // per-viewer convenience only: remember ticked boxes; works without storage
+  const KEY = 'cc-week4-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

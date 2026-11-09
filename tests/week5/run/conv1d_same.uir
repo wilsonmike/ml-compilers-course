@@ -1,0 +1,18 @@
+# expect: pass
+# same-size conv1d: pad, a stack of shifted shrinks, multiply by the broadcast kernel, reduce over taps
+%v0 = buffer 7 dtype=f32 slot=0 data=[3.103524684906006 0.3647382855415344 -3.8835158348083496 2.2270612716674805 -0.5781477093696594 0.6051343083381653 1.6654497385025024]
+%v1 = load %v0
+%v2 = buffer 3 dtype=f32 slot=1 data=[1.0578827857971191 -0.14496751129627228 3.29372239112854]
+%v3 = load %v2
+%v4 = pad %v1 pads=[1 1]
+%v5 = shrink %v4 0 shape=[7]
+%v6 = shrink %v4 1 shape=[7]
+%v7 = shrink %v4 2 shape=[7]
+%v8 = stack %v5 %v6 %v7
+%v9 = reshape %v3 shape=[3 1]
+%v10 = expand %v9 shape=[3 7]
+%v11 = mul %v8 %v10
+%v12 = reduce %v11 op=add pop=1
+%v13 = buffer 7 dtype=f32 slot=2 data=[0.7514363527297974 -9.560933113098145 8.284154891967773 -6.335413932800293 4.432926654815674 4.786191463470459 0.3987250328063965]
+%v14 = load %v13
+%v15 = assert %v12 %v14

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Load, Store, After</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .strip { display: grid; gap: var(--s2); }
+  .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+  .strip .name { font: 0.875rem var(--mono); color: var(--ink-3); min-width: 6.5rem; }
+  .strip .row.dim { opacity: .45; }
+  .vlab { font: 0.875rem var(--mono); color: var(--ink-2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 2 · Lesson 2</p>
+<h1>Load, store, after</h1>
+<p class="lede">A store changes memory, but a graph has no "now". This lesson shows how <code>.uir</code> says <em>when</em> a write happens without any statement order: every store makes a new version of the buffer, and every load names the version it reads.</p>
+
+<div class="prose">
+<h2>Stores make versions</h2>
+<p><code>store v x</code> writes the value <code>x</code> into the view <code>v</code>. Its result is <code>void</code>: a store is an event, not a value. To use the memory after the write, you name the new version with <code>after</code>:</p>
+<pre><code>%b  = buffer 4 dtype=i32 slot=0 data=[10 20 30 40]
+%e  = shrink %b 1 shape=[]
+%s  = store %e 99
+%b1 = after %b %s          # "%b, once %s has happened"</code></pre>
+<p><code>%b</code> never changes. <code>%b1</code> is the same storage with the write applied. A load of <code>%e</code> (a view of <code>%b</code>) still reads 20. To see 99 you load through a view of <code>%b1</code>. Step through a chain of two stores:</p>
+</div>
+
+<div class="fig" id="chain" data-title="a chain of versions"></div>
+
+<div class="prose">
+<p>The rule that keeps this honest: <code>after m s</code> must name the version the store writes into. <code>after %b1 %s</code> is invalid when <code>%s</code> wrote into <code>%b</code>.</p>
+<p>The <strong>outputs</strong> of a program are the final version of each buffer: the one no <code>after</code> builds on. That's what a caller sees when the kernel returns.</p>
+</div>
+
+<div class="exercise" data-ex="w2-02-swap">
+<h3>Swap two elements in place</h3>
+<p>Slot 0 is a buffer of four i32s. Swap <code>b[0]</code> and <code>b[1]</code>, and leave the other two alone. The starter does half the job.</p>
+<p class="muted">The grader sets the buffer's data for each test and checks its final contents.</p>
+</div>
+
+<div class="prose">
+<h2>What "fully ordered" means</h2>
+<p>The syllabus says loads and stores "must be fully ordered for programs to be valid". In our format that comes down to three rules:</p>
+<ol>
+<li><strong>One store per version.</strong> At most one store may write into any given version, through any of its views.</li>
+<li><strong>Every store is sequenced.</strong> Each store is the <code>s</code> of exactly one <code>after</code>. A store nothing sequences has no effect anywhere, so it's an error, not a no-op.</li>
+<li><strong>Old versions are read before they're overwritten.</strong> A load of version V has to be able to run before the store that makes V's successor.</li>
+</ol>
+<p>Rule 1 is the interesting one. Two stores into the same version have no order between them, and with two writes, order is the whole answer:</p>
+</div>
+
+<div class="fig" id="race" data-title="two stores into one version"></div>
+
+<div class="trap">
+<span class="label">A store with no after</span>
+<p>It's tempting to write <code>store</code> and move on, the way you would in C. In a graph, a store that no <code>after</code> names is unreachable from the outputs, so nothing could ever observe it. The oracle rejects it: "a store that no after sequences has no effect".</p>
+</div>
+
+<div class="prose">
+<h2>The old-version trap</h2>
+<p>Rule 3 sounds like it can never fail, because a load of V doesn't depend on the store that comes after V. It can fail, though, when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer:</p>
+<pre><code>%b  = buffer 2 dtype=i32 slot=0 data=[1 0]
+%e0 = shrink %b 0 shape=[]
+%s  = store %e0 0
+%b1 = after %b %s
+%n0 = shrink %b1 0 shape=[]
+%i  = load %n0              # reads the NEW b[0]
+%m  = max %i 0
+%k  = mod %m 2
+%v  = shrink %b %k shape=[] # ...to index the OLD %b
+%y  = load %v</code></pre>
+<p>When your compiler renders C, every version of <code>%b</code> is the same array, written in place. So the load of old <code>%b</code> must run before the store. But it needs <code>%i</code>, which needs <code>%b1</code>, which needs the store. Step through the chain of "must come before":</p>
+</div>
+
+<div class="fig" id="cycle" data-title="a cycle of must-come-before"></div>
+
+<div class="prose">
+<p>No order satisfies every arrow, so the program is invalid: "a load of an old buffer version is needed after that version was overwritten". A compiler could save a copy of the old buffer to make it work, but that's a hidden allocation, and the course's rule is that the program has to say what memory it uses.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-02-prefix">
+<h3>Running total in place</h3>
+<p>A buffer of three i32s. In place: set <code>b[1] = b[0] + b[1]</code>, then <code>b[2] = b[1] + b[2]</code> using the <em>new</em> <code>b[1]</code>. The starter has one bug about which version it reads.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="0">
+<p class="q">After this runs, what does <code>%x</code> hold?</p>
+<pre><code>%b  = buffer 2 dtype=i32 slot=0
+%e  = shrink %b 0 shape=[]
+%s1 = store %e 1
+%b1 = after %b %s1
+%x  = load %e</code></pre>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Which version is <code>%e</code> a view of?</p>
+<div class="why"><p><code>%e</code> is a view of <code>%b</code>, the version before the store, and the buffer started as zeros. To read the 1, you'd load through <code>shrink %b1 0 shape=[]</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Two stores write different elements of <code>%b</code>, and each has its own <code>after %b ...</code>. What happens?</p>
+<div class="opts">
+<button data-k="a">Both writes land, since they touch different elements.</button>
+<button data-k="b">The later statement in the file wins.</button>
+<button data-k="c">The program is invalid: two stores into one version.</button>
+<button data-k="d">Only the first store happens.</button>
+</div>
+<p class="hint">Rule 1 counts stores per version, not per element.</p>
+<div class="why"><p>The rule is one store per version, through any view. Even when the elements differ, there are now two "next versions" of <code>%b</code>, and neither builds on the other. Chain them instead: the second store goes into a view of the first store's <code>after</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A program has <code>%s = store %e 5</code> and no <code>after</code> mentions <code>%s</code>. What happens?</p>
+<div class="opts">
+<button data-k="a">The store runs, and later loads see the 5.</button>
+<button data-k="b">The program is invalid.</button>
+<button data-k="c">The store is silently dropped.</button>
+<button data-k="d">It's fine as long as no assert reads that element.</button>
+</div>
+<p class="hint">Rule 2.</p>
+<div class="why"><p>Every store must be sequenced by exactly one <code>after</code>. A store nothing sequences can't affect any version, so the oracle rejects the program rather than guess what you meant.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>%s1</code> writes into a view of <code>%b</code>. Which line is wrong?</p>
+<div class="opts">
+<button data-k="a"><code>%b2 = after %b1 %s1</code></button>
+<button data-k="b"><code>%b1 = after %b %s1</code></button>
+<button data-k="c"><code>%x = load %b1</code></button>
+<button data-k="d"><code>%y = load %b</code></button>
+</div>
+<p class="hint"><code>after m s</code> has to name the version the store wrote into.</p>
+<div class="why"><p><code>%s1</code> wrote into <code>%b</code>, so only <code>after %b %s1</code> is right. Loading either version is always allowed.</p></div>
+</div>
+
+<div class="quiz" data-fill="5 5 | [5 5] | [5, 5] | 5, 5">
+<p class="q">What are the final contents of the buffer?</p>
+<pre><code>%b  = buffer 2 dtype=i32 slot=0 data=[5 6]
+%e  = shrink %b 0 shape=[]
+%x  = load %e
+%f  = shrink %b 1 shape=[]
+%s  = store %f %x
+%b1 = after %b %s</code></pre>
+<div class="fill"><input aria-label="your answer" placeholder="e.g. 1 2"><button class="btn">Check</button></div>
+<p class="hint">Read b[0], write it into b[1]. Is anything out of order here?</p>
+<div class="why"><p>The load reads old <code>%b</code>, which is fine: it runs before the store. b[0] is 5, so b[1] becomes 5 too.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">Why is the old-version example above invalid?</p>
+<div class="opts">
+<button data-k="a">The index <code>%k</code> can't be proven in bounds.</button>
+<button data-k="b">There are two stores into <code>%b</code>.</button>
+<button data-k="c">A load can't read a version that has a successor.</button>
+<button data-k="d">The load of old <code>%b</code> must run before the store, but its index needs the store's result.</button>
+</div>
+<p class="hint"><code>%k</code> is masked with <code>max</code> and <code>mod</code>, and there's only one store. Follow the arrows in the figure.</p>
+<div class="why"><p>It's a cycle: the old load must come before the store (it reads the version the store overwrites), and it also must come after it (its index is read from the new version). Loading a version that has a successor is fine on its own, as the previous question showed.</p></div>
+</div>
+
+<nav class="pager">
+<a href="01-buffers-and-views.html">← Lesson 1: Buffers and views</a>
+<a href="03-bounds.html">Lesson 3: Proving bounds →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const row = (name, vals, mark, dim) => h('div', { class: 'row' + (dim ? ' dim' : '') }, h('span', { class: 'name', text: name }),
+    h('div', { class: 'mem' }, vals.map((v, i) => h('div', { class: 'cell' + (i === mark ? ' hit' : '') }, h('span', { class: 'addr', text: i }), String(v)))));
+
+  // ---- a chain of versions ----
+  const src = `%b  = buffer 4 dtype=i32 slot=0 data=[10 20 30 40]
+%e  = shrink %b 1 shape=[]
+%s  = store %e 99
+%b1 = after %b %s
+%f  = shrink %b1 3 shape=[]
+%s2 = store %f 7
+%b2 = after %b1 %s2`;
+  const chain = [
+    { caption: 'One buffer, one version so far: <code>%b</code>.', hl: 0, rows: [['%b', [10, 20, 30, 40], -1]] },
+    { caption: '<code>store %e 99</code> writes into element 1 of <code>%b</code>. On its own it\'s only an event.', hl: 2, rows: [['%b', [10, 20, 30, 40], 1]] },
+    { caption: '<code>after %b %s</code> names the result: <code>%b1</code>. <code>%b</code> is untouched, so anything that loads from <code>%b</code> still sees 20.', hl: 3, rows: [['%b', [10, 20, 30, 40], -1, true], ['%b1', [10, 99, 30, 40], 1]] },
+    { caption: 'The second store must go into a view of <code>%b1</code>, the latest version. A second store into <code>%b</code> would break rule 1.', hl: 5, rows: [['%b', [10, 20, 30, 40], -1, true], ['%b1', [10, 99, 30, 40], 3]] },
+    { caption: '<code>%b2</code> is the final version: nothing builds on it, so it\'s the buffer\'s output. In C, all three versions are one array, written in place.', hl: 6, rows: [['%b', [10, 20, 30, 40], -1, true], ['%b1', [10, 99, 30, 40], -1, true], ['%b2', [10, 99, 30, 7], 3]] },
+  ];
+  CC.stepper(document.getElementById('chain'), chain, (s, body) => body.append(h('div', { class: 'strip' }, CC.code(src, s.hl), ...s.rows.map(r => row(...r)))));
+
+  // ---- two stores into one version ----
+  const rsrc = `%b  = buffer 2 dtype=i32 slot=0
+%e  = shrink %b 0 shape=[]
+%s1 = store %e 1
+%s2 = store %e 2
+%b1 = after %b %s1
+%b2 = after %b %s2`;
+  const race = [
+    { caption: 'This store and the one above write the same element of the same version <code>%b</code>.', hl: 3, rows: [['%b', [0, 0], 0]] },
+    { caption: 'If <code>%s1</code> runs first, then <code>%s2</code>, the buffer ends up holding 2.', hl: 2, rows: [['s1 then s2', [2, 0], 0]] },
+    { caption: 'If <code>%s2</code> runs first, it ends up holding 1. Nothing in the graph says which. Two different answers from one program means the program has no meaning.', hl: 3, rows: [['s2 then s1', [1, 0], 0]] },
+    { caption: 'Worse, <code>%b1</code> and <code>%b2</code> both claim to be "the next version of %b", and neither is final over the other. The oracle rejects this: "two stores into the same buffer version are unordered".', hl: 5, rows: [['%b1', [1, 0], 0], ['%b2', [2, 0], 0]] },
+  ];
+  CC.stepper(document.getElementById('race'), race, (s, body) => body.append(h('div', { class: 'strip' }, CC.code(rsrc, s.hl), ...s.rows.map(r => row(...r)))));
+
+  // ---- the old-version cycle ----
+  const csrc = `%s  = store %e0 0          # overwrites %b in place
+%b1 = after %b %s
+%i  = load %n0              # n0 is a view of %b1
+%m  = max %i 0
+%k  = mod %m 2
+%v  = shrink %b %k shape=[] # a view of the OLD %b
+%y  = load %v`;
+  const cyc = [
+    { caption: '<code>%y</code> loads from <code>%b</code>, and <code>%s</code> overwrites <code>%b</code>. So <code>%y</code> must run <strong>before</strong> <code>%s</code>.', hl: 6 },
+    { caption: '<code>%y</code> needs its view <code>%v</code>, which needs the index <code>%k</code>...', hl: 5 },
+    { caption: '...which comes from <code>%i</code>, a load from <code>%b1</code>...', hl: 2 },
+    { caption: '...and <code>%b1</code> only exists once <code>%s</code> has happened. So <code>%y</code> must run <strong>after</strong> <code>%s</code>.', hl: 1 },
+    { caption: 'Before and after at once: a cycle. No order of statements in C can do both, so the program is invalid.', hl: 0 },
+  ];
+  CC.stepper(document.getElementById('cycle'), cyc, (s, body) => body.append(CC.code(csrc, s.hl)));
+});
+</script>
+</body>
+</html>

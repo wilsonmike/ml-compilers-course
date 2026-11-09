@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rendering Vectors</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .stack { display: grid; gap: var(--s4); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 4 · Lesson 5</p>
+<h1>Rendering vectors</h1>
+<p class="lede">After rangeify, your renderer is printing a week 3 program, so most of this lesson is about what the output should look like and how to check it. The short version: one loop per rank-1 store, one per reduce, scalars computed once between them, and the whole kernel around a kilobyte no matter how long the vectors are.</p>
+
+<div class="prose">
+<h2>Why unrolling fails</h2>
+<p>Week 2's renderer handled a rank-1 value by keeping it as a C array and spelling out every element: <code>{b0[0 + 0], b0[0 + 1], ...}</code>. For four elements that's fine. Week 4's render tests use vectors of 4096 floats, and the grader rejects any rendered C over <strong>20,000 bytes</strong>, before it even tries to compile it.</p>
+<p>Count it out for <code>x / sum(x)</code> on 4096 floats. The store alone, unrolled, is one line per element, about 30 bytes each: roughly 125,000 bytes, six times the limit, before the reduce or any loads. The rangeified version is about 800 bytes in total (801 with the current oracle), headers and helper included. Make the vectors a million long and it's the same size plus a few more digits in the loop bounds.</p>
+</div>
+
+<div class="fig" id="steps" data-title="x / sum(x) on 4096 floats: where each part of the C comes from"></div>
+
+<h2>The shape of the output</h2>
+<div class="prose">
+<p>Three rules cover almost every week 4 kernel:</p>
+<ul>
+<li><strong>Every rank-1 store is a loop</strong> over the vector's length. Its body computes the element at the loop index, all the way down through the elementwise ops, and stores it.</li>
+<li><strong>Every reduce is an accumulator loop</strong>: seed with the element at 0, fold in elements 1 to n-1. If two reduces read the same vector, that's two loops (lesson 4.4).</li>
+<li><strong>Scalars live between loops.</strong> The reduce's result, its reciprocal, anything computed from scalars alone, has no open range, so week 3's placement puts it in the outer block, once. In the kernel above, <code>1.0f / v23</code> runs one time, not 4096 times.</li>
+</ul>
+<p>An <code>expand</code> leaves no trace in the C at all: its element at any index is the scalar, so the store loop just uses <code>v24</code> directly.</p>
+</div>
+
+<div class="note">
+<span class="label">Hoisting comes free</span>
+<p>You don't need a separate pass to hoist the reciprocal out of the store loop. It never had the store loop's range in the first place: rangeify asked the expand for its element at <code>i</code>, and the answer was a node with no ranges at all. Placement by open ranges does the rest.</p>
+</div>
+
+<div class="exercise" data-ex="w4-05-normalize">
+<h3>The normalize loop pair</h3>
+<p>Write <code>void normalize(const float *x, float *y, int n)</code> (n ≥ 1) so that it computes exactly what the oracle's kernel computes for <code>store %y (mul %v (expand (recip (reduce %v op=add))))</code>: fold the sum left to right from <code>x[0]</code>, compute the reciprocal once as <code>1.0f / sum</code>, then multiply each element by it. Results are compared bit for bit.</p>
+</div>
+
+<h2>Check your output size</h2>
+<div class="prose">
+<p>The grader measures your <code>render</code> output in bytes, as UTF-8, and checks the limit before anything else. Measure it yourself on the big tests:</p>
+<pre><code>C:/path/to/your.exe render tests/week4/render/normalize_4096.uir | wc -c</code></pre>
+<p>(That's Git Bash, and <code>wc -c</code> counts bytes.) If the number grows when you double the vector length, something is still unrolled. The usual culprits are a rank-1 value that reaches the printer without going through rangeify, and a vector constant built element by element instead of with <code>expand</code>.</p>
+</div>
+
+<div class="trap">
+<span class="label">Small tests can't catch unrolling</span>
+<p>A renderer that unrolls passes every test with four-element vectors, and the bits come out right. Only the large render tests hit the 20,000-byte limit. Run them early, not just before you submit.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-05-fits">
+<h3>Will it fit in 20,000 bytes?</h3>
+<p>Write <code>int fits(int n, int per_elem, int fixed)</code>: 1 if <code>n * per_elem + fixed &lt;= 20000</code>, else 0. All three are non-negative ints, but the product may not fit in an int.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="a">
+<p class="q">Roughly how big is the oracle's rendered C for <code>x / sum(x)</code> on 4096 floats, headers included?</p>
+<div class="opts">
+<button data-k="a">Under 1,000 bytes</button>
+<button data-k="b">About 20,000 bytes, right at the limit</button>
+<button data-k="c">About 125,000 bytes</button>
+<button data-k="d">It depends on the data in the buffer</button>
+</div>
+<p class="hint">It's in the lesson, and it doesn't depend on 4096.</p>
+<div class="why"><p>About 800 bytes (801 with the current oracle). Two loops and a few scalar lines. The vector length only appears as the loop bounds 4095 and 4096. 125,000 bytes is what the unrolled store alone would cost.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">In that kernel, how many times does <code>1.0f / v23</code> run?</p>
+<div class="opts">
+<button data-k="a">4096 times, once per element of the store loop</button>
+<button data-k="b">Once, between the two loops</button>
+<button data-k="c">4095 times, inside the reduce loop</button>
+<button data-k="d">Zero: the C compiler folds it away</button>
+</div>
+<p class="hint">Which ranges does the reciprocal depend on?</p>
+<div class="why"><p>None. It's computed from the reduce's result, a scalar, so placement puts it in the outer block, after the reduce loop and before the store loop.</p></div>
+</div>
+
+<div class="quiz" data-fill="4096">
+<p class="q">How many iterations does that kernel's store loop run?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Unlike the reduce, the store has no seed element.</p>
+<div class="why"><p>4096: one iteration per element of <code>y</code>. The reduce loop runs 4095, because element 0 seeds the accumulator.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your renderer still unrolls rank-1 values. What does the grader report on a 4096-element render test?</p>
+<div class="opts">
+<button data-k="a">Wrong values in the buffer</button>
+<button data-k="b">A compile error from clang</button>
+<button data-k="c">That the rendered C is over the 20,000-byte limit, before compiling anything</button>
+<button data-k="d">Nothing: the test passes, just slowly</button>
+</div>
+<p class="hint">Which check runs first?</p>
+<div class="why"><p>The size check runs right after <code>render</code> exits, before the loop check and before compiling. Unrolled code may well be correct, but it's too big.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">What does an <code>expand</code> turn into in the rendered C?</p>
+<div class="opts">
+<button data-k="a">Nothing of its own: the loop body uses the scalar directly</button>
+<button data-k="b">A loop that fills a temp array with copies of the scalar</button>
+<button data-k="c">A C array initializer with n copies</button>
+<button data-k="d">A call to <code>memset</code></button>
+</div>
+<p class="hint">What is the element at <code>i</code> of a broadcast?</p>
+<div class="why"><p>Its element at any index is the scalar itself, so rangeify replaces the expand with the scalar node and nothing is materialized.</p></div>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">You double every vector in a program from 4096 to 8192 elements. How does a correctly rangeified kernel's size change?</p>
+<div class="opts">
+<button data-k="a">It doubles</button>
+<button data-k="b">It grows by about 4096 lines</button>
+<button data-k="c">It shrinks, because the loops get fewer iterations per byte</button>
+<button data-k="d">Only the digits in the loop bounds change</button>
+</div>
+<p class="hint">Where does n appear in the C?</p>
+<div class="why"><p>n appears only as loop bounds (and buffer sizes the harness owns), so the kernel stays the same length give or take a digit. That's what the size limit checks for.</p></div>
+</div>
+
+<nav class="pager">
+<a href="04-materialization.html">← Lesson 4: Fuse or materialize</a>
+<a href="06-lab.html">Lesson 6: The week 4 lab →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const N = (id, op, sub, src, cls) => ({ id, op, sub, src: src || [], cls });
+  const c = `void kernel(float *b0, float *b1) {
+  float a3[1] = {0};
+  float v7 = b0[0];
+  a3[0] = v7;
+  for (int32_t r13 = 0; r13 < 4095; r13++) {
+    float v14 = a3[0];
+    int32_t v15 = (int32_t)((uint32_t)r13 + (uint32_t)1);
+    int32_t v16 = (v15 % 4096);
+    float v18 = b0[v16];
+    float v19 = (v14 + v18);
+    a3[0] = v19;
+  }
+  float v23 = a3[0];
+  float v24 = (1.0f / v23);
+  for (int32_t r25 = 0; r25 < 4096; r25++) {
+    float v28 = b0[r25];
+    float v29 = (v28 * v24);
+    b1[r25] = v29;
+  }
+}`;
+  const g = (cls) => [N('bx', 'buffer x', 'f32 (4096,)'), N('ld', 'load', '(4096,)', ['bx']), N('rd', 'reduce', 'add', ['ld'], cls.rd),
+    N('rc', 'recip', '', ['rd'], cls.rc), N('ex', 'expand', '[4096]', ['rc'], cls.ex), N('w', 'mul', '(4096,)', ['ld', 'ex'], cls.w), N('st', 'store y', '', ['w'], cls.st)];
+  const steps = [
+    { caption: 'The reduce becomes an accumulator. First the seed: a one-element temp holding <code>x[0]</code>.', nodes: g({ rd: 'hit' }), hl: 3 },
+    { caption: 'Then the fold: a loop over <code>r = 0..4094</code> that adds <code>x[r + 1]</code>, reloading the accumulator every iteration. (The <code>% 4096</code> comes from decoding a flat counter into an index; it never changes the value here.)', nodes: g({ rd: 'hit' }), hl: 4 },
+    { caption: 'The recip depends on no range, so it runs once, between the loops.', nodes: g({ rc: 'hit' }), hl: 13 },
+    { caption: 'The expand leaves nothing behind. The store becomes a loop over 4096, and its body multiplies <code>x[r]</code> by the scalar <code>v24</code>.', nodes: g({ ex: 'dead', w: 'hit', st: 'hit' }), hl: 17 },
+  ];
+  CC.stepper(document.getElementById('steps'), steps, (s, body) => body.append(h('div', { class: 'stack' }, CC.graph(s.nodes), CC.code(c, s.hl))));
+});
+</script>
+</body>
+</html>

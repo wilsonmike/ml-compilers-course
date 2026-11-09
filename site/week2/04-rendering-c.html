@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rendering C</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 2 · Lesson 4</p>
+<h1>Rendering C</h1>
+<p class="lede">Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name, and print each one as a C statement that means exactly what the .uir op means. That last part is harder than it sounds, because C has undefined behavior and .uir doesn't.</p>
+
+<div class="prose">
+<h2>Three jobs: schedule, name, print</h2>
+<p>Your renderer gets a checked program and prints one C function, <code>void kernel(...)</code>, with one pointer parameter per <code>buffer</code> in slot order. Inside it, three things happen:</p>
+<ol>
+<li><strong>Schedule.</strong> Pick a line-by-line order. Every node comes after its sources, and every load of a buffer version comes before the store that overwrites that version.</li>
+<li><strong>Name.</strong> Each value node becomes one C variable, printed once even if ten nodes use it. Constants go inline. Memory nodes don't become variables, with one exception: an <code>alloc</code> becomes a zero-initialized local array (<code>int32_t a4[1] = {0};</code>). Otherwise a <code>buffer</code> is a parameter, a <code>shrink</code> is that pointer plus an offset, and an <code>after</code> is the same memory as before.</li>
+<li><strong>Print.</strong> Each op becomes a C expression with the same meaning: the same wraparound, the same rounding, the same answer for <code>-0.0</code> and <code>nan</code>.</li>
+</ol>
+<p>Step through a small program. It adds two elements into a third, then doubles that result into the first element. The names <code>v0</code>, <code>v1</code> are arbitrary. Any unique names work.</p>
+</div>
+
+<div class="fig bleed" id="steps" data-title="render: one node at a time"></div>
+
+<div class="prose">
+<h2>Loads before the store that overwrites them</h2>
+<p>In the graph, memory is immutable: <code>%b1 = after %b %st</code> is a new version, and <code>%b</code> still exists. In C, there's only one array, and a store changes it in place. So the moment the renderer prints <code>b0[2] = v2;</code>, version <code>%b</code> is gone. Every load of <code>%b</code> has to be printed before that line.</p>
+<p>That's the one extra edge the scheduler adds: <strong>store into version V depends on every load of V</strong>. With it, an ordinary topological sort gives a correct order. Week 2's checker already rejects the one program shape where no such order exists: a load of an old version whose offset depends on a newer version.</p>
+</div>
+
+<div class="trap">
+<span class="label">Reading the old version is legal</span>
+<p>A program may load from <code>%b</code> after <code>%b1</code> exists. That isn't a bug, it's a swap. The renderer just has to hoist that load above the store. If your scheduler emits stores as soon as their value is ready, a swap silently becomes a copy.</p>
+</div>
+
+<div class="prose">
+<h2>C is not .uir: undefined behavior</h2>
+<p>In .uir, <code>add</code> on i32 wraps around. In C, signed overflow is <strong>undefined behavior</strong>: the compiler may assume it never happens and optimize as if it can't. The grader compiles your C with <code>-fsanitize=undefined -fsanitize-trap=undefined</code>, so undefined behavior crashes the test instead of quietly working on your machine. Every i32 op needs a spelling with no undefined cases:</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>op</th><th>naive C</th><th>the problem</th><th>safe C</th></tr></thead>
+<tbody>
+<tr><td><code>add</code>, <code>mul</code></td><td><code>a + b</code></td><td>signed overflow is undefined</td><td><code>(int32_t)((uint32_t)a + (uint32_t)b)</code>. Unsigned arithmetic wraps by definition. Converting back is implementation-defined, and every compiler you'll use wraps.</td></tr>
+<tr><td><code>shl</code></td><td><code>a &lt;&lt; b</code></td><td>shifting a negative number, or into the sign bit, is undefined</td><td>shift as <code>uint32_t</code>, then convert back. .uir already guarantees <code>0 &le; b &le; 31</code>.</td></tr>
+<tr><td><code>div</code></td><td><code>a / b</code></td><td><code>INT_MIN / -1</code> overflows (it traps on x86)</td><td>handle <code>b == -1</code> separately, as a wrapping negation</td></tr>
+<tr><td><code>mod</code></td><td><code>a % b</code></td><td><code>INT_MIN % -1</code> is undefined too</td><td>when <code>b == -1</code> the answer is <code>0</code></td></tr>
+<tr><td><code>cast</code> f32 to i32</td><td><code>(int32_t)x</code></td><td>out of range or NaN is undefined</td><td>never happens in render tests: in .uir it's a runtime error, and render tests have none</td></tr>
+</tbody></table></div>
+
+<div class="exercise small" data-ex="w2-04-c-divmod">
+<h3>Division without undefined behavior</h3>
+<p>Write <code>int32_t c_div(int32_t a, int32_t b)</code> and <code>int32_t c_mod(int32_t a, int32_t b)</code> with .uir's semantics: truncate toward zero, remainder takes the dividend's sign, <code>INT_MIN / -1 = INT_MIN</code> and <code>INT_MIN mod -1 = 0</code>. <code>b</code> is never 0. No undefined behavior.</p>
+<p class="muted">If you try the naive version first: on Windows, <code>INT_MIN / -1</code> can hang the test until the runner times it out, rather than crashing straight away.</p>
+</div>
+
+<div class="prose">
+<h2>Floats: the same rounding, every time</h2>
+<p>f32 is easier, because C's <code>float</code> on x86-64 and ARM64 already rounds to binary32 after every operation, exactly like .uir. One compiler habit can break that: <strong>contraction</strong>. Given <code>a * b + c</code>, the compiler may emit one fused multiply-add instruction that rounds once instead of twice. That's usually more accurate, and it's still the wrong answer for us:</p>
+<pre><code>a = 0x1.001p+0f, b = 0x1.001p+0f, c = -0x1.002p+0f
+two roundings: (a * b) rounds to 0x1.002p+0, plus c gives 0
+one rounding:  fmaf(a, b, c) gives 0x1p-24</code></pre>
+<p><code>-ffp-contract=off</code> forbids that fusion, so the C rounds after every op like the oracle does. The grader passes it for you. If you build your own runtime, pass it too: clang contracts within an expression by default on targets with fused multiply-add, which includes every Apple Silicon Mac.</p>
+
+<h3>Literals that mean exactly one float</h3>
+<p>A constant in your graph is an exact f32. Printing it in decimal invites trouble: <code>printf("%g", FLT_MAX)</code> prints <code>3.40282e+38</code>, and C reads that back as a different float. <code>%.9g</code> is enough digits for any f32, but there's a cleaner way: a <strong>hex float</strong> writes the bits directly. <code>0.1f</code> is <code>0x1.99999ap-4f</code>, a mantissa in hex and a power of two. Trailing zeros are fine (<code>0x1.99999a0000000p-4f</code> is the same number).</p>
+<p>Three values have no literal: use <code>NAN</code>, <code>INFINITY</code> and <code>(-INFINITY)</code> from <code>&lt;math.h&gt;</code>. Negative zero needs its sign: <code>-0x0p+0f</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-04-f32-literal">
+<h3>An f32 as an exact C literal</h3>
+<p>Write <code>c_float : float -&gt; string</code>. The input is already an f32 value. Return <code>NAN</code> for any NaN, <code>INFINITY</code>, <code>(-INFINITY)</code>, and otherwise what <code>Printf.sprintf "%h"</code> prints, followed by <code>f</code>.</p>
+</div>
+
+<div class="prose">
+<h3>max is not fmaxf</h3>
+<p>C has <code>fmaxf</code>, and it's the wrong function. <code>fmaxf(NAN, 1.0f)</code> returns <code>1.0f</code>: C's rule is "ignore a NaN". .uir's <code>max</code> returns NaN if either side is NaN, and returns <code>+0.0</code> for <code>max(-0.0, 0.0)</code> in either order. So write a small helper function in the C you print, test it against those cases, and call it for every f32 <code>max</code>. That's allowed: the C may call <code>&lt;math.h&gt;</code> and non-recursive helpers defined in the same file, and nothing else.</p>
+</div>
+
+<div class="prose">
+<h2>Naming, and printing each node once</h2>
+<p>Your graph is hash consed, so a value used five times is one node. Print it once, as one variable, and refer to the name everywhere else. Keep a table from node to name, keyed on node identity. Without it, the 300-level doubling DAG from week 1 prints 2<sup>300</sup> lines. With it, 300.</p>
+</div>
+
+<h2>Code it</h2>
+<div class="exercise" data-ex="w2-04-emit">
+<h3>Emit straight-line C</h3>
+<p>A toy expression type stands in for your graph: <code>type e = Lit of int | Var of string | Add of e * e | Mul of e * e</code>. Write <code>emit : e -&gt; string list * string</code>, returning the C lines and the expression for the result.</p>
+<ul>
+<li><code>Lit n</code> prints inline as <code>n</code>, except <code>-2147483648</code>, which prints as <code>(-2147483647 - 1)</code>. <code>Var s</code> prints inline as <code>s</code>.</li>
+<li><code>Add (a, b)</code> and <code>Mul (a, b)</code>: emit <code>a</code>, then <code>b</code>, then one line <code>int32_t vK = (int32_t)((uint32_t)A + (uint32_t)B);</code> (<code>*</code> for <code>Mul</code>), where <code>K</code> is the number of lines emitted before it. The result is <code>vK</code>.</li>
+<li>A node that is physically the same (<code>==</code>) as one you've already emitted reuses its name and adds no line.</li>
+</ul>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">The graph loads <code>b0[2]</code> from version <code>%b</code>, and separately stores into <code>b0[2]</code> to make <code>%b1</code>. Which C order is correct?</p>
+<div class="opts">
+<button data-k="a">The store first, because the load's value isn't needed until later</button>
+<button data-k="b">The load first, because after the store, the old value of <code>b0[2]</code> no longer exists</button>
+<button data-k="c">Either order, since the graph says which version each one uses</button>
+</div>
+<p class="hint">The graph has two versions. The C array has only one. What's in <code>b0[2]</code> right after the store runs?</p>
+<div class="why"><p>The load. C stores in place, so once <code>b0[2] = ...</code> runs, version <code>%b</code>'s value is overwritten. That's why the scheduler makes every store depend on all loads of the version it overwrites.</p></div>
+</div>
+
+<div class="quiz" data-fill="-2147483648">
+<p class="q">What does this C expression evaluate to, on every compiler you'll use?</p>
+<pre><code>(int32_t)((uint32_t)INT32_MAX + 1u)</code></pre>
+<div class="fill"><input aria-label="value" inputmode="numeric"><button class="btn">Check</button></div>
+<p class="hint">Unsigned addition wraps modulo 2<sup>32</sup>. What bit pattern is 2<sup>31</sup>, and what is it as a signed 32-bit number?</p>
+<div class="why"><p><code>-2147483648</code>. The unsigned sum is 2<sup>31</sup>, bit pattern <code>0x80000000</code>, which converts back to <code>INT_MIN</code>. That's .uir's i32 wraparound, spelled without undefined behavior.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">What does the C standard say <code>INT_MIN / -1</code> evaluates to?</p>
+<div class="opts">
+<button data-k="a"><code>INT_MIN</code>, by wraparound</button>
+<button data-k="b"><code>INT_MAX</code>, by saturation</button>
+<button data-k="c">Nothing: it's undefined behavior</button>
+<button data-k="d"><code>0</code></button>
+</div>
+<p class="hint">The true quotient is 2<sup>31</sup>. Does that fit in a signed 32-bit int, and what does C say about signed results that don't fit?</p>
+<div class="why"><p>Undefined behavior. The quotient doesn't fit, and C doesn't define the result. On x86 it raises a hardware exception. .uir defines it as <code>INT_MIN</code>, so your renderer must handle <code>b == -1</code> without dividing.</p></div>
+</div>
+
+<div class="quiz" data-fill="3.40282e+38 | 3.40282e38">
+<p class="q">What does <code>printf("%g", FLT_MAX)</code> print?</p>
+<div class="fill"><input aria-label="output"><button class="btn">Check</button></div>
+<p class="hint"><code>%g</code> uses 6 significant digits by default. FLT_MAX is about 3.4028234663852886 &times; 10<sup>38</sup>.</p>
+<div class="why"><p><code>3.40282e+38</code>, and C reads that back as a slightly smaller float (bits <code>0x7f7fffee</code>, not <code>0x7f7fffff</code>). Short decimal output loses bits, which is why the renderer prints hex floats.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Why can't the renderer print every f32 <code>max</code> as <code>fmaxf(a, b)</code>?</p>
+<div class="opts">
+<button data-k="a"><code>fmaxf(NAN, 1.0f)</code> is <code>1.0f</code>, but .uir's <code>max nan 1.0</code> is <code>nan</code></button>
+<button data-k="b"><code>fmaxf</code> isn't in <code>&lt;math.h&gt;</code></button>
+<button data-k="c"><code>fmaxf</code> rounds to double precision</button>
+</div>
+<p class="hint">Look up what C's <code>fmax</code> family does when one argument is NaN, and compare it with the spec's row for <code>max</code>.</p>
+<div class="why"><p>C's <code>fmaxf</code> ignores a NaN argument and returns the other one. .uir propagates NaN, and pins <code>max(-0.0, 0.0)</code> to <code>+0.0</code>, which <code>fmaxf</code> doesn't promise. A small helper gets both right.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">What does <code>-ffp-contract=off</code> prevent?</p>
+<div class="opts">
+<button data-k="a">Constant folding of float expressions</button>
+<button data-k="b">Promotion of <code>float</code> to <code>double</code></button>
+<button data-k="c">Fusing <code>a * b + c</code> into one instruction that rounds once instead of twice</button>
+<button data-k="d">Reordering stores to memory</button>
+</div>
+<p class="hint">"Contract" here means combining two operations into one. Which two float ops have a combined hardware instruction?</p>
+<div class="why"><p>Contraction into a fused multiply-add. It skips the rounding after the multiply, so the result can differ from .uir's round-after-every-op semantics (0 versus <code>0x1p-24</code> in the example above).</p></div>
+</div>
+
+<div class="quiz" data-fill="0 | zero | none">
+<p class="q">How many lines of C does an <code>after</code> node produce?</p>
+<div class="fill"><input aria-label="number of lines" inputmode="numeric"><button class="btn">Check</button></div>
+<p class="hint">An <code>after</code> is a new version of the same storage. In C, where does that storage live, and did anything need to be copied?</p>
+<div class="why"><p><code>0</code>. The store already changed the array in place. <code>after</code> only tells the scheduler and later loads which version they're reading. In C it's the same pointer.</p></div>
+</div>
+
+<nav class="pager">
+<a href="03-bounds.html">← Lesson 3: Proving bounds</a>
+<a href="05-the-runtime.html">Lesson 5: The runtime →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const N = (id, op, src = [], cls = '', sub) => ({ id, op, src, cls, sub });
+  // the program: b[2] = b[0] + b[1]; then b[0] = b[2] * 2, reading the new version
+  const graph = hit => {
+    const c = id => (hit.includes(id) ? 'hit' : '');
+    return [
+      N('b', 'buffer', [], c('b'), 'slot 0'),
+      N('e0', 'shrink', ['b'], c('e0'), 'off 0'), N('e1', 'shrink', ['b'], c('e1'), 'off 1'), N('e2', 'shrink', ['b'], c('e2'), 'off 2'),
+      N('x', 'load', ['e0'], c('x')), N('y', 'load', ['e1'], c('y')), N('s', 'add', ['x', 'y'], c('s')),
+      N('st', 'store', ['e2', 's'], c('st')), N('b1', 'after', ['b', 'st'], c('b1'), '%b1'),
+      N('g2', 'shrink', ['b1'], c('g2'), 'off 2'), N('g0', 'shrink', ['b1'], c('g0'), 'off 0'),
+      N('z', 'load', ['g2'], c('z')), N('k2', '2', [], c('k2')), N('w', 'mul', ['z', 'k2'], c('w')),
+      N('s2', 'store', ['g0', 'w'], c('s2')), N('b2', 'after', ['b1', 's2'], c('b2'), '%b2'),
+    ];
+  };
+  const L = [
+    'void kernel(int32_t *b0) {',
+    '  int32_t v0 = b0[0];',
+    '  int32_t v1 = b0[1];',
+    '  int32_t v2 = (int32_t)((uint32_t)v0 + (uint32_t)v1);',
+    '  b0[2] = v2;',
+    '  int32_t v3 = b0[2];',
+    '  int32_t v4 = (int32_t)((uint32_t)v3 * (uint32_t)2);',
+    '  b0[0] = v4;',
+    '}',
+  ];
+  const code = (n, closed = true) => ({ text: L.slice(0, n).join('\n') + (closed && n < 9 && n > 0 ? '\n}' : ''), hl: n - 1 });
+  const steps = [
+    { caption: 'A checked program. Memory nodes (<code>buffer</code>, <code>shrink</code>, <code>after</code>) sit beside value nodes. Nothing is printed yet.', hit: [], c: { text: '// nothing printed yet', hl: -1 } },
+    { caption: 'The <code>buffer</code> with slot 0 becomes the parameter <code>b0</code>. It\'s the only memory the kernel sees.', hit: ['b'], c: code(1) },
+    { caption: 'A load through <code>shrink %b 0</code>: the view is just pointer <code>b0</code> plus offset 0. The value gets a name, <code>v0</code>.', hit: ['e0', 'x'], c: code(2) },
+    { caption: 'The second load, at offset 1. Both read version <code>%b</code>.', hit: ['e1', 'y'], c: code(3) },
+    { caption: 'The <code>add</code>, wrapped through <code>uint32_t</code> so overflow is defined C.', hit: ['s'], c: code(4) },
+    { caption: 'The store overwrites <code>b0[2]</code> in place, which destroys version <code>%b</code>. It\'s allowed here only because every load of <code>%b</code> has already been printed.', hit: ['st', 'e2'], c: code(5) },
+    { caption: '<code>after</code> prints nothing. <code>%b1</code> is the same array as <code>%b</code>, one store later.', hit: ['b1'], c: code(5) },
+    { caption: 'A load from <code>%b1</code>: same pointer, and now <code>b0[2]</code> holds the sum.', hit: ['g2', 'z'], c: code(6) },
+    { caption: 'The constant <code>2</code> goes inline. Constants never need their own line.', hit: ['w', 'k2'], c: code(7) },
+    { caption: 'The last store, into <code>%b1</code> at offset 0. The only load of <code>%b1</code> (<code>v3</code>) is already printed, so this store can go now.', hit: ['s2', 'g0'], c: code(8) },
+    { caption: 'Done. <code>%b2</code> is the final version of slot 0, and the caller sees it in <code>b0</code> when <code>kernel</code> returns.', hit: ['b2'], c: code(9, false) },
+  ];
+  CC.stepper(document.getElementById('steps'), steps, (s, body) => {
+    body.classList.add('split');
+    body.append(CC.code(s.c.text, s.c.hl), CC.graph(graph(s.hit)));
+  });
+});
+</script>
+</body>
+</html>

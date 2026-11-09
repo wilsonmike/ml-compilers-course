@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proving Bounds</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  svg.nl { display: block; width: 100%; max-width: 40rem; height: auto; font-family: var(--mono); margin-top: var(--s4); }
+  svg.nl .axis { stroke: var(--line-2); stroke-width: 1.5; }
+  svg.nl .tick { stroke: var(--line-2); }
+  svg.nl text { fill: var(--ink-3); font-size: 0.875rem; }
+  svg.nl text.lab { fill: var(--ink); font-weight: 600; }
+  svg.nl .allowed { stroke: var(--good); stroke-width: 3; }
+  svg.nl .seg { stroke: var(--accent); stroke-width: 7; stroke-linecap: round; }
+  svg.nl .seg.bad { stroke: var(--bad); }
+  svg.nl .arrow { fill: var(--accent); } svg.nl .arrow.bad { fill: var(--bad); }
+  .verdict-line { font: 0.9375rem var(--sans); margin-top: var(--s3); }
+  .verdict-line .ok { color: var(--good); font-weight: 600; } .verdict-line .no { color: var(--bad); font-weight: 600; }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 2 · Lesson 3</p>
+<h1>Proving bounds</h1>
+<p class="lede">The syllabus says loads and stores are "bounds checked to never be out of range". Our compiler doesn't check at run time. It proves, before anything runs, that every view is inside its memory, using the interval analysis you built for symbolic simplification in lesson 1.4.</p>
+
+<div class="prose">
+<h2>The rule</h2>
+<p>For <code>shrink m off shape=[k]</code>, where the parent <code>m</code> has n elements (k counts as 1 for <code>shape=[]</code>), work out the interval <code>[lo, hi]</code> of <code>off</code>, then require:</p>
+<pre><code>lo ≥ 0     and     hi + k ≤ n</code></pre>
+<p>The first says the window can't start before the parent. The second says that even at its largest offset, the window still ends inside. The allowed offsets are exactly <code>[0, n - k]</code>, and the whole interval of <code>off</code> has to sit inside that range.</p>
+<p>With a constant offset the interval is a single point, so this is the plain check from the last lesson. It gets interesting when the offset is computed.</p>
+
+<h2>Loaded values are unknown</h2>
+<p>A value loaded from memory could be anything, because memory comes from outside. Its interval is the full i32 range. So this gather, which reads an index from one buffer and uses it on another, is invalid, even if the data happens to hold a small number:</p>
+<pre><code>%i0  = shrink %ix 0 shape=[]
+%i   = load %i0                 # interval: [INT_MIN, INT_MAX]
+%src = shrink %d %i shape=[]    # can't prove 0 ≤ %i ≤ 3</code></pre>
+<p>To make it valid you shape the interval with ops whose bounds you can compute, the rules from lesson 1.4 (plus one it didn't cover: a <code>where</code>'s interval is the union of its two branches). We write nested forms like <code>mod (max %i 0) 4</code> as shorthand, but in a <code>.uir</code> file each op is its own statement. Step through: the green line is the allowed range <code>[0, n - k]</code>, and the thick line is the offset's interval.</p>
+</div>
+
+<div class="fig" id="nl" data-title="shaping an index until it provably fits"></div>
+
+<div class="trap">
+<span class="label">A guard is not a proof</span>
+<p>In C you'd write <code>if (i &lt; 4) x = d[i];</code>. The <code>.uir</code> equivalent, <code>where (cmplt %i 4) %i 0</code>, doesn't help: the bounds of a <code>where</code> are the union of both branches, so the interval is still everything <code>%i</code> could be. The analysis doesn't look at the condition. The oracle rejects <code>where (cmplt %i 4) (max %i 0) 0</code> with an offset interval of <code>[0, 2147483647]</code>.</p>
+</div>
+
+<div class="exercise" data-ex="w2-03-gather">
+<h3>A gather the compiler can prove</h3>
+<p>Slot 0 is four i32s of data, slot 1 holds one index, and slot 2 is a one-element result. Set <code>res[0] = d[i]</code> for the index <code>i</code> in <code>ix[0]</code>: a negative <code>i</code> reads <code>d[0]</code>, and any other <code>i</code> reads <code>d[i mod 4]</code>. The starter is the natural first try, and the compiler rejects it.</p>
+</div>
+
+<div class="prose">
+<h2>Offsets add up, and so do intervals</h2>
+<p>A view of a view is checked against its own parent. An offset built from arithmetic is checked with the interval rules for that arithmetic: <code>add</code> adds the endpoints when nothing can wrap. With an 8-element buffer:</p>
+<pre><code>%m = max %i 0
+%k = mod %m 4         # [0, 3]
+%o = add %k 4         # [4, 7]: fits shape=[] on 8 elements
+%p = add %k 5         # [5, 8]: 8 + 1 > 8, invalid</code></pre>
+<p>You can also cut the window first and index inside it: <code>shrink %b 4 shape=[4]</code>, then <code>shrink</code> that by <code>%k</code>. The inner view only has to fit the four-element window, and <code>[0, 3]</code> does.</p>
+</div>
+
+<div class="note">
+<span class="label">Looser is safe, tighter must be right</span>
+<p>Your analysis doesn't have to find the tightest interval. A looser interval only means you reject some programs that were actually fine. A <em>wrong</em> interval, one that leaves out a value the offset can really take, means your compiler accepts a program that reads outside its memory. When in doubt, widen to the full range.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-03-mod-bounds">
+<h3>Bounds of x mod m</h3>
+<p>Write <code>mod_bounds (lo, hi) m</code> in OCaml for <code>m &gt; 0</code>, with C's rule that the result has the sign of <code>x</code>. A non-negative <code>x</code> gives a result in <code>[0, min (m-1) x]</code>, and a negative one gives <code>[max (-(m-1)) x, 0]</code>. Use only these two facts, and return the smallest interval they allow for every <code>x</code> in <code>[lo, hi]</code>. So <code>mod_bounds (5, 5) 4</code> is <code>(0, 3)</code>, not <code>(1, 1)</code>: the facts only say a non-negative <code>x</code> lands in <code>[0, min 3 5]</code>.</p>
+<p class="muted">The course's oracle uses the looser <code>[-(m-1), m-1]</code> whenever x can be negative. Both are correct.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="c">
+<p class="q">What's the interval of <code>%i = load %e</code>, where <code>%e</code> is a view of a buffer whose data is <code>[3 1 2 0]</code>?</p>
+<div class="opts">
+<button data-k="a"><code>[0, 3]</code>, the smallest and largest values in the data</button>
+<button data-k="b"><code>[3, 3]</code>, if <code>%e</code> is element 0</button>
+<button data-k="c"><code>[INT_MIN, INT_MAX]</code></button>
+<button data-k="d">It has no interval, so any view using it is fine</button>
+</div>
+<p class="hint">Is the data part of the program, or does it come from outside?</p>
+<div class="why"><p>Memory is input: the same kernel runs on whatever data the caller passes. The <code>data=[...]</code> in a test file is just one possible input, so a loaded value gets the full i32 range.</p></div>
+</div>
+
+<div class="quiz" data-fill="[-3, 3] | [-3,3] | -3 3 | -3..3 | -3, 3">
+<p class="q">What's the interval of <code>mod %i 4</code> when <code>%i</code> is a loaded value? Write it as <code>[lo, hi]</code>.</p>
+<div class="fill"><input aria-label="your answer" placeholder="[lo, hi]"><button class="btn">Check</button></div>
+<p class="hint">In C (and in <code>.uir</code>), the sign of <code>mod</code> follows the left operand.</p>
+<div class="why"><p><code>%i</code> can be negative, and then <code>%i mod 4</code> is in <code>[-3, 0]</code>. Together with the non-negative side that's <code>[-3, 3]</code>, which still can't be an offset.</p></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">On a buffer of 4 elements, what's the largest <code>m</code> for which <code>shrink %b (mod (max %i 0) m) shape=[2]</code> can be proven in bounds?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The allowed offsets are <code>[0, n - k]</code>. What's <code>n - k</code> here?</p>
+<p class="hint"><code>mod (max %i 0) m</code> is <code>[0, m - 1]</code>.</p>
+<div class="why"><p>A two-element window on four elements can start at 0, 1 or 2, so <code>hi</code> must be at most 2. <code>[0, m - 1]</code> fits when <code>m - 1 ≤ 2</code>, so <code>m = 3</code>. With <code>m = 4</code> the oracle reports offset <code>[0, 3]</code>, which doesn't fit.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why doesn't <code>where (cmplt %i 4) (max %i 0) 0</code> give a provable index for a 4-element buffer?</p>
+<div class="opts">
+<button data-k="a"><code>where</code> can't be used to compute offsets.</button>
+<button data-k="b">The bounds of a <code>where</code> are the union of its branches, and the condition isn't used.</button>
+<button data-k="c"><code>cmplt</code> returns a bool, so the types don't match.</button>
+<button data-k="d">Both branches are evaluated, so the index might be out of range.</button>
+</div>
+<p class="hint">What are the intervals of the two branches?</p>
+<div class="why"><p>The branches are <code>[0, INT_MAX]</code> and <code>[0, 0]</code>, so the union is <code>[0, INT_MAX]</code>. Interval analysis doesn't learn anything from the condition. Shape the value itself with <code>max</code> and <code>mod</code> instead.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">On an 8-element buffer, <code>%k</code> is in <code>[0, 3]</code>. Which offset works for a <code>shape=[]</code> view?</p>
+<div class="opts">
+<button data-k="a"><code>add %k 4</code></button>
+<button data-k="b"><code>add %k 5</code></button>
+<button data-k="c"><code>add %k -1</code></button>
+<button data-k="d"><code>mul %k 3</code></button>
+</div>
+<p class="hint">Work out each interval and compare it with <code>[0, 7]</code>.</p>
+<div class="why"><p><code>add %k 4</code> is <code>[4, 7]</code>, inside <code>[0, 7]</code>. <code>add %k 5</code> reaches 8, <code>add %k -1</code> reaches -1, and <code>mul %k 3</code> reaches 9.</p></div>
+</div>
+
+<div class="quiz" data-fill="n - k | n-k">
+<p class="q">For <code>shape=[k]</code> on a parent of n elements, the offset's whole interval must fit inside <code>[0, ?]</code>. What goes in place of the question mark?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The window's last element is at <code>off + k - 1</code>, and that must be at most <code>n - 1</code>.</p>
+<div class="why"><p><code>off + k - 1 ≤ n - 1</code> means <code>off ≤ n - k</code>, which is the same as the rule <code>hi + k ≤ n</code>.</p></div>
+</div>
+
+<nav class="pager">
+<a href="02-load-store-after.html">← Lesson 2: Load, store, after</a>
+<a href="04-rendering-c.html">Lesson 4: Rendering C →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const MIN = -2147483648, MAX = 2147483647;
+  // a number line from -8 to 8; values past the ends stand for INT_MIN / INT_MAX
+  function line(lo, hi, allowedHi, label, bad) {
+    const X = v => 40 + (Math.max(-9, Math.min(9, v)) + 9) * (440 / 18);
+    const svg = h('svg', { class: 'nl', viewBox: '0 0 520 90', role: 'img', 'aria-label': label });
+    svg.append(h('line', { class: 'axis', x1: 20, y1: 40, x2: 500, y2: 40 }));
+    for (let v = -8; v <= 8; v += 2) svg.append(h('line', { class: 'tick', x1: X(v), y1: 34, x2: X(v), y2: 46 }), h('text', { x: X(v), y: 66, 'text-anchor': 'middle', text: v }));
+    svg.append(h('text', { x: 20, y: 66, text: 'MIN' }), h('text', { x: 500, y: 66, 'text-anchor': 'end', text: 'MAX' }));
+    svg.append(h('line', { class: 'allowed', x1: X(0), y1: 82, x2: X(allowedHi), y2: 82 }), h('text', { x: X(allowedHi) + 8, y: 86, text: `allowed [0, ${allowedHi}]` }));
+    const a = lo < -9 ? 22 : X(lo), b = hi > 9 ? 498 : X(hi);
+    svg.append(h('line', { class: 'seg' + (bad ? ' bad' : ''), x1: a, y1: 40, x2: b, y2: 40 }));
+    if (lo < -9) svg.append(h('polygon', { class: 'arrow' + (bad ? ' bad' : ''), points: '10,40 24,32 24,48' }));
+    if (hi > 9) svg.append(h('polygon', { class: 'arrow' + (bad ? ' bad' : ''), points: '510,40 496,32 496,48' }));
+    svg.append(h('text', { class: 'lab', x: (a + b) / 2, y: 22, 'text-anchor': 'middle', text: label }));
+    return svg;
+  }
+  const steps = [
+    { caption: 'A raw loaded index on a 4-element buffer, <code>shape=[]</code>. Its interval is all of i32, far outside <code>[0, 3]</code>. Invalid.',
+      code: '%i = load %i0', lo: MIN, hi: MAX, n: 3, label: '%i ∈ [MIN, MAX]', ok: false },
+    { caption: '<code>mod %i 4</code> alone: the sign follows <code>%i</code>, so the interval is <code>[-3, 3]</code>. The negative half still sticks out. Invalid.',
+      code: '%k = mod %i 4', lo: -3, hi: 3, n: 3, label: '[-3, 3]', ok: false },
+    { caption: '<code>max %i 0</code> first cuts off everything below zero: <code>[0, MAX]</code>. Still too wide.',
+      code: '%m = max %i 0', lo: 0, hi: MAX, n: 3, label: '[0, MAX]', ok: false },
+    { caption: 'Then <code>mod %m 4</code> on a value that\'s never negative: <code>[0, 3]</code>, exactly the allowed range. Valid.',
+      code: '%k = mod %m 4', lo: 0, hi: 3, n: 3, label: '[0, 3]', ok: true },
+    { caption: 'Same <code>%k</code>, but a <code>shape=[2]</code> window: the allowed starts shrink to <code>[0, 2]</code>, and 3 + 2 > 4. Invalid.',
+      code: '%v = shrink %b %k shape=[2]', lo: 0, hi: 3, n: 2, label: '[0, 3]', ok: false },
+    { caption: '<code>mod %m 3</code> gives <code>[0, 2]</code>, which fits the two-element window. Valid.',
+      code: '%k = mod %m 3', lo: 0, hi: 2, n: 2, label: '[0, 2]', ok: true },
+  ];
+  CC.stepper(document.getElementById('nl'), steps, (s, body) => body.append(CC.code(s.code, 0), line(s.lo, s.hi, s.n, s.label, !s.ok),
+    h('p', { class: 'verdict-line' }, h('span', { class: s.ok ? 'ok' : 'no', text: s.ok ? 'Provably in bounds.' : 'Not provable.' }))));
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+{
+ "id": "w3-01-reverse",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "Reverse into a second buffer",
+ "starter": "%in  = buffer 5 dtype=i32 slot=0\n%out = buffer 5 dtype=i32 slot=1\n# out[i] = in[4 - i]. The starter copies without reversing.\n%i   = range 5\n%v   = shrink %in %i shape=[]\n%x   = load %v\n%o   = shrink %out %i shape=[]\n%s   = store %o %x\n%e   = end %s %i\n%out1 = after %out %e\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ]
+   },
+   "expect": "[5 4 3 2 1]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "expect": "[0 0 0 0 0]"
+  },
+  {
+   "data": {
+    "0": [
+     7,
+     7,
+     7,
+     7,
+     1
+    ]
+   },
+   "expect": "[1 7 7 7 7]"
+  },
+  {
+   "data": {
+    "0": [
+     -1,
+     2,
+     -3,
+     4,
+     -5
+    ]
+   },
+   "expect": "[-5 4 -3 2 -1]"
+  },
+  {
+   "data": {
+    "0": [
+     2147483647,
+     0,
+     0,
+     0,
+     -2147483648
+    ]
+   },
+   "expect": "[-2147483648 0 0 0 2147483647]"
+  }
+ ],
+ "hints": [
+  "There's no subtract op. How do you write 4 - i with add and mul?",
+  "`mul %i -1` then `add ... 4`. Use that as the offset into `%in`.",
+  "The bounds check works it out: i is in [0, 4], so -i is in [-4, 0], and 4 - i is in [0, 4]."
+ ],
+ "explain": "The source offset is `4 - i`, written as `add (mul %i -1) 4` on two lines. Interval arithmetic proves it lies in [0, 4], so the view of `%in` is in bounds without any masking."
+}

@@ -1,0 +1,144 @@
+{
+ "id": "w5-04-gemm",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "starter": "# C (2x2) = A (2x3) @ B (3x2), all row-major\n%Ab = buffer 6 dtype=f32 slot=0\n%Bb = buffer 6 dtype=f32 slot=1\n%Cb = buffer 4 dtype=f32 slot=2\n%A  = load %Ab\n%B  = load %Bb\n# the syllabus form: it assumes slot 0 holds A transposed\n%a3t = reshape %A shape=[3 2 1]\n%ax = expand %a3t shape=[3 2 2]\n%b3 = reshape %B shape=[3 1 2]\n%bx = expand %b3 shape=[3 2 2]\n%p  = mul %ax %bx\n%c  = reduce %p op=add pop=1\n%cf = reshape %c shape=[4]\n%s  = store %Cb %cf\n%C1 = after %Cb %s\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0
+    ],
+    "1": [
+     7.0,
+     8.0,
+     9.0,
+     10.0,
+     11.0,
+     12.0
+    ]
+   },
+   "sample": true,
+   "expect": "[58.0 64.0 139.0 154.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    "1": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0
+    ]
+   },
+   "sample": true,
+   "expect": "[1.0 2.0 3.0 4.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.5,
+     -1.5,
+     2.0,
+     0.0,
+     3.0,
+     -0.25
+    ],
+    "1": [
+     4.0,
+     -2.0,
+     0.5,
+     1.0,
+     -8.0,
+     2.0
+    ]
+   },
+   "expect": "[-14.75 1.5 3.5 2.5]"
+  },
+  {
+   "data": {
+    "0": [
+     100000000.0,
+     1.0,
+     -100000000.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "1": [
+     1.0,
+     0.0,
+     1.0,
+     0.0,
+     1.0,
+     0.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     2.0,
+     2.0,
+     2.0,
+     3.0,
+     3.0,
+     3.0
+    ],
+    "1": [
+     1.0,
+     10.0,
+     100.0,
+     1000.0,
+     0.5,
+     0.25
+    ]
+   },
+   "expect": "[203.0 2020.5 304.5 3030.75]"
+  },
+  {
+   "data": {
+    "0": [
+     -0.0,
+     0.0,
+     0.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "1": [
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "expect": "[0.0 0.0 3.0 3.0]"
+  }
+ ],
+ "hints": [
+  "Start from the syllabus form, which assumes slot 0 holds A already transposed (K x M). Slot 0 here holds A as M x K.",
+  "Reshape A to `[2 3 1]`, then `permute order=[1 0 2]` to get `[3 2 1]`: k first, then i. B reshapes to `[3 1 2]`.",
+  "Expand both to `[3 2 2]`, multiply, and `reduce op=add pop=1` sums over k. Reshape the `[2 2]` result to `[4]` before the store."
+ ],
+ "explain": "Putting k first lets `reduce pop=1` fold over it, in order k = 0, 1, 2, for every (i, j) at once. The permute is the transpose the syllabus form leaves to whoever fills the buffer.",
+ "title": "A matmul from movement ops"
+}

@@ -1,0 +1,104 @@
+{
+ "id": "w3-01-square",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "Square every element",
+ "starter": "%in  = buffer 6 dtype=i32 slot=0\n%out = buffer 6 dtype=i32 slot=1\n# out[i] = in[i] * in[i] for every i in 0..5. The starter only does i = 0.\n%v   = shrink %in 0 shape=[]\n%x   = load %v\n%sq  = mul %x %x\n%o   = shrink %out 0 shape=[]\n%s   = store %o %sq\n%out1 = after %out %s\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "expect": "[1 4 9 16 25 36]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "expect": "[0 0 0 0 0 0]"
+  },
+  {
+   "data": {
+    "0": [
+     -3,
+     3,
+     -1,
+     1,
+     0,
+     7
+    ]
+   },
+   "expect": "[9 9 1 1 0 49]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     46341,
+     65536,
+     2,
+     1,
+     1,
+     1
+    ]
+   },
+   "expect": "[-2147479015 0 4 1 1 1]"
+  },
+  {
+   "data": {
+    "0": [
+     -2147483648,
+     10,
+     100,
+     1000,
+     10000,
+     -7
+    ]
+   },
+   "expect": "[0 100 10000 1000000 100000000 49]"
+  },
+  {
+   "data": {
+    "0": [
+     5,
+     5,
+     5,
+     5,
+     5,
+     5
+    ],
+    "1": [
+     9,
+     9,
+     9,
+     9,
+     9,
+     9
+    ]
+   },
+   "expect": "[25 25 25 25 25 25]"
+  }
+ ],
+ "hints": [
+  "Replace the constant 0 offsets with a counter: `%i = range 6`.",
+  "Use `%i` as the offset of both views. The store then depends on `%i`, so it has to be repeated: `%e = end %s %i`.",
+  "The `after` must sequence the whole loop, not the single store: `%out1 = after %out %e`."
+ ],
+ "explain": "A `range 6` counter replaces the fixed index, `end %s %i` repeats the store for every i, and `after %out %e` names the buffer after the whole loop. The bounds check passes because the range's interval is [0, 5] and both buffers hold 6 elements. Squares wrap like any i32 mul."
+}

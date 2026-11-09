@@ -1,0 +1,49 @@
+{
+ "id": "w4-05-normalize",
+ "lang": "c",
+ "title": "The normalize loop pair",
+ "show": "%08x",
+ "starter": "/* y[i] = x[i] * recip(sum of x), exactly as the oracle renders\n   store %y (mul %v (expand (recip (reduce %v op=add)))):\n   the sum folds left to right from x[0], the reciprocal is computed once\n   as 1.0f / sum, and each element is multiplied by it. n >= 1.\n   Results are compared bit for bit (printed as hex bits). */\nvoid normalize(const float *x, float *y, int n) {\n  float s = 0.0f;\n  for (int i = 0; i < n; i++) s += x[i];\n  for (int i = 0; i < n; i++) y[i] = x[i] / s;\n}\n",
+ "hints": [
+  "Two loops, like the rendered C: one for the reduce, one for the store. The scalar between them (the reciprocal) is computed once, after the first loop.",
+  "Fold strictly left to right: `s = x[0]`, then `s = s + x[1]`, and so on. f32 addition isn't associative, so `1e8 + 1 + 1 + 1` gives `1e8` while `1e8 + (1 + 1 + 1)` doesn't.",
+  "`x[i] / s` and `x[i] * (1.0f / s)` round differently for some inputs. The program says `mul` by `recip`, so multiply by a precomputed `1.0f / s`."
+ ],
+ "explain": "This is the C a rangeified renderer produces for `x * expand(recip(sum(x)))`: the reduce becomes a loop seeded with `x[0]`, the reciprocal is a scalar hoisted between the loops, and the store loop multiplies. Dividing instead of multiplying by the reciprocal gives different bits for inputs like {-2.5, 3, 2, 5}, which is why the grader's bit-for-bit comparison catches it.",
+ "tests": [
+  {
+   "expr": "({ float x[4] = {1.0f, 2.0f, 3.0f, 4.0f}; float y[4]; normalize(x, y, 4); unsigned u; memcpy(&u, &y[3], 4); u; })",
+   "sample": true,
+   "expect": "3ecccccd"
+  },
+  {
+   "expr": "({ float x[4] = {-2.5f, 3.0f, 2.0f, 5.0f}; float y[4]; normalize(x, y, 4); unsigned u; memcpy(&u, &y[1], 4); u; })",
+   "sample": true,
+   "expect": "3eccccce"
+  },
+  {
+   "expr": "({ float x[4] = {-2.5f, 3.0f, 7.0f, 0.3f}; float y[4]; normalize(x, y, 4); unsigned u; memcpy(&u, &y[2], 4); u; })",
+   "expect": "3f65be5b"
+  },
+  {
+   "expr": "({ float x[4] = {-2.5f, 3.0f, 7.0f, 0.3f}; float y[4]; normalize(x, y, 4); unsigned u; memcpy(&u, &y[3], 4); u; })",
+   "expect": "3d1d89d8"
+  },
+  {
+   "expr": "({ float x[4] = {1.0f, 5.0f, 0.001f, -2.5f}; float y[4]; normalize(x, y, 4); unsigned u; memcpy(&u, &y[1], 4); u; })",
+   "expect": "3fb6ce0e"
+  },
+  {
+   "expr": "({ float x[4] = {100000000.0f, 1.0f, 1.0f, 1.0f}; float y[4]; normalize(x, y, 4); unsigned u; memcpy(&u, &y[3], 4); u; })",
+   "expect": "322bcc77"
+  },
+  {
+   "expr": "({ float x[4] = {0.3f, 0.1f, 0.001f, 0.001f}; float y[4]; normalize(x, y, 4); unsigned u; memcpy(&u, &y[2], 4); u; })",
+   "expect": "3b230660"
+  },
+  {
+   "expr": "({ float x[1] = {4.0f}; float y[1]; normalize(x, y, 1); unsigned u; memcpy(&u, &y[0], 4); u; })",
+   "expect": "3f800000"
+  }
+ ]
+}

@@ -1,0 +1,53 @@
+{
+ "id": "w1-04-hand-simplify",
+ "lang": "uir",
+ "title": "Simplify by hand",
+ "max_ops": 1,
+ "starter": "%x = param 0 dtype=i32\n%a = add 3 %x\n%z = mul %x 0\n%b = add %a %z\n%out = add %b 5\n",
+ "tests": [
+  {
+   "args": [
+    0
+   ],
+   "expect": "8",
+   "sample": true
+  },
+  {
+   "args": [
+    10
+   ],
+   "expect": "18",
+   "sample": true
+  },
+  {
+   "args": [
+    -8
+   ],
+   "expect": "0"
+  },
+  {
+   "args": [
+    2147483647
+   ],
+   "expect": "-2147483641"
+  },
+  {
+   "args": [
+    -2147483648
+   ],
+   "expect": "-2147483640"
+  },
+  {
+   "args": [
+    2147483640
+   ],
+   "expect": "-2147483648"
+  }
+ ],
+ "hints": [
+  "Which parts of the graph are pure constants, and which parts are an identity you can drop?",
+  "On i32, `x * 0` is always 0, and adding 0 changes nothing. That leaves `(3 + x) + 5`.",
+  "i32 addition is a ring mod 2^32, so you can regroup `(3 + x) + 5` as `x + (3 + 5)` even when it wraps at `INT_MAX`."
+ ],
+ "explain": "On i32, `mul x 0` is exactly 0 and `add _ 0` is the identity. Reassociation is safe because wraparound arithmetic is still associative, so the whole graph folds to `add %x 8`. That is one op, and it wraps the same way the original does at `INT_MAX`."
+}

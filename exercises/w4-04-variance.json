@@ -1,0 +1,138 @@
+{
+ "id": "w4-04-variance",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "Variance",
+ "starter": "# x: 8 floats in slot 0. Write their variance into the 1-element buffer in slot 1:\n#   mean = (sum of x) * 0.125\n#   c    = x + expand(-mean)          (-mean is mean * -1.0)\n#   var  = (sum of c * c) * 0.125\n# Both sums are reduce op=add. This starter only gets as far as the mean.\n%x  = buffer 8 dtype=f32 slot=0\n%o  = buffer 1 dtype=f32 slot=1\n%v  = load %x\n%s  = reduce %v op=add\n%m  = mul %s 0.125\n%ov = shrink %o 0 shape=[]\n%st = store %ov %m\n%o1 = after %o %st\n",
+ "hints": [
+  "You need two reduces: one for the mean, one for the sum of squares. The mean is a scalar, so it has to be broadcast with `expand` before it can meet the vector `x`.",
+  "There's no subtract op. Negate the mean with `mul %m -1.0`, expand that to `[8]`, and `add` it to `x`. Then `mul %c %c` squares every element.",
+  "`c` is used twice by the same `mul`, which is still one use of one node: no `stage` needed. Fold the squares with `reduce op=add`, multiply by `0.125`, and store the scalar into a `shape=[]` view of slot 1."
+ ],
+ "explain": "The mean is a reduce, a scalar multiply, and an expand back to a vector; `x + (-mean)` is bit-identical to `x - mean`, so the centered values are exact to f32. Both sums fold left to right from the first element, which is why the expected bits are well defined. Staging `c` would add a temp buffer and change nothing in the result.",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     7.0,
+     8.0
+    ]
+   },
+   "sample": true,
+   "expect": "[5.25]"
+  },
+  {
+   "data": {
+    "0": [
+     2.0,
+     2.0,
+     2.0,
+     2.0,
+     2.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "sample": true,
+   "expect": "[0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.1,
+     0.2,
+     0.3,
+     0.4,
+     0.5,
+     0.6,
+     0.7,
+     0.8
+    ]
+   },
+   "expect": "[0.05250000208616257]"
+  },
+  {
+   "data": {
+    "0": [
+     -1.0,
+     1.0,
+     -1.0,
+     1.0,
+     -1.0,
+     1.0,
+     -1.0,
+     1.0
+    ]
+   },
+   "expect": "[1.0]"
+  },
+  {
+   "data": {
+    "0": [
+     100000000.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "expect": "[1093749862039552.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1e+20
+    ]
+   },
+   "expect": "[inf]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     7.0,
+     "nan"
+    ]
+   },
+   "expect": "[nan]"
+  },
+  {
+   "data": {
+    "0": [
+     "inf",
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "expect": "[nan]"
+  }
+ ]
+}

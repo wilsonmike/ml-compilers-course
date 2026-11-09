@@ -1,0 +1,45 @@
+{
+ "id": "w2-05-f32-bits",
+ "lang": "c",
+ "title": "A float's bits, not its value",
+ "show": "%08x",
+ "starter": "// Return the 32 bits that represent x (1.0f -> 0x3f800000). No undefined behavior.\nuint32_t f32_bits(float x) {\n  return (uint32_t)x;\n}\n",
+ "tests": [
+  {
+   "expr": "f32_bits(1.0f)",
+   "expect": "3f800000",
+   "sample": true
+  },
+  {
+   "expr": "f32_bits(-0.0f)",
+   "expect": "80000000",
+   "sample": true
+  },
+  {
+   "expr": "f32_bits(0.1f)",
+   "expect": "3dcccccd"
+  },
+  {
+   "expr": "f32_bits(3.0f)",
+   "expect": "40400000"
+  },
+  {
+   "expr": "f32_bits(-INFINITY)",
+   "expect": "ff800000"
+  },
+  {
+   "expr": "f32_bits(0x1p-149f)",
+   "expect": "00000001"
+  },
+  {
+   "expr": "f32_bits(NAN)",
+   "expect": "7fc00000"
+  }
+ ],
+ "hints": [
+  "`(uint32_t)x` converts the *value*: 1.0f becomes 1. You want the same 32 bits reinterpreted as an integer.",
+  "Casting the pointer, `*(uint32_t *)&x`, breaks C's aliasing rules, so it's undefined behavior. The defined way is to copy the bytes.",
+  "`memcpy(&u, &x, sizeof u);` from `<string.h>` copies the 4 bytes of `x` into a `uint32_t u`. Compilers turn it into a single register move."
+ ],
+ "explain": "memcpy is the portable, defined way to reinterpret bytes in C, and optimizers compile it to one instruction. This is how a runtime prints f32 results exactly: the hex bits keep the sign of zero, the exact NaN, and every last mantissa bit, which decimal printing can lose."
+}

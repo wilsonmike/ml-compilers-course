@@ -1,0 +1,131 @@
+{
+ "id": "w5-02-transpose",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "Transpose a 3x4 matrix",
+ "starter": "%x  = buffer 12 dtype=f32 slot=0\n%y  = buffer 12 dtype=f32 slot=1\n# x is a 3x4 matrix, row-major. Store its 4x3 transpose, row-major.\n%v  = load %x\n%m  = reshape %v shape=[4 3]\n%f  = reshape %m shape=[12]\n%s  = store %y %f\n%y1 = after %y %s\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     0.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     7.0,
+     8.0,
+     9.0,
+     10.0,
+     11.0
+    ]
+   },
+   "expect": "[0.0 4.0 8.0 1.0 5.0 9.0 2.0 6.0 10.0 3.0 7.0 11.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     7.0,
+     8.0,
+     9.0,
+     10.0,
+     11.0,
+     12.0
+    ]
+   },
+   "expect": "[1.0 5.0 9.0 2.0 6.0 10.0 3.0 7.0 11.0 4.0 8.0 12.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.5,
+     0.5,
+     0.5,
+     0.5,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     2.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "expect": "[0.5 -1.0 2.0 0.5 -1.0 2.0 0.5 -1.0 2.0 0.5 -1.0 2.0]"
+  },
+  {
+   "data": {
+    "0": [
+     "nan",
+     "inf",
+     "-inf",
+     -0.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     7.0,
+     8.0
+    ]
+   },
+   "expect": "[nan 1.0 5.0 inf 2.0 6.0 -inf 3.0 7.0 -0.0 4.0 8.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     1.0,
+     4.0,
+     9.0,
+     16.0,
+     25.0,
+     36.0,
+     49.0,
+     64.0,
+     81.0,
+     100.0,
+     121.0
+    ]
+   },
+   "expect": "[0.0 16.0 64.0 1.0 25.0 81.0 4.0 36.0 100.0 9.0 49.0 121.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "expect": "[1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0]"
+  }
+ ],
+ "hints": [
+  "Reshaping to `[4 3]` reads the same 12 numbers in the same order, just cut into rows of 3. A transpose moves numbers around.",
+  "Keep the 3x4 shape, then swap the two axes with `permute`.",
+  "`reshape [3 4]`, then `permute order=[1 0]` (shape 4x3), then `reshape [12]` and store. Element `[i][j]` of the result is `x[j][i]`."
+ ],
+ "explain": "`reshape` never moves data: it reinterprets the same row-major sequence. `permute order=[1 0]` swaps the axes, so output `[i][j]` reads input `[j][i]`. The final `reshape [12]` lays the 4x3 result back out row-major for the flat buffer. The all-ones test is the one input where the starter's wrong answer happens to look right."
+}

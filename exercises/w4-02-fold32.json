@@ -1,0 +1,49 @@
+{
+ "id": "w4-02-fold32",
+ "lang": "ocaml",
+ "title": "A left fold in f32",
+ "show": "(Printf.sprintf \"%.9g\")",
+ "starter": "(* f32 x rounds a double to the nearest f32. *)\nlet f32 (x : float) : float = Int32.float_of_bits (Int32.bits_of_float x)\n\n(* Sum a non-empty list the way reduce op=add does:\n   start from the first element, add left to right, round to f32 after every add. *)\nlet sum32 (xs : float list) : float =\n  List.fold_left ( +. ) 0.0 xs\n",
+ "tests": [
+  {
+   "expr": "sum32 [1.0; 2.0; 3.0]",
+   "sample": true,
+   "expect": "6"
+  },
+  {
+   "expr": "sum32 [1e8; -1e8; 1.0; 1.0]",
+   "sample": true,
+   "expect": "2"
+  },
+  {
+   "expr": "sum32 [1e8; 1.0; 1.0; -1e8]",
+   "expect": "0"
+  },
+  {
+   "expr": "sum32 [f32 0.1; f32 0.2; f32 0.3]",
+   "expect": "0.600000024"
+  },
+  {
+   "expr": "sum32 [-0.0]",
+   "expect": "-0"
+  },
+  {
+   "expr": "sum32 [-0.0; -0.0]",
+   "expect": "-0"
+  },
+  {
+   "expr": "sum32 [3e38; 3e38; -3e38]",
+   "expect": "inf"
+  },
+  {
+   "expr": "sum32 [16777216.0; 1.0; 1.0]",
+   "expect": "16777216"
+  }
+ ],
+ "hints": [
+  "Two things are off: the fold starts from `0.0` instead of the first element, and nothing rounds to f32.",
+  "Pattern match `x :: rest`, then `List.fold_left (fun acc y -> f32 (acc +. y)) x rest`.",
+  "Starting from `0.0` breaks `[-0.0]` (since `0.0 +. -0.0` is `0.0`), and skipping the rounding breaks `[16777216.0; 1.0; 1.0]` (in f32 each `+ 1` rounds away)."
+ ],
+ "explain": "Rounding after every add is what f32 hardware does, and starting from the first element (not from `0.0`) keeps `-0.0` and matches the spec's fold exactly. `3e38 + 3e38` overflows to `inf` in f32 even though it fits in a double, so the next `- 3e38` can't bring it back."
+}

@@ -1,0 +1,19 @@
+# expect: pass
+# (4x1) @ (1x2) with reshape, permute, expand, mul, reduce pop=1; sums over k in order
+%v0 = buffer 4 dtype=f32 slot=0 data=[-3.024911880493164 0.9734929800033569 -0.4522589445114136 -1.6551752090454102]
+%v1 = load %v0
+%v2 = reshape %v1 shape=[4 1]
+%v3 = buffer 2 dtype=f32 slot=1 data=[2.253650426864624 2.6144423484802246]
+%v4 = load %v3
+%v5 = reshape %v4 shape=[1 2]
+%v6 = reshape %v2 shape=[4 1 1]
+%v7 = permute %v6 order=[1 0 2]
+%v8 = expand %v7 shape=[1 4 2]
+%v9 = reshape %v5 shape=[1 1 2]
+%v10 = expand %v9 shape=[1 4 2]
+%v11 = mul %v8 %v10
+%v12 = reduce %v11 op=add pop=1
+%v13 = buffer 8 dtype=f32 slot=2 data=[-6.817093849182129 -7.9084577560424805 2.193912982940674 2.5451412200927734 -1.0192335844039917 -1.1824049949645996 -3.7301862239837646 -4.327360153198242]
+%v14 = load %v13
+%v15 = reshape %v14 shape=[4 2]
+%v16 = assert %v12 %v15

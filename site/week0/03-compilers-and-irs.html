@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compilers and IRs</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .toks { display: flex; flex-wrap: wrap; gap: var(--s2); font: 0.9375rem var(--mono); }
+  .toks span { padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: 6px; background: var(--code-bg); }
+  .toks span small { display: block; font-size: 0.875rem; color: var(--ink-3); }
+  .stage { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
+  .stage > div { min-width: 0; }
+  .order { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s3); }
+</style>
+</head>
+<body data-root="../">
+<main>
+  <p class="eyebrow">Week 0 · Lesson 3</p>
+  <h1>Compilers and IRs</h1>
+  <p class="lede">A compiler is a program that reads a program and writes a different program that means the same thing. In the middle it holds the program as a data structure called an IR. This course is about designing that data structure well.</p>
+
+  <div class="prose">
+    <h2>The pipeline</h2>
+    <p>A classic compiler goes through stages. Each one turns the program into a new representation that's easier to work with for the next job. Step through what happens to one small expression.</p>
+  </div>
+
+  <div class="fig" id="pipe" data-title="(a + b) * (a + b)"></div>
+
+  <div class="prose">
+    <h2>Trees repeat themselves, DAGs share</h2>
+    <p>A <b>tree</b> is the obvious way to store an expression: every operator node points at its operands. But <code>(a + b) * (a + b)</code> has the same subexpression twice, and a tree stores it twice. If you compile the tree naively, you compute <code>a + b</code> twice.</p>
+    <p>A <b>DAG</b> (directed acyclic graph) lets two parents point at the same child. You build it by keeping a table of every node you've made, keyed by "what op, which operands" (a hash table, which is a dictionary: give it a key and it quickly gives back the stored value). Before you build a node, you look it up. If it's already there, you reuse it. That trick is called <b>hash consing</b>, and it's how the course's IR works from day one. Two nodes with the same op and the same inputs are not just equal, they're the <em>same object</em>.</p>
+  </div>
+
+  <div class="trap">
+    <span class="label">Sharing compounds</span>
+    <p>Sharing isn't a small saving. Take <code>x1 = x0 + x0</code>, <code>x2 = x1 + x1</code>, and so on up to <code>x30</code>. As a DAG that's 31 nodes. As a tree it's over a billion. Any code that walks your IR without remembering what it already visited will treat the DAG like a tree, and it'll never finish. The week 1 tests include a deeper version of this case (300 levels).</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-03-tree-nodes">
+    <h3>Code quiz: how big is the tree?</h3>
+    <p><code>e0 = a + b</code> is a tree of 3 nodes. <code>e(k+1) = e(k) * e(k)</code>, stored as a tree with no sharing, so both operands are full copies. Write <code>long long tree_nodes(int k)</code> returning the node count of <code>e(k)</code>, for <code>0 &lt;= k &lt;= 60</code>. The same thing as a DAG has just <code>k + 3</code> nodes.</p>
+  </div>
+
+  <div class="prose">
+    <h2>From a DAG to lines of C: toposort</h2>
+    <p>C runs top to bottom, so to print C from a DAG you need an order where every node comes <b>after</b> the nodes it uses. That order is a <b>topological sort</b>. A depth-first walk gives you one: visit a node's inputs first, then emit the node, and skip anything you've already emitted.</p>
+    <p>Each emitted node becomes one line of C that assigns a fresh temporary. Leaves (inputs and constants) don't need a line of their own.</p>
+    <p class="muted">You'll write this toposort yourself in OCaml at the end of lesson 0.6, once you've seen the language.</p>
+  </div>
+
+  <div class="fig" id="topo" data-title="emit C in topological order"></div>
+
+
+  <div class="exercise" data-ex="w0-03-rpn">
+    <h3>Evaluate postfix with a stack</h3>
+    <p>Postfix (also called RPN, reverse Polish notation) writes each operator after its operands, so <code>"23+4*"</code> means <code>(2 + 3) * 4</code>. That's a toposort of the expression tree: every operator comes after the operands it uses. No parentheses or precedence rules are needed, because a <b>stack</b> does all the work. (A stack is a list you only add to, "push", and take from, "pop", at the top.)</p>
+    <p>Write <code>int rpn(const char *s)</code> for single digits <code>0</code> to <code>9</code> and the ops <code>+ - *</code>. A digit pushes its value. An op pops <code>b</code>, then <code>a</code>, and pushes <code>a op b</code>. Return the one value left at the end. Inputs are always valid and at most 64 characters.</p>
+    <p class="muted">A C string is an array of characters that ends with a zero byte, so <code>for (int i = 0; s[i] != '\0'; i++)</code> visits every character.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Rewriting, a first look</h2>
+    <p>Most of what a compiler does between parsing and printing is <b>rewriting</b>: find a pattern in the graph and replace it with something simpler that means the same thing. The simplest example is <code>x * 1 → x</code>.</p>
+  </div>
+
+  <div class="fig" id="rw" data-title="rewrite rule: x * 1 → x"></div>
+
+  <div class="prose">
+    <p>That looks trivial, but "means the same thing" hides real questions. Is <code>x * 0 → 0</code> safe? For integers, yes. For floats, no, because <code>inf * 0</code> and <code>nan * 0</code> are both <code>nan</code>, and <code>-3.0 * 0.0</code> is <code>-0.0</code>, not <code>0.0</code>. Week 1 is all about rules like this: which ones are safe, how to apply them until nothing changes, and how to prove the rules you wrote didn't break anything.</p>
+
+    <h2>What makes a good IR</h2>
+    <ul>
+      <li><b>Small.</b> Every op you add is one more case for every rewrite and every backend (the part of the compiler that prints C or GPU code). The course's IR has a few dozen ops by the end, and that's enough to train an LLM.</li>
+      <li><b>Uniform.</b> Every node is the same shape: an op, a tuple of source nodes, and an argument (extra data that isn't a node, like the number inside a constant). One rewrite engine handles all of it.</li>
+      <li><b>Shared.</b> Hash consing means equal things are the same object, so "are these equal?" is a pointer comparison.</li>
+    </ul>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">Drawn as a <b>tree</b>, how many <code>+</code> nodes does <code>(a + b) * (a + b)</code> have?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">A tree never shares. Count each written occurrence of <code>a + b</code>.</p>
+    <div class="why"><p>Two. A tree gives each occurrence its own node.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="1">
+    <p class="q">Drawn as a hash-consed <b>DAG</b>, how many <code>+</code> nodes does it have?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Hash consing means asking the table before building a node. What happens the second time you build <code>a + b</code>?</p>
+    <div class="why"><p>One. The second <code>a + b</code> looks up the table, finds the first one, and reuses it.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">What property must the order of lines in the generated C have?</p>
+    <div class="opts">
+      <button data-k="a">Constants come first</button>
+      <button data-k="b">Nodes appear in the order they were typed</button>
+      <button data-k="c">Every node appears after all the nodes it uses</button>
+    </div>
+    <p class="hint">The C compiler reads top to bottom. What has to already exist before a line that uses <code>t1</code>?</p>
+    <div class="why"><p>That's what makes it a topological order. Any order with this property gives correct C.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">Let <code>m = x * 2</code>, <code>s = m * m</code>, <code>out = s + s</code>, all hash consed. Emitting one C line per non-leaf node, how many lines do you get?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Shared nodes are emitted once. List the distinct non-leaf nodes.</p>
+    <div class="why"><p>Three: <code>m</code>, <code>s</code>, <code>out</code>. <code>x</code> and <code>2</code> are leaves.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="7">
+    <p class="q">Same expression, but now as a <b>tree</b>. How many operator nodes (<code>*</code> or <code>+</code>)?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Unshare from the top: <code>out</code> uses <code>s</code> twice, and each <code>s</code> uses <code>m</code> twice.</p>
+    <p class="hint">1 + 2 + 4.</p>
+    <div class="why"><p><code>out</code> is 1, it has two copies of <code>s</code> (2), and each <code>s</code> has two copies of <code>m</code> (4). 1 + 2 + 4 = 7. Each level of sharing doubles the tree.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="a + b | a+b">
+    <p class="q">Apply <code>x * 1 → x</code> everywhere it matches in <code>(a * 1) + (b * 1)</code>. What's left?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">The rule removes a multiply by 1. How many times does <code>x * 1</code> appear?</p>
+    <div class="why"><p><code>a + b</code>. The rule matches twice, once for each side.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Which of these rewrites is <b>not</b> safe for 32-bit floats?</p>
+    <div class="opts">
+      <button data-k="a"><code>x * 1.0 → x</code></button>
+      <button data-k="b"><code>x * 0.0 → 0.0</code></button>
+      <button data-k="c"><code>max(x, x) → x</code></button>
+    </div>
+    <p class="hint">Try the special float values: what is <code>nan * 0.0</code>? What is <code>inf * 0.0</code>?</p>
+    <div class="why"><p><code>nan * 0.0</code> is <code>nan</code> and <code>inf * 0.0</code> is <code>nan</code>, so the rewrite changes the answer for those inputs. The other two hold for every float, NaN included.</p></div>
+  </div>
+
+  <nav class="pager"><a href="02-memory-and-caches.html">← memory and caches</a><a href="04-tensors-and-shapes.html">tensors and shapes →</a></nav>
+</main>
+
+<script>
+(() => {
+  const { h } = CC;
+  // --- pipeline stepper ---
+  const tree = [
+    { id: 'a1', op: 'a' }, { id: 'b1', op: 'b' }, { id: 'a2', op: 'a' }, { id: 'b2', op: 'b' },
+    { id: 'p1', op: '+', src: ['a1', 'b1'] }, { id: 'p2', op: '+', src: ['a2', 'b2'], cls: 'hit' },
+    { id: 'm', op: '*', src: ['p1', 'p2'] }];
+  const dag = [{ id: 'a', op: 'a' }, { id: 'b', op: 'b' }, { id: 'p', op: '+', src: ['a', 'b'], cls: 'new' }, { id: 'm', op: '*', src: ['p', 'p'] }];
+  const toks = [['(', 'lparen'], ['a', 'name'], ['+', 'op'], ['b', 'name'], [')', 'rparen'], ['*', 'op'], ['(', 'lparen'], ['a', 'name'], ['+', 'op'], ['b', 'name'], [')', 'rparen']];
+  const pipe = [
+    { caption: '<b>Source.</b> To the compiler this is just a string of characters.', draw: b => b.append(h('pre', {}, h('code', { text: '(a + b) * (a + b)' }))) },
+    { caption: '<b>Tokens.</b> The <b>lexer</b> (the part that splits text into words) chops the string into words and labels each one. Spaces disappear.', draw: b => b.append(h('div', { class: 'toks' }, toks.map(([t, k]) => h('span', {}, t, h('small', { text: k }))))) },
+    { caption: '<b>Tree.</b> The <b>parser</b> (the part that works out the structure) builds a tree from the tokens. Inputs are on top, the result is at the bottom. Notice the second <code>a + b</code> (highlighted) is a separate copy of the first.', draw: b => b.append(CC.graph(tree)) },
+    { caption: '<b>DAG.</b> With hash consing, building the second <code>a + b</code> finds the first one in the table. One <code>+</code> node, used twice by <code>*</code>.', draw: b => b.append(CC.graph(dag)) },
+    { caption: '<b>C.</b> Walk the DAG in topological order and print one line per node. <code>a + b</code> is computed once.', draw: b => b.append(h('pre', {}, h('code', { text: 'float t0 = a + b;\nfloat t1 = t0 * t0;\nreturn t1;' }))) },
+  ];
+  CC.stepper(document.getElementById('pipe'), pipe, (s, body) => s.draw(body));
+
+  // --- toposort stepper over y = (a+b)*(a+b) + c ---
+  const G = [{ id: 'a', op: 'a' }, { id: 'b', op: 'b' }, { id: 'c', op: 'c' },
+    { id: 'p', op: '+', sub: 't0', src: ['a', 'b'] }, { id: 'm', op: '*', sub: 't1', src: ['p', 'p'] }, { id: 'o', op: '+', sub: 't2', src: ['m', 'c'] }];
+  const C = { p: 'float t0 = a + b;', m: 'float t1 = t0 * t0;', o: 'float t2 = t1 + c;' };
+  // the DFS: visit(o) -> visit(m) -> visit(p) -> visit(a), visit(b), emit p; p again (skip), emit m; visit(c); emit o
+  const trace = [
+    ['o', 'visit t2: first visit its inputs, t1 and c.', []],
+    ['m', 'visit t1: first visit its inputs, t0 and t0.', []],
+    ['p', 'visit t0: its inputs <code>a</code> and <code>b</code> are leaves, nothing to emit.', []],
+    ['p', 'all inputs of t0 are done, so <b>emit t0</b>.', ['p']],
+    ['p', 't1 asks for its second input, t0 again. Already emitted: <b>skip</b>. This "seen" check is what keeps a DAG from turning into a tree.', ['p']],
+    ['m', 'all inputs of t1 are done, so <b>emit t1</b>.', ['p', 'm']],
+    ['o', 'back at t2. Its other input <code>c</code> is a leaf. <b>Emit t2</b>. Every line comes after the lines it uses.', ['p', 'm', 'o']],
+  ];
+  const steps = trace.map(([at, caption, emitted]) => ({ at, caption, emitted }));
+  CC.stepper(document.getElementById('topo'), steps, (s, body) => {
+    const nodes = G.map(n => ({ ...n, cls: n.id === s.at ? 'hit' : s.emitted.includes(n.id) ? 'new' : '' }));
+    const lines = s.emitted.map(id => C[id]).join('\n') || '// nothing emitted yet';
+    body.append(h('div', { class: 'stage' }, h('div', {}, CC.graph(nodes)), h('div', { style: 'flex:1;min-width:16rem' },
+      h('span', { class: 'label', text: 'generated C' }), CC.code(lines, s.emitted.length - 1),
+      h('p', { class: 'order', text: 'emitted: ' + (s.emitted.map(id => G.find(n => n.id === id).sub).join(', ') || 'none') }))));
+  });
+
+  // --- rewrite x * 1 -> x inside (y * 1) + z ---
+  const before = [{ id: 'y', op: 'y' }, { id: 'one', op: '1' }, { id: 'z', op: 'z' }, { id: 'mul', op: '*', src: ['y', 'one'] }, { id: 'add', op: '+', src: ['mul', 'z'] }];
+  const rw = [
+    { caption: 'The graph for <code>(y * 1) + z</code>.', nodes: before },
+    { caption: 'The pattern <code>x * 1</code> matches the highlighted node, with <code>x = y</code>.', nodes: before.map(n => ({ ...n, cls: ['mul', 'one'].includes(n.id) ? 'hit' : '' })) },
+    { caption: 'Replace the match with <code>x</code>: the <code>+</code> now reads <code>y</code> directly. The old <code>*</code> and the <code>1</code> have no users left, so they fade out.', nodes: [{ id: 'y', op: 'y', cls: 'new' }, { id: 'one', op: '1', cls: 'dead' }, { id: 'z', op: 'z' }, { id: 'mul', op: '*', src: ['y', 'one'], cls: 'dead' }, { id: 'add', op: '+', src: ['y', 'z'] }] },
+    { caption: 'The result, <code>y + z</code>. A rewrite engine keeps doing this until no rule matches anything. That point is called a <b>fixpoint</b>.', nodes: [{ id: 'y', op: 'y' }, { id: 'z', op: 'z' }, { id: 'add', op: '+', src: ['y', 'z'] }] },
+  ];
+  CC.stepper(document.getElementById('rw'), rw, (s, body) => body.append(CC.graph(s.nodes)));
+})();
+</script>
+</body>
+</html>
