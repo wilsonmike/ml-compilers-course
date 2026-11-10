@@ -41,7 +41,7 @@
     <tbody>
       <tr><td><code>op=add</code></td><td>wraps at every step</td><td>rounds at every step, order matters, and a single <code>-0.0</code> stays <code>-0.0</code></td></tr>
       <tr><td><code>op=mul</code></td><td>wraps at every step</td><td>rounds and can overflow to inf</td></tr>
-      <tr><td><code>op=max</code></td><td>plain max</td><td>any NaN gives NaN; <code>max(-0.0, 0.0) = +0.0</code></td></tr>
+      <tr><td><code>op=max</code></td><td>plain max</td><td>any NaN gives NaN, and <code>max(-0.0, 0.0) = +0.0</code></td></tr>
     </tbody>
   </table></div>
   <div class="tablewrap"><table>
@@ -77,9 +77,9 @@
 %t = assert 1 1</code></pre></li>
     <li><strong>Parse and type expand, reduce and stage.</strong> Done when the suite's <code>err_reduce_scalar</code>, <code>err_reduce_bool</code> and <code>err_expand_no_shape</code> exit 2.</li>
     <li><strong>Vectors in run.</strong> Done when these fold in the right order and from the right start:
-<pre><code>%v = stack 1e8 1.0 1.0 -1e8
+<pre><code>%v = stack 1e8 1.0 -1e8 1.0 1.0
 %s = reduce %v op=add
-%t = assert %s 0.0
+%t = assert %s 2.0
 %z = stack -0.0
 %q = reduce %z op=add
 %r = recip %q
@@ -109,7 +109,7 @@
     <p class="q">What does <code>reduce</code> with <code>op=add</code> give for the f32 vector <code>[1e8 1.0 1.0 -1e8]</code>?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
     <p class="hint">Fold left to right from the first element, rounding to f32 after every add.</p>
-    <div class="why"><code>1e8 + 1.0</code> rounds back to <code>1e8</code>, so does the next <code>+ 1.0</code>, and <code>- 1e8</code> leaves 0.0. A pairwise or reversed sum would give 2.0.</div>
+    <div class="why"><code>1e8 + 1.0</code> rounds back to <code>1e8</code>, so does the next <code>+ 1.0</code>, and <code>- 1e8</code> leaves 0.0. An order that adds the two 1.0s together first, <code>(1.0 + 1.0) + (1e8 + -1e8)</code>, would give 2.0.</div>
   </div>
   <div class="quiz" data-fill="0">
     <p class="q">What does <code>reduce</code> with <code>op=mul</code> give for the i32 vector <code>[65536 65536 3]</code>?</p>

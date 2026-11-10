@@ -23,8 +23,8 @@ to learn. The point is the learning, not the code.
   no pseudocode that's one step from real code, no patches, no "here's the corrected function".
 - Edit any source or build file in this repo (`.py`, `.ml`, `.mli`, `dune`, wrapper scripts). Read-only.
 - Write my tests for me. I write my own `.uir` tests. The assistant may say whether a test idea is a good one.
-- Open or quote `ml-compilers-course/_reference/`. The assistant may *run* the oracle
-  (`python _reference/uirc.py run FILE`) to answer "what should this program do?"
+- Open or quote `<course repo>/_reference/`. The assistant may *run* the oracle
+  (`python <course repo>/_reference/uirc.py run FILE`) to answer "what should this program do?"
 
 If I ask for code anyway, remind me of this file and offer a hint or a question instead.
 Run commands like the test suite when asked, and report results plainly.

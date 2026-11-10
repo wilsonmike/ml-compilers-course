@@ -101,7 +101,7 @@ for (int32_t r11 = 0; r11 &lt; 6; r11++) {          /* output element: (m, n) = 
 <p>The <code>[K M N]</code> cube from lesson 5.4 is gone. Every element of it was a multiply of two loads, and rangeify only ever asked for the elements the reduce needed, one k at a time.</p>
 
 <h2>Cleaning up the index math</h2>
-<p>Look at <code>v15 = (v14 % 4)</code>. <code>v14</code> is <code>(r11 / 3) % 2</code>, which is always 0 or 1, so the <code>% 4</code> does nothing. The same goes for <code>v19 = (v18 % 6)</code>. These come from composing an unflatten with the next flatten, and week 1 already gave you the tool to remove them: bounds analysis proves <code>v14</code> is in <code>[0, 1]</code>, and the rule <code>mod(x, c) → x</code> when <code>0 ≤ x &lt; c</code> deletes the op. Constant folding (lesson 1.3) handles any arithmetic on constants that's left. The output is correct either way. Cleaner index math is smaller, and from week 6 it's faster.</p>
+<p>Look at <code>v15 = (v14 % 4)</code>. <code>v14</code> is <code>(r11 / 3) % 2</code>, which is always 0 or 1, so the <code>% 4</code> does nothing. The same goes for <code>v19 = (v18 % 6)</code>. These come from composing an unflatten with the next flatten, and week 1 already gave you the tool to remove them: bounds analysis (lesson 1.4) proves <code>v14</code> is in <code>[0, 1]</code>, and the rule <code>mod(x, c) → x</code> when <code>0 ≤ x &lt; c</code> deletes the op. Constant folding (lesson 1.3) handles any arithmetic on constants that's left. The output is correct either way. Cleaner index math is smaller, and from week 6 it's faster.</p>
 </div>
 
 <div class="exercise small" data-ex="w5-05-shape" data-ex-py="w5-05-shape-py">
@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const outs = [0, 1, 2, 3, 4, 5].map(n => n <= r ? ((n >= 1 && n < 4) ? x[n - 1] : 0) : '');
     return {
       caption: `<code>r9 = ${r}</code>: valid is <code>${valid}</code>, the clamped index is <code>${src}</code>, so the loop reads <code>b0[${src}] = ${x[src]}</code> and stores <code>${out}</code>.` +
-        (valid ? '' : ' The read is still inside the buffer; the mask throws its value away.'),
+        (valid ? '' : ' The read is still inside the buffer, and the mask throws its value away.'),
       draw: () => [h('div', { class: 'vlabel', text: 'b0 (x)' }), strip(x, n => n === src ? 'read' : '', n => n),
         h('div', { class: 'vlabel', text: 'b1 (the padded result so far)' }), strip(outs, done, n => n),
         h('div', { class: 'facts', text: `valid = (0 < ${r}) && (${r} < 4) = ${valid};  src = min(max(${r} - 1, 0), 2) = ${src}` })]

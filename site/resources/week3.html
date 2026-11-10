@@ -24,7 +24,7 @@
   <h3><a href="../week3/05-rendering-loops.html">3.5 Rendering loops</a></h3>
   <p>Give every node a path of loops, outermost first, from its open ranges. Linearize into nested blocks where sources come first and loads of a version come before the store that overwrites it, then print each block as a <code>for</code> loop. Values that depend on no range end up outside the loops for free.</p>
   <h3><a href="../week3/06-lab.html">3.6 Lab</a></h3>
-  <p><code>run</code> and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>goto</code> or recursion). The suite has 89 tests, and weeks 1 and 2 must stay green.</p>
+  <p><code>run</code> and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>goto</code> or recursion). The suite has 90 tests, and weeks 1 and 2 must stay green.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -79,7 +79,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
 %x  = load %v3
 %t  = assert %x 3</code></pre>
       If it exits 1, check the trip count and the start value.</li>
-    <li><strong>Open ranges and the static rules.</strong> Done when closing a range the effect doesn't use exits 2 with <code>invalid:</code>. Check: the same program with an extra <code>%j = range 2</code> and <code>%ej = end %e %j</code> wrapped around a store that never uses <code>%j</code>.</li>
+    <li><strong>Open ranges and the static rules.</strong> Done when closing a range the effect doesn't use exits 2 with <code>invalid:</code>. Check: the same program with an extra <code>%j = range 2</code>, an <code>%ej = end %e %j</code> wrapped around the i loop, and <code>%b1 = after %b %ej</code>. Nothing inside uses <code>%j</code>, so the program must exit 2.</li>
     <li><strong>Bounds through ranges.</strong> Done when <code>range 5</code> indexing a 4-element buffer exits 2 (the offset is in <code>[0, 4]</code>), while <code>shrink %b (mul %k 2) shape=[2]</code> with <code>%k = range 5</code> on a 10-element buffer exits 0 (offset in <code>[0, 8]</code>, plus 2, fits in 10). If both pass or both fail, look at the range case of your interval analysis.</li>
     <li><strong>Loop placement and the load rule.</strong> Done when this sums 1 to 4 into <code>o</code>:
 <pre><code>%x   = buffer 4 dtype=i32 slot=0 data=[1 2 3 4]
@@ -105,7 +105,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
     <li><strong>Render.</strong> Done when <code>python _reference/uirc.py render</code> and your <code>render</code> agree on the program from step 4 (same results, not necessarily the same text), and every render test passes.</li>
   </ol>
   <div class="trap"><span class="label">The pinned load</span>
-    <p>If a use of a load doesn't depend on the range, the load stays outside the loop. <code>%nx = add %cur 1</code> through a view at a constant offset runs once per outer iteration, not once per inner one. The fix is to make the view (and so the load) depend on the inner range. Quiz 3 below shows it.</p>
+    <p>If no use of a load depends on the inner range, the load stays outside the inner loop. In quiz 3 below, <code>%cur</code> is read through a view that depends only on i, and its use <code>%nx = add %cur 1</code> doesn't depend on j either, so the load runs once per i iteration, not once per j iteration. The fix is to make the view (and so the load) depend on the inner range.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -172,7 +172,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
 
   <h2>Go deeper</h2>
   <ul>
-    <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a> and its <a href="https://docs.tinygrad.org/">documentation</a>. RANGE and END come from tinygrad's IR; its codegen places values by their ranges just as lesson 3.5 does.</li>
+    <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a> and its <a href="https://docs.tinygrad.org/">documentation</a>. RANGE and END come from tinygrad's IR, and its codegen places values by their ranges just as lesson 3.5 does.</li>
     <li><a href="https://en.wikipedia.org/wiki/Loop-invariant_code_motion">Loop-invariant code motion</a>. The classic name for what placement gives you for free: values that don't depend on a loop leave it.</li>
     <li><a href="https://en.wikipedia.org/wiki/Loop_nest_optimization">Loop nest optimization</a>. Tiling and interchange, the transformations that make a looped matmul fast (week 6 onward).</li>
     <li><a href="https://siboehm.com/articles/22/Fast-MMM-on-CPU">Fast multidimensional matrix multiplication on CPU from scratch</a>. Takes exactly this week's triple loop and speeds it up step by step.</li>

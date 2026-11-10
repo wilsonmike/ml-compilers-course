@@ -43,7 +43,7 @@
  ],
  "hints": [
   "First count each node's consumers: for every <code>(id, srcs)</code>, <code>id</code> consumes each node in <code>srcs</code>. Loop over <code>set(srcs)</code> so a consumer that reads a node twice counts once.",
-  "<code>collections.Counter</code> does the counting. Then keep the ids that have at least 2 distinct consumers and a non-empty <code>srcs</code> of their own (leaves like buffer loads aren't worth staging).",
+  "<code>collections.Counter</code> does the counting. Then keep the ids that have at least 2 distinct consumers and a non-empty <code>srcs</code> of their own (a leaf has nothing to recompute, so staging it saves nothing).",
   "<code>sorted(...)</code> gives ascending order. A <code>Counter</code> returns 0 for a missing key, so nodes nobody reads need no special case."
  ],
  "explain": "Counting uses is the first question a materialization pass asks: a value with one consumer can always be fused into it, and a value with two consumers is the candidate for staging. A consumer that reads a node twice (like <code>mul c c</code>) is one use, because hash consing makes rangeify build that element once per index. Leaves are excluded because there is nothing to recompute."

@@ -74,7 +74,7 @@
 <button data-k="d">It depends on the data in the buffer</button>
 </div>
 <p class="hint">It's in the lesson, and it doesn't depend on 4096.</p>
-<div class="why"><p>About 800 bytes (801 with the current oracle). Two loops and a few scalar lines. The vector length only appears as the loop bounds 4095 and 4096. 125,000 bytes is what the unrolled store alone would cost.</p></div>
+<div class="why"><p>About 800 bytes (801 with the current oracle). Two loops and a few scalar lines. The vector length only appears as a few numbers: the loop bounds 4095 and 4096, and the <code>% 4096</code> in the index math. 125,000 bytes is what the unrolled store alone would cost.</p></div>
 </div>
 
 <div class="quiz" data-answer="b">
@@ -126,10 +126,10 @@
 <button data-k="a">It doubles</button>
 <button data-k="b">It grows by about 4096 lines</button>
 <button data-k="c">It shrinks, because the loops get fewer iterations per byte</button>
-<button data-k="d">Only the digits in the loop bounds change</button>
+<button data-k="d">Only a few numbers in it change, like the loop bounds</button>
 </div>
 <p class="hint">Where does n appear in the C?</p>
-<div class="why"><p>n appears only as loop bounds (and buffer sizes the harness owns), so the kernel stays the same length give or take a digit. That's what the size limit checks for.</p></div>
+<div class="why"><p>n appears only as a few numbers (the loop bounds and the <code>% 4096</code> in the index math, plus buffer sizes the harness owns), so the kernel stays the same length give or take a digit. That's what the size limit checks for.</p></div>
 </div>
 
 <nav class="pager">
@@ -166,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
     N('rc', 'recip', '', ['rd'], cls.rc), N('ex', 'expand', '[4096]', ['rc'], cls.ex), N('w', 'mul', '(4096,)', ['ld', 'ex'], cls.w), N('st', 'store y', '', ['w'], cls.st)];
   const steps = [
     { caption: 'The reduce becomes an accumulator. First the seed: a one-element temp holding <code>x[0]</code>.', nodes: g({ rd: 'hit' }), hl: 3 },
-    { caption: 'Then the fold: a loop over <code>r = 0..4094</code> that adds <code>x[r + 1]</code>, reloading the accumulator every iteration. (The <code>% 4096</code> comes from decoding a flat counter into an index; it never changes the value here.)', nodes: g({ rd: 'hit' }), hl: 4 },
+    { caption: 'Then the fold: a loop over <code>r = 0..4094</code> that adds <code>x[r + 1]</code>, reloading the accumulator every iteration. (The <code>% 4096</code> comes from decoding a flat counter into an index. It never changes the value here.)', nodes: g({ rd: 'hit' }), hl: 4 },
     { caption: 'The recip depends on no range, so it runs once, between the loops.', nodes: g({ rc: 'hit' }), hl: 13 },
     { caption: 'The expand leaves nothing behind. The store becomes a loop over 4096, and its body multiplies <code>x[r]</code> by the scalar <code>v24</code>.', nodes: g({ ex: 'dead', w: 'hit', st: 'hit' }), hl: 17 },
   ];

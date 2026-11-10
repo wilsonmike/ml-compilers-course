@@ -63,7 +63,7 @@ def uop(op, dtype, src=(), arg=None) -&gt; UOp:
     <div class="trap"><span class="label">Two Python traps in that key</span>
       <ul>
         <li><strong>The default <code>eq=True</code> hashes the whole subtree.</strong> A frozen dataclass with generated equality hashes every field, recursively, on every lookup, and caches nothing. On a 300-level shared DAG that's exponential. With <code>eq=False</code> the <code>src</code> tuple hashes its children by identity.</li>
-        <li><strong>Python thinks <code>0.0 == -0.0</code> and <code>True == 1</code>.</strong> They also hash the same, so a dict merges <code>const -0.0</code> into <code>const 0.0</code>. That's a wrong answer, not just lost sharing. Build the key from the type and, for floats, the bits (that's the <code>arg_key</code> above), the way tinygrad keys on <code>type(arg)</code> as well as <code>arg</code>.</li>
+        <li><strong>Python thinks <code>0.0 == -0.0</code> and <code>True == 1</code>.</strong> They also hash the same, so a dict merges <code>const -0.0</code> into <code>const 0.0</code>. That's a wrong answer, not just lost sharing. Build the key from the arg's type and, for floats, its bits (that's the <code>arg_key</code> above), so <code>0.0</code>, <code>-0.0</code>, <code>0</code> and <code>False</code> all get different keys.</li>
       </ul>
     </div>
 
@@ -260,7 +260,7 @@ end</code></pre>
 
   <div class="only-python">
     <h3>Strides and unraveling</h3>
-    <p>Row-major strides are suffix products of the shape. <code>itertools.accumulate</code> over the reversed shape with <code>operator.mul</code> builds them, and <code>divmod</code> unravels a flat index one axis at a time. Write both as small functions and test them against <code>itertools.product</code> on random shapes.</p>
+    <p>Row-major strides are suffix products of the shape: each stride is the product of the sizes after it. <code>list(itertools.accumulate(reversed(shape[1:]), operator.mul, initial=1))[::-1]</code> builds them (<code>(12, 4, 1)</code> for <code>(2, 3, 4)</code>), and <code>divmod</code> unravels a flat index one axis at a time. Write both as small functions and test them against <code>itertools.product</code> on random shapes.</p>
     <h3>Index expressions are UOps</h3>
     <p>When you rangeify a movement op, build the new index with the same smart constructor you use everywhere else, not as a string or a Python int. Then hash consing shares it and your week 1 simplifier cleans it up, which keeps the rendered C small.</p>
     <h3>Property tests for permutations</h3>
@@ -301,7 +301,7 @@ def test_add_wraps(a, b):
 (test
  (name test_compiler)
  (libraries mycompiler alcotest))</code></pre>
-    <p>Alcotest gives you named test cases and readable failures. ppx_expect works differently: you print something and the expected output sits in the source next to it. When the output changes, <code>dune test</code> shows a diff and <code>dune promote</code> accepts it. That suits printed .uir and rendered C well.</p>
+    <p>Alcotest gives you named test cases and readable failures. ppx_expect works differently: you print something and the expected output sits in the source next to it. Expect tests live in a library, not a <code>test</code> stanza: add <code>(inline_tests)</code> and <code>(preprocess (pps ppx_expect))</code> to its <code>dune</code> file. When the output changes, <code>dune test</code> shows a diff and <code>dune promote</code> accepts it. That suits printed .uir and rendered C well.</p>
     <pre><code>let%expect_test "fold add" =
   print_string (to_uir (simplify (parse "...")));
   [%expect {| %out = const 3 |}]</code></pre>
@@ -314,7 +314,7 @@ def test_add_wraps(a, b):
 
   <div class="only-python">
     <ul>
-      <li><a href="https://github.com/tinygrad/tinygrad/blob/master/tinygrad/uop/ops.py">tinygrad's <code>uop/ops.py</code></a>. The real UOp: a dataclass with <code>eq=False</code>, a hash-consing cache keyed on <code>(op, src, arg, type(arg))</code>, and <code>UPat</code> and <code>PatternMatcher</code> for rewrite rules. Read it after week 1 and compare with yours.</li>
+      <li><a href="https://github.com/tinygrad/tinygrad/blob/master/tinygrad/uop/ops.py">tinygrad's <code>uop/ops.py</code></a>. The real UOp: a dataclass with <code>eq=False</code>, a hash-consing cache keyed on its op, dtype, sources and arg, and <code>UPat</code> and <code>PatternMatcher</code> for rewrite rules. Read it after week 1 and compare with yours.</li>
       <li><a href="https://docs.tinygrad.org/">tinygrad documentation</a>. The overview of how the pieces in that file fit into a full ML framework.</li>
       <li><a href="https://peps.python.org/pep-0636/">PEP 636: Structural Pattern Matching tutorial</a>. The friendliest walk through <code>match</code>, including class patterns and guards.</li>
       <li><a href="https://docs.python.org/3/reference/compound_stmts.html#the-match-statement">The match statement reference</a>. The exact rules, such as why a literal pattern uses <code>==</code>.</li>

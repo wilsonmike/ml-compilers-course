@@ -24,8 +24,10 @@ Every UOp has a set of **open ranges**: the ranges it depends on that haven't be
 * `end x1 ... xk r` removes `r`: its open ranges are those of the effects, minus `r`.
 * `after m e` may sit inside loops (a reset store followed by an inner loop is a chain of versions
   inside the outer loops). Only an `after` with **no** open ranges counts as a buffer's output version;
-  the afters inside loops are local to an iteration. When `e` is an `end`, the loop must store into the
-  same memory as `m`.
+  the afters inside loops are local to an iteration. When `e` is an `end`, the loop must store into `m`
+  itself: each of its stores into that buffer writes into version `m`, or into a version built on `m`
+  inside the loop. Naming an older version of the buffer is invalid, just as it is for a single store
+  (week 2). That keeps each buffer's versions one chain, so its output version is never ambiguous.
 * An `assert`, a `call` (and everything in a call body), a `buffer`/`alloc` size and a `range` bound
   must have no open ranges.
 * Every range a store depends on must be closed by an `end` before an `after` uses it, and

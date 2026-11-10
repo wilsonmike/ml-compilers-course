@@ -24,12 +24,12 @@
 <main>
 <p class="eyebrow">Week 2 · Lesson 6</p>
 <h1>The week 2 lab</h1>
-<p class="lede">Extend your week 1 compiler with memory: buffers, views, loads, stores and versions, checked for order and bounds. Then teach it to print C. You're done when every week 2 test passes, week 1 still passes, and you've written 10 new tests of your own.</p>
+<p class="lede">Extend your week 1 compiler with memory: buffers, views, loads, stores, and versions, checked for order and bounds. Then teach it to print C. You're done when every week 2 test passes, week 1 still passes, and you've written 10 new tests of your own.</p>
 
 <div class="prose">
 <h2>What you're building</h2>
 <ul>
-<li><strong>Memory in the type checker.</strong> <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code>, from <a href="../../spec/uir-week2.md">spec/uir-week2.md</a>. Memory has addrspace GLOBAL and can't flow into ALU ops, <code>call</code> or <code>assert</code>.</li>
+<li><strong>Memory in the type checker.</strong> <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code>, and <code>after</code>, from <a href="../../spec/uir-week2.md">spec/uir-week2.md</a>. Memory has addrspace GLOBAL and can't flow into ALU ops, <code>stack</code>, <code>index</code>, <code>call</code>, or <code>assert</code>.</li>
 <li><strong>The ordering checks.</strong> One store per version, every store sequenced by exactly one <code>after</code>, and no load of a version that's needed after it was overwritten.</li>
 <li><strong>Bounds proofs.</strong> Every <code>shrink</code> proven in range with your week 1 interval analysis. A view you can't prove makes the program invalid.</li>
 <li><strong>Interpretation with memory</strong>, so <code>run</code> can evaluate asserts that read buffers.</li>
@@ -52,19 +52,19 @@
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>result</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td>Same exit codes and stderr lines as week 1: <code>0</code>, <code>1</code> with <code>assert failed: %name</code>, or <code>2</code> with a line starting <code>invalid:</code>. Ordering violations, unprovable bounds and memory used as a value are all static errors (exit 2). You may interpret or compile, and the grader only sees the exit code and stderr.</td></tr>
-<tr><td><code>your.exe render FILE</code></td><td>Print C to stdout that defines <code>void kernel(T0 *b0, T1 *b1, ...)</code>, one pointer per <code>buffer</code> in slot order (<code>float</code>, <code>int32_t</code>, <code>bool</code>). Asserts are ignored. No <code>for</code>, <code>while</code>, <code>do</code> or <code>goto</code>, and no calls outside the file except <code>&lt;math.h&gt;</code> (non-recursive helpers you define in the same file are fine).</td></tr>
+<tr><td><code>your.exe run FILE</code></td><td>Same exit codes and stderr lines as week 1: <code>0</code>, <code>1</code> with <code>assert failed: %name</code>, or <code>2</code> with a line starting <code>invalid:</code>. Ordering violations, unprovable bounds, and memory used as a value are all static errors (exit 2). You may interpret or compile, and the grader only sees the exit code and stderr.</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>Print C to stdout that defines <code>void kernel(T0 *b0, T1 *b1, ...)</code>, one pointer per <code>buffer</code> in slot order (<code>float</code>, <code>int32_t</code>, <code>bool</code>). Asserts are ignored. No <code>for</code>, <code>while</code>, <code>do</code>, or <code>goto</code>, and no calls outside the file except <code>&lt;math.h&gt;</code> (non-recursive helpers you define in the same file are fine).</td></tr>
 </tbody></table></div>
 
 <div class="prose">
 <h2>How render tests are graded</h2>
 <p>A render test is a valid program with a <code># render</code> header. For each one, the grader:</p>
 <ol>
-<li>runs <code>your.exe render FILE</code> and fails the test on a nonzero exit;</li>
-<li>removes comments and string literals from your C and fails it if <code>for</code>, <code>while</code>, <code>do</code> or <code>goto</code> appears;</li>
-<li>writes its own <code>main</code>: one <code>static</code> array per buffer, filled with the <code>data</code> values (f32 copied in from exact bit patterns), then a call to your <code>kernel</code> in slot order, then one line per element (f32 as 8 hex digits of bits);</li>
-<li>compiles both files with <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code> (with gcc, the equivalent trap flag);</li>
-<li>runs the program, and compares every element of every buffer with the oracle: i32 and bool exactly, f32 bit for bit, with any NaN matching any NaN.</li>
+<li>Runs <code>your.exe render FILE</code>, and fails the test on a nonzero exit.</li>
+<li>Removes comments and string literals from your C, and fails the test if <code>for</code>, <code>while</code>, <code>do</code>, or <code>goto</code> appears.</li>
+<li>Writes its own <code>main</code>: one <code>static</code> array per buffer, filled with the <code>data</code> values (f32 copied in from exact bit patterns), then a call to your <code>kernel</code> in slot order, then one line per element (f32 as 8 hex digits of bits).</li>
+<li>Compiles both files with <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code> (with gcc, the equivalent trap flag).</li>
+<li>Runs the program, and compares every element of every buffer with the oracle: i32 and bool exactly, f32 bit for bit, with any NaN matching any NaN.</li>
 </ol>
 <p>A crash in step 5 almost always means undefined behavior that the sanitizer turned into a trap: signed overflow, <code>INT_MIN / -1</code>, a bad shift. One Windows quirk: a naive <code>INT_MIN / -1</code> there tends to hang in the system error reporter instead of crashing, so you'll see "didn't finish" rather than "crashed". Check your <code>div</code> and <code>mod</code> first.</p>
 
@@ -76,7 +76,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1                # 
 <p>Tests live in <code>tests/week2/run/</code> and <code>tests/week2/render/</code>. Read a few before you start: they're short, and the file names say what each one checks.</p>
 
 <h2>Write your 10 tests</h2>
-<p>Same deal as week 1: 10 tests in <code>&lt;your compiler repo&gt;/tests/week2/</code>, each aimed at a rule someone will get wrong. Run tests use <code># expect: pass</code>, <code>assert_fail</code> or <code>invalid</code>, and render tests use <code># render</code>. Check them against the oracle:</p>
+<p>Same deal as week 1: 10 tests in <code>&lt;your compiler repo&gt;/tests/week2/</code>, each aimed at a rule someone will get wrong. Run tests use <code># expect: pass</code>, <code>assert_fail</code>, or <code>invalid</code>, and render tests use <code># render</code>. Check them against the oracle:</p>
 <pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week2</code></pre>
 <p>For a render test, <code>--check-tests</code> renders it with the oracle, compiles it with the same harness, and checks the buffers. Good targets: two stores into one version (invalid), a load of an old version after the store (a swap), an offset from a loaded value with and without a <code>mod</code> mask, a wrapping <code>mul</code> in a render test, and <code>max</code> on NaN and <code>-0.0</code>.</p>
 </div>
@@ -84,25 +84,25 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1                # 
 <h2>A build order that works</h2>
 <ol class="build">
 <li><h3>Parse the new ops</h3><p><code>buffer</code> and <code>alloc</code> take a size literal. <code>buffer</code> has <code>slot=</code> and optional <code>data=[...]</code>, and <code>shrink</code> takes an offset operand and <code>shape=[k]</code> or <code>shape=[]</code>. Two <code>alloc</code>s of the same size are different storage, so they must not hash cons into one node.</p><p class="check">Checkpoint: every file in <code>tests/week2/run/</code> parses or is rejected with exit 2.</p></li>
-<li><h3>Type memory</h3><p>Give every node an addrspace. Memory can be an operand of <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code>, and nothing else.</p><p class="check">Checkpoint: the "memory used as a value" invalid tests exit 2.</p></li>
+<li><h3>Type memory</h3><p>Give every node an addrspace. Memory can be an operand of <code>shrink</code>, <code>load</code>, <code>store</code>, and <code>after</code>, and nothing else.</p><p class="check">Checkpoint: the "memory used as a value" invalid tests exit 2.</p></li>
 <li><h3>Bounds</h3><p>Reuse your week 1 intervals. A loaded value's interval is the full i32 range.</p><p class="check">Checkpoint: the masked-offset tests pass and the unmasked ones exit 2.</p></li>
-<li><h3>Ordering checks</h3><p>Find each store's version by walking <code>shrink</code>s down to a <code>buffer</code>, <code>alloc</code> or <code>after</code>. Count stores per version and <code>after</code>s per store. Then try to schedule: if every load of V can't come before the store that overwrites V, the program is invalid.</p><p class="check">Checkpoint: all ordering invalid tests exit 2, and the swap tests pass.</p></li>
+<li><h3>Ordering checks</h3><p>Find each store's version by walking <code>shrink</code>s down to a <code>buffer</code>, <code>alloc</code>, or <code>after</code>. Count stores per version and <code>after</code>s per store. Then try to schedule: if every load of V can't come before the store that overwrites V, the program is invalid.</p><p class="check">Checkpoint: all ordering invalid tests exit 2, and the swap tests pass.</p></li>
 <li><h3>Interpret memory</h3><p>Versions are values: <code>after</code> produces a new array with one write applied. Copying is fine at this size.</p><p class="check">Checkpoint: every week 2 run test passes.</p></li>
 <li><h3>Render ALU ops</h3><p>One function from op to C expression, with the safe spellings from lesson 4. Test it by rendering week 1 style arithmetic into a buffer.</p><p class="check">Checkpoint: render tests with only i32 math pass, including the wrapping ones.</p></li>
-<li><h3>Render memory and the schedule</h3><p>Views become pointer plus offset, <code>after</code> prints nothing, loads of a version go before the store that overwrites it. Then f32: hex literals, NaN and infinities, the <code>max</code> helper.</p><p class="check">Checkpoint: every render test passes, bit for bit.</p></li>
+<li><h3>Render memory and the schedule</h3><p>Views become pointer plus offset, <code>after</code> prints nothing, loads of a version go before the store that overwrites it. Then f32: hex literals, NaN and infinities, and the <code>max</code> helper.</p><p class="check">Checkpoint: every render test passes, bit for bit.</p></li>
 <li><h3>Your 10 tests</h3><p>Write them, check them with <code>--check-tests</code>, and use them to break your compiler before the suite does.</p></li>
 </ol>
 
 <h2>Checklist</h2>
 <ul class="checklist" id="checklist">
-<li><label><input type="checkbox" data-k="parse"><span>Parser handles <code>buffer</code>, <code>alloc</code>, <code>shrink</code> with <code>slot=</code>, <code>data=[...]</code> and <code>shape=[]</code></span></label></li>
+<li><label><input type="checkbox" data-k="parse"><span>Parser handles <code>buffer</code>, <code>alloc</code>, and <code>shrink</code>, with <code>slot=</code>, <code>data=[...]</code>, and <code>shape=[]</code></span></label></li>
 <li><label><input type="checkbox" data-k="alloc"><span>Each <code>alloc</code> is its own storage, never hash consed with another</span></label></li>
 <li><label><input type="checkbox" data-k="addr"><span>Memory can't be used as a value: loads only</span></label></li>
 <li><label><input type="checkbox" data-k="bounds"><span>Every view is proven in bounds with intervals, and loaded values count as unknown</span></label></li>
 <li><label><input type="checkbox" data-k="order"><span>One store per version, every store sequenced, and old-version loads schedulable</span></label></li>
 <li><label><input type="checkbox" data-k="interp"><span><code>run</code> interprets memory, and asserts can read buffers</span></label></li>
 <li><label><input type="checkbox" data-k="ub"><span>Rendered i32 ops have no undefined behavior: <code>uint32_t</code> wrap, guarded <code>div</code> and <code>mod</code></span></label></li>
-<li><label><input type="checkbox" data-k="f32"><span>f32 constants print as exact literals, with <code>NAN</code>, <code>INFINITY</code> and <code>-0.0</code> handled</span></label></li>
+<li><label><input type="checkbox" data-k="f32"><span>f32 constants print as exact literals, with <code>NAN</code>, <code>INFINITY</code>, and <code>-0.0</code> handled</span></label></li>
 <li><label><input type="checkbox" data-k="sched"><span>Loads of a version are printed before the store that overwrites it</span></label></li>
 <li><label><input type="checkbox" data-k="suite2"><span><code>python tools/test.py --compiler ... --week 2</code> passes everything</span></label></li>
 <li><label><input type="checkbox" data-k="suite1"><span>Week 1 still passes everything</span></label></li>
@@ -131,7 +131,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1                # 
 <button data-k="c">It passes, but slowly</button>
 </div>
 <p class="hint">Look at step 2 of how render tests are graded.</p>
-<div class="why"><p>The grader rejects any <code>for</code>, <code>while</code>, <code>do</code> or <code>goto</code> outside comments and strings. Zero an <code>alloc</code> with an initializer, <code>= {0}</code>, instead.</p></div>
+<div class="why"><p>The grader rejects any <code>for</code>, <code>while</code>, <code>do</code>, or <code>goto</code> outside comments and strings. Zero an <code>alloc</code> with an initializer, <code>= {0}</code>, instead.</p></div>
 </div>
 
 <div class="quiz" data-fill="2">

@@ -10,7 +10,7 @@
   "There's no subtract op. Negate the mean with `mul %m -1.0`, expand that to `[8]`, and `add` it to `x`. Then `mul %c %c` squares every element.",
   "`c` is used twice by the same `mul`, which is still one use of one node: no `stage` needed. Fold the squares with `reduce op=add`, multiply by `0.125`, and store the scalar into a `shape=[]` view of slot 1."
  ],
- "explain": "The mean is a reduce, a scalar multiply, and an expand back to a vector; `x + (-mean)` is bit-identical to `x - mean`, so the centered values are exact to f32. Both sums fold left to right from the first element, which is why the expected bits are well defined. Staging `c` would add a temp buffer and change nothing in the result.",
+ "explain": "The mean is a reduce, a scalar multiply, and an expand back to a vector. Negating is exact, so `x + (-mean)` gives the same bits as `x - mean` would: each centered value is rounded to f32 once. Both sums fold left to right from the first element, which is why the expected bits are well defined. Staging `c` would add a temp buffer and change nothing in the result.",
  "tests": [
   {
    "data": {

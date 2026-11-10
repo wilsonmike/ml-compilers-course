@@ -31,13 +31,13 @@
     <thead><tr><th>op</th><th>operand dtypes</th><th>result</th><th>remember</th></tr></thead>
     <tbody>
       <tr><td><code>add</code>, <code>mul</code></td><td>i32 or f32, same</td><td>same</td><td>i32 wraps, f32 rounds</td></tr>
-      <tr><td><code>max</code></td><td>i32 or f32</td><td>same</td><td>NaN if either is NaN; <code>max(-0.0, 0.0) = +0.0</code></td></tr>
+      <tr><td><code>max</code></td><td>i32 or f32</td><td>same</td><td>NaN if either is NaN, and <code>max(-0.0, 0.0) = +0.0</code></td></tr>
       <tr><td><code>div</code>, <code>mod</code></td><td>i32</td><td>i32</td><td>truncate toward zero, mod takes the dividend's sign, by 0 is a runtime error, and <code>INT_MIN / -1 = INT_MIN</code></td></tr>
       <tr><td><code>shl</code></td><td>i32</td><td>i32</td><td>wraps, and a shift outside 0..31 is a runtime error</td></tr>
       <tr><td><code>xor</code></td><td>i32 or bool</td><td>same</td><td>bitwise / logical</td></tr>
       <tr><td><code>cmplt</code></td><td>i32 or f32</td><td>bool</td><td>any NaN gives false</td></tr>
       <tr><td><code>where c a b</code></td><td>bool, then same</td><td>a's</td><td>strict: both branches evaluated</td></tr>
-      <tr><td><code>cast a dtype=D</code></td><td>any</td><td>D</td><td>f32→i32 truncates, and NaN, inf, or out of range is a runtime error</td></tr>
+      <tr><td><code>cast a dtype=D</code></td><td>any but void</td><td>D</td><td>f32→i32 truncates, and NaN, inf, or out of range is a runtime error</td></tr>
       <tr><td><code>recip</code></td><td>f32</td><td>f32</td><td><code>recip 0.0 = inf</code>, <code>recip -0.0 = -inf</code></td></tr>
       <tr><td><code>assert a b</code></td><td>same</td><td>void</td><td>f32 by value: <code>0.0 == -0.0</code>, NaN equals NaN</td></tr>
     </tbody>
@@ -63,7 +63,7 @@
   <pre><code>python tools/test.py --compiler YOUR_COMPILER --week 1           # grade
 python tools/test.py --compiler YOUR_COMPILER -k call -v         # one topic, details
 python _reference/uirc.py run FILE                               # what should this do?</code></pre>
-  <p><code>YOUR_COMPILER</code> is the command that runs your compiler: <span class="only-python">a quoted command such as <code>"python C:/path/to/main.py"</code>.</span><span class="only-ocaml">the path to the <code>main.exe</code> that dune built.</span></p>
+  <p><code>YOUR_COMPILER</code> is the command that runs your compiler: <span class="only-python">the wrapper script from lesson 0.7, such as <code>"C:/path/to/my-ml-compiler/mlc.cmd"</code> on Windows or <code>~/my-ml-compiler/mlc</code> on macOS and Linux.</span><span class="only-ocaml">the path to the <code>main.exe</code> that dune built.</span></p>
 
   <h2>Mistakes people make</h2>
   <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week1.html">week 1 test guide</a> lists every test with the bugs known to fail it.</p>
@@ -134,7 +134,7 @@ python _reference/uirc.py run FILE                               # what should t
     <div class="why"><code>%outer</code>'s body is <code>call %inner 10</code>, which is 11 and uses no param of <code>%outer</code>. The 5 is an extra argument and is ignored.</div>
   </div>
   <div class="quiz" data-fill="4">
-    <p class="q">With hash consing, how many distinct nodes does this program build, counting the constants? (Ignore the asserts. There are none.)</p>
+    <p class="q">With hash consing, how many distinct nodes does this program build, counting the constants?</p>
     <pre><code>%a = add 1 2
 %b = add 1 2
 %c = mul %a %b
@@ -172,7 +172,7 @@ python _reference/uirc.py run FILE                               # what should t
   <h3>Challenges</h3>
   <ol>
     <li><strong>Tighter mod bounds.</strong> The oracle widens <code>mod x c</code> to <code>[-(c-1), c-1]</code> when x can be negative. Find a program where a tighter rule would let <code>simplify</code> remove one more op, and check your rule never changes a value by running both versions through the oracle with a few params.</li>
-    <li><strong>A rule the oracle doesn't have.</strong> Find a valid i32 identity the reference simplifier misses (for example something with <code>xor</code> or <code>max</code>). Write it as a <code>simplify</code> test with a smaller <code>max_ops</code> and check that <code>python tools/test.py --check-tests</code> rejects it, which proves the oracle doesn't reach it yet.</li>
+    <li><strong>A rule the oracle doesn't have.</strong> Find a valid i32 identity the reference simplifier misses (for example something with <code>xor</code> or <code>max</code>). Write it as a <code>simplify</code> test with a smaller <code>max_ops</code> and check that <code>python tools/test.py --check-tests DIR</code> (the folder holding your test) rejects it, which proves the oracle doesn't reach it yet.</li>
     <li><strong>Break the grader.</strong> Write a wrong simplification that you think the grader's edge-case inputs won't catch. If you find one, you've found a hole in the course: the cross product covers every edge value in every slot, so think about values that aren't edges.</li>
   </ol>
 </main>

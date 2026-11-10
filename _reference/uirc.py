@@ -171,7 +171,17 @@ def build(op, src, attrs):
     need(n == 2 and src[0].op in STORAGE and src[1].op in EFFECT, "after MEM EFFECT, MEM a whole buffer version (not a view)")
     sts = stores_under(src[1])
     if src[1].op == 'store': need(version_of(src[1].src[0]) is src[0], "the store must write into the version after names")
-    else: need(any(storage_of(st.src[0]) is storage_of(src[0]) for st in sts), "the loop must store into the memory after names")
+    else:
+      need(any(storage_of(st.src[0]) is storage_of(src[0]) for st in sts), "the loop must store into the memory after names")
+      # and into the version after names: each such store writes into that version, or into a version built inside
+      # this loop on top of it (an inner after has the loop's range open). Anything else forks the version chain.
+      r = src[1].src[-1]
+      def entry(v):
+        v = version_of(v)
+        while v.op == 'after' and r in opens(v): v = v.src[0]
+        return v
+      need(all(entry(st.src[0]) is src[0] for st in sts if storage_of(st.src[0]) is storage_of(src[0])),
+           "the loop must store into the version after names, not an older one")
     return UOp('after', src, None, src[0].dtype, src[0].shape)
   if op == 'const':
     raise UIRError("const takes a literal")   # handled by the parser

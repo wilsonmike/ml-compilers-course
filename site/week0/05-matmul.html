@@ -22,7 +22,7 @@
 <main>
   <p class="eyebrow">Week 0 · Lesson 5</p>
   <h1>Matrix multiply is a pile of dot products</h1>
-  <p class="lede">You only need one piece of linear algebra for this course: the dot product, and matrix multiply as a grid of them. Most of the compute in a neural network is matrix multiply, so most of the speed work in weeks 6 to 9 is about this one loop.</p>
+  <p class="lede">You only need one piece of linear algebra for this course: the dot product, and matrix multiply as a grid of them. Most of the compute in a neural network is matrix multiply, so most of the speed work, once kernels are timed from week 6, is about this one loop.</p>
 
   <div class="prose">
     <h2>The dot product</h2>
@@ -58,7 +58,7 @@
       C[i*N + j] = acc;
     }
 }</code></pre>
-    <p>It does <code>M * N * K</code> multiplies and the same number of adds. Look at the index into <code>B</code>: as <code>k</code> goes up it jumps <code>N</code> floats at a time, which is a stride, so it's cache-unfriendly for large <code>N</code>. Reordering the loops, tiling them, and keeping values in registers is how week 6 and week 8 make this fast. The math doesn't change, only the order.</p>
+    <p>It does <code>M * N * K</code> multiplies and the same number of adds. Look at the index into <code>B</code>: as <code>k</code> goes up it jumps <code>N</code> floats at a time, which is a stride, so it's cache-unfriendly for large <code>N</code>. Reordering the loops, tiling them, and keeping values in registers is how later weeks make this fast. The math doesn't change, only the order.</p>
   </div>
 
   <div class="note"><span class="label">Count it</span><p>A 256 by 256 matmul is <code>256 * 256 * 256 = 16,777,216</code> multiply-adds. People quote it as about 33.5 million FLOPs (floating point operations), because each multiply-add is 2. That FLOP count is how you'll grade your own speed later: FLOPs divided by seconds.</p></div>
@@ -78,7 +78,7 @@
 %3 = reshape %1 [256 1 256]
 %4 = mul %2 %3
 %5 = reduce %4 op=add pop=1</code></pre>
-    <p>These ops arrive in weeks 2 to 5, so don't worry about the syntax yet. The idea is lesson 4's broadcasting. Reshape both buffers to 3 axes, with a size-1 axis in a different place in each. Then <code>mul</code> broadcasts each to the full <code>(K, M, N)</code> cube of products, and <code>reduce</code> sums away the leading axis <code>k</code>. That's the multiply-then-sum of the dot product, done for every <code>(i, j)</code> at once.</p>
+    <p>These ops arrive in weeks 2 to 5, so don't worry about the syntax yet. This is the syllabus's shorthand. The course's own <code>.uir</code> spells it out more: it loads each buffer before reshaping, writes the shape as <code>shape=[...]</code>, and broadcasts with an explicit <code>expand</code>. The idea is lesson 4's broadcasting. Reshape both buffers to 3 axes, with a size-1 axis in a different place in each. Then <code>mul</code> broadcasts each to the full <code>(K, M, N)</code> cube of products, and <code>reduce</code> sums away the leading axis <code>k</code>. That's the multiply-then-sum of the dot product, done for every <code>(i, j)</code> at once.</p>
     <p>Below is the same thing with <code>K = 2</code>, <code>M = 2</code>, <code>N = 3</code>, so you can see every number.</p>
   </div>
   <div class="fig" id="gemm" data-title="reshape, broadcast-mul, reduce"></div>

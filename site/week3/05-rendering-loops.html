@@ -60,7 +60,7 @@
 
 <div class="exercise small" data-ex="w3-05-skeleton" data-ex-py="w3-05-skeleton-py">
 <h3>Print a loop nest</h3>
-<p>Write <code>skeleton : (string * string) list -> string -> string</code>. Given loops outermost first, each a variable and a bound, return C with one <code>for (int32_t v = 0; v &lt; bound; v++) {</code> per loop, the body innermost, and a <code>}</code> per loop. Indent two spaces per level. Join lines with <code>"\n"</code>, with no trailing newline. With no loops, return the body unchanged.</p>
+<p>Write <code>skeleton : (string * string) list -> string -> string</code>. Given loops outermost first, each a variable and a bound, return C with one <code>for (int32_t v = 0; v &lt; bound; v++) {</code> per loop, the body innermost, and a <code>}</code> per loop. Indent two spaces per level. Join lines with <code>"\n"</code>, with no trailing newline. With no loops, return the body unchanged. The examples print each line break as <code>\n</code>.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -90,11 +90,11 @@
 </div>
 
 <div class="quiz" data-answer="b">
-<p class="q">The accumulator load <code>%cur = load %yv0</code> depends on no range. Its only use is inside the <code>k</code> loop, and the <code>k</code> loop stores into the version it reads. Where does it run?</p>
+<p class="q">In the convolution, the accumulator load <code>%cur = load %yv0</code> depends on <code>i</code> but not on <code>k</code>. Its only use is inside the <code>k</code> loop, and the <code>k</code> loop stores into the version it reads. Where does it run?</p>
 <div class="opts">
-<button data-k="a">Outside every loop: it depends on no range</button>
+<button data-k="a">Outside every loop</button>
 <button data-k="b">Inside the <code>k</code> loop, every iteration</button>
-<button data-k="c">In the <code>i</code> loop, before the <code>k</code> loop starts</button>
+<button data-k="c">In the <code>i</code> loop, before the <code>k</code> loop starts: its deepest range is <code>i</code></button>
 </div>
 <p class="hint">This is the one placement rule that isn't about open ranges.</p>
 <div class="why"><p>A load runs in the innermost loop holding all its uses, and because that loop stores into the version it reads, it reloads every iteration and sees the running sum. Anywhere else, every iteration would add to the same starting value.</p></div>
@@ -199,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { caption: '<code>end ... %i</code> sits at the top level, so it becomes the outer loop. Its body is everything whose deepest range is <code>i</code>.', hit: ['ei', 'i'], c: code(2) },
     { caption: 'The reset store depends only on <code>i</code> (its offset is <code>i</code>), so it goes in the <code>i</code> loop, before the inner loop that reads its version.', hit: ['z'], c: code(3) },
     { caption: '<code>end ... %k</code> depends on <code>i</code> too, so it sits in the <code>i</code> block and becomes the inner loop.', hit: ['ek', 'k'], c: code(4) },
-    { caption: 'The accumulator load depends on no range, but its only use is in the <code>k</code> loop, and that loop stores into its version. So it runs here, every iteration.', hit: ['cur', 'y0'], c: code(5) },
+    { caption: 'The accumulator load depends on <code>i</code> but not on <code>k</code>, so open ranges alone would put it in the <code>i</code> loop. But its only use is in the <code>k</code> loop, and that loop stores into its version. So it runs here, every iteration.', hit: ['cur', 'y0'], c: code(5) },
     { caption: 'The index <code>i + k</code> depends on both ranges: <code>k</code> loop. Then the load of <code>x</code> at that offset.', hit: ['ik', 'xe'], c: code(7) },
     { caption: 'The kernel load at offset <code>k</code>. It doesn\'t depend on <code>i</code>, but its deepest range is <code>k</code>, so it can\'t leave the inner loop.', hit: ['we'], c: code(8) },
     { caption: 'Multiply, then add into the running sum.', hit: ['p', 'sum'], c: code(10) },

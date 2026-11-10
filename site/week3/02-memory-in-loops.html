@@ -91,7 +91,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 
 <div class="trap">
 <span class="label">The same node can't be both</span>
-<p>Because UOps are hash consed, "the load of b[0]" is one node. You can't have it be loop-carried for one use and pre-loop for another. And writing <code>load %acc</code> a second time doesn't help: two identical loads are the same node. If you need both the running value and the starting value, load through two <em>different</em> view nodes of the same element, for example one at offset <code>0</code> and one at an offset the graph sees as different, such as <code>mul %k 0</code>. With that change, the program above gives b[0] = 11 (loop-carried) and b[1] = 5 (the starting value).</p>
+<p>Because UOps are hash consed, "the load of b[0]" is one node. You can't have it be loop-carried for one use and pre-loop for another. And writing <code>load %acc</code> a second time doesn't help: two identical loads are the same node. If you need both the running value and the starting value, load through two <em>different</em> view nodes of the same element. Load the starting value through the view at offset <code>0</code>, as before. Load the running value through a view at offset <code>mul %k 0</code>: it's still element 0, but the graph sees a different node, and it depends on <code>%k</code>, so it runs inside the loop. With that change, the program above gives b[0] = 11 (loop-carried) and b[1] = 5 (the starting value).</p>
 </div>
 
 <div class="trap">

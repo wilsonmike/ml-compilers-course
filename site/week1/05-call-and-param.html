@@ -23,7 +23,7 @@
 
 <div class="prose">
 <h2>The lambda calculus in one paragraph</h2>
-<p>In the 1930s Alonzo Church showed that a language with only three things (variables, function definitions, and function application) can express any computation. Evaluation is one move, <strong>beta reduction</strong>: to apply a function, replace its variable with the argument everywhere it appears. <code>(λx. x + 1) 41</code> becomes <code>41 + 1</code> (<code>λx. x + 1</code> is math notation for "the function taking x to x + 1"). That's exactly what <code>call</code> does to a graph.</p>
+<p>In the 1930s Alonzo Church showed that a language with only three things (variables, function definitions, and function application) can express any computation. Evaluation is one move, <strong>beta reduction</strong>: to apply a function, replace its variable with the argument everywhere it appears. In math notation, <code>λx. x + 1</code> is "the function taking x to x + 1". Applying it to 41, written <code>(λx. x + 1) 41</code>, becomes <code>41 + 1</code>. That's exactly what <code>call</code> does to a graph.</p>
 
 <h2>param and call</h2>
 <pre><code>%x    = param 0 dtype=i32     # hole number 0, holds an i32
@@ -85,10 +85,10 @@
 </div>
 
 <div class="prose">
-<p>Two more rules. A <code>param</code> evaluated outside of any call has no value, so it's a runtime error (exit 2). And since a <code>call</code> has no side effects (it's <strong>pure</strong>), the simplifier can always <strong>inline</strong> it (replace the call with its body, params substituted), whether the args are constants or params: replace it with the substituted body, then keep folding. <code>call %body 41</code> with <code>%body = add %x 1</code> simplifies all the way to <code>const 42</code>.</p>
+<p>Two more rules. A <code>param</code> evaluated outside of any call has no value, so it's a runtime error (exit 2). And a <code>call</code> has no side effects (it's <strong>pure</strong>), so the simplifier can always <strong>inline</strong> it: replace the call with its body, params substituted, then keep folding. That works whether the args are constants or params. <code>call %body 41</code> with <code>%body = add %x 1</code> simplifies all the way to <code>const 42</code>.</p>
 
 <h2>stack and index: rank 1</h2>
-<p><code>stack</code> takes scalars of one dtype and adds a new leading axis: <code>stack 10 20 30</code> has shape <code>(3,)</code> (a shape with one axis of size 3; in .uir text you write it <code>shape=[3]</code>). <code>index x i</code> pops that axis back off and returns one element as a scalar. The index is checked at runtime: <code>i &lt; 0</code> or <code>i ≥ n</code> is a runtime error.</p>
+<p><code>stack</code> takes scalars of one dtype and adds a new leading axis: <code>stack 10 20 30</code> has shape <code>(3,)</code>, a shape with one axis of size 3. When a <code>param</code> needs that shape, you write it as the attribute <code>shape=[3]</code>. <code>index x i</code> pops that axis back off and returns one element as a scalar. The index is checked at runtime: <code>i &lt; 0</code> or <code>i ≥ n</code> is a runtime error.</p>
 </div>
 
 <div class="fig">
@@ -217,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { caption: 'The graph. Dashed edges go from a body into the <code>call</code> that uses it. <code>%p0</code> is one node, used both inside inner\'s body and as outer\'s arg.',
       nodes: [N('p', 'param', [], '', '0 i32'), N('c2', '2'), N('c5', '5'), N('in', 'mul', ['p', 'c2'], '', '%inner'),
               N('out', 'call', ['in', 'p'], '', '%outer', [B]), N('r', 'call', ['out', 'c5'], '', '%r', [B])] },
-    { caption: 'Evaluate <code>%r = call %outer 5</code>. Outer\'s body is <code>call %inner %p0</code>. Substitute slot 0 := 5 into it: walk into its <em>arg</em> <code>%p0</code>, but not into its body <code>%inner</code>.',
+    { caption: 'Evaluate <code>%r = call %outer 5</code>. Its body is <code>%outer</code>, the node <code>call %inner %p0</code>. Substitute slot 0 := 5 into it: walk into its <em>arg</em> <code>%p0</code>, but not into its body <code>%inner</code>.',
       nodes: [N('p', 'param', [], 'hit', '0 i32'), N('c2', '2'), N('c5', '5', [], 'hit'), N('in', 'mul', ['p', 'c2'], '', '%inner'),
               N('out', 'call', ['in', 'p'], 'hit', '%outer', [B, 'hit']), N('r', 'call', ['out', 'c5'], 'hit', '%r', [BH])] },
     { caption: 'The result is a new node, <code>call %inner 5</code>. Inner\'s <code>%p0</code> is untouched: it still means "inner\'s slot 0".',

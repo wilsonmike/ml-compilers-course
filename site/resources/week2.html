@@ -43,7 +43,7 @@
     <tbody>
       <tr><td>one store per version</td><td>two stores into the same version are unordered, even into different elements</td></tr>
       <tr><td>every store sequenced</td><td>a store no <code>after</code> names has no effect and is invalid</td></tr>
-      <tr><td>old version read late</td><td>if a load of version V is needed after V was overwritten, the program is invalid</td></tr>
+      <tr><td>loads before stores</td><td>a load of version V runs before the store that makes the next version, even if its value is used much later. This is always possible, so it's never an error, but your C must schedule it that way</td></tr>
       <tr><td>bounds</td><td>offset interval: <code>lo ≥ 0</code> and <code>hi + k ≤ n</code> (<code>k = 1</code> for <code>shape=[]</code>), and loaded values are full range</td></tr>
       <tr><td>outputs</td><td>the final version of each buffer: the one no <code>after</code> builds on</td></tr>
     </tbody>
@@ -129,9 +129,9 @@
   </div>
   <div class="quiz" data-answer="b">
     <p class="q">Which line is safe C for an i32 <code>add</code> under the grader's flags?</p>
-    <div class="opts"><button data-k="a"><code>int32_t v = a + b;</code></button><button data-k="b"><code>int32_t v = (int32_t)((uint32_t)a + (uint32_t)b);</code></button><button data-k="c"><code>int32_t v = (int32_t)((int64_t)a + b);</code></button></div>
-    <p class="hint">Which of these can overflow a signed type?</p>
-    <div class="why">Unsigned arithmetic wraps by definition, and converting back to <code>int32_t</code> wraps on every compiler you'll use. Option a overflows a signed int, which traps under <code>-fsanitize-trap</code>. Option c doesn't overflow the add, but converting an out-of-range 64-bit value back is the same implementation-defined step with no gain.</div>
+    <div class="opts"><button data-k="a"><code>int32_t v = a + b;</code></button><button data-k="b"><code>int32_t v = (int32_t)((uint32_t)a + (uint32_t)b);</code></button><button data-k="c"><code>int32_t v = (int32_t)(a + b);</code></button></div>
+    <p class="hint">Which of these can overflow a signed type? A cast only acts on the value it's given.</p>
+    <div class="why">Unsigned arithmetic wraps by definition, and converting back to <code>int32_t</code> wraps on every compiler you'll use. Option a overflows a signed int, which traps under <code>-fsanitize-trap</code>. Option c is the same signed add: the cast comes after the overflow, too late to help.</div>
   </div>
   <div class="quiz" data-answer="a">
     <p class="q">Why does the grader compile with <code>-ffp-contract=off</code>?</p>

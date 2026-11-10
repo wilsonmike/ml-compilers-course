@@ -66,7 +66,7 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 <h2>Canonicalization: one way to write it</h2>
 <p><code>add 3 %x</code> and <code>add %x 3</code> mean the same thing. Without help, every rule would need two versions, one for each side. Instead we add one <strong>canonicalization</strong> rule for each commutative op (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>):</p>
 <pre><code>op(c, x) → op(x, c)      when c is a const and x is not</code></pre>
-<p class="muted"><code>max</code> is only commutative because the spec pins down its one ambiguous case: <code>max(-0.0, 0.0)</code> is <code>+0.0</code> in either order. A naive <code>if a &gt; b then a else b</code> returns whichever comes second, and <code>recip</code> can see the difference.</p>
+<p class="muted"><code>max</code> is only commutative because the spec pins down its two tricky f32 cases: <code>max(-0.0, 0.0)</code> is <code>+0.0</code> in either order, and a NaN on either side gives NaN. A naive <code>if a &gt; b then a else b</code> returns whichever comes second in both cases, and <code>recip</code> can tell <code>-0.0</code> from <code>+0.0</code>.</p>
 <p>Now every other rule can assume constants sit on the right. Canonical forms also help hash consing, because two equivalent expressions are more likely to become the <em>same</em> node.</p>
 
 <h2>Why hash consing makes this cheap</h2>
@@ -74,7 +74,7 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 <ul>
 <li><strong>Shared work is rewritten once.</strong> If <code>add %x 1</code> appears ten times, it's one node, simplified once.</li>
 <li><strong>"Did anything change?" is an identity check.</strong> If the rule returns the very same object, nothing happened. No deep comparison of trees.</li>
-<li><strong>Rules like <code>xor(x, x) → 0</code> are a pointer comparison.</strong> "Both sources are the same node" is just "the two sources are the same node" (<span class="only-ocaml">OCaml's physical equality, <code>==</code></span><span class="only-python">Python's <code>is</code></span>).</li>
+<li><strong>Rules like <code>xor(x, x) → 0</code> are a pointer comparison.</strong> Equal expressions are the same node, so "are both sources the same expression?" is just "are they the same object?" (<span class="only-ocaml">OCaml's physical equality, <code>==</code></span><span class="only-python">Python's <code>is</code></span>).</li>
 </ul>
 </div>
 

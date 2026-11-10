@@ -69,7 +69,7 @@
 
   <div class="prose">
     <h2>Reshape: new shape, same buffer</h2>
-    <p>Reshaping <code>(3, 4)</code> to <code>(2, 6)</code> or <code>(4, 3)</code> just recomputes row-major strides for the new shape. The read order is still 0, 1, 2, ... 11, so no data moves. This works because the buffer is contiguous. Reshaping a buffer that has already been permuted isn't always possible without a copy, and week 5 deals with exactly that.</p>
+    <p>Reshaping <code>(3, 4)</code> to <code>(2, 6)</code> or <code>(4, 3)</code> just recomputes row-major strides for the new shape. The read order is still 0, 1, 2, ... 11, so no data moves. This works because the buffer is contiguous. Reshaping a view that has already been permuted can't always be written as new strides. Week 5 handles that case with index math (division and remainder) instead of strides, so it still needs no copy.</p>
 
     <h2>Permute: swap the strides</h2>
     <p>A transpose of <code>(3, 4)</code> is shape <code>(4, 3)</code> with strides <code>(1, 4)</code>. Same buffer, swapped strides. It's free to create, but reading it row by row now jumps 4 cells at a time. Lesson 2 showed why that's slow: every jump can land on a different cache line.</p>
@@ -88,8 +88,8 @@
     <p class="muted">The starter forgets the mask. The tests put other numbers right next to the row, so reading outside it shows up as a wrong answer, which is exactly the bug a missing mask causes in a real kernel.</p>
   </div>
 
-  <div class="trap"><span class="label">A view is not data</span><p>A view is not data. Writing to a broadcast view would mean three logical cells sharing one memory cell. Compilers either forbid it or copy first (materialize). Weeks 4 and 5 are mostly about deciding when to copy.</p></div>
-  <div class="note"><span class="label">Where this goes</span><p>In weeks 4 and 5 your compiler represents <code>RESHAPE</code>, <code>PERMUTE</code>, <code>PAD</code> and <code>SHRINK</code> exactly like this. They stay index math until a loop reads through them. A later step (called rangeify, in week 4) turns the shape into loops and the strides into the index math inside each memory read.</p></div>
+  <div class="trap"><span class="label">A view is not data</span><p>A view is not data. Writing to a broadcast view would mean three logical cells sharing one memory cell. Compilers either forbid it or copy first (materialize). Week 4 is largely about deciding when to copy.</p></div>
+  <div class="note"><span class="label">Where this goes</span><p>In week 5 your compiler gets <code>reshape</code>, <code>permute</code>, <code>pad</code> and <code>shrink</code>. Like the views on this page, they move no data. They stay index math until a loop reads through them. The step that does this is called rangeify: in week 4 it turns shapes into loops, and in week 5 it turns each movement op into the index math inside each memory read.</p></div>
 
   <h2>Code it</h2>
   <div class="exercise" data-ex="w0-04-view-at">

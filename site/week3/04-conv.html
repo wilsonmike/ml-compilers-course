@@ -66,7 +66,7 @@
 
 <div class="exercise small" data-ex="w3-04-conv1d-valid">
 <h3>Write the valid convolution</h3>
-<p>Slot 0 is <code>x</code> (6 i32), slot 1 is <code>w</code> (3 i32), slot 2 is <code>y</code> (4 i32). Make the final contents of slot 2 equal <code>y[i] = x[i]*w[0] + x[i+1]*w[1] + x[i+2]*w[2]</code> for every <code>i</code> in 0..3. The starter only uses <code>w[0]</code>. The tests set slots 0 and 1; i32 sums wrap as usual.</p>
+<p>Slot 0 is <code>x</code> (6 i32), slot 1 is <code>w</code> (3 i32), slot 2 is <code>y</code> (4 i32). Make the final contents of slot 2 equal <code>y[i] = x[i]*w[0] + x[i+1]*w[1] + x[i+2]*w[2]</code> for every <code>i</code> in 0..3. The starter only uses <code>w[0]</code>. The tests set slots 0 and 1. i32 sums wrap as usual.</p>
 </div>
 
 <div class="prose">
@@ -105,7 +105,7 @@
 <p>A 2D input of H rows and W columns lives in a flat row-major buffer, so element <code>(r, c)</code> is at <code>r*W + c</code> (lesson 0.4). A valid 2D convolution with a KH by KW kernel has four loops: output row and column, kernel row and column.</p>
 <pre><code>y[oi*OW + oj] = sum over ki, kj of x[(oi + ki)*W + (oj + kj)] * w[ki*KW + kj]
 OH = H - KH + 1,  OW = W - KW + 1</code></pre>
-<p>Every offset is a sum of products of ranges and constants, so the interval analysis proves it automatically. For a 4 by 4 input and a 2 by 2 kernel, <code>(oi + ki)*4 + (oj + kj)</code> is in [0, 2+1]*4 + [0, 2+1] = [0, 15]. The oracle's C for that program hoists each index computation to the shallowest loop it can live in:</p>
+<p>Every offset is a sum of products of ranges and constants, so the interval analysis proves it automatically. For a 4 by 4 input and a 2 by 2 kernel, <code>oi</code> is in [0, 2] and <code>ki</code> in [0, 1], so <code>oi + ki</code> is in [0, 3], and the same goes for <code>oj + kj</code>. That puts <code>(oi + ki)*4 + (oj + kj)</code> in [0, 3*4 + 3] = [0, 15]. The oracle's C for that program hoists each index computation to the shallowest loop it can live in:</p>
 <pre><code>for (int32_t r7 = 0; r7 &lt; 3; r7++) {               // oi
   int32_t v8 = (int32_t)((uint32_t)r7 * (uint32_t)3);
   for (int32_t r9 = 0; r9 &lt; 3; r9++) {             // oj
@@ -164,7 +164,7 @@ OH = H - KH + 1,  OW = W - KW + 1</code></pre>
 </div>
 <p class="hint">Work out each interval. C's <code>mod</code> takes the sign of the left operand.</p>
 <p class="hint">A view of one element at offset [lo, hi] needs lo ≥ 0 and hi + 1 ≤ 6.</p>
-<div class="why"><p><code>mod j 6</code> is in [-5, 5], because <code>j</code> can be negative. <code>max j 0</code> is in [0, 6], one past the end. Only <code>mod (max j 0) 6</code> is in [0, 5]; the oracle rejects the other three. A <code>where</code> never narrows an interval.</p></div>
+<div class="why"><p><code>mod j 6</code> is in [-5, 5], because <code>j</code> can be negative. <code>max j 0</code> is in [0, 6], one past the end. Only <code>mod (max j 0) 6</code> is in [0, 5]. The oracle rejects the other three. A <code>where</code> never narrows an interval.</p></div>
 </div>
 
 <div class="quiz" data-answer="b">

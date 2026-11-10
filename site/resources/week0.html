@@ -43,7 +43,7 @@
   <div class="tablewrap"><table>
     <thead><tr><th>memory and tensors</th><th>rule</th></tr></thead>
     <tbody>
-      <tr><td>cache line</td><td>64 bytes (16 floats); 128 on Apple M-series</td></tr>
+      <tr><td>cache line</td><td>64 bytes (16 floats), or 128 on Apple M-series</td></tr>
       <tr><td>row-major strides of shape <code>(d0, d1, d2)</code></td><td><code>(d1·d2, d2, 1)</code>: each stride is the product of the sizes after it</td></tr>
       <tr><td>flat index of <code>[i, j, k]</code></td><td><code>i·d1·d2 + j·d2 + k</code></td></tr>
       <tr><td>unravel a flat index <code>f</code> in shape <code>(d0, d1)</code></td><td><code>[f / d1, f % d1]</code></td></tr>
@@ -137,10 +137,11 @@
     <div class="why"><code>-9 / 4</code> truncates to <code>-2</code>, and <code>-9 - (-2)·4 = -1</code>.</div>
   </div>
   <div class="quiz" data-answer="c">
-    <p class="q">In OCaml, what does <code>Int32.to_int (Int32.add Int32.max_int 1l)</code> evaluate to?</p>
+    <p class="q only-ocaml">In OCaml, what does <code>Int32.to_int (Int32.add Int32.max_int 1l)</code> evaluate to?</p>
+    <p class="q only-python">In Python, with <code>wrap = lambda x: (x + 2**31) % 2**32 - 2**31</code>, what does <code>wrap(2147483647 + 1)</code> evaluate to?</p>
     <div class="opts"><button data-k="a"><code>2147483648</code></button><button data-k="b">an exception</button><button data-k="c"><code>-2147483648</code></button></div>
-    <p class="hint"><code>Int32</code> arithmetic wraps at 32 bits, exactly like the course's <code>i32</code>.</p>
-    <div class="why"><code>Int32.add</code> wraps, so <code>max_int + 1</code> becomes <code>min_int</code>, which converts to <code>-2147483648</code> as a native int. Plain <code>int</code> would give <code>2147483648</code>.</div>
+    <p class="hint"><span class="only-ocaml"><code>Int32</code> arithmetic wraps at 32 bits, exactly like the course's <code>i32</code>.</span><span class="only-python">The sum is 2<sup>31</sup>, one past INT_MAX. <code>wrap</code> maps any int into the 32-bit range.</span></p>
+    <div class="why"><span class="only-ocaml"><code>Int32.add</code> wraps, so <code>max_int + 1</code> becomes <code>min_int</code>, which converts to <code>-2147483648</code> as a native int. Plain <code>int</code> would give <code>2147483648</code>.</span><span class="only-python">Python computes <code>2147483648</code> exactly, then <code>wrap</code> gives <code>(2**32) % 2**32 - 2**31 = -2147483648</code>. Without <code>wrap</code> you'd get <code>2147483648</code>.</span></div>
   </div>
   <p>More practice: the <a href="review.html?week=0">week 0 quiz review</a> has every quiz from this week's lessons, or only the ones you missed.</p>
 

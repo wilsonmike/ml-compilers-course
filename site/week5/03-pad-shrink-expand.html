@@ -38,7 +38,7 @@
 <h2>shrink cuts a window</h2>
 <div class="prose">
 <p><code>shrink %x o0 o1 shape=[s0 s1]</code> takes one offset per axis and a window size: element <code>[i][j]</code> is <code>x[i + o0][j + o1]</code>. It's week 2's memory view, applied to a value. The first operand decides which one you get: memory gives a view, a value gives a window.</p>
-<p>The offsets can be any i32 expression, but as with views they must be <b>provably</b> in range, using week 1's intervals (lesson 2.3): for every axis, <code>lo ≥ 0</code> and <code>hi + s ≤ size</code>. A window of 2 over 4 elements at offset <code>mod (max %i 0) 3</code> is fine, since the offset is in <code>[0, 2]</code> and <code>2 + 2 ≤ 4</code>. At <code>mod (max %i 0) 4</code> the offset can reach 3, and <code>3 + 2 &gt; 4</code>, so it's rejected. A raw loaded <code>%i</code> could be anything, so it's rejected too.</p>
+<p>The offsets can be any i32 expression, but as with views they must be <b>provably</b> in range, using the same interval check as week 2's views (lesson 2.3): for every axis, <code>lo ≥ 0</code> and <code>hi + s ≤ size</code>. A window of 2 over 4 elements at offset <code>mod (max %i 0) 3</code> is fine, since the offset is in <code>[0, 2]</code> and <code>2 + 2 ≤ 4</code>. At <code>mod (max %i 0) 4</code> the offset can reach 3, and <code>3 + 2 &gt; 4</code>, so it's rejected. A raw loaded <code>%i</code> could be anything, so it's rejected too.</p>
 </div>
 
 <div class="note">
@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const steps = [
     { caption: 'The input: <code>%x</code>, shape <code>(2, 2)</code>.',
       draw: () => [box('%x (2, 2)', grid(2, 2, (i, j) => [X[i][j], '']))] },
-    { caption: '<code>pad %x pads=[1 1 1 1]</code>: one zero on every side, shape <code>(4, 4)</code>. Dashed cells are the new zeros; element <code>[i][j]</code> reads <code>x[i-1][j-1]</code>.',
+    { caption: '<code>pad %x pads=[1 1 1 1]</code>: one zero on every side, shape <code>(4, 4)</code>. Dashed cells are the new zeros, and element <code>[i][j]</code> reads <code>x[i-1][j-1]</code>.',
       draw: () => [box('pad [1 1 1 1]: (4, 4)', grid(4, 4, (i, j) => [P(i, j), P(i, j) && i && j && i < 3 && j < 3 ? '' : 'z']))] },
     { caption: '<code>shrink %p 1 1 shape=[2 2]</code> cuts the window at row 1, column 1: the original comes back.',
       draw: () => [box('the padded grid, window at (1, 1)', grid(4, 4, (i, j) => [P(i, j), (i >= 1 && i <= 2 && j >= 1 && j <= 2) ? 'on' : 'z'])),

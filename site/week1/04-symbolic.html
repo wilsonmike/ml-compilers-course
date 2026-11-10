@@ -27,7 +27,7 @@
 <div class="prose">
 <h2>Unknowns</h2>
 <p>Inside a function body, <code>param 0</code> (the input in slot 0, see lesson 1.2's params box) could be any i32. You can't fold <code>add %x 0</code> by computing it, but you can still prove it equals <code>%x</code> <em>for every possible x</em>. That's what makes a rule <strong>symbolic</strong>: it holds for all inputs, so it doesn't need the input.</p>
-<p>The <code>simplify</code> subcommand (your compiler's second command, after <code>run</code> from lesson 1.2: it reads a file defining <code>%out</code> and prints a smaller equivalent program) is graded exactly this way. Your output has to compute the same value as the original for every input where the original doesn't error. The grader checks that on every edge value in every param slot (a few hundred cases), including nasty ones like <code>INT_MIN</code>, <code>-0.0</code> and <code>nan</code>, and it compares f32 results bit for bit, so <code>-0.0</code> and <code>0.0</code> count as different there (all NaNs count as equal). Each test also has a <code>max_ops</code> budget, so leaving the graph untouched won't pass either.</p>
+<p>The <code>simplify</code> subcommand is your compiler's second command, next to <code>run</code> from lesson 1.2. It reads a file that defines <code>%out</code> and prints a smaller program that computes the same thing. It is graded exactly this way. Your output has to compute the same value as the original for every input where the original doesn't error. The grader checks that on every edge value in every param slot (a few hundred cases), including nasty ones like <code>INT_MIN</code>, <code>-0.0</code> and <code>nan</code>, and it compares f32 results bit for bit, so <code>-0.0</code> and <code>0.0</code> count as different there (all NaNs count as equal). Each test also has a <code>max_ops</code> budget, so leaving the graph untouched won't pass either.</p>
 
 <h2>i32 is a ring. f32 is not.</h2>
 <p>i32 arithmetic is arithmetic <strong>mod 2<sup>32</sup></strong>. Wraparound sounds messy, but it makes i32 a <em>ring</em>: addition and multiplication are associative and commutative, and multiplication distributes over addition, exactly like the integers you learned in school. Every identity built only from <code>+</code> and <code>×</code> holds, even when the values overflow.</p>
@@ -70,7 +70,7 @@
 <li><code>const c</code> is <code>[c, c]</code>. A <code>param</code> is the full range <code>[INT_MIN, INT_MAX]</code>.</li>
 <li><code>add</code>: <code>[a.lo + b.lo, a.hi + b.hi]</code>, but <strong>only if neither end overflows</strong>. If one could wrap, fall back to the full range.</li>
 <li><code>max</code>: <code>[max(a.lo, b.lo), max(a.hi, b.hi)]</code>.</li>
-<li><code>mod x c</code> with c &gt; 0: <code>[0, c-1]</code> if x ≥ 0, otherwise <code>[-(c-1), c-1]</code>, because the sign follows x.</li>
+<li><code>mod x c</code> with a const c &gt; 0: <code>[0, c-1]</code> if <code>x.lo ≥ 0</code>, otherwise <code>[-(c-1), c-1]</code>, because the sign follows x.</li>
 <li><code>cast</code> from bool: <code>[0, 1]</code>.</li>
 </ul>
 <p>Ranges are <strong>conservative</strong>. Reporting a range that's too wide is always safe, because it just proves fewer things. Reporting one that's too narrow is a bug.</p>

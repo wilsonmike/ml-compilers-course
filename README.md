@@ -15,11 +15,11 @@ those, and puts a diagram before every idea.
 | 0 | prerequisites: C, memory, IRs, tensors, matmul, Python or OCaml | 7 | exercises only | |
 | 1 | UOps and rewrites | 6 | 142 | [uir-week1.md](spec/uir-week1.md) |
 | 2 | memory and rendering C | 6 | 99 | [uir-week2.md](spec/uir-week2.md) |
-| 3 | loops | 6 | 89 | [uir-week3.md](spec/uir-week3.md) |
+| 3 | loops | 6 | 90 | [uir-week3.md](spec/uir-week3.md) |
 | 4 | rangeify, reduce, materialization | 6 | 77 | [uir-week4.md](spec/uir-week4.md) |
 | 5 | movement ops: reshape, permute, pad, shrink, any rank | 6 | 94 | [uir-week5.md](spec/uir-week5.md) |
 
-225 quizzes with hints and answers, 110 graded exercises (26 of them Python versions), and 501 compiler tests. The tests catch all 158 bugs that
+225 quizzes with hints and answers, 110 graded exercises (26 of them in Python), and 502 compiler tests. The tests catch all 159 bugs that
 `_reference/mutants.py` plants in the reference compiler. The `.uir` format is our own until the official 10-411 one
 is published, and then the specs and tests migrate.
 
@@ -88,7 +88,7 @@ python _reference/check_exercises.py            # every exercise: the solution p
 1. `--self-check`: every test header agrees with the reference, and the reference reaches every simplify target.
 2. The tricky values (f32 rounding, i32 wrap, C division, f32 to i32 casts) were cross-checked against real C compiled
    with clang.
-3. `_reference/mutants.py` plants 158 plausible bugs into the reference, one at a time. Each must fail at least one
+3. `_reference/mutants.py` plants 159 plausible bugs into the reference, one at a time. Each must fail at least one
    test, and an unmutated control copy must pass all of them.
 
 ## Contributing

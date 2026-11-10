@@ -47,12 +47,12 @@
 
 <div class="prose">
 <h2>The command-line contract</h2>
-<p>Nothing new on the command line. <code>run</code>, <code>simplify</code> and <code>render</code> keep their contracts from weeks 1 and 2; what changes is which programs they accept and what <code>render</code> may print.</p>
+<p>Nothing new on the command line. <code>run</code>, <code>simplify</code> and <code>render</code> keep their contracts from weeks 1 and 2. What changes is which programs they accept and what <code>render</code> may print.</p>
 </div>
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 3 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td>Programs may contain <code>range</code> and <code>end</code>. Loop rule violations (an <code>end</code> closing an unused range, a range closed twice, a range never closed, an assert or call depending on an open range) are static errors: exit 2 with an <code>invalid:</code> line.</td></tr>
+<tr><td><code>your.exe run FILE</code></td><td>Programs may contain <code>range</code> and <code>end</code>. Loop rule violations (an <code>end</code> closing an unused range, a range closed twice, a store whose range is never closed, an assert or call depending on an open range) are static errors: exit 2 with an <code>invalid:</code> line.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>For a program that contains a <code>range</code>, the C may use <code>for</code> loops. <code>while</code>, <code>do</code>, <code>goto</code> and recursion are still out. For a program with no <code>range</code>, the C must stay loopless.</td></tr>
 </tbody></table></div>
 
@@ -86,7 +86,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <ol class="build">
 <li><h3>Parse and type the new ops</h3><p><code>range</code> takes one i32 operand and is named by its statement, so two ranges with the same bound are still different loops. <code>end</code> takes one or more effects and a range last. Effects are <code>void</code>, and only <code>end</code> and <code>after</code> may consume them.</p><p class="check">Checkpoint: every file in <code>tests/week3/run/</code> parses or is rejected with exit 2.</p></li>
 <li><h3>Open ranges</h3><p>One memoized pass: a range is open in itself, <code>end</code> removes its range, everything else takes the union of its sources. Then the static checks from the spec.</p><p class="check">Checkpoint: the loop-rule invalid tests exit 2.</p></li>
-<li><h3>Bounds through ranges</h3><p>Add one case to your interval analysis: a range's interval is <code>[0, hi(n) - 1]</code>.</p><p class="check">Checkpoint: looped matmul and convolution offsets type check, and an unmasked padded index exits 2.</p></li>
+<li><h3>Bounds through ranges</h3><p>Add one case to your interval analysis: a range's interval is <code>[0, hi(n) - 1]</code>, where <code>hi(n)</code> is the upper bound of its operand. If <code>hi(n)</code> is 0 or less, the loop never runs. Use <code>[0, 0]</code> then, so the interval stays well formed.</p><p class="check">Checkpoint: looped matmul and convolution offsets type check, and an unmasked padded index exits 2.</p></li>
 <li><h3>Loop order and placement</h3><p>Find each range's outer loops from its <code>end</code>. Give every node a path of loops, outermost first, and move accumulator loads to their uses. Keep this a separate pass: it's the part the syllabus says wants a rewrite engine.</p><p class="check">Checkpoint: print each node with its path and check the convolution by eye.</p></li>
 <li><h3>Linearize</h3><p>Build nested blocks: each block lists its nodes and its loops in an order where sources come first and loads of a version come before the store that overwrites it.</p><p class="check">Checkpoint: the "old version needed after it was overwritten" tests still exit 2.</p></li>
 <li><h3>Execute the blocks in <code>run</code></h3><p>Mutable arrays per storage, a value table, and a loop that sets each range's counter and runs its body.</p><p class="check">Checkpoint: every week 3 run test passes, and weeks 1 and 2 still do.</p></li>
@@ -99,7 +99,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <li><label><input type="checkbox" data-k="parse"><span><code>range</code> and <code>end</code> parse and type check, and each range is its own loop</span></label></li>
 <li><label><input type="checkbox" data-k="open"><span>Every node knows its open ranges, and the loop rules are enforced statically</span></label></li>
 <li><label><input type="checkbox" data-k="bounds"><span>A range's interval is <code>[0, n-1]</code>, so looped offsets are proven in bounds</span></label></li>
-<li><label><input type="checkbox" data-k="order"><span>Loop order comes from the <code>end</code>s, and a range closed twice or never closed is rejected</span></label></li>
+<li><label><input type="checkbox" data-k="order"><span>Loop order comes from the <code>end</code>s, and a range closed twice, or a store whose range is never closed, is rejected</span></label></li>
 <li><label><input type="checkbox" data-k="place"><span>Values live at the depth of their deepest range, and accumulator loads move to their uses</span></label></li>
 <li><label><input type="checkbox" data-k="lin"><span>One linearized structure, walked by both <code>run</code> and <code>render</code></span></label></li>
 <li><label><input type="checkbox" data-k="exec"><span><code>run</code> executes loops with loop-carried memory</span></label></li>

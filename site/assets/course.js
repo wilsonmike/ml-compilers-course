@@ -233,7 +233,9 @@ const CC = (() => {
     const all = [...root.querySelectorAll('.quiz')]; let first = 0, done = 0;
     const page = here(); const pageKey = page ? page[1][0] : location.pathname;
     all.forEach((q, i) => { if (!q.dataset.qid) q.dataset.qid = `${pageKey}#${i}`; });
-    const tally = () => document.querySelectorAll('.score').forEach(s => (s.textContent = `${first} / ${all.length} first try` + (done < all.length ? ` · ${all.length - done} to go` : '')));
+    // the score counts only quizzes on the reader's language track (ids above still index every quiz, so they stay stable)
+    const n = all.filter(q => !q.closest(track() === 'python' ? '.only-ocaml' : '.only-python')).length;
+    const tally = () => document.querySelectorAll('.score').forEach(s => (s.textContent = `${first} / ${n} first try` + (done < n ? ` · ${n - done} to go` : '')));
     all.forEach(q => {
       const hints = [...q.querySelectorAll('.hint')]; let tries = 0, seen = 0, nudged = false;
       const msg = h('span', { class: 'qmsg', 'aria-live': 'polite' });

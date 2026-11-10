@@ -23,7 +23,7 @@
 <h2>reduce is a left fold</h2>
 <p><code>reduce %x op=add</code> takes a vector of shape <code>(n,)</code> and returns a scalar. The spec fixes the order exactly:</p>
 <pre><code>reduce x op=add  =  ((x[0] + x[1]) + x[2]) + ... + x[n-1]</code></pre>
-<p>It starts from <code>x[0]</code>, not from 0, and adds the rest left to right, rounding to f32 after every add. <code>op=mul</code> and <code>op=max</code> fold the same way. reduce works on i32 and f32; i32 wraps at every step, as always.</p>
+<p>It starts from <code>x[0]</code>, not from 0, and adds the rest left to right, rounding to f32 after every add. <code>op=mul</code> and <code>op=max</code> fold the same way. reduce works on i32 and f32. i32 wraps at every step, as always.</p>
 </div>
 
 <div class="key">
@@ -58,7 +58,7 @@
 <tbody>
 <tr><td><code>op=add</code></td><td><code>add</code></td><td>f32 overflow gives <code>inf</code>, and later finite adds keep it <code>inf</code> (a later <code>-inf</code> makes NaN), and i32 wraps</td></tr>
 <tr><td><code>op=mul</code></td><td><code>mul</code></td><td><code>65536 * 65536 * 3</code> is 0 in i32</td></tr>
-<tr><td><code>op=max</code></td><td><code>max</code></td><td>any NaN makes the result NaN; <code>max(-0.0, 0.0)</code> is <code>+0.0</code></td></tr>
+<tr><td><code>op=max</code></td><td><code>max</code></td><td>any NaN makes the result NaN, and <code>max(-0.0, 0.0)</code> is <code>+0.0</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -73,7 +73,7 @@
 %r = recip %s                  # ()   1 / sum
 %e = expand %r shape=[n]       # (n,) 1 / sum, n times
 %y = mul %v %e                 # (n,) each x / sum</code></pre>
-<p>For <code>x = [1.0 3.0]</code> that's <code>[0.25 0.75]</code>. A mean is a sum times a constant: <code>reduce</code>, then <code>mul</code> by <code>0.125</code> for eight elements. Note that <code>%v</code> is used twice, by the reduce and by the final <code>mul</code>. Both lowerings read <code>x</code> twice anyway, because the reduce has to finish before the store loop can start. The real question comes when a <em>computed</em> value (not a plain load) has two uses: recompute it at each use, or store it once. That's the materialization question of lesson 4.4.</p>
+<p>For <code>x = [1.0 3.0]</code> that's <code>[0.25 0.75]</code>. A mean is a sum times a constant: <code>reduce</code>, then <code>mul</code> by <code>0.125</code> for eight elements. Note that <code>%v</code> is used twice, by the reduce and by the final <code>mul</code>. That's fine: the generated code reads <code>x</code> twice whatever you do, because the reduce has to finish before the store loop can start. The real question comes when a <em>computed</em> value (not a plain load) has two uses: recompute it at each use, or store it once. That's the materialization question of lesson 4.4.</p>
 </div>
 
 <div class="exercise" data-ex="w4-02-maxnorm">

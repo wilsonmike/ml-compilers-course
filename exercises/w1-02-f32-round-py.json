@@ -2,7 +2,7 @@
  "id": "w1-02-f32-round-py",
  "lang": "python",
  "title": "Round to f32",
- "prompt": "<p>Python's <code>float</code> is a 64-bit double. Write <code>f32(x)</code>, which rounds <code>x</code> to the nearest f32 (ties to even, overflow to <code>inf</code>), and <code>add32(a, b)</code>, which adds two f32 values the way your interpreter must: compute, then round.</p><p>The <code>struct</code> module can pack a float into 4 bytes as an f32 and unpack it again.</p>",
+ "prompt": "<p>Python's <code>float</code> is a 64-bit double. Write <code>f32(x)</code>, which rounds <code>x</code> to the nearest f32 (ties to even, overflow to <code>inf</code>), and <code>add32(a, b)</code>, which adds two f32 values the way your interpreter must: compute, then round.</p><p>The <code>struct</code> module can pack a float into 4 bytes as an f32 and unpack it again, as in lesson 0.7. Remember what it does on overflow.</p>",
  "show": "lambda x: '%.9g' % x",
  "starter": "import struct\n\n\ndef f32(x: float) -> float:\n    \"\"\"Python floats are f64. Round x to the nearest f32 (ties to even), overflowing to inf.\"\"\"\n    return x\n\n\ndef add32(a: float, b: float) -> float:\n    \"\"\"Add two f32 values the way your interpreter must.\"\"\"\n    return a + b\n",
  "tests": [
@@ -54,9 +54,9 @@
   }
  ],
  "hints": [
-  "`struct.pack('f', x)` stores `x` as a 4-byte f32, rounding to nearest even. `struct.unpack('f', data)[0]` reads it back as a Python float, exactly.",
-  "Don't round by hand with `round()` or a cutoff at FLT_MAX. A value a little above FLT_MAX still rounds down to it. Only values past the halfway point to the next power of two become `inf`.",
+  "`struct.pack('<f', x)` stores `x` as a 4-byte f32, rounding to nearest even. `struct.unpack('<f', data)[0]` reads it back as a Python float, exactly.",
+  "When the rounded value would be infinite, `struct.pack('<f', x)` raises `OverflowError` instead. Catch it and return `math.copysign(math.inf, x)`. Don't add your own cutoff at FLT_MAX: a value a little above FLT_MAX still rounds down to it, and `struct` already gets that right.",
   "`add32` must round the sum, not just the inputs: add in f64, then round once to f32."
  ],
- "explain": "Packing with `struct` does the same f64 to f32 conversion the hardware does, including ties to even, subnormals and overflow to inf, and unpacking widens the result back exactly. Adding two f32 values in f64 is exact enough that rounding the sum once gives the correctly rounded f32 result."
+ "explain": "Packing with `struct` does the same f64 to f32 rounding the hardware does, including ties to even and subnormals, and unpacking widens the result back exactly. The one difference is overflow: `struct` raises `OverflowError` where C and the spec give an infinity, so `f32` catches it. Adding two f32 values in f64 is exact enough that rounding the sum once gives the correctly rounded f32 result."
 }
