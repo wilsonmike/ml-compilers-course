@@ -182,6 +182,7 @@ class H(SimpleHTTPRequestHandler):
   def do_GET(self):
     if not self.host_ok(): return self.send_error(403, 'bad host')
     path = self.path.split('?')[0]
+    if path in ('/', '/index.html'): self.send_response(302); self.send_header('Location', '/site/index.html'); self.end_headers(); return
     if path.startswith(('/exercises', '/_reference', '/.git')): return self.send_error(403, 'not served')
     if path == '/api/health':
       return self.send_json(200, {'ok': True, 'ocaml': bool(self.server.cfg.ocaml_ok), 'cc': self.server.cfg.cc and os.path.basename(self.server.cfg.cc), 'uir': True})
@@ -193,8 +194,6 @@ class H(SimpleHTTPRequestHandler):
       return self.send_json(200, solution(ex)) if ex else self.send_json(404, {'error': 'no such exercise'})
     return super().do_GET()
   def do_POST(self):
-    # the landing page's email form only works on the hosted site (functions/api/subscribe.js)
-    if self.path == '/api/subscribe' and self.host_ok(): return self.send_json(501, {'error': 'Sign-up works on the hosted site, not the local runner.'})
     # cross-site pages can't set X-Course-Runner without a CORS preflight, which we never approve
     if not self.host_ok() or self.headers.get('X-Course-Runner') != '1' or self.path != '/api/run':
       return self.send_error(403, 'forbidden')

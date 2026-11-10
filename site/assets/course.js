@@ -43,6 +43,10 @@ const CC = (() => {
       ['week5/05-rangeify-movement.html', 'Rangeify movement ops', '5.5'], ['week5/06-lab.html', 'Lab: movement ops', '5.6']] },
   ];
   const ROOT = () => document.body.dataset.root || './';
+  // The course's source, linked from the top bar of every page
+  const REPO = 'https://github.com/wilsonmike/ml-compilers-course';
+  const ghLink = () => { const a = h('a', { class: 'gh', href: REPO, title: 'The course on GitHub', 'aria-label': 'The course on GitHub' });
+    a.innerHTML = '<svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>'; return a; };
   // the nav entry for this page: the longest matching path wins, so resources/index.html isn't mistaken for index.html
   // Hosts like Cloudflare Pages serve /week1/01-the-uop.html as /week1/01-the-uop, and /site/index.html as /site/,
   // so put the file name back before matching.
@@ -104,7 +108,7 @@ const CC = (() => {
       h('svg', { width: 20, height: 20, viewBox: '0 0 20 20', 'aria-hidden': 'true' }, h('path', { d: 'M3 6h14M3 10h14M3 14h14', stroke: 'currentColor', 'stroke-width': 1.6, fill: 'none' })));
     const scrim = h('div', { class: 'scrim' });
     const page = h('div', { class: 'page' }, h('div', { class: 'docwrap' }, main || ''));
-    const wrap = h('div', { class: 'mainwrap' }, h('header', { class: 'topbar' }, menu, crumbs, pill), page);
+    const wrap = h('div', { class: 'mainwrap' }, h('header', { class: 'topbar' }, menu, crumbs, pill, ghLink()), page);
     app.append(side, scrim, wrap);
     b.prepend(app);
     if (main) toc(main, page);
@@ -312,7 +316,7 @@ const CC = (() => {
       try { ex = await fetch(r ? api('exercise/' + id) : ROOT() + 'data/ex/' + id + '.json').then(x => { if (!x.ok) throw new Error(x.status); return x.json(); }); }
       catch (e) { ex = null; if (r) { work.append(h('div', { class: 'ex-offline', text: `Couldn't load exercise "${id}" (${e.message}).` })); continue; } }
       const offline = () => h('div', { class: 'ex-offline' }, h('strong', { text: 'Code runs on your own machine.' }),
-        h('p', {}, 'Get the course on your computer (', h('a', { href: ROOT() + '../index.html#get-started', text: 'how' }), '), then start the runner from its folder.'),
+        h('p', {}, 'Get the course on your computer (', h('a', { href: REPO + '#taking-the-course', text: 'how' }), '), then start the runner from its folder.'),
         h('pre', {}, h('code', { text: 'python tools/serve.py' })), h('p', {}, 'Then open ', h('code', { text: 'http://127.0.0.1:4111' }), ' and the editor appears here.'));
       if (!ex) { work.append(offline()); continue; }
       const solved = h('span', { class: 'pill solved', text: 'Solved', hidden: store.get('cc-solved:' + id) ? null : '' });
@@ -378,7 +382,7 @@ const CC = (() => {
   }
   // The one line under a compare result: where real checking happens.
   const offlineNote = () => h('p', { class: 'ex-note' }, 'To run the tests, get the course on your computer (',
-    h('a', { href: ROOT() + '../index.html#get-started', text: 'how' }), ') and start ', h('code', { text: 'python tools/serve.py' }), '.');
+    h('a', { href: REPO + '#taking-the-course', text: 'how' }), ') and start ', h('code', { text: 'python tools/serve.py' }), '.');
   // A line diff of your code against the answer. Comments are left out, lines are compared without their spacing, and
   // blank lines are skipped, so a starter's comments or formatting alone never show as a difference.
   const COMMENTS = { ocaml: [/\(\*[\s\S]*?\*\)/g], c: [/\/\*[\s\S]*?\*\//g, /\/\/.*$/gm], uir: [/#.*$/gm] };

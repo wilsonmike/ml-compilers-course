@@ -42,7 +42,7 @@ and answers, and running code needs the local runner.
 
 ## Grading your compiler
 
-Write your compiler in any language, in its own repository. `templates/CLAUDE.md` is a starting point if you use an
+Write your compiler in any language, in its own repository. `templates/AGENTS.md` is a starting point if you use an
 AI assistant and want it to explain rather than write your code.
 
 ```
@@ -55,7 +55,6 @@ python tools/test.py --check-tests C:/path/to/your/tests/week1      # check your
 
 | path | what |
 |---|---|
-| `index.html` | the landing page |
 | `site/` | the lessons, quizzes, and study resources. No build step, no dependencies. |
 | `spec/` | the .uir format and semantics for each week |
 | `tests/weekN/` | the compiler tests: `run` tests with a `# expect:` header, `simplify` tests with a `# simplify:` header, and `render` tests from week 2 |
@@ -64,7 +63,6 @@ python tools/test.py --check-tests C:/path/to/your/tests/week1      # check your
 | `tools/serve.py` | the local course server and exercise runner |
 | `tools/build_helpers.py`, `tools/build_static.py` | generate the test guides and the exercise data for the hosted site |
 | `tools/design_lint.py` | checks the site against the design and copy rules |
-| `functions/` | the hosted site's one server function: the email sign-up (see `DEPLOY.md`) |
 | `site/vendor/codemirror/` | CodeMirror 5.65.16 (MIT), vendored so nothing loads from a CDN |
 | `_reference/` | **spoilers.** The reference compiler, the exercise answers, and the mutation harness. |
 

@@ -10,7 +10,6 @@ The written course is licensed under the
 
 - the lesson text, figures, quizzes, hints, and explanations in `site/` (HTML pages and the text inside them)
 - the specs in `spec/`
-- the landing page text in `index.html`
 
 You may share and adapt them for noncommercial purposes, as long as you credit "ML Compilers, From Zero", link to the
 license, and release your adaptation under the same license.
@@ -21,7 +20,7 @@ Everything that runs is under the MIT license in [`LICENSE`](LICENSE). That cove
 
 - the tools in `tools/` and the reference compiler and harness in `_reference/`
 - the tests in `tests/` and the exercises in `exercises/` (starter code, tests, and solutions)
-- the scripts and styles in `site/assets/`, and `functions/`
+- the scripts and styles in `site/assets/`
 
 ## Third-party code
 

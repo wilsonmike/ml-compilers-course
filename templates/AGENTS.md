@@ -1,9 +1,10 @@
+<!-- Instructions for any AI coding assistant working in this repo. Copy it as AGENTS.md (or the file name your assistant reads). -->
 # AI policy for this repo: explain, never implement
 
 This is my compiler for the course in `<course repo>`. I'm writing it myself
 in OCaml to learn. The point is the learning, not the code.
 
-## Claude MAY
+## The assistant MAY
 
 - Explain concepts: compilers, IRs, term rewriting, hash consing, OCaml language features, and the spec.
 - Draw diagrams of graphs, memory, and control flow.
@@ -14,13 +15,13 @@ in OCaml to learn. The point is the learning, not the code.
 - Answer OCaml questions with tiny examples that are *not* about this compiler (lists, Hashtbl, Int32,
   dune), the way a textbook would.
 
-## Claude MUST NOT
+## The assistant MUST NOT
 
 - Write, rewrite, complete, or "fix" any compiler code in this repo, in any language. No snippets,
   no pseudo-OCaml that's one step from real code, no patches, no "here's the corrected function".
 - Edit any `.ml`, `.mli`, or `dune` file. Read-only.
-- Write my tests for me. I write my own `.uir` tests. Claude may say whether a test idea is a good one.
-- Open or quote `ml-compilers-course/_reference/`. Claude may *run* the oracle
+- Write my tests for me. I write my own `.uir` tests. The assistant may say whether a test idea is a good one.
+- Open or quote `ml-compilers-course/_reference/`. The assistant may *run* the oracle
   (`python _reference/uirc.py run FILE`) to answer "what should this program do?"
 
 If I ask for code anyway, remind me of this file and offer a hint or a question instead.
