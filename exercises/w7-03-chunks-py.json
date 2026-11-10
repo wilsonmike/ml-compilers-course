@@ -1,0 +1,42 @@
+{
+  "id": "w7-03-chunks-py",
+  "lang": "python",
+  "title": "One chunk per thread",
+  "prompt": "<p>The harness runs a thread loop of <code>n</code> iterations on <code>t</code> threads by giving each thread one contiguous chunk. Write <code>chunks(n, t)</code>: the list of half-open ranges <code>(lo, hi)</code>, one per thread actually used. Use <code>min(t, n)</code> threads (at least 1), and give thread <code>k</code> of <code>m</code> the range <code>(n·k // m, n·(k+1) // m)</code>.</p>",
+  "show": "lambda v: ' '.join(f'{a}-{b}' for a, b in v)",
+  "starter": "def chunks(n: int, t: int) -> list[tuple[int, int]]:\n    \"\"\"One contiguous (lo, hi) range per thread.\"\"\"\n    size = n // t\n    return [(k * size, (k + 1) * size) for k in range(t)]\n",
+  "tests": [
+    {
+      "expr": "chunks(8, 4)",
+      "sample": true,
+      "expect": "0-2 2-4 4-6 6-8"
+    },
+    {
+      "expr": "chunks(10, 4)",
+      "sample": true,
+      "expect": "0-2 2-5 5-7 7-10"
+    },
+    {
+      "expr": "chunks(3, 8)",
+      "expect": "0-1 1-2 2-3"
+    },
+    {
+      "expr": "chunks(0, 4)",
+      "expect": "0-0"
+    },
+    {
+      "expr": "chunks(7, 1)",
+      "expect": "0-7"
+    },
+    {
+      "expr": "chunks(100, 7)",
+      "expect": "0-14 14-28 28-42 42-57 57-71 71-85 85-100"
+    }
+  ],
+  "hints": [
+    "The starter drops the remainder: <code>chunks(10, 4)</code> never runs iterations 8 and 9.",
+    "<code>n·k // m</code> spreads the remainder out: chunk sizes differ by at most one, and the last <code>hi</code> is always <code>n</code>.",
+    "With more threads than iterations, use <code>m = max(1, min(t, n))</code>. For <code>n = 0</code> that gives one empty chunk, <code>(0, 0)</code>."
+  ],
+  "explain": "Contiguous chunks give each thread a run of neighboring iterations, which means neighboring memory. That's good for caches, and with the slice rule it means each thread writes one block of the output. Computing bounds as <code>n·k // m</code> instead of <code>k · (n // m)</code> covers every iteration exactly once: the boundaries <code>n·k // m</code> rise from 0 to <code>n</code> without gaps."
+}

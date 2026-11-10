@@ -1,0 +1,37 @@
+{
+  "id": "w7-05-free-vars",
+  "lang": "ocaml",
+  "title": "What the thread body needs",
+  "show": "(fun l -> if l = [] then \"(none)\" else String.concat \" \" l)",
+  "starter": "(* Names the body uses but does not define (other than loop_var), sorted, no repeats.\n   body: (name, uses) statements, in order. *)\nlet free_vars (body : (string * string list) list) (loop_var : string) : string list =\n  List.sort_uniq compare (List.concat_map snd body)\n",
+  "hints": [
+    "Collect the defined names first: `List.map fst body`.",
+    "A use is free when it isn't defined in the body and isn't `loop_var`: `List.filter`.",
+    "`List.sort_uniq compare` sorts and drops repeats."
+  ],
+  "explain": "This is closure conversion, the step every compiler takes when it turns a nested block into a separate function. In the rendered C, `b0` (a buffer), `v0` (a value computed before the loop) and enclosing ranges like `r3` are free in the body, so they go into the struct. Names the body defines, like private allocs and its own values, are declared inside the function instead.",
+  "tests": [
+    {
+      "expr": "free_vars [(\"v1\", [\"b0\"; \"r0\"]); (\"v2\", [\"v1\"; \"v0\"])] \"r0\"",
+      "expect": "b0 v0",
+      "sample": true
+    },
+    {
+      "expr": "free_vars [(\"v1\", [\"r0\"]); (\"s\", [\"b1\"; \"v1\"])] \"r0\"",
+      "expect": "b1",
+      "sample": true
+    },
+    {
+      "expr": "free_vars [] \"r0\"",
+      "expect": "(none)"
+    },
+    {
+      "expr": "free_vars [(\"v5\", [\"v5x\"; \"b2\"; \"b2\"]); (\"v6\", [\"v5\"; \"r3\"; \"r1\"])] \"r1\"",
+      "expect": "b2 r3 v5x"
+    },
+    {
+      "expr": "free_vars [(\"a1\", []); (\"v2\", [\"a1\"; \"b0\"]); (\"v3\", [\"v2\"; \"v9\"])] \"r0\"",
+      "expect": "b0 v9"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+# expect: pass
+# memory the loop never writes may be read anywhere: each iteration sums all of x
+%x = buffer 4 dtype=i32 slot=0 data=[1 2 3 4]
+%o = buffer 4 dtype=i32 slot=1
+%r = range 4 axis=thread
+%acc = alloc 1 dtype=i32
+%c = range 4
+%a = shrink %acc 0 shape=[]
+%cur = load %a
+%xv = shrink %x %c shape=[]
+%xe = load %xv
+%sm = add %cur %xe
+%st = store %a %sm
+%ec = end %st %c
+%acc1 = after %acc %ec
+%a1 = shrink %acc1 0 shape=[]
+%tot = load %a1
+%ov = shrink %o %r shape=[]
+%so = store %ov %tot
+%e = end %ec %so %r
+%o1 = after %o %e
+%l = load %o1
+%w = stack 10 10 10 10
+%t = assert %l %w

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab: Fast Kernels</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Teach your compiler the three loop axes. It checks the thread rules, runs private allocs fresh in each iteration, unrolls upcast loops, and outlines thread...">
+<link rel="canonical" href="https://sharpterminal.com/site/week7/06-lab">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Lab: Fast Kernels">
+<meta property="og:description" content="Teach your compiler the three loop axes. It checks the thread rules, runs private allocs fresh in each iteration, unrolls upcast loops, and outlines thread loops for uir_parallel_for. You&#x27;re done...">
+<meta property="og:url" content="https://sharpterminal.com/site/week7/06-lab">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 7 · Lesson 6</p>
+<h1>The week 7 lab</h1>
+<p class="lede">Teach your compiler the three loop axes. It checks the thread rules, runs private allocs fresh in each iteration, unrolls upcast loops, and outlines thread loops for <code>uir_parallel_for</code>. You're done when every week 7 test passes, including three speed tests on a 768×768 GEMM, and weeks 1 to 6 still pass, and you've written 10 tests of your own.</p>
+
+<div class="prose">
+<h2>Warm up</h2>
+<p>The schedule the speed tests use, on a GEMM small enough to read.</p>
+</div>
+<div class="exercise small" data-ex="w7-06-schedule-gemm">
+<h3>Warm-up: schedule a GEMM</h3>
+<p>Make the row-block loop a thread loop and the six tile loops upcast loops. Only attributes change, and the result's bits don't.</p>
+</div>
+
+<div class="prose">
+<h2>The command-line contract</h2>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>week 7 changes</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe run FILE</code></td><td><code>range</code> takes <code>axis=loop|upcast|thread</code>. Every axis runs as an ordinary loop, except that a private alloc starts at zero in every iteration of its thread loop. New static errors (exit 2): an unknown axis, an upcast bound that isn't a literal from 1 to 32, a thread loop inside a thread loop, and a store (or a load of memory the loop stores into) that isn't at <code>r·S + e</code> with <code>0 ≤ e</code>, <code>e + size ≤ S</code>, one <code>S</code> per buffer.</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>Unroll upcast loops. Outline thread loops into a function and call <code>uir_parallel_for</code>, declared in your C. Private allocs are declared inside the outlined function.</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>How the tests are graded</h2>
+<ul>
+<li><b>Run tests</b> check the rules and the private-alloc semantics. Several come in pairs that differ only in the axis, like <code>loop_alloc_carries_over</code> and <code>thread_private_alloc_fresh</code>.</li>
+<li><b>Render tests</b> compare your C's buffers with the interpreter's, bit for bit, as always. The harness links in its pthreads <code>uir_parallel_for</code> when your C calls it. Upcast tests raise the size limit with <code># max_bytes:</code>.</li>
+<li><b>Speed tests</b> (<code># speed: X</code>) build your kernel and the reference kernel the same way at <code>-O2</code>, run each three times alternately, and require the reference's exact bits and at least X times its speed. <code>s_gemm_768_threads</code> and <code>s_gemm_768_threads_and_upcast</code> need 0.5. <code>s_gemm_768_upcast</code> (one thread) needs 0.65. On a machine with fewer than 4 hardware threads, the thread tests check bits only.</li>
+</ul>
+
+<h2>Running the suite</h2>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 7
+python tools/test.py --compiler "C:/path/to/your.exe" --week 7 -k s_gemm -v --jobs 1   # the speed tests, one at a time. A slow one prints both times
+python tools/bench.py --compiler "C:/path/to/your.exe" tests/week7/render/s_gemm_768_threads_and_upcast.uir</code></pre>
+<p>Then run weeks 1 to 6 again, one <code>--week</code> at a time. Pass <span class="only-ocaml">the built executable, not <code>dune exec</code>.</span><span class="only-python">the same wrapper script as in week 1.</span> The speed tests read <code>data/a768.f32</code> and <code>data/b768.f32</code> next to them, 2.4 MB each.</p>
+
+<h2>Write your 10 tests</h2>
+<p>Ten tests in <code>path/to/your-repo/tests/week7/</code>, checked with <code>python tools/test.py --check-tests path/to/your-repo/tests/week7</code>. Good targets: a store at <code>r·S + e</code> where <code>e</code> just fits and one where it's one over, a vector store whose size pushes it out of its slice, a load of a neighbor's element, a private alloc read before it's written, a thread loop inside a plain loop that captures the outer counter, and an upcast loop of 32.</p>
+</div>
+
+<h2>A build order that works</h2>
+<ol class="build">
+<li><h3>Parse axis=</h3><p>Store the axis on the range. Validate it, and check upcast bounds. Treat every axis as a plain loop everywhere else.</p><p class="check">Checkpoint: weeks 1 to 6 pass, and every week 7 run test passes except the thread-rule and private-alloc ones.</p></li>
+<li><h3>The thread rules</h3><p>After linearizing, walk each thread loop's body. Reject nesting. For each store, and each load of memory the body stores into, split the flat offset into a sum of terms, find the one term with <code>r</code>, and bound the rest with your week 1 bounds.</p><p class="check">Checkpoint: every <code>err_thread_*</code> test exits 2, and the valid ones run.</p></li>
+<li><h3>Private allocs</h3><p>An alloc whose every load and store is inside one thread loop is private. Re-zero it at the start of each iteration in <code>run</code>.</p><p class="check">Checkpoint: <code>thread_private_alloc_fresh</code> and <code>loop_alloc_carries_over</code> both pass.</p></li>
+<li><h3>Render upcast</h3><p>In the emitter, emit an upcast loop's body once per value, with the range as a literal.</p><p class="check">Checkpoint: <code>r_upcast_sum_order</code> and the <code>r_gemm_tiled_*</code> tests pass, bit for bit.</p></li>
+<li><h3>Render thread loops</h3><p>Emit the body into its own list of lines, collect its free names and their C types, and write a struct, a static function and the <code>uir_parallel_for</code> call. Declare private allocs inside the function.</p><p class="check">Checkpoint: every render test passes.</p></li>
+<li><h3>Speed</h3><p>Run the speed tests with <code>-v</code>. If one is slow, compare your C with <code>python _reference/uirc.py render</code>. Look for an upcast loop left as a loop, missing <code>restrict</code>, or a private alloc that ended up shared.</p><p class="check">Checkpoint: all three speed tests pass.</p></li>
+</ol>
+
+<h2>Checklist</h2>
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="parse"><span><code>axis=</code> parses and is validated, and upcast bounds are literals from 1 to 32</span></label></li>
+<li><label><input type="checkbox" data-k="rules"><span>Thread loops: no nesting, and every store (and load of written memory) owns its slice</span></label></li>
+<li><label><input type="checkbox" data-k="private"><span>Private allocs start at zero in every iteration, in <code>run</code> and in render</span></label></li>
+<li><label><input type="checkbox" data-k="upcast"><span>Upcast loops are unrolled in the rendered C</span></label></li>
+<li><label><input type="checkbox" data-k="outline"><span>Thread loops are outlined, with a context struct, and run through <code>uir_parallel_for</code></span></label></li>
+<li><label><input type="checkbox" data-k="speed"><span>The three speed tests pass</span></label></li>
+<li><label><input type="checkbox" data-k="old"><span>Weeks 1 to 6 still pass everything</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 week 7 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+
+<div class="key">
+<span class="label">The AI policy, still</span>
+<p>An AI assistant may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why is my upcast tile slower than the reference's?" is a fine question. "Write my outlining pass" is not.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your thread-loop renderer forgets to declare private allocs inside the outlined function, and uses one shared array instead. What fails?</p>
+<div class="opts">
+<button data-k="a">Nothing: the program resets the array anyway</button>
+<button data-k="b">Tests where iterations rely on starting from zero, and the speed tests: threads race on the shared array and its cache lines</button>
+<button data-k="c">Only the run tests</button>
+</div>
+<p class="hint">What does the spec say each iteration starts with?</p>
+<div class="why"><p>A shared array gives wrong answers when an iteration reads before writing (<code>r_thread_private_alloc</code>), and even when the program resets it, threads race on it. The planted bug "render private allocs shared" fails <code>r_thread_private_alloc</code> and both threaded speed tests.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">The speed test reports "too slow: 12.0 ms, target 6.4 ms, reference 3.2 ms" on <code>s_gemm_768_threads_and_upcast</code>. What's the first thing to check?</p>
+<div class="opts">
+<button data-k="a">Whether a whole axis is being ignored: 12 ms is close to what the GEMM takes with threads but no upcast</button>
+<button data-k="b">Whether the bits are right</button>
+<button data-k="c">The C compiler version</button>
+</div>
+<p class="hint">Compare with the measured times in lessons 7.3 and 7.4.</p>
+<div class="why"><p>On that machine the GEMM took about 12 ms with threads only and 3.2 ms with threads and upcast. A factor of about 4 is the signature of an upcast loop rendered as a <code>for</code> loop. The bits are already right, or the test would have said so first.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your machine has 2 hardware threads. What do the thread speed tests check?</p>
+<div class="opts">
+<button data-k="a">Speed, with a lower target</button>
+<button data-k="b">Nothing: they're skipped</button>
+<button data-k="c">Bits only: with fewer than 4 hardware threads, timing thread loops fairly isn't possible</button>
+</div>
+<p class="hint">The spec's grading section.</p>
+<div class="why"><p>With 2 threads, even a perfect threaded kernel is at most 2× faster than a sequential one, which is too close to the 0.5 target to separate right from wrong. So those tests check correctness only.</p></div>
+</div>
+
+<nav class="pager">
+<a href="05-kernels.html">← Lesson 5: Kernels and outlining</a>
+<a href="../index.html">Course home →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // per-viewer convenience only: remember ticked boxes; works without storage
+  const KEY = 'cc-week7-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

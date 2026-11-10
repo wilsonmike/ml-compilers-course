@@ -8,7 +8,7 @@ of [10-411, Compilers for Machine Learning](https://10-411.com/)
 The original course assumes strong C, a systems course, and some GPU experience. This one adds a week 0 that teaches
 those, and puts a diagram before every idea.
 
-## Status: weeks 0 to 6
+## Status: weeks 0 to 7
 
 | week | topic | lessons | tests | spec |
 |---|---|---|---|---|
@@ -19,10 +19,11 @@ those, and puts a diagram before every idea.
 | 4 | rangeify, reduce, materialization | 6 | 78 | [uir-week4.md](spec/uir-week4.md) |
 | 5 | movement ops: reshape, permute, pad, shrink, any rank | 6 | 96 | [uir-week5.md](spec/uir-week5.md) |
 | 6 | math ops, sugar, autodiff, data files, training on MNIST | 6 | 147 | [uir-week6.md](spec/uir-week6.md) |
+| 7 | fast kernels: tiling, upcast, threads, speed tests | 6 | 41 | [uir-week7.md](spec/uir-week7.md) |
 
-261 quizzes with hints and answers, 123 graded exercises (30 of them in Python), and 659 compiler tests. The tests catch all 206 plausible bugs that `_reference/mutants.py` plants in the
-reference compiler, one at a time. `--checks` also switches off each of its 138 validations and simplifier rules:
-106 are caught, and the other 32 are backed up by a second check that rejects the same program. The `.uir` format is our own until the official 10-411 one
+287 quizzes with hints and answers, 132 graded exercises (33 of them in Python), and 700 compiler tests. The tests catch all 216 plausible bugs that `_reference/mutants.py` plants in the
+reference compiler, one at a time. `--checks` also switches off each of its 146 validations and simplifier rules:
+113 are caught, and the other 33 are backed up by a second check that rejects the same program. The `.uir` format is our own until the official 10-411 one
 is published, and then the specs and tests migrate.
 
 ## Taking the course
@@ -95,7 +96,7 @@ What it runs, and what each part protects:
 | `tools/check_spec_w6.py` | the week 6 spec's math definitions drifting from the reference |
 | `tools/test.py --self-check --week N` | a test header that disagrees with the reference compiler |
 | `_reference/check_exercises.py` | an exercise whose solution fails or whose starter already passes |
-| `_reference/mutants.py` | tests too weak to notice a bug: it plants 206 plausible bugs into the reference, one at a time, and each must fail some test while an unmutated copy passes them all (5 minutes). `--checks` adds one bug per validation and simplifier rule. `--matrix` records every test each bug fails, for the test guides. |
+| `_reference/mutants.py` | tests too weak to notice a bug: it plants 216 plausible bugs into the reference, one at a time, and each must fail some test while an unmutated copy passes them all (5 minutes). `--checks` adds one bug per validation and simplifier rule. `--matrix` records every test each bug fails, for the test guides. |
 
 The tricky values (f32 rounding, i32 wrap, C division, f32 to i32 casts) were also cross-checked against real C
 compiled with clang, and the week 6 gradients against finite differences.

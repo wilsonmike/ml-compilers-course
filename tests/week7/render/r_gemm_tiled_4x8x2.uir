@@ -1,0 +1,77 @@
+# render
+# max_bytes: 80000
+# a 4x8 by 2 GEMM: thread over 4-row blocks, a 4x8 private tile, upcast loops. Same bits as matmul.
+%A = buffer 8 dtype=f32 slot=0 data=[0.8272859454154968 -0.7250439524650574 0.11214027553796768 -0.03395502269268036 0.9179608225822449 -0.2392204999923706 -0.10699918121099472 0.15477444231510162]
+%B = buffer 16 dtype=f32 slot=1 data=[-0.23580586910247803 0.8238095045089722 0.7571137547492981 0.4474780261516571 -0.88798588514328 0.9795089960098267 0.09779775887727737 0.19537711143493652 0.08423315733671188 0.031508270651102066 0.8614214062690735 -0.4536999464035034 -0.7151709794998169 0.9993356466293335 -0.47769227623939514 -0.44390869140625]
+%C = buffer 32 dtype=f32 slot=2
+%acc = alloc 32 dtype=f32
+%ib = range 1 axis=thread
+%jb = range 1
+# start each tile from its first product, A[i][0] * B[0][j], like reduce's fold
+%ri = range 4 axis=upcast
+%rj = range 8 axis=upcast
+%ri0 = mul %ib 4
+%rii = add %ri0 %ri
+%rar = mul %rii 2
+%rav = shrink %A %rar shape=[]
+%ra = load %rav
+%rj0 = mul %jb 8
+%rjj = add %rj0 %rj
+%rbv = shrink %B %rjj shape=[]
+%rb = load %rbv
+%ro0 = mul %ri 8
+%ro = add %ro0 %rj
+%rv = shrink %acc %ro shape=[]
+%rp = mul %ra %rb
+%rs = store %rv %rp
+%re1 = end %rs %rj
+%re2 = end %re1 %ri
+%acc1 = after %acc %re2
+# then k = 1, 2, ..., K-1, in order
+%k0 = range 1
+%k = add %k0 1
+%ki = range 4 axis=upcast
+%kj = range 8 axis=upcast
+%i0 = mul %ib 4
+%i = add %i0 %ki
+%ar = mul %i 2
+%ao = add %ar %k
+%av = shrink %A %ao shape=[]
+%a = load %av
+%j0 = mul %jb 8
+%j = add %j0 %kj
+%br = mul %k 8
+%bo = add %br %j
+%bv = shrink %B %bo shape=[]
+%b = load %bv
+%co0 = mul %ki 8
+%co = add %co0 %kj
+%cv = shrink %acc1 %co shape=[]
+%cur = load %cv
+%p = mul %a %b
+%sum = add %cur %p
+%st = store %cv %sum
+%ke1 = end %st %kj
+%ke2 = end %ke1 %ki
+%ke3 = end %ke2 %k0
+%acc2 = after %acc1 %ke3
+# write the tile out: C[(ib*TI + wi)*N + jb*TJ + wj], written as ib*(TI*N) + the rest
+%wi = range 4 axis=upcast
+%wj = range 8 axis=upcast
+%wo0 = mul %wi 8
+%wo = add %wo0 %wj
+%wv = shrink %acc2 %wo shape=[]
+%w = load %wv
+%o1 = mul %ib 32
+%o2 = mul %wi 8
+%o3 = mul %jb 8
+%o4 = add %o2 %o3
+%o5 = add %o4 %wj
+%oo = add %o1 %o5
+%ov = shrink %C %oo shape=[]
+%os = store %ov %w
+%we1 = end %os %wj
+%we2 = end %we1 %wi
+%je = end %re2 %ke3 %we2 %jb
+%ie = end %je %ib
+%C1 = after %C %ie

@@ -1,0 +1,11 @@
+# expect: invalid
+# an alloc that is also used after the loop is shared, so writing its element 0 from every iteration races
+%acc = alloc 1 dtype=i32
+%r = range 4 axis=thread
+%a = shrink %acc 0 shape=[]
+%s = store %a %r
+%e = end %s %r
+%acc1 = after %acc %e
+%a1 = shrink %acc1 0 shape=[]
+%v = load %a1
+%t = assert %v 3

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upcast</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A tile&#x27;s 32 running sums only help if they stay in registers. An array indexed by a loop variable lives in memory, so the C compiler loads and stores it on...">
+<link rel="canonical" href="https://sharpterminal.com/site/week7/03-upcast">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Upcast">
+<meta property="og:description" content="A tile&#x27;s 32 running sums only help if they stay in registers. An array indexed by a loop variable lives in memory, so the C compiler loads and stores it on every step. Unroll the loops that index it...">
+<meta property="og:url" content="https://sharpterminal.com/site/week7/03-upcast">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 7 · Lesson 3</p>
+<h1>Upcast: unrolling loops into registers</h1>
+<p class="lede">A tile's 32 running sums only help if they stay in registers. An array indexed by a loop variable lives in memory, so the C compiler loads and stores it on every step. Unroll the loops that index it, and every index becomes a constant: the array turns into 32 plain variables, and the C compiler keeps them in registers.</p>
+
+<div class="prose">
+<h2>axis=upcast</h2>
+<p>A range can now say how its loop runs:</p>
+</div>
+<pre><code>%kj = range 8 axis=upcast</code></pre>
+<div class="prose">
+<p>An <b>upcast</b> loop means the same thing as a plain loop, and <code>run</code> treats it exactly like one. The difference is in <code>render</code>: instead of a <code>for</code> loop, emit the body 8 times, with <code>kj</code> replaced by the literal 0, then 1, up to 7. The bound must be a literal from 1 to 32, because the body is copied that many times.</p>
+<p>Here is the innermost loop of the tiled GEMM before and after, in the C your compiler emits (simplified):</p>
+</div>
+
+<pre><code>/* plain loops: acc[] is indexed by variables, so it stays in memory */
+for (int32_t ki = 0; ki &lt; 4; ki++)
+  for (int32_t kj = 0; kj &lt; 8; kj++)
+    acc[ki * 8 + kj] = acc[ki * 8 + kj] + A[(4*ib + ki) * K + k] * B[k * N + 8*jb + kj];
+
+/* upcast: every index is a literal */
+float a0 = A[(4*ib + 0) * K + k];   /* one A value per tile row: a0 .. a3 */
+acc[0] = acc[0] + a0 * B[k * N + 8*jb + 0];
+acc[1] = acc[1] + a0 * B[k * N + 8*jb + 1];
+...
+acc[31] = acc[31] + a3 * B[k * N + 8*jb + 7];</code></pre>
+
+<div class="prose">
+<p>With constant indices and an array that never escapes, the C compiler replaces <code>acc[0]</code> to <code>acc[31]</code> with 32 variables, and those go in registers. The eight B values for one row of the tile sit next to each other in memory, so the compiler can also use <b>SIMD</b> instructions: one instruction that does 4 or 8 multiplies (or adds) on adjacent floats. SIMD works on separate outputs side by side, so every sum still adds in its own order, and the bits don't change.</p>
+
+<h2>What it's worth</h2>
+<p>Measured on the 768×768 GEMM, single-threaded, against the same loops without axes:</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>C compiler</th><th>plain loops</th><th>upcast tile</th><th>speedup</th></tr></thead>
+<tbody>
+<tr><td>clang 19</td><td>98 ms</td><td>24 ms</td><td>4.1×</td></tr>
+<tr><td>gcc 14</td><td>148 ms</td><td>82 ms</td><td>1.8×</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<p>The two compilers differ a lot. Both get faster, and neither changes a bit of the result. The speed test for upcast alone, <code>s_gemm_768_upcast</code>, asks for at least 0.65 of the reference's speed. A renderer that turns upcast loops into plain <code>for</code> loops lands around 0.25 with clang and 0.55 with gcc, and fails.</p>
+
+<h2>Upcast and the accumulator rule</h2>
+<p>Week 3's rule for loads still decides where things run. In the tiled GEMM, the load of <code>acc[ki*8 + kj]</code> sits inside the <code>k</code> loop, because the <code>k</code> loop stores into the version it reads. Unrolling doesn't change that: it happens after linearizing, when you print C. Unroll in the renderer, not in the graph, and the rules from earlier weeks keep working untouched.</p>
+</div>
+
+<div class="exercise" data-ex="w7-02-upcast-dot">
+<h3>Unroll a dot product</h3>
+<p>Make the <code>k</code> loop of this 8-element dot product an upcast loop. The result, including its bits, must not change.</p>
+</div>
+
+<div class="trap">
+<span class="label">Unrolling everything is not faster</span>
+<p>Registers run out. A 4×8 tile needs 32 accumulators plus a few loaded values, which fits. A 16×16 tile needs 256, which spills back to memory and is slower than a smaller tile. Code size grows too: the C for the full schedule is about 28 KB, which is why upcast tests raise the size limit with <code># max_bytes:</code>.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">What does <code>run</code> do differently for an upcast loop?</p>
+<div class="opts">
+<button data-k="a">It runs all iterations at once</button>
+<button data-k="b">Nothing: an upcast loop means the same as a plain loop. Only the rendered C differs.</button>
+<button data-k="c">It skips bounds checks</button>
+</div>
+<p class="hint">Do axes change results?</p>
+<div class="why"><p>No axis changes what a program computes. Upcast is an instruction to the renderer: copy the body instead of looping.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Why can the C compiler keep <code>acc[0..31]</code> in registers after unrolling, but not before?</p>
+<div class="opts">
+<button data-k="a">Unrolled code is shorter</button>
+<button data-k="b">Registers only hold constants</button>
+<button data-k="c">Registers can't be indexed by a variable. With literal indices, each element is a fixed name the compiler can assign a register to.</button>
+</div>
+<p class="hint">Can you write <code>register[k]</code> in machine code?</p>
+<div class="why"><p>There's no "register number k" instruction. An array indexed by a loop variable needs an address in memory. With constant indices, the compiler treats each element as its own variable.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Is <code>%r = range %n axis=upcast</code> valid, with <code>%n = add 4 4</code>?</p>
+<div class="opts">
+<button data-k="a">No: an upcast bound must be a literal, since the renderer copies the body that many times</button>
+<button data-k="b">Yes: <code>%n</code> is always 8</button>
+<button data-k="c">Yes, if <code>%n</code> is at most 32</button>
+</div>
+<p class="hint">The spec says "a literal from 1 to 32".</p>
+<div class="why"><p>The rule is about the program as written, not about what a simplifier could fold. The test <code>err_upcast_not_literal</code> checks it.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">SIMD multiplies 8 adjacent floats in one instruction. Does that change any result's bits?</p>
+<div class="opts">
+<button data-k="a">Yes: the multiplies are done together</button>
+<button data-k="b">No: each lane is a separate output with its own sum. Every operation still rounds exactly as before.</button>
+<button data-k="c">Only for subnormals</button>
+</div>
+<p class="hint">Which outputs share an instruction?</p>
+<div class="why"><p>The 8 lanes are 8 different <code>C[i][j]</code>. Each lane's add rounds like the scalar add would. What would change bits is fusing a multiply and an add, which <code>-ffp-contract=off</code> forbids.</p></div>
+</div>
+
+<nav class="pager">
+<a href="02-caches-and-tiling.html">← Lesson 2: Caches and tiling</a>
+<a href="04-threads.html">Lesson 4: Threads →</a>
+</nav>
+</main>
+</body>
+</html>

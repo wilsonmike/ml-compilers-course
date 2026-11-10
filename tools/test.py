@@ -19,9 +19,10 @@ ORACLE = [sys.executable, os.path.join(ROOT, '_reference', 'uirc.py')]
 TIMEOUT = 10
 
 def headers(text):
-  h = dict(re.findall(r"^#\s*(expect|simplify|time|max_bytes):\s*(.+?)\s*$", text, re.M))
+  h = dict(re.findall(r"^#\s*(expect|simplify|time|max_bytes|speed):\s*(.+?)\s*$", text, re.M))
   if 'simplify' in h: h['max_ops'] = int(re.search(r"max_ops=(\d+)", h['simplify']).group(1))
   if re.search(r"^#\s*render\s*$", text, re.M): h['render'] = True
+  if 'speed' in h: h['render'] = True
   if (m := re.search(r"^#\s*render check:\s*slot\s+(\d+)\s*>=\s*(-?[0-9.]+)\s*$", text, re.M)):   # week 6: a threshold, not bits
     h['render'] = True; h['check'] = (int(m.group(1)), float(m.group(2)))
   return h
@@ -150,7 +151,25 @@ def strip_c(src):
   # drop comments and string/char literals before looking for loops
   return re.sub(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', ' ', src, flags=re.S)
 
-def harness(names):
+THREADS = max(1, min(64, os.cpu_count() or 1))
+PARALLEL_FOR = f"\n#ifndef UIR_THREADS\n#define UIR_THREADS {THREADS}\n#endif" + r"""
+#include <pthread.h>
+/* week 7: the harness runs thread loops. Iterations are split into one contiguous chunk per thread. */
+typedef struct { int32_t lo, hi; void (*body)(int32_t, void *); void *ctx; } uir_chunk;
+static void *uir_run(void *p) { uir_chunk *c = p; for (int32_t i = c->lo; i < c->hi; i++) c->body(i, c->ctx); return 0; }
+void uir_parallel_for(int32_t n, void (*body)(int32_t, void *), void *ctx) {
+  int t = UIR_THREADS < n ? UIR_THREADS : n; if (t < 1) t = 1;
+  pthread_t th[64]; uir_chunk ch[64];
+  for (int k = 0; k < t; k++) {
+    ch[k] = (uir_chunk){ (int32_t)((int64_t)n * k / t), (int32_t)((int64_t)n * (k + 1) / t), body, ctx };
+    if (k) pthread_create(&th[k], 0, uir_run, &ch[k]);
+  }
+  uir_run(&ch[0]);
+  for (int k = 1; k < t; k++) pthread_join(th[k], 0);
+}
+"""
+
+def harness(names, timed=False):
   outs = O.final_versions(names)
   bufs = {u.arg[1]: u for u in O.all_nodes(names) if u.op == 'buffer'}
   lines = ['#include <stdio.h>', '#include <stdint.h>', '#include <stdbool.h>', '#include <string.h>',
@@ -164,7 +183,13 @@ def harness(names):
       lines.append(f"  static const uint32_t i{k}[{n}] = {{{', '.join(hex(struct.unpack('<I', O.fbits(x))[0]) for x in data)}}};")
       lines.append(f"  static float b{k}[{n}]; memcpy(b{k}, i{k}, sizeof b{k});")
     else: lines.append(f"  static {CT[b.dtype]} b{k}[{n}] = {{{', '.join(str(int(x)) for x in data)}}};")
-  lines.append('  kernel(' + ', '.join(f"b{k}" for k in outs) + ');')
+  call_k = '  kernel(' + ', '.join(f"b{k}" for k in outs) + ');'
+  if timed:                                       # week 7: time the kernel alone, with a monotonic clock
+    lines.insert(0, '#include <time.h>')
+    lines.append('  struct timespec t0_, t1_; clock_gettime(CLOCK_MONOTONIC, &t0_);')
+    lines.append(call_k)
+    lines.append('  clock_gettime(CLOCK_MONOTONIC, &t1_); fprintf(stderr, "kernel %.9f\\n", (t1_.tv_sec - t0_.tv_sec) + (t1_.tv_nsec - t0_.tv_nsec) * 1e-9);')
+  else: lines.append(call_k)
   for k, b in bufs.items():
     if isinstance(b.arg[3], O.Blob) and outs[k] is b: continue          # an input file nothing stores to
     if b.dtype == 'f32': lines.append(f"  for (int i = 0; i < {b.arg[2]}; i++) {{ uint32_t u; memcpy(&u, &b{k}[i], 4); printf(\"{k} %08x\\n\", u); }}")
@@ -178,6 +203,7 @@ def grade_render(cmd, text, base=None, h=None):
   rc, out, err = call(cmd, 'render', text, base, limit)
   if rc != 0: return f"render exited {rc}\n    stderr: {err.strip()[:300]}"
   names = O.parse(text, base)[0]
+  if 'speed' in h: return grade_speed(out, names, float(h['speed']), limit)
   looped = O.needs_loops(names)                 # weeks 3-4: ranges, or shape ops that rangeify into loops
   cap = int(h.get('max_bytes', 20000))
   if len(out.encode()) > cap: return f"rendered C is {len(out.encode())} bytes; the limit is {cap} (rank-1 values must become loops, not unrolled code)"
@@ -188,9 +214,9 @@ def grade_render(cmd, text, base=None, h=None):
   want = {} if 'check' in h else {k: v for k, v in O.final_buffers(names).items() if k not in skip}
   with tempfile.TemporaryDirectory() as d:
     k, hp, exe = os.path.join(d, 'kernel.c'), os.path.join(d, 'harness.c'), os.path.join(d, 'a.exe' if os.name == 'nt' else 'a.out')
-    open(k, 'w', encoding='utf-8').write(out); open(hp, 'w', encoding='utf-8').write(harness(names))
+    open(k, 'w', encoding='utf-8').write(out); open(hp, 'w', encoding='utf-8').write(harness(names) + (PARALLEL_FOR if 'uir_parallel_for' in out else ''))
     flags = CFLAGS if 'clang' in os.path.basename(CC) else CFLAGS[:-1] + ['-fsanitize-undefined-trap-on-error']
-    c = subprocess.run([CC, *flags, k, hp, '-o', exe, '-lm'], capture_output=True, timeout=max(60, limit))
+    c = subprocess.run([CC, *flags, k, hp, '-o', exe, '-lm'] + (['-lpthread'] if 'uir_parallel_for' in out else []), capture_output=True, timeout=max(60, limit))
     if c.returncode != 0: return "your C doesn't compile:\n" + indent(c.stderr.decode('utf-8', 'replace').replace(d + os.sep, ''))
     try: r = subprocess.run([exe], capture_output=True, timeout=limit)
     except subprocess.TimeoutExpired:
@@ -217,6 +243,42 @@ def grade_render(cmd, text, base=None, h=None):
         ok = (math.isnan(x) and math.isnan(gx)) or O.fbits(x) == gb
       else: ok = int(y) == int(x)
       if not ok: return f"buffer {slot}[{i}]: expected {x!r}, your kernel left {struct.unpack('<f', struct.pack('<I', int(y, 16)))[0] if dt == 'f32' else y}"
+  return None
+
+def build_timed(d, tag, c_src, names):
+  """Compile a kernel with the timing harness at -O2, without sanitizers (they slow code down). Returns exe or error."""
+  k, hp, exe = os.path.join(d, f'{tag}.c'), os.path.join(d, f'{tag}_h.c'), os.path.join(d, tag + ('.exe' if os.name == 'nt' else ''))
+  open(k, 'w', encoding='utf-8').write(c_src)
+  open(hp, 'w', encoding='utf-8').write(harness(names, timed=True) + (PARALLEL_FOR if 'uir_parallel_for' in c_src else ''))
+  c = subprocess.run([CC, '-std=c11', '-O2', '-ffp-contract=off', f'-DUIR_THREADS={THREADS}', k, hp, '-o', exe, '-lm', '-lpthread'], capture_output=True, timeout=120)
+  return exe if c.returncode == 0 else ("doesn't compile:\n" + indent(c.stderr.decode('utf-8', 'replace').replace(d + os.sep, '')))
+
+def grade_speed(out, names, speed, limit):
+  """# speed: X. Your kernel must give the reference kernel's bits and run in at most (reference time) / X,
+  both built the same way on this machine. Best of 3 runs each, interleaved, so load spikes hit both."""
+  if not CC: return "no C compiler found (clang or gcc) to build your rendered C"
+  ref = O.render_c(names)
+  with tempfile.TemporaryDirectory() as d:
+    mine = build_timed(d, 'mine', out, names)
+    if not os.path.exists(mine): return "your C " + mine
+    theirs = build_timed(d, 'ref', ref, names)
+    if not os.path.exists(theirs): return "grader error: the reference kernel " + theirs
+    best = {'mine': 1e9, 'ref': 1e9}; outputs = {}
+    for _ in range(3):
+      for tag, exe in (('mine', mine), ('ref', theirs)):
+        try: r = subprocess.run([exe], capture_output=True, timeout=limit)
+        except subprocess.TimeoutExpired: return f"{'your' if tag == 'mine' else 'the reference'} kernel didn't finish in {limit:g}s"
+        if r.returncode != 0: return f"{'your' if tag == 'mine' else 'the reference'} kernel crashed (exit {r.returncode})"
+        outputs[tag] = r.stdout
+        best[tag] = min(best[tag], float(re.search(rb"kernel ([0-9.e-]+)", r.stderr).group(1)))
+    if outputs['mine'] != outputs['ref']:
+      a, b = outputs['mine'].decode().split('\n'), outputs['ref'].decode().split('\n')
+      i = next(i for i, (x, y) in enumerate(zip(a + [''], b + [''])) if x != y)
+      return f"wrong result: line {i} of the buffers is {a[i] if i < len(a) else '(missing)'!r}, the reference gives {b[i] if i < len(b) else '(missing)'!r}"
+    threaded = 'uir_parallel_for' in ref
+    if threaded and THREADS < 4: return None    # too few cores to time thread loops fairly: correctness only
+    if best['mine'] > best['ref'] / speed:
+      return f"too slow: your kernel took {best['mine'] * 1e3:.1f} ms, the target is at most {best['ref'] / speed * 1e3:.1f} ms (the reference took {best['ref'] * 1e3:.1f} ms)"
   return None
 
 def show(args): return ', '.join(f"param {i} = {a.arg if a.op == 'const' else [s.arg for s in a.src]!r}" for i, a in enumerate(args))

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 7 Test Guide</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A test failed and you don&#x27;t know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the week 7...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/tests-week7">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 7 Test Guide">
+<meta property="og:description" content="A test failed and you don&#x27;t know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the week 7 spec.">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/tests-week7">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .guide td:first-child { white-space: nowrap; }
+  .guide td { font-size: 0.9375rem; }
+  .filter { width: 100%; max-width: 28rem; font: 1rem var(--sans); padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); color: var(--ink); margin: 0 0 var(--s4); }
+</style>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 7 test guide</h1>
+  <p class="lede">A test failed and you don't know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the <a href="../../spec/uir-week7.md">week 7 spec</a>.</p>
+  <div class="note"><span class="label">How to use this</span>
+    <p>Run <code>python tools/test.py --compiler PATH --week 7 -v</code>, copy the failing test's name, and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
+  </div>
+  <input class="filter" type="search" placeholder="Filter by test name, kind, or words" aria-label="Filter tests" oninput="for (const r of document.querySelectorAll('.guide tbody tr')) r.hidden = !r.textContent.toLowerCase().includes(this.value.toLowerCase())">
+  <div class="tablewrap">
+  <table class="guide">
+    <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
+    <tbody>
+    <tr><td><code>render/r_gemm_tiled_12x24x7</code></td><td>render</td><td>a 12x24 by 7 GEMM: thread over 4-row blocks, a 4x8 private tile, upcast loops. Same bits as matmul.</td><td>upcast unrolls one copy short</td></tr>
+    <tr><td><code>render/r_gemm_tiled_4x8x2</code></td><td>render</td><td>a 4x8 by 2 GEMM: thread over 4-row blocks, a 4x8 private tile, upcast loops. Same bits as matmul.</td><td>upcast unrolls one copy short</td></tr>
+    <tr><td><code>render/r_gemm_tiled_8x16x5</code></td><td>render</td><td>a 8x16 by 5 GEMM: thread over 4-row blocks, a 4x8 private tile, upcast loops. Same bits as matmul.</td><td>upcast unrolls one copy short</td></tr>
+    <tr><td><code>render/r_thread_captures_values</code></td><td>render</td><td>the outlined body needs values computed outside it: a scale loaded before the loop, and the outer range</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_thread_inside_loop</code></td><td>render</td><td>a thread loop inside a plain loop, rendered</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_thread_private_alloc</code></td><td>render</td><td>private allocs: each call of the outlined body starts from zeros</td><td>render private allocs shared<br>thread rendered as a plain loop</td></tr>
+    <tr><td><code>render/r_thread_rowsum</code></td><td>render</td><td>a thread loop rendered: the harness runs it with uir_parallel_for</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_thread_zero_trips</code></td><td>render</td><td>zero iterations: the buffer is untouched</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_upcast_sum_order</code></td><td>render</td><td>an unrolled f32 sum keeps its order</td><td>upcast unrolls one copy short</td></tr>
+    <tr><td><code>render/s_gemm_768_threads</code></td><td>run</td><td>speed: 0.5</td><td>render private allocs shared<br>thread rendered as a plain loop</td></tr>
+    <tr><td><code>render/s_gemm_768_threads_and_upcast</code></td><td>run</td><td>speed: 0.5</td><td>render private allocs shared<br>thread rendered as a plain loop<br>upcast rendered as a plain loop<br>upcast unrolls one copy short</td></tr>
+    <tr><td><code>render/s_gemm_768_upcast</code></td><td>run</td><td>speed: 0.65</td><td>upcast rendered as a plain loop<br>upcast unrolls one copy short</td></tr>
+    <tr><td><code>run/axis_loop_is_default</code></td><td>run: pass</td><td>axis=loop is the same as no axis at all</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/axis_thread_same_result</code></td><td>run: pass</td><td>a thread loop computes exactly what a plain loop does</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/axis_thread_wrong_value</code></td><td>run: assert_fail</td><td>and a wrong expected value still fails</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/axis_upcast_same_order</code></td><td>run: pass</td><td>upcast unrolls but keeps the order: the f32 sum (with 1e8 and -1e8 in it) has the same bits</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_axis_unknown</code></td><td>run: invalid</td><td>axis is loop, upcast or thread</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_thread_alloc_shared</code></td><td>run: invalid</td><td>an alloc that is also used after the loop is shared, so writing its element 0 from every iteration races</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_thread_load_neighbor</code></td><td>run: invalid</td><td>a load of memory the loop writes must stay in its own slice too: reading o[r + 1] races with iteration r + 1</td><td>thread loads unchecked</td></tr>
+    <tr><td><code>run/err_thread_mixed_strides</code></td><td>run: invalid</td><td>each access alone stays in a slice, o[2r] then o[r], but iteration 2 writes o[2] and so does iteration 1: one stride per buffer</td><td>mixed strides allowed</td></tr>
+    <tr><td><code>run/err_thread_nested</code></td><td>run: invalid</td><td>a thread loop inside another thread loop, even when each access rule holds (the outer loop runs once)</td><td>nested thread loops allowed</td></tr>
+    <tr><td><code>run/err_thread_store_negative</code></td><td>run: invalid</td><td>the rest of the offset may not go below the slice: 4r - 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_thread_store_not_literal_stride</code></td><td>run: invalid</td><td>the stride must be a literal</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_thread_store_overlap</code></td><td>run: invalid</td><td>o[2r + j] with j up to 3 reaches the next iteration&#x27;s slice</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_thread_store_r_twice</code></td><td>run: invalid</td><td>r may appear in one term only</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_thread_store_shared</code></td><td>run: invalid</td><td>every iteration writes o[j]: a race</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_thread_vector_store_overflows</code></td><td>run: invalid</td><td>a 2-element store at 4r + j, j up to 3, spills into the next slice</td><td>thread slice ignores the access size</td></tr>
+    <tr><td><code>run/err_upcast_not_literal</code></td><td>run: invalid</td><td>an upcast bound is a literal: the loop is copied that many times</td><td>upcast bound unchecked</td></tr>
+    <tr><td><code>run/err_upcast_too_big</code></td><td>run: invalid</td><td>upcast bounds go up to 32</td><td>upcast bound unchecked</td></tr>
+    <tr><td><code>run/err_upcast_zero</code></td><td>run: invalid</td><td>an upcast bound is at least 1</td><td>upcast bound unchecked</td></tr>
+    <tr><td><code>run/loop_alloc_carries_over</code></td><td>run: pass</td><td>the same program as a plain loop carries the alloc across iterations: running sums</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/thread_alloc_indexed_by_r</code></td><td>run: pass</td><td>a shared alloc is fine when each iteration writes its own element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/thread_inside_loop</code></td><td>run: pass</td><td>a thread loop inside a plain loop: each pass of the outer loop runs it again</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/thread_private_alloc_fresh</code></td><td>run: pass</td><td>an alloc used only inside a thread loop starts at zero in every iteration: out[r] = 0 + r</td><td>private allocs never reset</td></tr>
+    <tr><td><code>run/thread_private_alloc_not_cumulative</code></td><td>run: assert_fail</td><td>so a thread loop does not give running sums</td><td>private allocs never reset</td></tr>
+    <tr><td><code>run/thread_reads_any_input</code></td><td>run: pass</td><td>memory the loop never writes may be read anywhere: each iteration sums all of x</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/thread_store_own_slice</code></td><td>run: pass</td><td>iteration r writes o[4r + j], j in [0, 3]: its own slice</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/thread_store_stride_first</code></td><td>run: pass</td><td>the literal may come first: mul 4 r</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/thread_zero_trips</code></td><td>run: pass</td><td>a thread loop that runs zero times is fine</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/upcast_bound_32</code></td><td>run: pass</td><td>32 is allowed</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/upcast_inside_thread</code></td><td>run: pass</td><td>upcast loops inside a thread loop, writing o[4r + u]</td><td><span class=muted>none recorded</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</main>
+</body>
+</html>

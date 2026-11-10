@@ -1,0 +1,42 @@
+{
+  "id": "w7-01-attainable-py",
+  "lang": "python",
+  "title": "The roofline",
+  "prompt": "<p>A kernel can't go faster than the machine's peak compute, and it can't go faster than memory can feed it. Write <code>attainable(peak, bandwidth, flops, nbytes)</code>: the best speed in GFLOP/s a kernel doing <code>flops</code> operations on <code>nbytes</code> bytes of memory traffic can reach, on a machine with <code>peak</code> GFLOP/s and <code>bandwidth</code> GB/s.</p>",
+  "show": "lambda v: '%g' % v",
+  "starter": "def attainable(peak: float, bandwidth: float, flops: float, nbytes: float) -> float:\n    \"\"\"Best reachable GFLOP/s: limited by compute and by memory.\"\"\"\n    return peak\n",
+  "tests": [
+    {
+      "expr": "attainable(100, 20, 2e9, 1e9)",
+      "sample": true,
+      "expect": "40"
+    },
+    {
+      "expr": "attainable(100, 20, 2e11, 1e9)",
+      "sample": true,
+      "expect": "100"
+    },
+    {
+      "expr": "attainable(50, 10, 1, 4)",
+      "expect": "2.5"
+    },
+    {
+      "expr": "attainable(200, 50, 1e6, 1e6)",
+      "expect": "50"
+    },
+    {
+      "expr": "attainable(80, 40, 2e3, 1e3)",
+      "expect": "80"
+    },
+    {
+      "expr": "attainable(10, 100, 5, 1)",
+      "expect": "10"
+    }
+  ],
+  "hints": [
+    "Arithmetic intensity is <code>flops / nbytes</code>: how many operations each byte you move pays for.",
+    "Memory can deliver <code>bandwidth</code> GB per second, so it can feed at most <code>bandwidth · intensity</code> GFLOP/s.",
+    "Take the smaller of that and <code>peak</code>."
+  ],
+  "explain": "This is the roofline model. For low intensity (an elementwise add does about 1 operation per 12 bytes) memory is the limit, and a faster processor doesn't help. For high intensity (a big matmul reuses every number many times) compute is the limit. The first sample does 2 operations per byte: 20 GB/s times 2 is 40 GFLOP/s, under the 100 peak, so memory wins."
+}

@@ -1,0 +1,41 @@
+{
+  "id": "w7-03-chunks",
+  "lang": "ocaml",
+  "title": "One chunk per thread",
+  "show": "(fun l -> String.concat \" \" (List.map (fun (a, b) -> Printf.sprintf \"%d-%d\" a b) l))",
+  "starter": "(* One contiguous (lo, hi) range per thread, for n iterations on t threads. *)\nlet chunks (n : int) (t : int) : (int * int) list =\n  let size = n / t in\n  List.init t (fun k -> (k * size, (k + 1) * size))\n",
+  "hints": [
+    "The starter drops the remainder: `chunks 10 4` never runs iterations 8 and 9.",
+    "`n * k / m` spreads the remainder out: chunk sizes differ by at most one, and the last `hi` is always `n`.",
+    "With more threads than iterations, use `m = max 1 (min t n)`. For `n = 0` that gives one empty chunk, `(0, 0)`."
+  ],
+  "explain": "Contiguous chunks give each thread a run of neighboring iterations, which means neighboring memory. That's good for caches, and with the slice rule it means each thread writes one block of the output. Computing bounds as `n * k / m` instead of `k * (n / m)` covers every iteration exactly once: the boundaries rise from 0 to `n` without gaps.",
+  "tests": [
+    {
+      "expr": "chunks 8 4",
+      "expect": "0-2 2-4 4-6 6-8",
+      "sample": true
+    },
+    {
+      "expr": "chunks 10 4",
+      "expect": "0-2 2-5 5-7 7-10",
+      "sample": true
+    },
+    {
+      "expr": "chunks 3 8",
+      "expect": "0-1 1-2 2-3"
+    },
+    {
+      "expr": "chunks 0 4",
+      "expect": "0-0"
+    },
+    {
+      "expr": "chunks 7 1",
+      "expect": "0-7"
+    },
+    {
+      "expr": "chunks 100 7",
+      "expect": "0-14 14-28 28-42 42-57 57-71 71-85 85-100"
+    }
+  ]
+}

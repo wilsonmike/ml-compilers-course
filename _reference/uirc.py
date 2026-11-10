@@ -118,7 +118,10 @@ def build(op, src, attrs):
   if op == 'range':
     need(n == 1 and src[0].dtype == 'i32' and src[0].shape == (), "range N, N an i32 scalar")
     need(not opens(src[0]), "a range's bound can't depend on another range")
-    return UOp('range', src, ('range', attrs['_name']), 'i32', ())
+    ax = attrs.get('axis', 'loop')                # week 7: how the loop runs. loop keeps the week 3 node unchanged
+    need(ax in AXES, "axis is loop, upcast or thread")
+    if ax == 'upcast': need(src[0].op == 'const' and 1 <= src[0].arg <= 32, "an upcast range's bound is a literal from 1 to 32")
+    return UOp('range', src, ('range', attrs['_name']) + (() if ax == 'loop' else (ax,)), 'i32', ())
   if op == 'end':
     need(n >= 2 and src[-1].op == 'range', "end EFFECT... RANGE")
     need(all(x.op in EFFECT for x in src[:-1]), "end repeats effects: stores or ends")
@@ -624,7 +627,7 @@ def blob(url, sha, dt, n, base):
 INT_RE = re.compile(r"-?[0-9]+", re.A)
 FLOAT_RE = re.compile(r"-?(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|-?[0-9]+[eE][-+]?[0-9]+", re.A)
 NAME_RE = re.compile(r"%([A-Za-z0-9_]+)[ \t]*=[ \t]*([a-z_][a-z0-9_]*)(.*)", re.A)
-ATTRS = {'const': {'dtype'}, 'param': {'dtype', 'shape'}, 'cast': {'dtype'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data', 'url', 'sha256'}, 'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
+ATTRS = {'range': {'axis'}, 'const': {'dtype'}, 'param': {'dtype', 'shape'}, 'cast': {'dtype'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data', 'url', 'sha256'}, 'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
 TOK = re.compile(r"[A-Za-z_]+=\[[^\]]*\]|[^ \t]+")
 
 def literal(t):
@@ -755,7 +758,7 @@ def check_memory(names):
   for slot, v in final_versions(names).items():
     if opens(v): raise UIRError(f"buffer slot {slot}: its stores' loops are never closed")
   top = [u for u in nodes if not opens(u) and u.op != 'range']
-  linearize(top, top)
+  check_axes(linearize(top, top))
 
 def linearize(roots, universe=()):
   """Turn a graph into a block of items: nodes, or ('loop', end, range, body). Loops nest as the ends do.
@@ -858,11 +861,14 @@ def execute(block, roots_need=None):
   def view(v):                                   # (storage id, offset)
     if v.op != 'shrink': return id(storage_of(v)), 0
     sid, off = view(v.src[0]); return sid, off + val(v.src[1])
+  privates = thread_privates(block)
   def go(items):
     for it in items:
       if isinstance(it, tuple):
         _, e, r, body = it
-        for t in range(val(r.src[0])): vals[id(r)] = t; go(body)
+        for t in range(val(r.src[0])):
+          for a in privates.get(id(r), ()): mem[id(a)] = [ZERO[a.dtype]] * a.arg[1]
+          vals[id(r)] = t; go(body)
         continue
       u = it; op = u.op
       if op in ('const', 'after', 'end', 'range', 'shrink'): continue
@@ -885,6 +891,86 @@ def execute(block, roots_need=None):
       else: vals[id(u)] = alu_vec(u, v)
   go(block)
   return vals, mem
+
+AXES = ('loop', 'upcast', 'thread')
+def axis_of(r): return r.arg[2] if len(r.arg) > 2 else 'loop'
+
+def loop_nodes(body):
+  # every node inside a linearized loop body, nested loops included
+  out = []
+  for it in body:
+    if isinstance(it, tuple): out += loop_nodes(it[3])
+    else: out.append(it)
+  return out
+
+def thread_privates(block):
+  """For each thread loop (by range id): the allocs whose every load and store is inside it. Each iteration
+  gets its own copy of those, starting at zero (spec week 7)."""
+  where, loops = {}, {}
+  def walk(items, th):
+    for it in items:
+      if isinstance(it, tuple):
+        t = it[2] if axis_of(it[2]) == 'thread' else th
+        if t is not None and t is it[2]: loops[id(t)] = it
+        walk(it[3], t)
+      elif it.op in ('load', 'store'):
+        a = storage_of(it.src[0])
+        if a.op == 'alloc': where.setdefault(id(a), [a, set()])[1].add(id(th) if th is not None else None)
+  walk(block, None)
+  out = {k: [] for k in loops}
+  for a, ths in where.values():
+    if len(ths) == 1 and None not in ths: out[next(iter(ths))].append(a)
+  return out
+
+def offset_terms(v):
+  terms = []
+  def flat(o):
+    if o.op == 'add' and o.dtype == 'i32' and not o.shape: flat(o.src[0]); flat(o.src[1])
+    else: terms.append(o)
+  while v.op == 'shrink': flat(v.src[1]); v = v.src[0]
+  return terms
+
+def check_thread_access(r, v, what):
+  """Iteration r of a thread loop may only touch its own slice: offset r*S + e, with e independent of r and
+  0 <= e, e + size <= S. Returns S."""
+  def need(c, m):
+    if not c: raise UIRError(f"thread loop %{r.arg[1]}: {what} {m}")
+  ts = offset_terms(v); size = v.shape[0] if v.shape else 1
+  mine = [t for t in ts if r in opens(t)]
+  need(len(mine) == 1, "must be at an offset r * S + e, with r the thread range")
+  t = mine[0]
+  if t is r: S = 1
+  else:
+    need(t.op == 'mul' and ((t.src[0] is r and t.src[1].op == 'const') or (t.src[1] is r and t.src[0].op == 'const')), "must be at an offset r * S + e, S a literal")
+    S = t.src[1].arg if t.src[0] is r else t.src[0].arg
+  need(S >= 1, "needs a positive stride S")
+  lo = hi = 0; bm = {}
+  for e in ts:
+    if e is t: continue
+    a, b = bounds(e, bm); lo += a; hi += b
+  need(lo >= 0 and hi + size <= S, f"can't prove each iteration stays in its own slice: e in [{lo}, {hi}], {size} element(s), stride {S}")
+  return S
+
+def check_axes(block):
+  privates = thread_privates(block)
+  def walk(items, inside):
+    for it in items:
+      if not isinstance(it, tuple): continue
+      _, e, r, body = it
+      if axis_of(r) == 'thread':
+        if inside: raise UIRError(f"thread loop %{r.arg[1]} is inside another thread loop")
+        priv = {id(a) for a in privates.get(id(r), [])}
+        nodes = loop_nodes(body)
+        written = {id(storage_of(n.src[0])) for n in nodes if n.op == 'store'}
+        stride = {}
+        for n in nodes:
+          if n.op not in ('load', 'store'): continue
+          sid = id(storage_of(n.src[0]))
+          if sid in priv or (n.op == 'load' and sid not in written): continue   # private, or read-only here
+          S = check_thread_access(r, n.src[0], 'a store' if n.op == 'store' else 'a load of memory it writes')
+          if stride.setdefault(sid, S) != S: raise UIRError(f"thread loop %{r.arg[1]}: every access to one buffer must use the same stride")
+      walk(body, inside or axis_of(r) == 'thread')
+  walk(block, False)
 
 def final_versions(names):
   # the outputs: for each buffer, the version no top-level after builds on (afters inside loops are local)
@@ -1182,38 +1268,63 @@ def render_c(names):
   low = lower_math(roots + uni)                  # week 6: exp2, log2, sqrt, sin become their bodies
   roots, uni = low[:len(roots)], low[len(roots):]
   block = linearize(roots, uni)
-  ptr, name, lines = {}, {}, []
-  for (slot, v), r in zip(outs.items(), roots): ptr[id(storage_of(r))] = f"b{slot}"
+  ptr, name, lines, fns = {}, {}, [], []
+  ctype = {}                                     # C type of every name, for a thread body's captured variables
+  for (slot, v), r in zip(outs.items(), roots): ptr[id(storage_of(r))] = f"b{slot}"; ctype[f"b{slot}"] = CT[v.dtype] + ' *'
+  privates = thread_privates(block); private_ids = {id(a) for v in privates.values() for a in v}
   counter = [0]
   def ex(u): return c_lit(u.arg, u.dtype) if u.op == 'const' else name[id(u)]
   def view(u):
     if u.op != 'shrink': return ptr[id(storage_of(u))], '0'
     p, o = view(u.src[0]); off = ex(u.src[1])
     return p, (off if o == '0' else f"{o} + {off}")
+  def alloc_line(u, pad):
+    i = counter[0]; counter[0] += 1
+    ptr[id(u)] = f"a{i}"; ctype[f"a{i}"] = CT[u.dtype] + ' *'
+    return f"{pad}{CT[u.dtype]} a{i}[{u.arg[1]}] = {{0}};"
   def emit(items, depth):
     pad = '  ' * depth
     for it in items:
       if isinstance(it, tuple):
-        _, e, r, body = it
-        rv = f"r{counter[0]}"; counter[0] += 1; name[id(r)] = rv
+        _, e, r, body = it; ax = axis_of(r)
+        if ax == 'upcast':                       # unroll: one copy of the body per value, with r a literal
+          for t in range(r.src[0].arg): name[id(r)] = str(t); emit(body, depth)
+          continue
+        rv = f"r{counter[0]}"; counter[0] += 1; name[id(r)] = rv; ctype[rv] = 'int32_t'
+        if ax == 'thread':                       # outline the body; uir_parallel_for runs it once per value of r
+          fn = f"thread{len(fns)}"; start = len(lines)
+          for a in privates.get(id(r), ()): lines.append(alloc_line(a, '  '))
+          emit(body, 1)
+          inner = lines[start:]; del lines[start:]
+          text = '\n'.join(inner)
+          declared = set(re.findall(r"\b(?:float|int32_t|bool) ([va][0-9]+)\b", text)) | set(re.findall(r"for \(int32_t (r[0-9]+)", text)) | {rv}
+          used = sorted(set(re.findall(r"\b([vrab][0-9]+)\b", text)) - declared, key=lambda x: (x[0], int(x[1:])))
+          fields = ' '.join(f"{ctype[c]}{'' if ctype[c].endswith('*') else ' '}{c};" for c in used) or 'int unused_;'
+          unpack = ''.join(f"  {ctype[c]}{'restrict ' if ctype[c].endswith('*') else ' '}{c} = k_->{c};\n" for c in used)
+          fns.append(f"typedef struct {{ {fields} }} {fn}_ctx;\nstatic void {fn}(int32_t {rv}, void *ctx) {{\n  {fn}_ctx *k_ = ctx;\n{unpack}" + text + "\n}\n")
+          lines.append(f"{pad}{{ {fn}_ctx k_ = {{ {', '.join(used) or '0'} }}; uir_parallel_for({ex(r.src[0])}, {fn}, &k_); }}")
+          continue
         lines.append(f"{pad}for (int32_t {rv} = 0; {rv} < {ex(r.src[0])}; {rv}++) {{")
         emit(body, depth + 1); lines.append(f"{pad}}}"); continue
-      u = it; op = u.op; i = counter[0]; counter[0] += 1
+      u = it; op = u.op
+      if op == 'alloc':
+        if id(u) not in private_ids: lines.append(alloc_line(u, pad))
+        continue
+      i = counter[0]; counter[0] += 1
       v, t = f"v{i}", CT.get(u.dtype)
       if op in ('const', 'after', 'shrink', 'buffer', 'end', 'range', 'assert'): continue
-      if op == 'alloc': ptr[id(u)] = f"a{i}"; lines.append(f"{pad}{t} a{i}[{u.arg[1]}] = {{0}};"); continue
       if op == 'load':
         p, o = view(u.src[0])
         if u.shape: lines.append(f"{pad}{t} {v}[{u.shape[0]}] = {{" + ', '.join(f"{p}[{o} + {j}]" for j in range(u.shape[0])) + "};")
         else: lines.append(f"{pad}{t} {v} = {p}[{o}];")
-        name[id(u)] = v; continue
+        name[id(u)] = v; ctype[v] = t + ' *' if u.shape else t; continue
       if op == 'store':
         p, o = view(u.src[0]); x = ex(u.src[1])
         if u.src[0].shape: lines.extend(f"{pad}{p}[{o} + {j}] = {x}[{j}];" for j in range(u.src[0].shape[0]))
         else: lines.append(f"{pad}{p}[{o}] = {x};")
         continue
       a = [ex(x) for x in u.src]
-      if op == 'stack': lines.append(f"{pad}{t} {v}[{len(a)}] = {{{', '.join(a)}}};"); name[id(u)] = v; continue
+      if op == 'stack': lines.append(f"{pad}{t} {v}[{len(a)}] = {{{', '.join(a)}}};"); name[id(u)] = v; ctype[v] = t + ' *'; continue
       if op == 'index': e = f"{a[0]}[{a[1]}]"
       elif op == 'detach': e = a[0]
       elif op == 'bitcast': e = a[0] if u.src[0].dtype == u.dtype else f"f32_bits({a[0]})" if u.dtype == 'i32' else f"bits_f32({a[0]})"
@@ -1232,11 +1343,12 @@ def render_c(names):
       elif op == 'div': e = f"({a[1]} == -1 ? (int32_t)(0u - (uint32_t){a[0]}) : {a[0]} / {a[1]})"   # INT_MIN / -1 is UB
       elif op == 'mod': e = f"({a[1]} == -1 ? 0 : {a[0]} % {a[1]})"
       else: raise UIRError(f"render: can't render {op} here")
-      lines.append(f"{pad}{t} {v} = {e};"); name[id(u)] = v
+      lines.append(f"{pad}{t} {v} = {e};"); name[id(u)] = v; ctype[v] = t
   emit(block, 1)
-  params = ', '.join(f"{CT[v.dtype]} *b{slot}" for slot, v in outs.items()) or 'void'
-  return ("#include <stdint.h>\n#include <stdbool.h>\n#include <string.h>\n#include <math.h>\n\n" + C_HELPERS +
-          f"\nvoid kernel({params}) {{\n" + ''.join(f"{l}\n" for l in lines) + "}\n")
+  params = ', '.join(f"{CT[v.dtype]} *restrict b{slot}" for slot, v in outs.items()) or 'void'   # buffers never alias
+  par = "void uir_parallel_for(int32_t n, void (*body)(int32_t, void *), void *ctx);   /* the harness provides it */\n" if fns else ''
+  return ("#include <stdint.h>\n#include <stdbool.h>\n#include <string.h>\n#include <math.h>\n\n" + C_HELPERS + par +
+          ''.join('\n' + f for f in fns) + f"\nvoid kernel({params}) {{\n" + ''.join(f"{l}\n" for l in lines) + "}\n")
 
 def count_ops(root): return sum(u.op not in ('const', 'param') for u in toposort(root, into_bodies=True))
 

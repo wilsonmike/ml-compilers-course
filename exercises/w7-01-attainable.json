@@ -1,0 +1,41 @@
+{
+  "id": "w7-01-attainable",
+  "lang": "ocaml",
+  "title": "The roofline",
+  "show": "(fun v -> Printf.sprintf \"%g\" v)",
+  "starter": "(* Best reachable GFLOP/s: limited by compute (peak, GFLOP/s) and by memory (bandwidth, GB/s). *)\nlet attainable (peak : float) (bandwidth : float) (flops : float) (nbytes : float) : float =\n  peak\n",
+  "hints": [
+    "Arithmetic intensity is `flops /. nbytes`: how many operations each byte you move pays for.",
+    "Memory can deliver `bandwidth` GB per second, so it can feed at most `bandwidth *. intensity` GFLOP/s.",
+    "Take the smaller of that and `peak`: `Float.min`."
+  ],
+  "explain": "This is the roofline model. For low intensity (an elementwise add does about 1 operation per 12 bytes) memory is the limit, and a faster processor doesn't help. For high intensity (a big matmul reuses every number many times) compute is the limit. The first sample does 2 operations per byte: 20 GB/s times 2 is 40 GFLOP/s, under the 100 peak, so memory wins.",
+  "tests": [
+    {
+      "expr": "attainable 100. 20. 2e9 1e9",
+      "expect": "40",
+      "sample": true
+    },
+    {
+      "expr": "attainable 100. 20. 2e11 1e9",
+      "expect": "100",
+      "sample": true
+    },
+    {
+      "expr": "attainable 50. 10. 1. 4.",
+      "expect": "2.5"
+    },
+    {
+      "expr": "attainable 200. 50. 1e6 1e6",
+      "expect": "50"
+    },
+    {
+      "expr": "attainable 80. 40. 2e3 1e3",
+      "expect": "80"
+    },
+    {
+      "expr": "attainable 10. 100. 5. 1.",
+      "expect": "10"
+    }
+  ]
+}

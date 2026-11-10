@@ -1,0 +1,12 @@
+# expect: invalid
+# a load of memory the loop writes must stay in its own slice too: reading o[r + 1] races with iteration r + 1
+%o = buffer 5 dtype=i32 slot=0
+%r = range 4 axis=thread
+%n = add %r 1
+%nv = shrink %o %n shape=[]
+%x = load %nv
+%v = shrink %o %r shape=[]
+%y = add %x 1
+%s = store %v %y
+%e = end %s %r
+%o1 = after %o %e

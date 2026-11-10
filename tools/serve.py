@@ -122,6 +122,10 @@ def run_uir_buffers(ex, code, tests):
   # week 2 programs: each test sets buffer contents and checks one buffer's final contents
   try: O.parse(code)
   except O.UIRError as e: return f"invalid .uir: {e}", [], ''
+  # week 7: axes never change results, so an exercise about them also names what the program must contain
+  stripped = '\n'.join(l.split('#', 1)[0] for l in code.split('\n'))           # comments don't count
+  for pat, why in ex.get('require', []):
+    if not re.search(pat, stripped): return why, [], ''
   res = []
   for t in tests:
     try:

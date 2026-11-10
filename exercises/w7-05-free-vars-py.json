@@ -1,0 +1,38 @@
+{
+  "id": "w7-05-free-vars-py",
+  "lang": "python",
+  "title": "What the thread body needs",
+  "prompt": "<p>To move a loop body into its own C function, you need the names it uses but doesn't define: those travel in the context struct. A body is a list of statements <code>(name, uses)</code>, in order. Write <code>free_vars(body, loop_var)</code>: the names used in the body that are not defined in it and are not <code>loop_var</code> (the function's own argument), sorted, without repeats.</p>",
+  "show": "lambda v: ' '.join(v) if v else '(none)'",
+  "starter": "def free_vars(body: list[tuple[str, list[str]]], loop_var: str) -> list[str]:\n    \"\"\"Names the body uses but does not define (other than loop_var), sorted.\"\"\"\n    used = set()\n    for name, uses in body:\n        used.update(uses)\n    return sorted(used)\n",
+  "tests": [
+    {
+      "expr": "free_vars([('v1', ['b0', 'r0']), ('v2', ['v1', 'v0'])], 'r0')",
+      "sample": true,
+      "expect": "b0 v0"
+    },
+    {
+      "expr": "free_vars([('v1', ['r0']), ('s', ['b1', 'v1'])], 'r0')",
+      "sample": true,
+      "expect": "b1"
+    },
+    {
+      "expr": "free_vars([], 'r0')",
+      "expect": "(none)"
+    },
+    {
+      "expr": "free_vars([('v5', ['v5x', 'b2', 'b2']), ('v6', ['v5', 'r3', 'r1'])], 'r1')",
+      "expect": "b2 r3 v5x"
+    },
+    {
+      "expr": "free_vars([('a1', []), ('v2', ['a1', 'b0']), ('v3', ['v2', 'v9'])], 'r0')",
+      "expect": "b0 v9"
+    }
+  ],
+  "hints": [
+    "Collect the defined names first: every <code>name</code> in the body.",
+    "A use is free when it isn't defined in the body and isn't <code>loop_var</code>.",
+    "Use a set to drop repeats, then <code>sorted</code>."
+  ],
+  "explain": "This is closure conversion, the step every compiler takes when it turns a nested block into a separate function. In the rendered C, <code>b0</code> (a buffer), <code>v0</code> (a value computed before the loop) and enclosing ranges like <code>r3</code> are free in the body, so they go into the struct. Names the body defines, like private allocs and its own values, are declared inside the function instead."
+}

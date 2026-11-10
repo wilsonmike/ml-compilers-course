@@ -1,0 +1,12 @@
+# expect: invalid
+# each access alone stays in a slice, o[2r] then o[r], but iteration 2 writes o[2] and so does iteration 1: one stride per buffer
+%o = buffer 8 dtype=i32 slot=0
+%r = range 4 axis=thread
+%a = mul %r 2
+%v = shrink %o %a shape=[]
+%s = store %v 1
+%o1 = after %o %s
+%v2 = shrink %o1 %r shape=[]
+%s2 = store %v2 2
+%e = end %s %s2 %r
+%o2 = after %o %e

@@ -1,4 +1,4 @@
-# SPOILERS. Proves the week 1 to 6 suites have teeth: each mutant plants one plausible student bug in the
+# SPOILERS. Proves the week 1 to 7 suites have teeth: each mutant plants one plausible student bug in the
 # reference compiler, and the suite must catch (kill) every one. A few minutes for all of them.
 #   python _reference/mutants.py               every mutant, stopping at the first test that catches it
 #   python _reference/mutants.py w6 grad       only mutants whose names contain 'w6' or 'grad'
@@ -8,7 +8,7 @@ import os, re, sys, json, glob, threading, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 SRC = open(os.path.join(HERE, 'uirc.py'), encoding='utf-8').read()
-WEEKS = (1, 2, 3, 4, 5, 6)
+WEEKS = (1, 2, 3, 4, 5, 6, 7)
 
 # (name, [(old, new), ...]) -- every old must occur exactly once in uirc.py
 M = [
@@ -135,7 +135,7 @@ M = [
   ("w2 C max ignores -0.0",       [("  if (a == 0.0f && b == 0.0f) return signbit(a) ? b : a;", "")]),
   ("w2 C cast to i32 rounds",     [("else f\"(({t}){a[0]})\"", "else f\"(({t})lrintf({a[0]}))\"")]),
   ("w2 C float literals 6 digits",[("  return float.hex(v) + 'f'", "  return ('%.6g' % v) + ('' if any(ch in '%.6g' % v for ch in '.en') else '.0') + 'f'")]),
-  ("w2 C alloc not zeroed",       [("lines.append(f\"{pad}{t} a{i}[{u.arg[1]}] = {{0}};\")", "lines.append(f\"{pad}{t} a{i}[{u.arg[1]}] = {{1}};\")")]),
+  ("w2 C alloc not zeroed",       [("    return f\"{pad}{CT[u.dtype]} a{i}[{u.arg[1]}] = {{0}};\"", "    return f\"{pad}{CT[u.dtype]} a{i}[{u.arg[1]}] = {{1}};\"")]),
   ("w2 C rank-1 store one elem",  [("        if u.src[0].shape: lines.extend(f\"{pad}{p}[{o} + {j}] = {x}[{j}];\" for j in range(u.src[0].shape[0]))",
                                     "        if u.src[0].shape: lines.append(f\"{pad}{p}[{o}] = {x}[0];\")")]),
   ("w2 C rank-1 load no offset",  [("', '.join(f\"{p}[{o} + {j}]\" for j in range(u.shape[0]))", "', '.join(f\"{p}[{j}]\" for j in range(u.shape[0]))")]),
@@ -245,6 +245,19 @@ M = [
   ("w6 render bitcast nan not canonical", [("{ int32_t i; if (isnan(x)) return 0x7fc00000; memcpy(&i, &x, 4); return i; }", "{ int32_t i; memcpy(&i, &x, 4); return i; }")]),
   ("w5 render in-place store fused", [("      if any(n.op == 'load' and storage_of(n.src[0]) is storage_of(view) for n in toposort(val)):", "      if False:")]),
   ("w5 render reduce of a broadcast hoisted", [("      a1 = sv(acc1, c(0) if r in opens(xe) else A('mul', r, c(0)))", "      a1 = sv(acc1, c(0))")]),
+  # ---------------- week 7: axes, threads, speed ----------------
+  ("w7 thread rendered as a plain loop", [("        _, e, r, body = it; ax = axis_of(r)\n        if ax == 'upcast':", "        _, e, r, body = it; ax = axis_of(r); ax = 'loop' if ax == 'thread' else ax\n        if ax == 'upcast':"),
+                                          ("  privates = thread_privates(block); private_ids = {id(a) for v in privates.values() for a in v}", "  privates = {}; private_ids = set()")]),
+  ("w7 upcast rendered as a plain loop", [("        if ax == 'upcast':                       # unroll: one copy of the body per value, with r a literal", "        if False:")]),
+  ("w7 upcast unrolls one copy short", [("          for t in range(r.src[0].arg): name[id(r)] = str(t); emit(body, depth)", "          for t in range(r.src[0].arg - 1): name[id(r)] = str(t); emit(body, depth)")]),
+  ("w7 private allocs never reset", [("          for a in privates.get(id(r), ()): mem[id(a)] = [ZERO[a.dtype]] * a.arg[1]\n", "")]),
+  ("w7 render private allocs shared", [("        if id(u) not in private_ids: lines.append(alloc_line(u, pad))", "        lines.append(alloc_line(u, pad))"),
+                                       ("          for a in privates.get(id(r), ()): lines.append(alloc_line(a, '  '))\n", "")]),
+  ("w7 thread slice ignores the access size", [("  need(lo >= 0 and hi + size <= S,", "  need(lo >= 0 and hi < S,")]),
+  ("w7 thread loads unchecked", [("          if sid in priv or (n.op == 'load' and sid not in written): continue", "          if sid in priv or n.op == 'load': continue")]),
+  ("w7 nested thread loops allowed", [("        if inside: raise UIRError(f\"thread loop %{r.arg[1]} is inside another thread loop\")\n", "")]),
+  ("w7 mixed strides allowed", [("          if stride.setdefault(sid, S) != S: raise UIRError", "          if False: raise UIRError")]),
+  ("w7 upcast bound unchecked", [("    if ax == 'upcast': need(src[0].op == 'const' and 1 <= src[0].arg <= 32,", "    if ax == 'upcast': need(True,")]),
 ]
 
 # Generated mutants: every validation in the reference, switched off one at a time. A `need(cond, msg)` becomes
@@ -332,7 +345,12 @@ def worker(index, ref_c_path, matrix):
         fails.append(rel)
         if not matrix and name != 'control': break
     out.update(name=name, killed=bool(fails), fails=fails)
-  t = threading.Thread(target=body); t.start(); t.join()
+  def safe():
+    try: body()
+    except BaseException as x:                   # a mutant that can't even load or run counts as caught, with the reason
+      name = (M + AUTO)[index][0] if index >= 0 else 'control'
+      out.update(name=name, killed=True, fails=[f"(the mutated compiler crashed: {type(x).__name__}: {str(x)[:120]})"])
+  t = threading.Thread(target=safe); t.start(); t.join()
   print(json.dumps(out))
 
 def reference_c(path):
@@ -364,6 +382,9 @@ if __name__ == '__main__':
   jobs = int(next((a.split('=')[1] for a in sys.argv if a.startswith('--jobs=')), max(1, min(6, (os.cpu_count() or 2) - 1))))
   t0 = time.time()
   with tempfile.TemporaryDirectory() as tmp:
+    for n_, muts_ in M + AUTO:                 # a mutant that no longer applies must fail loudly, never count as caught
+      try: compile(apply(muts_), 'mutant', 'exec')
+      except SyntaxError as x: raise SystemExit(f"mutant {n_!r} doesn't compile: {x}")
     ref = os.path.join(tmp, 'ref_c.json'); reference_c(ref)
     ctrl = run_one(-1, ref, True)
     if ctrl['killed']: raise SystemExit(f"control (the unmutated reference) fails its own tests: {ctrl['fails'][:5]}")

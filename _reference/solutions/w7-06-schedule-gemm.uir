@@ -1,0 +1,75 @@
+# C = A @ B for an 8x5 A and a 5x16 B, with a 4x8 tile. Make %ib a thread loop and the six tile loops upcast loops.
+%A = buffer 40 dtype=f32 slot=0
+%B = buffer 80 dtype=f32 slot=1
+%C = buffer 128 dtype=f32 slot=2
+%acc = alloc 32 dtype=f32
+%ib = range 2 axis=thread
+%jb = range 2
+# start each tile from its first product, A[i][0] * B[0][j], like reduce's fold
+%ri = range 4 axis=upcast
+%rj = range 8 axis=upcast
+%ri0 = mul %ib 4
+%rii = add %ri0 %ri
+%rar = mul %rii 5
+%rav = shrink %A %rar shape=[]
+%ra = load %rav
+%rj0 = mul %jb 8
+%rjj = add %rj0 %rj
+%rbv = shrink %B %rjj shape=[]
+%rb = load %rbv
+%ro0 = mul %ri 8
+%ro = add %ro0 %rj
+%rv = shrink %acc %ro shape=[]
+%rp = mul %ra %rb
+%rs = store %rv %rp
+%re1 = end %rs %rj
+%re2 = end %re1 %ri
+%acc1 = after %acc %re2
+# then k = 1, 2, ..., K-1, in order
+%k0 = range 4
+%k = add %k0 1
+%ki = range 4 axis=upcast
+%kj = range 8 axis=upcast
+%i0 = mul %ib 4
+%i = add %i0 %ki
+%ar = mul %i 5
+%ao = add %ar %k
+%av = shrink %A %ao shape=[]
+%a = load %av
+%j0 = mul %jb 8
+%j = add %j0 %kj
+%br = mul %k 16
+%bo = add %br %j
+%bv = shrink %B %bo shape=[]
+%b = load %bv
+%co0 = mul %ki 8
+%co = add %co0 %kj
+%cv = shrink %acc1 %co shape=[]
+%cur = load %cv
+%p = mul %a %b
+%sum = add %cur %p
+%st = store %cv %sum
+%ke1 = end %st %kj
+%ke2 = end %ke1 %ki
+%ke3 = end %ke2 %k0
+%acc2 = after %acc1 %ke3
+# write the tile out: C[(ib*TI + wi)*N + jb*TJ + wj], written as ib*(TI*N) + the rest
+%wi = range 4 axis=upcast
+%wj = range 8 axis=upcast
+%wo0 = mul %wi 8
+%wo = add %wo0 %wj
+%wv = shrink %acc2 %wo shape=[]
+%w = load %wv
+%o1 = mul %ib 64
+%o2 = mul %wi 16
+%o3 = mul %jb 8
+%o4 = add %o2 %o3
+%o5 = add %o4 %wj
+%oo = add %o1 %o5
+%ov = shrink %C %oo shape=[]
+%os = store %ov %w
+%we1 = end %os %wj
+%we2 = end %we1 %wi
+%je = end %re2 %ke3 %we2 %jb
+%ie = end %je %ib
+%C1 = after %C %ie

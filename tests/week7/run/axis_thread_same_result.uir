@@ -1,0 +1,23 @@
+# expect: pass
+# a thread loop computes exactly what a plain loop does
+%x = buffer 12 dtype=i32 slot=0 data=[1 2 3 4 5 6 7 8 9 10 11 12]
+%o = buffer 4 dtype=i32 slot=1
+%r = range 4 axis=thread
+%z = shrink %o %r shape=[]
+%s0 = store %z 0
+%o1 = after %o %s0
+%c = range 3
+%xr = mul %r 3
+%xo = add %xr %c
+%xv = shrink %x %xo shape=[]
+%xe = load %xv
+%cv = shrink %o1 %r shape=[]
+%cur = load %cv
+%sum = add %cur %xe
+%st = store %cv %sum
+%ec = end %st %c
+%er = end %s0 %ec %r
+%o2 = after %o %er
+%l = load %o2
+%w = stack 6 15 24 33
+%t = assert %l %w

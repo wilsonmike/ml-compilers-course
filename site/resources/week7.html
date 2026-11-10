@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 7 Study Guide</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Week 7 is about speed on a CPU. A range can say how its loop runs: as a plain loop, unrolled into registers, or spread across threads. None of it changes a bit...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/week7">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 7 Study Guide">
+<meta property="og:description" content="Week 7 is about speed on a CPU. A range can say how its loop runs: as a plain loop, unrolled into registers, or spread across threads. None of it changes a bit of any result, and from this week some...">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/week7">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 7 study guide</h1>
+  <p class="lede">Week 7 is about speed on a CPU. A range can say how its loop runs: as a plain loop, unrolled into registers, or spread across threads. None of it changes a bit of any result, and from this week some tests time your kernels against the reference's. This page recaps the week, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week7/01-measuring.html">7.1 Measuring speed</a></h3>
+  <p>Speed is FLOPs per second. A kernel is limited by compute or by memory, depending on its arithmetic intensity, FLOPs per byte moved. That's the roofline. Time the kernel alone, take the best of several runs, and compare on the same machine.</p>
+  <h3><a href="../week7/02-caches-and-tiling.html">7.2 Caches and tiling</a></h3>
+  <p>Memory moves in 64-byte lines through several levels of cache. A 4×8 tile of a GEMM loads 12 values per k for 32 multiply-adds, instead of 64. Each output keeps its own sum in its own order, so tiling never changes bits. Start each tile from its first product, so the start depends on the tile indices and runs once per tile.</p>
+  <h3><a href="../week7/03-upcast.html">7.3 Upcast</a></h3>
+  <p><code>axis=upcast</code> unrolls a loop in the rendered C. Its bound is a literal from 1 to 32. With literal indices, a small alloc becomes plain variables in registers, and adjacent outputs can share SIMD instructions without changing any rounding.</p>
+  <h3><a href="../week7/04-threads.html">7.4 Threads</a></h3>
+  <p><code>axis=thread</code> lets iterations run at once. No nesting. Every store, and every load of memory the loop writes, must be at <code>r·S + e</code> with <code>0 ≤ e</code>, <code>e + size ≤ S</code>, one <code>S</code> per buffer. Read-only memory is free. An alloc used only inside the loop is private and starts at zero in every iteration.</p>
+  <h3><a href="../week7/05-kernels.html">7.5 Kernels and outlining</a></h3>
+  <p>A thread loop's body becomes a function called through <code>uir_parallel_for</code>. Its free names (buffers, earlier values, outer counters) go in a context struct, which is closure conversion. Private allocs are declared inside it. <code>restrict</code> lets the C compiler keep values in registers.</p>
+  <h3><a href="../week7/06-lab.html">7.6 Lab</a></h3>
+  <p>The suite has 41 tests, three of them speed tests on a 768×768 GEMM, which need 0.5 or 0.65 of the reference's speed. Weeks 1 to 6 must stay green.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>axis</th><th>run</th><th>render</th><th>rules</th></tr></thead>
+    <tbody>
+      <tr><td><code>loop</code></td><td>in order</td><td>a <code>for</code> loop</td><td>none new</td></tr>
+      <tr><td><code>upcast</code></td><td>in order</td><td>the body copied once per value, the range a literal</td><td>bound a literal, 1 to 32</td></tr>
+      <tr><td><code>thread</code></td><td>in order, private allocs fresh each iteration</td><td>an outlined function, run by <code>uir_parallel_for</code></td><td>no nesting, the slice rule</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>measured on the 768×768 GEMM</th><th>clang</th><th>gcc</th></tr></thead>
+    <tbody>
+      <tr><td>plain loops</td><td>98 ms</td><td>148 ms</td></tr>
+      <tr><td>upcast only (one thread)</td><td>24 ms</td><td>82 ms</td></tr>
+      <tr><td>threads only</td><td>12 ms</td><td>18 ms</td></tr>
+      <tr><td>threads and upcast</td><td>3.2 ms</td><td>10 ms</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Mistakes people make</h2>
+  <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week7.html">week 7 test guide</a> lists every test with the bugs known to fail it.</p>
+  <ol>
+    <li><strong>Rendering thread loops as plain loops.</strong> Correct, and far too slow. Caught by <code>s_gemm_768_threads</code> and <code>s_gemm_768_threads_and_upcast</code>.</li>
+    <li><strong>Rendering upcast loops as plain loops.</strong> The accumulators stay in memory. Caught by <code>s_gemm_768_upcast</code> and <code>s_gemm_768_threads_and_upcast</code>.</li>
+    <li><strong>Unrolling one copy short.</strong> Caught by <code>r_upcast_sum_order</code> and the <code>r_gemm_tiled_*</code> tests.</li>
+    <li><strong>Forgetting that private allocs start at zero.</strong> In <code>run</code>, caught by <code>thread_private_alloc_fresh</code>. In render, a shared array is caught by <code>r_thread_private_alloc</code> and the threaded speed tests.</li>
+    <li><strong>Checking a slice without the access size.</strong> A vector store can spill into the next slice. Caught by <code>err_thread_vector_store_overflows</code>.</li>
+    <li><strong>Checking only stores.</strong> A load of a neighbor's element races too. Caught by <code>err_thread_load_neighbor</code>.</li>
+    <li><strong>Allowing nested thread loops, or two strides on one buffer.</strong> Caught by <code>err_thread_nested</code> and <code>err_thread_mixed_strides</code>.</li>
+    <li><strong>Accepting any upcast bound.</strong> Caught by <code>err_upcast_not_literal</code>, <code>err_upcast_too_big</code> and <code>err_upcast_zero</code>.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order, and don't move on until the check passes.</p>
+  <ol>
+    <li><strong>Axes as plain loops.</strong> Parse and validate <code>axis=</code>, then ignore it. Every week 7 render test except <code>r_thread_private_alloc</code> already passes with correct bits. The speed tests, the thread rules and the private-alloc tests fail.</li>
+    <li><strong>The slice rule.</strong> Flatten the offset's adds into terms, find the one term with the thread range, and bound the others. Done when every <code>err_thread_*</code> test exits 2 and <code>thread_store_own_slice</code> runs.</li>
+    <li><strong>Private allocs in run.</strong> Done when this program's buffer is <code>0 1 2 3</code> (and <code>0 1 3 6</code> without <code>axis=thread</code>):
+<pre><code>%o = buffer 4 dtype=i32 slot=0
+%acc = alloc 1 dtype=i32
+%r = range 4 axis=thread
+%a = shrink %acc 0 shape=[]
+%cur = load %a
+%n = add %cur %r
+%st = store %a %n
+%acc1 = after %acc %st
+%a1 = shrink %acc1 0 shape=[]
+%got = load %a1
+%ov = shrink %o %r shape=[]
+%so = store %ov %got
+%e = end %st %so %r
+%o1 = after %o %e</code></pre></li>
+    <li><strong>Upcast in the renderer.</strong> Copy the body per value. Done when <code>s_gemm_768_upcast</code> passes.</li>
+    <li><strong>Outlining.</strong> Done when <code>r_thread_captures_values</code> passes, then the threaded speed tests.</li>
+  </ol>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-answer="b">
+    <p class="q">Which store is valid in a thread loop over <code>r</code>, with <code>j</code> in 0..7?</p>
+    <div class="opts"><button data-k="a"><code>o[4r + j]</code></button><button data-k="b"><code>o[8r + j]</code></button><button data-k="c"><code>o[j]</code></button></div>
+    <p class="hint"><code>e + 1 ≤ S</code>.</p>
+    <div class="why"><code>e = j</code> reaches 7, so the stride must be at least 8.</div>
+  </div>
+  <div class="quiz" data-answer="a">
+    <p class="q">Does unrolling a loop with <code>axis=upcast</code> change any result?</p>
+    <div class="opts"><button data-k="a">No: every add happens in the same order</button><button data-k="b">Yes: unrolled sums are regrouped</button><button data-k="c">Only for f32</button></div>
+    <p class="hint">What does the spec say axes change?</p>
+    <div class="why">Axes change how the C runs, never what it computes.</div>
+  </div>
+  <div class="quiz" data-fill="0|zero|zeros|all zeros">
+    <p class="q">An alloc is used only inside a thread loop. What does it hold at the start of iteration 5?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Private allocs.</p>
+    <div class="why">All zeros, like at the start of every iteration.</div>
+  </div>
+</main>
+</body>
+</html>

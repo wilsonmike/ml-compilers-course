@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Measuring Speed</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Until now the grader asked one question: are the bits right? From this week it also asks how long your kernel takes. Before making anything faster, you need to...">
+<link rel="canonical" href="https://sharpterminal.com/site/week7/01-measuring">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Measuring Speed">
+<meta property="og:description" content="Until now the grader asked one question: are the bits right? From this week it also asks how long your kernel takes. Before making anything faster, you need to know how fast it could possibly be, and...">
+<meta property="og:url" content="https://sharpterminal.com/site/week7/01-measuring">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 7 · Lesson 1</p>
+<h1>Measuring speed: FLOPs, bytes and the roofline</h1>
+<p class="lede">Until now the grader asked one question: are the bits right? From this week it also asks how long your kernel takes. Before making anything faster, you need to know how fast it could possibly be, and what is holding it back. Two numbers answer that: how much arithmetic a kernel does, and how many bytes it has to move.</p>
+
+<div class="prose">
+<h2>Work and time</h2>
+<p>A <b>FLOP</b> is one floating-point operation: an add or a multiply. A 768×768 matrix multiply does about <code>2 · 768³ ≈ 0.9</code> billion of them (one multiply and one add per term). Divide the FLOPs by the seconds the kernel takes and you get its speed in <b>GFLOP/s</b>, billions of FLOPs per second.</p>
+<p><code>tools/bench.py</code> does this for any program. On the machine this course was built on, the same GEMM ran at 9 GFLOP/s as plain loops and at over 200 GFLOP/s with the schedule this week teaches. Both versions compute the identical bits.</p>
+
+<h2>What limits a kernel</h2>
+<p>A processor can only do so many operations per second: its <b>peak</b>. Memory can only deliver so many bytes per second: its <b>bandwidth</b>. A kernel is held back by whichever runs out first.</p>
+<p>The deciding number is the kernel's <b>arithmetic intensity</b>: FLOPs per byte moved between memory and the processor.</p>
+<ul>
+<li>An elementwise add of two f32 arrays reads 8 bytes and writes 4 for each single add: about 0.08 FLOPs per byte. However fast the processor, it waits on memory.</li>
+<li>A matrix multiply of N×N matrices reads about <code>3 · 4N²</code> bytes and does <code>2N³</code> FLOPs: an intensity that grows with N. At N = 768 it's over 100 FLOPs per byte. Memory is no excuse: it's the arithmetic that has to get faster.</li>
+</ul>
+<p>Memory can feed at most <code>bandwidth · intensity</code> FLOP/s, and the processor can do at most <code>peak</code>. So the best a kernel can reach is the smaller of the two. Draw that against intensity and you get a roof: a slanted part (memory-bound) meeting a flat part (compute-bound). It's called the <b>roofline</b>.</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>kernel</th><th>FLOPs per byte</th><th>limited by</th><th>what helps</th></tr></thead>
+<tbody>
+<tr><td>elementwise add</td><td>about 0.08</td><td>memory</td><td>moving fewer bytes: fusing ops (week 4), using every byte of each cache line</td></tr>
+<tr><td>a reduction (sum)</td><td>about 0.25</td><td>memory</td><td>the same, plus threads (several cores pull from memory at once)</td></tr>
+<tr><td>a large matmul</td><td>100 or more</td><td>compute</td><td>keeping data close (caches, registers), SIMD, threads</td></tr>
+</tbody></table></div>
+
+<div class="exercise small" data-ex="w7-01-attainable" data-ex-py="w7-01-attainable-py">
+<h3>The roofline</h3>
+<p>Write <code>attainable</code>: the best GFLOP/s a kernel can reach, given the machine's peak and bandwidth and the kernel's FLOPs and bytes.</p>
+</div>
+
+<div class="prose">
+<h2>Measuring honestly</h2>
+<p>Timing is noisy. Other programs run, the processor changes its clock speed, the first run warms the caches. Three habits make numbers trustworthy:</p>
+<ul>
+<li><b>Time the kernel alone.</b> Not the compiler, not loading the data. The harness reads a monotonic clock just before and just after the kernel call.</li>
+<li><b>Take the best of several runs.</b> Noise only ever makes a run slower, so the minimum is the closest to the truth.</li>
+<li><b>Compare on the same machine, at the same time.</b> A number from your laptop and one from a server mean nothing side by side. The speed tests run your kernel and the reference kernel alternately, three times each, and compare the bests.</li>
+</ul>
+
+<h2>How week 7 grades speed</h2>
+<p>A test with <code># speed: 0.5</code> requires your kernel to run at least half as fast as the reference compiler's kernel for the same program, built the same way, on your machine. It must also give exactly the reference's bits. Half is generous on purpose: the tests aren't measuring clever tricks, they're checking that your compiler does what the program's schedule says. Lessons 7.3 and 7.4 show a renderer that ignores the schedule landing 2 to 8 times too slow.</p>
+</div>
+
+<div class="key">
+<span class="label">Bits first, then speed</span>
+<p>Nothing this week changes what a program computes. Unrolling and threads must keep every add in its original order, so a fast kernel's output is identical to a slow one's. The C is compiled with <code>-ffp-contract=off</code>, which stops the C compiler from fusing a multiply and an add into one instruction. That fused instruction rounds once instead of twice, so it would change the bits.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="0.9|0.91|0.906">
+<p class="q">How many GFLOPs does a 768×768 by 768×768 matrix multiply do? (Count a multiply and an add per term.)</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint"><code>2 · 768³</code>, in billions.</p>
+<div class="why"><p><code>2 · 768³ = 905,969,664</code>, about 0.9 GFLOP.</p></div>
+</div>
+
+<div class="quiz" data-fill="225|226|226.5|227">
+<p class="q">That GEMM takes 4 ms. About how many GFLOP/s is that?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">GFLOPs divided by seconds.</p>
+<div class="why"><p><code>0.906 / 0.004 ≈ 226</code> GFLOP/s.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A machine has a peak of 100 GFLOP/s and 20 GB/s of bandwidth. An elementwise add does 1 FLOP per 12 bytes. What limits it?</p>
+<div class="opts">
+<button data-k="a">Compute: it can reach 100 GFLOP/s</button>
+<button data-k="b">Memory: at most about 1.7 GFLOP/s</button>
+<button data-k="c">Neither: it reaches 20 GFLOP/s</button>
+</div>
+<p class="hint">Memory can feed <code>bandwidth · intensity</code>.</p>
+<div class="why"><p><code>20 · (1/12) ≈ 1.7</code> GFLOP/s, far below the peak. A faster processor wouldn't help this kernel at all.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Why does the grader take the best of three runs, not the average?</p>
+<div class="opts">
+<button data-k="a">The best run is the one that used the most threads</button>
+<button data-k="b">The average is too slow to compute</button>
+<button data-k="c">Noise (other programs, clock changes) only ever adds time, so the fastest run is the closest to the kernel's real speed</button>
+</div>
+<p class="hint">Can noise make a kernel faster than it really is?</p>
+<div class="why"><p>No. Interference only slows a run down. The minimum filters it out better than an average, which a single slow run would drag up.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Your renderer uses an instruction that does <code>a·b + c</code> with one rounding. What happens on the tests?</p>
+<div class="opts">
+<button data-k="a">Bit comparisons fail: one rounding instead of two changes the result</button>
+<button data-k="b">Nothing: it's more accurate, so it passes</button>
+<button data-k="c">Only the speed tests notice</button>
+</div>
+<p class="hint">The spec says mul, then add, each rounded.</p>
+<div class="why"><p>A fused multiply-add skips the rounding after the multiply. The result is often more accurate, and sometimes different in the last bit, which the bit-exact tests catch. That's why the harness passes <code>-ffp-contract=off</code>.</p></div>
+</div>
+
+<nav class="pager">
+<a href="../week6/06-lab.html">← Week 6 lab</a>
+<a href="02-caches-and-tiling.html">Lesson 2: Caches and tiling →</a>
+</nav>
+</main>
+</body>
+</html>

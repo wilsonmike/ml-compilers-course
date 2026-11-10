@@ -46,6 +46,10 @@ const CC = (() => {
       ['week6/01-math.html', 'Math from adds', '6.1'], ['week6/02-sugar.html', 'Sugar', '6.2'],
       ['week6/03-autodiff.html', 'Automatic differentiation', '6.3'], ['week6/04-gradients-of-shapes.html', 'Gradients through shapes', '6.4'],
       ['week6/05-data-and-mnist.html', 'Data and MNIST', '6.5'], ['week6/06-lab.html', 'Lab: train MNIST', '6.6']] },
+    { title: 'Week 7 · Fast kernels', items: [
+      ['week7/01-measuring.html', 'Measuring speed', '7.1'], ['week7/02-caches-and-tiling.html', 'Caches and tiling', '7.2'],
+      ['week7/03-upcast.html', 'Upcast', '7.3'], ['week7/04-threads.html', 'Threads', '7.4'],
+      ['week7/05-kernels.html', 'Kernels and outlining', '7.5'], ['week7/06-lab.html', 'Lab: fast kernels', '7.6']] },
   ];
   const ROOT = () => document.body.dataset.root || './';
   // The course's source, linked from the top bar of every page

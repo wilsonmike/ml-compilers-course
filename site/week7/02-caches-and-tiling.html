@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caches and Tiling</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A matrix multiply touches each number of A and B many times. Where it reads them from decides its speed. Tiling reorganizes the loops so that each number, once...">
+<link rel="canonical" href="https://sharpterminal.com/site/week7/02-caches-and-tiling">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Caches and Tiling">
+<meta property="og:description" content="A matrix multiply touches each number of A and B many times. Where it reads them from decides its speed. Tiling reorganizes the loops so that each number, once loaded, is used many times before it is...">
+<meta property="og:url" content="https://sharpterminal.com/site/week7/02-caches-and-tiling">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .mm { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
+  .mm .lab { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
+  .g { display: grid; gap: 2px; justify-content: start; }
+  .g .c { width: 1rem; height: 1rem; border-radius: 2px; background: var(--panel-2); border: 1px solid var(--line); }
+  .g .c.on { background: var(--ink); border-color: var(--ink); }
+  .g .c.dim { background: var(--line-2); }
+  .tally { font: 0.875rem/1.7 var(--mono); color: var(--ink-2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 7 · Lesson 2</p>
+<h1>Caches and tiling: reuse what you've loaded</h1>
+<p class="lede">A matrix multiply touches each number of A and B many times. Where it reads them from decides its speed. Tiling reorganizes the loops so that each number, once loaded, is used many times before it is thrown away, without changing a single sum.</p>
+
+<div class="prose">
+<h2>The memory hierarchy</h2>
+<p>Lesson 0.2 introduced caches. Here are the levels with rough sizes and costs on a current desktop processor. The exact numbers vary, the ratios don't:</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>level</th><th>size</th><th>time to read</th></tr></thead>
+<tbody>
+<tr><td>registers</td><td>a few hundred bytes</td><td>free, as part of an instruction</td></tr>
+<tr><td>L1 cache</td><td>32 to 64 KB per core</td><td>about 1 ns</td></tr>
+<tr><td>L2 cache</td><td>1 to 2 MB per core</td><td>about 4 ns</td></tr>
+<tr><td>L3 cache</td><td>tens of MB, shared</td><td>10 to 20 ns</td></tr>
+<tr><td>main memory</td><td>gigabytes</td><td>about 100 ns</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<p>Memory moves in <b>cache lines</b> of 64 bytes, 16 floats. Reading one float brings its 15 neighbors along for free. Two things make a kernel fast: using all 16 floats of every line you load (walking memory in order), and using each value many times while it's still close (reuse).</p>
+
+<h2>Where a plain GEMM wastes time</h2>
+<p>The plain week 3 GEMM computes one output at a time: for each <code>(i, j)</code>, a loop over <code>k</code> reads row <code>i</code> of A and column <code>j</code> of B. Every multiply needs two loads. Reading down a column of B jumps <code>N</code> floats per step, so each load touches a new cache line and uses one float of it. And row <code>i</code> of A, just loaded, is used once and then reloaded for the next <code>j</code>.</p>
+
+<h2>Tiling</h2>
+<p>Compute a <b>tile</b> of outputs at once, say 4 rows by 8 columns. For each <code>k</code>, load 4 values of A (one per row of the tile) and 8 of B (one per column), and do all 32 multiply-adds they make possible. That's 12 loads for 32 multiply-adds instead of 64 loads. The 8 values of B sit next to each other, so they come from one or two cache lines. And the 32 running sums can live in registers for the whole <code>k</code> loop.</p>
+</div>
+
+<div class="fig" id="tile" data-title="One output at a time, or a 4x8 tile"></div>
+
+<div class="prose">
+<h2>Why the sums don't change</h2>
+<p>Each output <code>C[i][j]</code> is still its own sum over <code>k</code> in the same order: <code>A[i][0]·B[0][j]</code> first, then <code>+ A[i][1]·B[1][j]</code>, and so on. Tiling only changes which outputs are worked on side by side. The order of the adds inside any one sum is untouched, so every result is bit for bit the same as the plain loops'. Reordering <code>k</code> itself, say summing in blocks, would change the bits, and the spec doesn't allow it.</p>
+
+<h2>A tiled GEMM in .uir</h2>
+<p>The week 7 tests write the tile out explicitly. Ranges <code>ib</code> and <code>jb</code> pick the tile, <code>ki</code> and <code>kj</code> (4 and 8) index inside it, and a 32-element alloc holds the tile's sums:</p>
+</div>
+
+<pre><code>%acc = alloc 32 dtype=f32
+%ib  = range 192            # tile row: rows 4ib .. 4ib+3
+%jb  = range 96             # tile column: columns 8jb .. 8jb+7
+# start each sum from its first product, A[i][0]·B[0][j]
+...
+# then for k = 1 .. 767: for each (ki, kj) in the tile, acc[ki*8 + kj] += A[i][k]·B[k][j]
+%k0  = range 767
+%k   = add %k0 1
+%ki  = range 4
+%kj  = range 8
+...
+# finally write the tile to C</code></pre>
+
+<div class="prose">
+<p>Each tile's sums start from the tile's own first product, not from zero, for two reasons. First, it's the same order <code>reduce</code> folds in, so the result equals the <code>matmul</code> sugar's bit for bit. Second, it's a placement rule from week 3: a store that doesn't depend on <code>jb</code> runs outside the <code>jb</code> loop. A reset to <code>0.0</code> would run once for the whole program instead of once per tile. The first product depends on the tile's indices, so it lands inside the loop where it belongs.</p>
+<p>On its own, writing a tile as loops already helps a little. The big win comes in lesson 7.3, when the loops inside the tile are unrolled and the 32 sums become registers.</p>
+</div>
+
+<div class="trap">
+<span class="label">Loop order is the program's</span>
+<p>Your compiler doesn't choose this order this week: the program spells it out, and your job is to render it faithfully and fast. Choosing tile sizes automatically is a scheduling problem the course comes back to. For now, notice that the order is a choice, and that a good one costs nothing in correctness.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="16">
+<p class="q">A cache line is 64 bytes. How many f32 values is that?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">An f32 is 4 bytes.</p>
+<div class="why"><p><code>64 / 4 = 16</code>. Read one and the other 15 come along.</p></div>
+</div>
+
+<div class="quiz" data-fill="12">
+<p class="q">With a 4×8 tile, how many values of A and B do you load per value of <code>k</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">One A value per tile row, one B value per tile column.</p>
+<div class="why"><p><code>4 + 8 = 12</code> loads, for <code>4 · 8 = 32</code> multiply-adds. One output at a time needs 2 loads per multiply-add: 64 loads for the same work.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Does computing a 4×8 tile at once change any output's bits?</p>
+<div class="opts">
+<button data-k="a">Yes, slightly: the adds are regrouped</button>
+<button data-k="b">No: each output is still its own sum over k, in the same order</button>
+<button data-k="c">Only for outputs at the tile edges</button>
+</div>
+<p class="hint">What order are the adds for one <code>C[i][j]</code> in?</p>
+<div class="why"><p>Tiling changes which sums run side by side, not the order inside any sum. <code>k = 0, 1, 2, ...</code> for every output, exactly as before.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">A tile's sums are reset with <code>store acc 0.0</code>, a store that depends only on the in-tile ranges. What goes wrong?</p>
+<div class="opts">
+<button data-k="a">Nothing</button>
+<button data-k="b">It's invalid: allocs can't be reset</button>
+<button data-k="c">The store doesn't depend on <code>ib</code> or <code>jb</code>, so it runs once, before the tile loops. Every tile after the first starts from the previous tile's sums.</button>
+</div>
+<p class="hint">Week 3: where does a store run?</p>
+<div class="why"><p>A value or store runs inside every loop whose range it depends on, and no deeper. Starting from the first product <code>A[i][0]·B[0][j]</code> depends on the tile indices, so it runs once per tile.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Why not also split the <code>k</code> sum into blocks and add the blocks up at the end?</p>
+<div class="opts">
+<button data-k="a">That changes the order of the adds, so the f32 bits would change</button>
+<button data-k="b">It would be slower</button>
+<button data-k="c">k can't be split</button>
+</div>
+<p class="hint">Is f32 addition associative?</p>
+<div class="why"><p>No. <code>(a + b) + c</code> and <code>a + (b + c)</code> can round differently. Libraries like BLAS do reorder sums, which is one reason their results differ in the last bits from a simple loop's. This course keeps the order fixed.</p></div>
+</div>
+
+<nav class="pager">
+<a href="01-measuring.html">← Lesson 1: Measuring speed</a>
+<a href="03-upcast.html">Lesson 3: Upcast →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const R = 8, C = 16, K = 6;
+  const grid = (rows, cols, cls) => h('div', { class: 'g', style: `grid-template-columns: repeat(${cols}, 1rem)` },
+    Array.from({ length: rows * cols }, (_, n) => h('div', { class: 'c ' + (cls(Math.floor(n / cols), n % cols) || '') })));
+  const view = (aRows, bCols, cOn, cDone, note) => [h('div', { class: 'mm' }, [
+      h('div', {}, [h('div', { class: 'lab', text: 'A (8 x 6)' }), grid(R, K, i => aRows.includes(i) ? 'on' : '')]),
+      h('div', {}, [h('div', { class: 'lab', text: 'B (6 x 16)' }), grid(K, C, (k, j) => bCols.includes(j) ? 'on' : '')]),
+      h('div', {}, [h('div', { class: 'lab', text: 'C (8 x 16)' }), grid(R, C, (i, j) => cOn(i, j) ? 'on' : cDone(i, j) ? 'dim' : '')])]),
+    h('div', { class: 'tally', text: note })];
+  const steps = [
+    { caption: 'One output at a time: <code>C[0][0]</code> reads all of row 0 of A and all of column 0 of B. Two loads per multiply-add, and column 0 of B is spread over 6 cache lines.',
+      draw: () => view([0], [0], (i, j) => i === 0 && j === 0, () => false, 'loads: 12, multiply-adds: 6') },
+    { caption: 'The next output, <code>C[0][1]</code>, loads row 0 of A again. In a large matrix it may have left the cache by now.',
+      draw: () => view([0], [1], (i, j) => i === 0 && j === 1, (i, j) => i === 0 && j === 0, 'so far: 24 loads for 12 multiply-adds') },
+    { caption: 'A 4x8 tile: rows 0 to 3 of A and columns 0 to 7 of B give 32 outputs. Per k: 4 loads from A, 8 from B, 32 multiply-adds.',
+      draw: () => view([0, 1, 2, 3], [0, 1, 2, 3, 4, 5, 6, 7], (i, j) => i < 4 && j < 8, () => false, 'loads: 12 per k, multiply-adds: 32 per k') },
+    { caption: 'The next tile, columns 8 to 15, reuses the same 4 rows of A, still in the cache. The 8 values of B for each k are side by side, in one or two cache lines.',
+      draw: () => view([0, 1, 2, 3], [8, 9, 10, 11, 12, 13, 14, 15], (i, j) => i < 4 && j >= 8, (i, j) => i < 4 && j < 8, 'two tiles: 144 loads for 384 multiply-adds') },
+  ];
+  CC.stepper(document.getElementById('tile'), steps, (s, body) => body.append(...s.draw()));
+});
+</script>
+</body>
+</html>

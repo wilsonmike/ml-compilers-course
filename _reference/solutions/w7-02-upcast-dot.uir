@@ -1,0 +1,22 @@
+%x = buffer 8 dtype=f32 slot=0
+%y = buffer 8 dtype=f32 slot=1
+%o = buffer 1 dtype=f32 slot=2
+# o = x . y, summed in order k = 0..7.
+%acc = alloc 1 dtype=f32
+%k = range 8 axis=upcast
+%xv = shrink %x %k shape=[]
+%xe = load %xv
+%yv = shrink %y %k shape=[]
+%ye = load %yv
+%a = shrink %acc 0 shape=[]
+%cur = load %a
+%p = mul %xe %ye
+%sum = add %cur %p
+%st = store %a %sum
+%e = end %st %k
+%acc1 = after %acc %e
+%r = shrink %acc1 0 shape=[]
+%v = load %r
+%ov = shrink %o 0 shape=[]
+%so = store %ov %v
+%o1 = after %o %so

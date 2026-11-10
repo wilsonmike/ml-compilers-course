@@ -36,26 +36,19 @@ def main():
   names = O.parse(text, base)[0]
   t0 = time.perf_counter(); rc, out, err = T.call(cmd, 'render', text, base, 600); t_render = time.perf_counter() - t0
   if rc != 0: sys.exit(f"render exited {rc}: {err.strip()[:300]}")
-  h = T.harness(names)
-  h = h.replace('#include <string.h>', '#include <string.h>\n#include <time.h>')
-  h = re.sub(r"(  kernel\([^\n]*\);)", lambda m: '  clock_t t0 = clock();\n' + m.group(1) +
-             '\n  fprintf(stderr, "kernel %.6f\\n", (double)(clock() - t0) / CLOCKS_PER_SEC);', h, count=1)
-  with tempfile.TemporaryDirectory() as d:
-    k, hp, exe = os.path.join(d, 'kernel.c'), os.path.join(d, 'harness.c'), os.path.join(d, 'a.exe' if os.name == 'nt' else 'a.out')
-    open(k, 'w', encoding='utf-8').write(out); open(hp, 'w', encoding='utf-8').write(h)
-    t0 = time.perf_counter(); c = subprocess.run([T.CC, '-std=c11', '-O2', '-ffp-contract=off', k, hp, '-o', exe, '-lm'], capture_output=True)
-    t_cc = time.perf_counter() - t0
-    if c.returncode != 0: sys.exit("your C doesn't compile:\n" + c.stderr.decode('utf-8', 'replace')[:2000])
+  with tempfile.TemporaryDirectory() as d:          # the grader's timed build: -O2, no sanitizers, threads linked
+    t0 = time.perf_counter(); exe = T.build_timed(d, 'k', out, names); t_cc = time.perf_counter() - t0
+    if not os.path.exists(exe): sys.exit("your C " + exe)
     best = None
     for _ in range(max(1, a.runs)):
       r = subprocess.run([exe], capture_output=True)
       if r.returncode != 0: sys.exit(f"the kernel exited {r.returncode}")
-      m = re.search(r"kernel ([0-9.]+)", r.stderr.decode())
+      m = re.search(r"kernel ([0-9.e-]+)", r.stderr.decode())
       best = float(m.group(1)) if best is None else min(best, float(m.group(1)))
   n = flops(names)
   print(f"render   {t_render:8.3f} s   ({len(out.encode())} bytes of C)")
   print(f"cc -O2   {t_cc:8.3f} s")
-  print(f"kernel   {best:8.3f} s   best of {max(1, a.runs)}")
+  print(f"kernel   {best:8.4f} s   best of {max(1, a.runs)}, {T.THREADS} hardware threads")
   print(f"work     {n / 1e9:8.3f} GFLOP")
   if best > 0: print(f"speed    {n / best / 1e9:8.3f} GFLOP/s")
 
