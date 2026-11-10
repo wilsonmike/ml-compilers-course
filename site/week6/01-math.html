@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Math from Adds</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A neural network needs exp and log, and your compiler only knows how to add, multiply and compare. This lesson builds four math functions out of those, the way...">
+<link rel="canonical" href="https://sharpterminal.com/site/week6/01-math">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Math from Adds">
+<meta property="og:description" content="A neural network needs exp and log, and your compiler only knows how to add, multiply and compare. This lesson builds four math functions out of those, the way real math libraries do: shrink the...">
+<meta property="og:url" content="https://sharpterminal.com/site/week6/01-math">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .bits { display: grid; grid-template-columns: repeat(32, minmax(0, 1fr)); gap: 2px; margin-top: var(--s2); }
+  .bits .b { font: 0.875rem var(--mono); text-align: center; padding: 4px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+  .bits .b.one { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .bits .b.cut { margin-right: 6px; }
+  .bitkey { display: flex; gap: var(--s4); flex-wrap: wrap; font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s2); }
+  .bitkey span { white-space: nowrap; }
+  .trace { font: 0.875rem/1.7 var(--mono); }
+  .trace .on { font-weight: 600; color: var(--ink); }
+  @media (max-width: 640px) { .bits { grid-template-columns: repeat(16, minmax(0, 1fr)); } }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 6 · Lesson 1</p>
+<h1>exp, log, sqrt and sin from adds and multiplies</h1>
+<p class="lede">A neural network needs <code>exp</code> and <code>log</code>, and your compiler only knows how to add, multiply and compare. This lesson builds four math functions out of those, the way real math libraries do: shrink the input into a small range, then use a short polynomial.</p>
+
+<div class="prose">
+<h2>Why not just call <code>expf</code>?</h2>
+<p>C has <code>expf</code>, <code>logf</code>, <code>sqrtf</code> and <code>sinf</code>. But each C library computes them its own way, and two machines can disagree in the last bit. The grader compares f32 results bit for bit, so the course needs one definition everyone can match. The spec gives one: each math op <em>is</em> a specific program of core ops. If your compiler runs exactly those steps, your bits match the oracle's on any machine.</p>
+<p>There's a second reason, and it's the one the syllabus cares about. A GPU, or a small accelerator, often has no <code>exp</code> instruction at all. Knowing how to build one from multiplies is how compilers for such hardware work.</p>
+
+<h2>How an f32 is stored</h2>
+<p>Every f32 is 32 bits: a sign bit, an 8-bit <b>exponent field</b> <code>E</code>, and a 23-bit <b>mantissa</b> <code>M</code>. For normal numbers the value is <code>(-1)^sign · 1.M · 2^(E - 127)</code>. The 127 is a bias, so exponents from -126 to 127 fit in a field from 1 to 254. When the exponent field is 0, the number is <b>subnormal</b>: its value is <code>(-1)^sign · 0.M · 2^-126</code>. These are the tiny numbers below <code>2^-126</code>, with fewer bits of precision.</p>
+<p>The new op <code>bitcast x dtype=i32</code> gives you those 32 bits as an integer, and <code>bitcast n dtype=f32</code> goes the other way. Nothing is converted: the same bits are read as the other type. That's what lets the math ops pull a number apart and put one together.</p>
+</div>
+
+<div class="fig" id="bits" data-title="The bits of an f32"></div>
+
+<div class="prose">
+<h2>exp2: split, then a polynomial</h2>
+<p><code>2^x</code> for any x comes from two easy cases. Round x to the nearest integer <code>n</code> and let <code>f = x - n</code>, so f is in <code>[-0.5, 0.5]</code>. Then <code>2^x = 2^f · 2^n</code>.</p>
+<ul>
+<li><code>2^n</code> needs no arithmetic: it's the f32 with exponent field <code>n + 127</code> and mantissa 0. Build the integer <code>(n + 127) · 2^23</code> and bitcast it.</li>
+<li><code>2^f</code> on a small interval is a polynomial. <code>2^f = e^(f ln 2) = Σ (f ln 2)^k / k!</code>. With <code>|f| ≤ 0.5</code>, eight terms (k = 0 to 7) are more precise than f32 can store.</li>
+</ul>
+<p>The spec evaluates the polynomial with <b>Horner's rule</b>: <code>c0 + f(c1 + f(c2 + ...))</code> with <code>c_k = (ln 2)^k / k!</code> (1.0, 0.6931472, 0.2402265, ...), starting from the highest coefficient. That's one multiply and one add per term, and it's also more accurate than adding up powers.</p>
+<p>Two details make the edges right. First, NaN is caught before anything else, because casting NaN to i32 is an error. Second, x is clamped to <code>[-150, 128]</code>. <code>2^128</code> is already infinity in f32, and <code>2^-150</code> already rounds to 0, so clamping changes no answer and keeps <code>n</code> small. The bit trick <code>(n + 127) · 2^23</code> only works for n from -126 to 127, and after the clamp n runs from -150 to 128. Below -126 the result is subnormal, and at 128 a single <code>2^128</code> would already be infinity even when the final result (say <code>exp2 127.9</code>) is finite. So the spec multiplies by <code>2^h</code> and then <code>2^k</code>, with <code>h + k = n</code> and both in <code>[-75, 64]</code>, safely normal.</p>
+</div>
+
+<div class="fig" id="exp2" data-title="exp2 3.3, one step at a time"></div>
+
+<div class="exercise small" data-ex="w6-01-pow2" data-ex-py="w6-01-pow2-py">
+<h3>2^n from its bits</h3>
+<p>Write <code>pow2 n</code> for <code>-126 ≤ n ≤ 127</code> by building the f32 bit pattern of <code>2^n</code> and reading it as a float. No exponentiation allowed.</p>
+</div>
+
+<div class="prose">
+<h2>log2: read the exponent, fix up the rest</h2>
+<p><code>log2</code> runs the same idea backward. Bitcast x to an integer <code>b</code>. Its exponent field is <code>b div 2^23</code>, so <code>e = b div 2^23 - 127</code>. Its mantissa bits are <code>b mod 2^23</code>. Adding the bits of 1.0 (<code>1065353216</code>) gives the f32 with that mantissa and exponent 0, which is <code>m</code>, in <code>[1, 2)</code>, with <code>x = m · 2^e</code>. So <code>log2 x = e + log2 m</code>.</p>
+<p>A series for <code>log2 m</code> converges fastest when m is close to 1, so if <code>m &gt; 1.414</code> the spec halves it and adds 1 to e. Now m is in <code>[0.707, 1.414]</code>. With <code>s = (m - 1) / (m + 1)</code>, <code>|s| ≤ 0.172</code> and</p>
+<pre><code>log2 m = (2 / ln 2) · (s + s³/3 + s⁵/5 + s⁷/7 + s⁹/9 + ...)</code></pre>
+<p>Five terms give full f32 precision. A subnormal x has exponent field 0, so it's multiplied by <code>2^23</code> first and 23 is subtracted at the end. The special cases are checked at the end: zero gives <code>-inf</code>, a negative gives NaN, and inf and NaN pass through.</p>
+
+<h2>sqrt: a guess, then Newton</h2>
+<p><code>sqrt x = 2^(log2(x) / 2)</code> is a fine first guess, but two rounded steps leave it a few <b>units in the last place</b> (ulps) off. One ulp is the gap between an f32 and the next one. One step of <b>Newton's method</b> fixes that. If <code>y</code> is close to <code>√x</code>, then <code>(y + x/y) / 2</code> is much closer, because the error roughly squares each step. Perfect squares come out exact: <code>sqrt 16.0</code> is exactly <code>4.0</code>.</p>
+
+<h2>sin: subtract turns, fold, then Taylor</h2>
+<p><code>sin</code> repeats every <code>2π</code>, so first subtract the nearest whole number of turns: <code>k = floor(x / 2π + 0.5)</code>, then <code>r = x - k · 2π</code>. 2π isn't an f32, so the spec subtracts it in two parts: 6.28125, which is exact, and a small correction. That keeps r accurate for x up to about 10,000.</p>
+<p>Now r is in about <code>[-π, π]</code>. Since <code>sin(π - r) = sin r</code>, folding brings it to <code>[-π/2, π/2]</code>, where the Taylor series <code>r - r³/3! + r⁵/5! - ...</code> up to <code>r^13</code> is accurate. For a huge x, f32 can't even say which turn x is on, so the result is meaningless. The spec still clamps it so it stays in <code>[-1, 1]</code>.</p>
+</div>
+
+<div class="trap">
+<span class="label">Close is not equal</span>
+<p>A better polynomial, a different reduction, or C's <code>expf</code> can all be more accurate than the spec, and they still fail the tests. <code>exp2_bits_one_ulp_off</code> asserts a value one ulp away from the right one and is marked to fail. A compiler that is one ulp off makes that assert pass, and the test catches it. Implement the steps exactly as written, in the order written. <code>tools/check_spec_w6.py</code> proves the spec text and the oracle are the same graph, so the spec is the thing to copy.</p>
+</div>
+
+<div class="exercise" data-ex="w6-01-norm">
+<h3>The length of a vector</h3>
+<p>Slot 0 holds six f32. Store <code>sqrt(x0² + ... + x5²)</code> into slot 1. The starter stores the sum of squares.</p>
+</div>
+
+<div class="prose">
+<h2>Special values fall out</h2>
+<p>Nobody special-cases <code>exp2(-inf) = 0</code>: the clamp sends it to <code>-150</code>, and <code>2^-150</code> rounds to 0. Most of the table in the spec works like that. The cases that need an explicit <code>where</code> are the ones where a step would otherwise fail or lie: NaN before a cast, zero and negatives before a log, and infinity, whose bits look like a huge exponent.</p>
+<p>One more rule makes NaN predictable. There are millions of NaN bit patterns, and different hardware makes different ones (x86 produces a negative NaN for <code>0 · inf</code>). <code>bitcast</code> of any NaN gives <code>0x7fc00000</code>, so <code>bitcast</code> never exposes which NaN you had. In C, check <code>isnan</code> first.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="1073741824">
+<p class="q">What does <code>bitcast 2.0 dtype=i32</code> give?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">2.0 is <code>1.0 · 2^1</code>: mantissa 0, exponent field <code>1 + 127</code>.</p>
+<div class="why"><p>Exponent field 128, shifted into place: <code>128 · 2^23 = 1073741824</code>, which is <code>0x40000000</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">For <code>exp2 3.3</code>, what are <code>n</code> and <code>f</code>?</p>
+<div class="opts">
+<button data-k="a"><code>n = 4</code>, <code>f = -0.7</code></button>
+<button data-k="b"><code>n = 3</code>, <code>f ≈ 0.3</code></button>
+<button data-k="c"><code>n = 3.3</code>, <code>f = 0</code></button>
+</div>
+<p class="hint"><code>n = floor(x + 0.5)</code>, the nearest integer.</p>
+<div class="why"><p><code>floor(3.8) = 3</code>, so <code>f = 3.3 - 3</code>, about 0.3 (exactly, the f32 nearest 3.3 minus 3). Then <code>2^3.3 = 2^0.3 · 8</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Why does exp2 clamp x to <code>[-150, 128]</code> before anything else?</p>
+<div class="opts">
+<button data-k="a">To make the polynomial more accurate</button>
+<button data-k="b">Because larger results are wrong in f32 anyway</button>
+<button data-k="c">So <code>n</code> stays small enough to cast to i32 and to build from bits, and the answer is unchanged: <code>2^128</code> is already inf and <code>2^-150</code> already rounds to 0</button>
+</div>
+<p class="hint">What is <code>2^1000</code> in f32?</p>
+<div class="why"><p>Every x above 128 gives inf and every x below -150 gives 0, so clamping is free. Without it, <code>exp2 1e30</code> would cast 1e30 to i32, which is an error.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">12.0 is <code>1.5 · 2^3</code>. After the spec's fold, what are <code>m</code> and <code>e</code> in log2?</p>
+<div class="opts">
+<button data-k="a"><code>m = 0.75</code>, <code>e = 4</code></button>
+<button data-k="b"><code>m = 1.5</code>, <code>e = 3</code></button>
+<button data-k="c"><code>m = 3</code>, <code>e = 2</code></button>
+</div>
+<p class="hint">Is 1.5 above 1.414?</p>
+<div class="why"><p>1.5 is above the fold point, so m is halved to 0.75 and e goes up to 4: <code>12 = 0.75 · 2^4</code>. Then <code>log2 12 = 4 + log2 0.75</code>, with m close to 1 so the series converges fast.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">sqrt's first guess is <code>2^(log2(x) / 2)</code>. Why add a Newton step?</p>
+<div class="opts">
+<button data-k="a">The guess can be negative</button>
+<button data-k="b">Two rounded functions leave the guess a few units in the last place off. One Newton step, <code>(y + x/y) / 2</code>, roughly squares the error away.</button>
+<button data-k="c">exp2 and log2 can't handle subnormals</button>
+</div>
+<p class="hint">How accurate is a result built from two approximations?</p>
+<div class="why"><p>Each of exp2 and log2 is within about 1.5 units, and their errors compound. Newton's method doubles the number of correct digits per step, so one step brings sqrt back to about 1 unit.</p></div>
+</div>
+
+<div class="quiz" data-fill="-inf">
+<p class="q">What is <code>log2 -0.0</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Is <code>-0.0</code> below zero?</p>
+<div class="why"><p><code>cmplt -0.0 0.0</code> is false: negative zero equals zero. So it isn't treated as negative (which would give nan), and the zero case gives <code>-inf</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your sin uses C's <code>sinf</code>, which is correctly rounded. What happens?</p>
+<div class="opts">
+<button data-k="a">Every test passes: it's more accurate</button>
+<button data-k="b">Only the special-value tests fail</button>
+<button data-k="c">Some tests fail: the grader wants the spec's bits, and the spec's sin is a few units off the true value</button>
+</div>
+<p class="hint">What does the grader compare against?</p>
+<div class="why"><p>The oracle's result, bit for bit. A more accurate answer is a different answer. The spec defines sin as its program, not as "the true sine".</p></div>
+</div>
+
+<nav class="pager">
+<a href="../week5/06-lab.html">← Week 5 lab</a>
+<a href="02-sugar.html">Lesson 2: Sugar →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const bitsOf = x => { const b = new DataView(new ArrayBuffer(4)); b.setFloat32(0, x); return b.getUint32(0).toString(2).padStart(32, '0'); };
+  const row = x => {
+    const s = bitsOf(x);
+    return h('div', { class: 'bits' }, [...s].map((c, i) => h('div', { class: 'b' + (c === '1' ? ' one' : '') + (i === 0 || i === 8 ? ' cut' : ''), title: i === 0 ? 'sign' : i < 9 ? 'exponent' : 'mantissa', text: c })));
+  };
+  const key = x => {
+    const s = bitsOf(x), E = parseInt(s.slice(1, 9), 2);
+    return h('div', { class: 'bitkey' }, [h('span', { text: `sign ${s[0]}` }), h('span', { text: `exponent field ${E} (2^${E - 127})` }), h('span', { text: `mantissa 1.${s.slice(9).replace(/0+$/, '') || '0'} in binary` })]);
+  };
+  const nums = [
+    [1.0, '<code>1.0</code>: exponent field 127 means <code>2^0</code>, mantissa all zeros means 1.0. As an i32 that is 1065353216.'],
+    [2.0, '<code>2.0</code>: one more in the exponent field, same mantissa. Doubling a number adds <code>2^23</code> to its bits.'],
+    [3.0, '<code>3.0</code> is <code>1.5 · 2^1</code>: the first mantissa bit is worth one half.'],
+    [0.15625, '<code>0.15625</code> is <code>1.25 · 2^-3</code>: exponent field 124, mantissa <code>.01</code> in binary.'],
+    [-2.0, '<code>-2.0</code>: only the sign bit differs from 2.0. As an i32 the sign bit makes it negative: -1073741824.'],
+  ];
+  CC.stepper(document.getElementById('bits'), nums.map(([x, c]) => ({ caption: c, x })), (s, body) => body.append(row(s.x), key(s.x)));
+  const f32 = Math.fround;
+  const x = f32(3.3), n = Math.floor(f32(x + 0.5)), f = f32(x - n);
+  let p = f32(1.5252734e-05);
+  for (const c of [0.0001540353, 0.0013333558, 0.009618129, 0.05550411, 0.2402265, 0.6931472, 1.0]) p = f32(f32(p * f) + f32(c));
+  const r = f32(p * Math.pow(2, n));
+  const lines = [
+    `x  = 3.3            (the f32 nearest 3.3 is ${x})`,
+    `n  = floor(x + 0.5) = ${n}`,
+    `f  = x - n          = ${f}`,
+    `2^f  by Horner      = ${p}`,
+    `2^n  = bitcast((${n} + 127) · 2^23) = ${Math.pow(2, n)}`,
+    `2^x  = 2^f · 2^n    = ${r}`,
+  ];
+  const caps = ['Start with the f32 nearest 3.3. Every step works in f32: round after each operation.',
+    'Add one half and take the floor: the nearest integer.',
+    'The remainder is small, in <code>[-0.5, 0.5]</code>, where a short polynomial is accurate.',
+    'Eight Taylor coefficients of <code>2^f</code>, highest first: one multiply and one add each.',
+    'The power of two is built from its bits, with no arithmetic: exponent field <code>n + 127</code>.',
+    'Scaling by a power of two is exact. The true <code>2^3.3</code> is 9.849155..., and the spec\'s answer is the f32 nearest it.'];
+  CC.stepper(document.getElementById('exp2'), caps.map((c, i) => ({ caption: c, i })), (s, body) =>
+    body.append(h('div', { class: 'trace' }, lines.map((l, j) => h('div', { class: j === s.i ? 'on' : '', text: j <= s.i ? l : '' })))));
+});
+</script>
+</body>
+</html>

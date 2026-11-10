@@ -1,0 +1,96 @@
+{
+  "id": "w6-01-norm",
+  "lang": "uir",
+  "mode": "buffers",
+  "out_slot": 1,
+  "title": "The length of a vector",
+  "starter": "%x  = buffer 6 dtype=f32 slot=0\n%n  = buffer 1 dtype=f32 slot=1\n# Store the Euclidean length of x, sqrt(x0^2 + ... + x5^2), into slot 1.\n%v  = load %x\n%sq = mul %v %v\n%s  = reduce %sq op=add\n%o  = shrink %n 0 shape=[]\n%st = store %o %s\n%n1 = after %n %st\n",
+  "tests": [
+    {
+      "data": {
+        "0": [
+          3.0,
+          4.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "sample": true,
+      "expect": "[5.0]"
+    },
+    {
+      "data": {
+        "0": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "sample": true,
+      "expect": "[2.0]"
+    },
+    {
+      "data": {
+        "0": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "expect": "[0.0]"
+    },
+    {
+      "data": {
+        "0": [
+          0.4364,
+          4.67,
+          1.291,
+          4.533,
+          -1.61,
+          -4.603
+        ]
+      },
+      "expect": "[8.24583625793457]"
+    },
+    {
+      "data": {
+        "0": [
+          2.0,
+          -2.0,
+          1.0,
+          0.5,
+          -0.5,
+          3.0
+        ]
+      },
+      "expect": "[4.3011627197265625]"
+    },
+    {
+      "data": {
+        "0": [
+          1e-20,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "expect": "[9.999973025467516e-21]"
+    }
+  ],
+  "hints": [
+    "The starter stores the sum of squares. The length is its square root.",
+    "`sqrt` is an op this week: `%r = sqrt %s`, then store `%r`.",
+    "`sqrt` of 25.0 gives exactly 5.0: a perfect square comes out exact through the spec's guess-and-Newton steps."
+  ],
+  "explain": "The Euclidean length is `sqrt(sum of squares)`. `sqrt` is defined by the spec as a guess from `exp2` and `log2` and one Newton step, so its bits are fixed and the oracle can compare them exactly. The tiny input shows what f32 does at the edge: `1e-20` squared is `1e-40`, a subnormal with only a few significant bits, so the length comes back as `9.999973e-21` rather than exactly `1e-20`."
+}

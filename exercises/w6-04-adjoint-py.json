@@ -1,0 +1,50 @@
+{
+  "id": "w6-04-adjoint-py",
+  "lang": "python",
+  "title": "Undoing permute and expand",
+  "prompt": "<p>Two pieces of the movement-op gradient rules. <code>inverse_order(order)</code> is the order that undoes <code>permute order=order</code>: the gradient flows back through it. <code>summed_axes(x_shape, out_shape)</code> lists the axes an <code>expand</code> from <code>x_shape</code> to <code>out_shape</code> grew, in increasing order: the gradient sums over exactly those.</p>",
+  "show": "lambda v: ' '.join(map(str, v)) if v else '(none)'",
+  "starter": "def inverse_order(order: list[int]) -> list[int]:\n    \"\"\"The order that undoes permute(order=order).\"\"\"\n    return order\n\n\ndef summed_axes(x_shape: list[int], out_shape: list[int]) -> list[int]:\n    \"\"\"The axes that expand x_shape -> out_shape grew: its gradient sums over them.\"\"\"\n    return [k for k, a in enumerate(x_shape) if a == 1]\n",
+  "tests": [
+    {
+      "expr": "inverse_order([2, 0, 1])",
+      "sample": true,
+      "expect": "1 2 0"
+    },
+    {
+      "expr": "summed_axes([2, 1, 3], [2, 4, 3])",
+      "sample": true,
+      "expect": "1"
+    },
+    {
+      "expr": "inverse_order([1, 0])",
+      "expect": "1 0"
+    },
+    {
+      "expr": "inverse_order([0, 1, 2])",
+      "expect": "0 1 2"
+    },
+    {
+      "expr": "inverse_order([3, 1, 0, 2])",
+      "expect": "2 1 3 0"
+    },
+    {
+      "expr": "summed_axes([1, 1], [5, 1])",
+      "expect": "0"
+    },
+    {
+      "expr": "summed_axes([1, 3, 1], [4, 3, 6])",
+      "expect": "0 2"
+    },
+    {
+      "expr": "summed_axes([2, 3], [2, 3])",
+      "expect": "(none)"
+    }
+  ],
+  "hints": [
+    "permute's output axis k is the input's axis <code>order[k]</code>. To undo it, input axis <code>order[k]</code> must come back from output axis k.",
+    "So <code>inv[order[k]] = k</code>. Check: for <code>[2, 0, 1]</code> that's <code>[1, 2, 0]</code>, and permuting by one then the other is the identity.",
+    "An axis was grown when it was 1 in <code>x_shape</code> and isn't 1 in <code>out_shape</code>. A size-1 axis that stays 1 wasn't grown, so nothing sums over it."
+  ],
+  "explain": "permute only moves numbers, so its gradient moves them back: <code>permute g</code> by the inverse order. The starter returns the order itself, which is right only when the permutation is its own inverse, like a transpose. expand copies a value along its grown axes, and every copy receives a share of the gradient, so the gradient sums over those axes. An axis that was already 1 and stays 1 is not a copy, which is the starter's other mistake."
+}

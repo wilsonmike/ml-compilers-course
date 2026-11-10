@@ -1,0 +1,16 @@
+# expect: pass
+# expand of a middle axis: the gradient sums along it
+%xb = buffer 6 dtype=f32 slot=0 data=[1.0 2.0 3.0 4.0 5.0 6.0]
+%x = load %xb
+%v = reshape %x shape=[2 1 3]
+%e = expand %v shape=[2 4 3]
+%w0 = reshape %e shape=[24]
+%kb = buffer 24 dtype=f32 slot=2 data=[0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0 5.5 6.0 6.5 7.0 7.5 8.0 8.5 9.0 9.5 1e+01 10.5 11.0 11.5]
+%k = load %kb
+%q = mul %w0 %k
+%y = reduce %q op=add
+%g = gradient %y %v
+%gf = reshape %g shape=[6]
+%wb = buffer 6 dtype=f32 slot=1 data=[9.0 11.0 13.0 33.0 35.0 37.0]
+%w = load %wb
+%t = assert %gf %w

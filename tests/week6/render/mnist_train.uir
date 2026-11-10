@@ -1,0 +1,2041 @@
+# render check: slot 4 >= 850
+# time: 120
+# max_bytes: 1030000
+# softmax regression on MNIST: 50 steps of 100 images, learning rate 1.0, then 1000 test digits
+%xs = buffer 3920000 dtype=f32 slot=0 url=data/mnist-train-images.f32 sha256=1ac7f6c86abd878d90fde19ac54c42d189186e39f24d5ddbc5f79892ed91ab79
+%ys = buffer 5000 dtype=i32 slot=1 url=data/mnist-train-labels.i32 sha256=38de0999ac3adac6dcbcec0a3e8fa752da1414f6be3a3397e9dc4e213ef51d4a
+%xt = buffer 784000 dtype=f32 slot=2 url=data/mnist-test-images.f32 sha256=0678d37d56a66e061e86a601c8c1728563295db8af2a0cc02d7e31ffa60a62a7
+%yt = buffer 1000 dtype=i32 slot=3 url=data/mnist-test-labels.i32 sha256=8ade56b6b33985c43a3e4094c09aea568cb6bee17b037485c81d32ffd7c2df46
+%ok = buffer 1 dtype=i32 slot=4
+%w = buffer 7840 dtype=f32 slot=5             # the weights, starting at zero
+%cls = buffer 10 dtype=i32 slot=6 data=[0 1 2 3 4 5 6 7 8 9]
+%classes = load %cls
+# one-hot labels: onehot[b][c] is 1.0 where label b is class c
+# logits are staged: computed once per step, and so is their gradient
+# step 0
+%s0_xv = shrink %xs 0 shape=[78400]
+%s0_xl = load %s0_xv
+%s0_x = reshape %s0_xl shape=[100 784]
+%s0_yv = shrink %ys 0 shape=[100]
+%s0_yl = load %s0_yv
+%s0_ohl = reshape %s0_yl shape=[100 1]
+%s0_ohe = expand %s0_ohl shape=[100 10]
+%s0_ohc = reshape %classes shape=[1 10]
+%s0_ohk = expand %s0_ohc shape=[100 10]
+%s0_ohq = cmpeq %s0_ohe %s0_ohk
+%s0_oh = cast %s0_ohq dtype=f32
+%s0_wl = load %w
+%s0_W = reshape %s0_wl shape=[784 10]
+%s0_z0 = matmul %s0_x %s0_W
+%s0_z = stage %s0_z0
+%s0_zt = permute %s0_z order=[1 0]
+%s0_m = reduce %s0_zt op=max
+%s0_md = detach %s0_m
+%s0_mr = reshape %s0_md shape=[100 1]
+%s0_me = expand %s0_mr shape=[100 10]
+%s0_zs = sub %s0_z %s0_me
+%s0_e = exp %s0_zs
+%s0_et = permute %s0_e order=[1 0]
+%s0_se = reduce %s0_et op=add
+%s0_ls = log %s0_se
+%s0_lr = reshape %s0_ls shape=[100 1]
+%s0_le = expand %s0_lr shape=[100 10]
+%s0_lp = sub %s0_zs %s0_le
+%s0_pick = mul %s0_lp %s0_oh
+%s0_pf = reshape %s0_pick shape=[1000]
+%s0_tot = reduce %s0_pf op=add
+%s0_loss = mul %s0_tot -0.01
+%s0_g = gradient %s0_loss %s0_W
+%s0_lrx = expand 1.0 shape=[784 10]
+%s0_d = mul %s0_g %s0_lrx
+%s0_W1 = sub %s0_W %s0_d
+%s0_wf = reshape %s0_W1 shape=[7840]
+%s0_st = store %w %s0_wf
+%s0_w = after %w %s0_st
+# step 1
+%s1_xv = shrink %xs 78400 shape=[78400]
+%s1_xl = load %s1_xv
+%s1_x = reshape %s1_xl shape=[100 784]
+%s1_yv = shrink %ys 100 shape=[100]
+%s1_yl = load %s1_yv
+%s1_ohl = reshape %s1_yl shape=[100 1]
+%s1_ohe = expand %s1_ohl shape=[100 10]
+%s1_ohc = reshape %classes shape=[1 10]
+%s1_ohk = expand %s1_ohc shape=[100 10]
+%s1_ohq = cmpeq %s1_ohe %s1_ohk
+%s1_oh = cast %s1_ohq dtype=f32
+%s1_wl = load %s0_w
+%s1_W = reshape %s1_wl shape=[784 10]
+%s1_z0 = matmul %s1_x %s1_W
+%s1_z = stage %s1_z0
+%s1_zt = permute %s1_z order=[1 0]
+%s1_m = reduce %s1_zt op=max
+%s1_md = detach %s1_m
+%s1_mr = reshape %s1_md shape=[100 1]
+%s1_me = expand %s1_mr shape=[100 10]
+%s1_zs = sub %s1_z %s1_me
+%s1_e = exp %s1_zs
+%s1_et = permute %s1_e order=[1 0]
+%s1_se = reduce %s1_et op=add
+%s1_ls = log %s1_se
+%s1_lr = reshape %s1_ls shape=[100 1]
+%s1_le = expand %s1_lr shape=[100 10]
+%s1_lp = sub %s1_zs %s1_le
+%s1_pick = mul %s1_lp %s1_oh
+%s1_pf = reshape %s1_pick shape=[1000]
+%s1_tot = reduce %s1_pf op=add
+%s1_loss = mul %s1_tot -0.01
+%s1_g = gradient %s1_loss %s1_W
+%s1_lrx = expand 1.0 shape=[784 10]
+%s1_d = mul %s1_g %s1_lrx
+%s1_W1 = sub %s1_W %s1_d
+%s1_wf = reshape %s1_W1 shape=[7840]
+%s1_st = store %s0_w %s1_wf
+%s1_w = after %s0_w %s1_st
+# step 2
+%s2_xv = shrink %xs 156800 shape=[78400]
+%s2_xl = load %s2_xv
+%s2_x = reshape %s2_xl shape=[100 784]
+%s2_yv = shrink %ys 200 shape=[100]
+%s2_yl = load %s2_yv
+%s2_ohl = reshape %s2_yl shape=[100 1]
+%s2_ohe = expand %s2_ohl shape=[100 10]
+%s2_ohc = reshape %classes shape=[1 10]
+%s2_ohk = expand %s2_ohc shape=[100 10]
+%s2_ohq = cmpeq %s2_ohe %s2_ohk
+%s2_oh = cast %s2_ohq dtype=f32
+%s2_wl = load %s1_w
+%s2_W = reshape %s2_wl shape=[784 10]
+%s2_z0 = matmul %s2_x %s2_W
+%s2_z = stage %s2_z0
+%s2_zt = permute %s2_z order=[1 0]
+%s2_m = reduce %s2_zt op=max
+%s2_md = detach %s2_m
+%s2_mr = reshape %s2_md shape=[100 1]
+%s2_me = expand %s2_mr shape=[100 10]
+%s2_zs = sub %s2_z %s2_me
+%s2_e = exp %s2_zs
+%s2_et = permute %s2_e order=[1 0]
+%s2_se = reduce %s2_et op=add
+%s2_ls = log %s2_se
+%s2_lr = reshape %s2_ls shape=[100 1]
+%s2_le = expand %s2_lr shape=[100 10]
+%s2_lp = sub %s2_zs %s2_le
+%s2_pick = mul %s2_lp %s2_oh
+%s2_pf = reshape %s2_pick shape=[1000]
+%s2_tot = reduce %s2_pf op=add
+%s2_loss = mul %s2_tot -0.01
+%s2_g = gradient %s2_loss %s2_W
+%s2_lrx = expand 1.0 shape=[784 10]
+%s2_d = mul %s2_g %s2_lrx
+%s2_W1 = sub %s2_W %s2_d
+%s2_wf = reshape %s2_W1 shape=[7840]
+%s2_st = store %s1_w %s2_wf
+%s2_w = after %s1_w %s2_st
+# step 3
+%s3_xv = shrink %xs 235200 shape=[78400]
+%s3_xl = load %s3_xv
+%s3_x = reshape %s3_xl shape=[100 784]
+%s3_yv = shrink %ys 300 shape=[100]
+%s3_yl = load %s3_yv
+%s3_ohl = reshape %s3_yl shape=[100 1]
+%s3_ohe = expand %s3_ohl shape=[100 10]
+%s3_ohc = reshape %classes shape=[1 10]
+%s3_ohk = expand %s3_ohc shape=[100 10]
+%s3_ohq = cmpeq %s3_ohe %s3_ohk
+%s3_oh = cast %s3_ohq dtype=f32
+%s3_wl = load %s2_w
+%s3_W = reshape %s3_wl shape=[784 10]
+%s3_z0 = matmul %s3_x %s3_W
+%s3_z = stage %s3_z0
+%s3_zt = permute %s3_z order=[1 0]
+%s3_m = reduce %s3_zt op=max
+%s3_md = detach %s3_m
+%s3_mr = reshape %s3_md shape=[100 1]
+%s3_me = expand %s3_mr shape=[100 10]
+%s3_zs = sub %s3_z %s3_me
+%s3_e = exp %s3_zs
+%s3_et = permute %s3_e order=[1 0]
+%s3_se = reduce %s3_et op=add
+%s3_ls = log %s3_se
+%s3_lr = reshape %s3_ls shape=[100 1]
+%s3_le = expand %s3_lr shape=[100 10]
+%s3_lp = sub %s3_zs %s3_le
+%s3_pick = mul %s3_lp %s3_oh
+%s3_pf = reshape %s3_pick shape=[1000]
+%s3_tot = reduce %s3_pf op=add
+%s3_loss = mul %s3_tot -0.01
+%s3_g = gradient %s3_loss %s3_W
+%s3_lrx = expand 1.0 shape=[784 10]
+%s3_d = mul %s3_g %s3_lrx
+%s3_W1 = sub %s3_W %s3_d
+%s3_wf = reshape %s3_W1 shape=[7840]
+%s3_st = store %s2_w %s3_wf
+%s3_w = after %s2_w %s3_st
+# step 4
+%s4_xv = shrink %xs 313600 shape=[78400]
+%s4_xl = load %s4_xv
+%s4_x = reshape %s4_xl shape=[100 784]
+%s4_yv = shrink %ys 400 shape=[100]
+%s4_yl = load %s4_yv
+%s4_ohl = reshape %s4_yl shape=[100 1]
+%s4_ohe = expand %s4_ohl shape=[100 10]
+%s4_ohc = reshape %classes shape=[1 10]
+%s4_ohk = expand %s4_ohc shape=[100 10]
+%s4_ohq = cmpeq %s4_ohe %s4_ohk
+%s4_oh = cast %s4_ohq dtype=f32
+%s4_wl = load %s3_w
+%s4_W = reshape %s4_wl shape=[784 10]
+%s4_z0 = matmul %s4_x %s4_W
+%s4_z = stage %s4_z0
+%s4_zt = permute %s4_z order=[1 0]
+%s4_m = reduce %s4_zt op=max
+%s4_md = detach %s4_m
+%s4_mr = reshape %s4_md shape=[100 1]
+%s4_me = expand %s4_mr shape=[100 10]
+%s4_zs = sub %s4_z %s4_me
+%s4_e = exp %s4_zs
+%s4_et = permute %s4_e order=[1 0]
+%s4_se = reduce %s4_et op=add
+%s4_ls = log %s4_se
+%s4_lr = reshape %s4_ls shape=[100 1]
+%s4_le = expand %s4_lr shape=[100 10]
+%s4_lp = sub %s4_zs %s4_le
+%s4_pick = mul %s4_lp %s4_oh
+%s4_pf = reshape %s4_pick shape=[1000]
+%s4_tot = reduce %s4_pf op=add
+%s4_loss = mul %s4_tot -0.01
+%s4_g = gradient %s4_loss %s4_W
+%s4_lrx = expand 1.0 shape=[784 10]
+%s4_d = mul %s4_g %s4_lrx
+%s4_W1 = sub %s4_W %s4_d
+%s4_wf = reshape %s4_W1 shape=[7840]
+%s4_st = store %s3_w %s4_wf
+%s4_w = after %s3_w %s4_st
+# step 5
+%s5_xv = shrink %xs 392000 shape=[78400]
+%s5_xl = load %s5_xv
+%s5_x = reshape %s5_xl shape=[100 784]
+%s5_yv = shrink %ys 500 shape=[100]
+%s5_yl = load %s5_yv
+%s5_ohl = reshape %s5_yl shape=[100 1]
+%s5_ohe = expand %s5_ohl shape=[100 10]
+%s5_ohc = reshape %classes shape=[1 10]
+%s5_ohk = expand %s5_ohc shape=[100 10]
+%s5_ohq = cmpeq %s5_ohe %s5_ohk
+%s5_oh = cast %s5_ohq dtype=f32
+%s5_wl = load %s4_w
+%s5_W = reshape %s5_wl shape=[784 10]
+%s5_z0 = matmul %s5_x %s5_W
+%s5_z = stage %s5_z0
+%s5_zt = permute %s5_z order=[1 0]
+%s5_m = reduce %s5_zt op=max
+%s5_md = detach %s5_m
+%s5_mr = reshape %s5_md shape=[100 1]
+%s5_me = expand %s5_mr shape=[100 10]
+%s5_zs = sub %s5_z %s5_me
+%s5_e = exp %s5_zs
+%s5_et = permute %s5_e order=[1 0]
+%s5_se = reduce %s5_et op=add
+%s5_ls = log %s5_se
+%s5_lr = reshape %s5_ls shape=[100 1]
+%s5_le = expand %s5_lr shape=[100 10]
+%s5_lp = sub %s5_zs %s5_le
+%s5_pick = mul %s5_lp %s5_oh
+%s5_pf = reshape %s5_pick shape=[1000]
+%s5_tot = reduce %s5_pf op=add
+%s5_loss = mul %s5_tot -0.01
+%s5_g = gradient %s5_loss %s5_W
+%s5_lrx = expand 1.0 shape=[784 10]
+%s5_d = mul %s5_g %s5_lrx
+%s5_W1 = sub %s5_W %s5_d
+%s5_wf = reshape %s5_W1 shape=[7840]
+%s5_st = store %s4_w %s5_wf
+%s5_w = after %s4_w %s5_st
+# step 6
+%s6_xv = shrink %xs 470400 shape=[78400]
+%s6_xl = load %s6_xv
+%s6_x = reshape %s6_xl shape=[100 784]
+%s6_yv = shrink %ys 600 shape=[100]
+%s6_yl = load %s6_yv
+%s6_ohl = reshape %s6_yl shape=[100 1]
+%s6_ohe = expand %s6_ohl shape=[100 10]
+%s6_ohc = reshape %classes shape=[1 10]
+%s6_ohk = expand %s6_ohc shape=[100 10]
+%s6_ohq = cmpeq %s6_ohe %s6_ohk
+%s6_oh = cast %s6_ohq dtype=f32
+%s6_wl = load %s5_w
+%s6_W = reshape %s6_wl shape=[784 10]
+%s6_z0 = matmul %s6_x %s6_W
+%s6_z = stage %s6_z0
+%s6_zt = permute %s6_z order=[1 0]
+%s6_m = reduce %s6_zt op=max
+%s6_md = detach %s6_m
+%s6_mr = reshape %s6_md shape=[100 1]
+%s6_me = expand %s6_mr shape=[100 10]
+%s6_zs = sub %s6_z %s6_me
+%s6_e = exp %s6_zs
+%s6_et = permute %s6_e order=[1 0]
+%s6_se = reduce %s6_et op=add
+%s6_ls = log %s6_se
+%s6_lr = reshape %s6_ls shape=[100 1]
+%s6_le = expand %s6_lr shape=[100 10]
+%s6_lp = sub %s6_zs %s6_le
+%s6_pick = mul %s6_lp %s6_oh
+%s6_pf = reshape %s6_pick shape=[1000]
+%s6_tot = reduce %s6_pf op=add
+%s6_loss = mul %s6_tot -0.01
+%s6_g = gradient %s6_loss %s6_W
+%s6_lrx = expand 1.0 shape=[784 10]
+%s6_d = mul %s6_g %s6_lrx
+%s6_W1 = sub %s6_W %s6_d
+%s6_wf = reshape %s6_W1 shape=[7840]
+%s6_st = store %s5_w %s6_wf
+%s6_w = after %s5_w %s6_st
+# step 7
+%s7_xv = shrink %xs 548800 shape=[78400]
+%s7_xl = load %s7_xv
+%s7_x = reshape %s7_xl shape=[100 784]
+%s7_yv = shrink %ys 700 shape=[100]
+%s7_yl = load %s7_yv
+%s7_ohl = reshape %s7_yl shape=[100 1]
+%s7_ohe = expand %s7_ohl shape=[100 10]
+%s7_ohc = reshape %classes shape=[1 10]
+%s7_ohk = expand %s7_ohc shape=[100 10]
+%s7_ohq = cmpeq %s7_ohe %s7_ohk
+%s7_oh = cast %s7_ohq dtype=f32
+%s7_wl = load %s6_w
+%s7_W = reshape %s7_wl shape=[784 10]
+%s7_z0 = matmul %s7_x %s7_W
+%s7_z = stage %s7_z0
+%s7_zt = permute %s7_z order=[1 0]
+%s7_m = reduce %s7_zt op=max
+%s7_md = detach %s7_m
+%s7_mr = reshape %s7_md shape=[100 1]
+%s7_me = expand %s7_mr shape=[100 10]
+%s7_zs = sub %s7_z %s7_me
+%s7_e = exp %s7_zs
+%s7_et = permute %s7_e order=[1 0]
+%s7_se = reduce %s7_et op=add
+%s7_ls = log %s7_se
+%s7_lr = reshape %s7_ls shape=[100 1]
+%s7_le = expand %s7_lr shape=[100 10]
+%s7_lp = sub %s7_zs %s7_le
+%s7_pick = mul %s7_lp %s7_oh
+%s7_pf = reshape %s7_pick shape=[1000]
+%s7_tot = reduce %s7_pf op=add
+%s7_loss = mul %s7_tot -0.01
+%s7_g = gradient %s7_loss %s7_W
+%s7_lrx = expand 1.0 shape=[784 10]
+%s7_d = mul %s7_g %s7_lrx
+%s7_W1 = sub %s7_W %s7_d
+%s7_wf = reshape %s7_W1 shape=[7840]
+%s7_st = store %s6_w %s7_wf
+%s7_w = after %s6_w %s7_st
+# step 8
+%s8_xv = shrink %xs 627200 shape=[78400]
+%s8_xl = load %s8_xv
+%s8_x = reshape %s8_xl shape=[100 784]
+%s8_yv = shrink %ys 800 shape=[100]
+%s8_yl = load %s8_yv
+%s8_ohl = reshape %s8_yl shape=[100 1]
+%s8_ohe = expand %s8_ohl shape=[100 10]
+%s8_ohc = reshape %classes shape=[1 10]
+%s8_ohk = expand %s8_ohc shape=[100 10]
+%s8_ohq = cmpeq %s8_ohe %s8_ohk
+%s8_oh = cast %s8_ohq dtype=f32
+%s8_wl = load %s7_w
+%s8_W = reshape %s8_wl shape=[784 10]
+%s8_z0 = matmul %s8_x %s8_W
+%s8_z = stage %s8_z0
+%s8_zt = permute %s8_z order=[1 0]
+%s8_m = reduce %s8_zt op=max
+%s8_md = detach %s8_m
+%s8_mr = reshape %s8_md shape=[100 1]
+%s8_me = expand %s8_mr shape=[100 10]
+%s8_zs = sub %s8_z %s8_me
+%s8_e = exp %s8_zs
+%s8_et = permute %s8_e order=[1 0]
+%s8_se = reduce %s8_et op=add
+%s8_ls = log %s8_se
+%s8_lr = reshape %s8_ls shape=[100 1]
+%s8_le = expand %s8_lr shape=[100 10]
+%s8_lp = sub %s8_zs %s8_le
+%s8_pick = mul %s8_lp %s8_oh
+%s8_pf = reshape %s8_pick shape=[1000]
+%s8_tot = reduce %s8_pf op=add
+%s8_loss = mul %s8_tot -0.01
+%s8_g = gradient %s8_loss %s8_W
+%s8_lrx = expand 1.0 shape=[784 10]
+%s8_d = mul %s8_g %s8_lrx
+%s8_W1 = sub %s8_W %s8_d
+%s8_wf = reshape %s8_W1 shape=[7840]
+%s8_st = store %s7_w %s8_wf
+%s8_w = after %s7_w %s8_st
+# step 9
+%s9_xv = shrink %xs 705600 shape=[78400]
+%s9_xl = load %s9_xv
+%s9_x = reshape %s9_xl shape=[100 784]
+%s9_yv = shrink %ys 900 shape=[100]
+%s9_yl = load %s9_yv
+%s9_ohl = reshape %s9_yl shape=[100 1]
+%s9_ohe = expand %s9_ohl shape=[100 10]
+%s9_ohc = reshape %classes shape=[1 10]
+%s9_ohk = expand %s9_ohc shape=[100 10]
+%s9_ohq = cmpeq %s9_ohe %s9_ohk
+%s9_oh = cast %s9_ohq dtype=f32
+%s9_wl = load %s8_w
+%s9_W = reshape %s9_wl shape=[784 10]
+%s9_z0 = matmul %s9_x %s9_W
+%s9_z = stage %s9_z0
+%s9_zt = permute %s9_z order=[1 0]
+%s9_m = reduce %s9_zt op=max
+%s9_md = detach %s9_m
+%s9_mr = reshape %s9_md shape=[100 1]
+%s9_me = expand %s9_mr shape=[100 10]
+%s9_zs = sub %s9_z %s9_me
+%s9_e = exp %s9_zs
+%s9_et = permute %s9_e order=[1 0]
+%s9_se = reduce %s9_et op=add
+%s9_ls = log %s9_se
+%s9_lr = reshape %s9_ls shape=[100 1]
+%s9_le = expand %s9_lr shape=[100 10]
+%s9_lp = sub %s9_zs %s9_le
+%s9_pick = mul %s9_lp %s9_oh
+%s9_pf = reshape %s9_pick shape=[1000]
+%s9_tot = reduce %s9_pf op=add
+%s9_loss = mul %s9_tot -0.01
+%s9_g = gradient %s9_loss %s9_W
+%s9_lrx = expand 1.0 shape=[784 10]
+%s9_d = mul %s9_g %s9_lrx
+%s9_W1 = sub %s9_W %s9_d
+%s9_wf = reshape %s9_W1 shape=[7840]
+%s9_st = store %s8_w %s9_wf
+%s9_w = after %s8_w %s9_st
+# step 10
+%s10_xv = shrink %xs 784000 shape=[78400]
+%s10_xl = load %s10_xv
+%s10_x = reshape %s10_xl shape=[100 784]
+%s10_yv = shrink %ys 1000 shape=[100]
+%s10_yl = load %s10_yv
+%s10_ohl = reshape %s10_yl shape=[100 1]
+%s10_ohe = expand %s10_ohl shape=[100 10]
+%s10_ohc = reshape %classes shape=[1 10]
+%s10_ohk = expand %s10_ohc shape=[100 10]
+%s10_ohq = cmpeq %s10_ohe %s10_ohk
+%s10_oh = cast %s10_ohq dtype=f32
+%s10_wl = load %s9_w
+%s10_W = reshape %s10_wl shape=[784 10]
+%s10_z0 = matmul %s10_x %s10_W
+%s10_z = stage %s10_z0
+%s10_zt = permute %s10_z order=[1 0]
+%s10_m = reduce %s10_zt op=max
+%s10_md = detach %s10_m
+%s10_mr = reshape %s10_md shape=[100 1]
+%s10_me = expand %s10_mr shape=[100 10]
+%s10_zs = sub %s10_z %s10_me
+%s10_e = exp %s10_zs
+%s10_et = permute %s10_e order=[1 0]
+%s10_se = reduce %s10_et op=add
+%s10_ls = log %s10_se
+%s10_lr = reshape %s10_ls shape=[100 1]
+%s10_le = expand %s10_lr shape=[100 10]
+%s10_lp = sub %s10_zs %s10_le
+%s10_pick = mul %s10_lp %s10_oh
+%s10_pf = reshape %s10_pick shape=[1000]
+%s10_tot = reduce %s10_pf op=add
+%s10_loss = mul %s10_tot -0.01
+%s10_g = gradient %s10_loss %s10_W
+%s10_lrx = expand 1.0 shape=[784 10]
+%s10_d = mul %s10_g %s10_lrx
+%s10_W1 = sub %s10_W %s10_d
+%s10_wf = reshape %s10_W1 shape=[7840]
+%s10_st = store %s9_w %s10_wf
+%s10_w = after %s9_w %s10_st
+# step 11
+%s11_xv = shrink %xs 862400 shape=[78400]
+%s11_xl = load %s11_xv
+%s11_x = reshape %s11_xl shape=[100 784]
+%s11_yv = shrink %ys 1100 shape=[100]
+%s11_yl = load %s11_yv
+%s11_ohl = reshape %s11_yl shape=[100 1]
+%s11_ohe = expand %s11_ohl shape=[100 10]
+%s11_ohc = reshape %classes shape=[1 10]
+%s11_ohk = expand %s11_ohc shape=[100 10]
+%s11_ohq = cmpeq %s11_ohe %s11_ohk
+%s11_oh = cast %s11_ohq dtype=f32
+%s11_wl = load %s10_w
+%s11_W = reshape %s11_wl shape=[784 10]
+%s11_z0 = matmul %s11_x %s11_W
+%s11_z = stage %s11_z0
+%s11_zt = permute %s11_z order=[1 0]
+%s11_m = reduce %s11_zt op=max
+%s11_md = detach %s11_m
+%s11_mr = reshape %s11_md shape=[100 1]
+%s11_me = expand %s11_mr shape=[100 10]
+%s11_zs = sub %s11_z %s11_me
+%s11_e = exp %s11_zs
+%s11_et = permute %s11_e order=[1 0]
+%s11_se = reduce %s11_et op=add
+%s11_ls = log %s11_se
+%s11_lr = reshape %s11_ls shape=[100 1]
+%s11_le = expand %s11_lr shape=[100 10]
+%s11_lp = sub %s11_zs %s11_le
+%s11_pick = mul %s11_lp %s11_oh
+%s11_pf = reshape %s11_pick shape=[1000]
+%s11_tot = reduce %s11_pf op=add
+%s11_loss = mul %s11_tot -0.01
+%s11_g = gradient %s11_loss %s11_W
+%s11_lrx = expand 1.0 shape=[784 10]
+%s11_d = mul %s11_g %s11_lrx
+%s11_W1 = sub %s11_W %s11_d
+%s11_wf = reshape %s11_W1 shape=[7840]
+%s11_st = store %s10_w %s11_wf
+%s11_w = after %s10_w %s11_st
+# step 12
+%s12_xv = shrink %xs 940800 shape=[78400]
+%s12_xl = load %s12_xv
+%s12_x = reshape %s12_xl shape=[100 784]
+%s12_yv = shrink %ys 1200 shape=[100]
+%s12_yl = load %s12_yv
+%s12_ohl = reshape %s12_yl shape=[100 1]
+%s12_ohe = expand %s12_ohl shape=[100 10]
+%s12_ohc = reshape %classes shape=[1 10]
+%s12_ohk = expand %s12_ohc shape=[100 10]
+%s12_ohq = cmpeq %s12_ohe %s12_ohk
+%s12_oh = cast %s12_ohq dtype=f32
+%s12_wl = load %s11_w
+%s12_W = reshape %s12_wl shape=[784 10]
+%s12_z0 = matmul %s12_x %s12_W
+%s12_z = stage %s12_z0
+%s12_zt = permute %s12_z order=[1 0]
+%s12_m = reduce %s12_zt op=max
+%s12_md = detach %s12_m
+%s12_mr = reshape %s12_md shape=[100 1]
+%s12_me = expand %s12_mr shape=[100 10]
+%s12_zs = sub %s12_z %s12_me
+%s12_e = exp %s12_zs
+%s12_et = permute %s12_e order=[1 0]
+%s12_se = reduce %s12_et op=add
+%s12_ls = log %s12_se
+%s12_lr = reshape %s12_ls shape=[100 1]
+%s12_le = expand %s12_lr shape=[100 10]
+%s12_lp = sub %s12_zs %s12_le
+%s12_pick = mul %s12_lp %s12_oh
+%s12_pf = reshape %s12_pick shape=[1000]
+%s12_tot = reduce %s12_pf op=add
+%s12_loss = mul %s12_tot -0.01
+%s12_g = gradient %s12_loss %s12_W
+%s12_lrx = expand 1.0 shape=[784 10]
+%s12_d = mul %s12_g %s12_lrx
+%s12_W1 = sub %s12_W %s12_d
+%s12_wf = reshape %s12_W1 shape=[7840]
+%s12_st = store %s11_w %s12_wf
+%s12_w = after %s11_w %s12_st
+# step 13
+%s13_xv = shrink %xs 1019200 shape=[78400]
+%s13_xl = load %s13_xv
+%s13_x = reshape %s13_xl shape=[100 784]
+%s13_yv = shrink %ys 1300 shape=[100]
+%s13_yl = load %s13_yv
+%s13_ohl = reshape %s13_yl shape=[100 1]
+%s13_ohe = expand %s13_ohl shape=[100 10]
+%s13_ohc = reshape %classes shape=[1 10]
+%s13_ohk = expand %s13_ohc shape=[100 10]
+%s13_ohq = cmpeq %s13_ohe %s13_ohk
+%s13_oh = cast %s13_ohq dtype=f32
+%s13_wl = load %s12_w
+%s13_W = reshape %s13_wl shape=[784 10]
+%s13_z0 = matmul %s13_x %s13_W
+%s13_z = stage %s13_z0
+%s13_zt = permute %s13_z order=[1 0]
+%s13_m = reduce %s13_zt op=max
+%s13_md = detach %s13_m
+%s13_mr = reshape %s13_md shape=[100 1]
+%s13_me = expand %s13_mr shape=[100 10]
+%s13_zs = sub %s13_z %s13_me
+%s13_e = exp %s13_zs
+%s13_et = permute %s13_e order=[1 0]
+%s13_se = reduce %s13_et op=add
+%s13_ls = log %s13_se
+%s13_lr = reshape %s13_ls shape=[100 1]
+%s13_le = expand %s13_lr shape=[100 10]
+%s13_lp = sub %s13_zs %s13_le
+%s13_pick = mul %s13_lp %s13_oh
+%s13_pf = reshape %s13_pick shape=[1000]
+%s13_tot = reduce %s13_pf op=add
+%s13_loss = mul %s13_tot -0.01
+%s13_g = gradient %s13_loss %s13_W
+%s13_lrx = expand 1.0 shape=[784 10]
+%s13_d = mul %s13_g %s13_lrx
+%s13_W1 = sub %s13_W %s13_d
+%s13_wf = reshape %s13_W1 shape=[7840]
+%s13_st = store %s12_w %s13_wf
+%s13_w = after %s12_w %s13_st
+# step 14
+%s14_xv = shrink %xs 1097600 shape=[78400]
+%s14_xl = load %s14_xv
+%s14_x = reshape %s14_xl shape=[100 784]
+%s14_yv = shrink %ys 1400 shape=[100]
+%s14_yl = load %s14_yv
+%s14_ohl = reshape %s14_yl shape=[100 1]
+%s14_ohe = expand %s14_ohl shape=[100 10]
+%s14_ohc = reshape %classes shape=[1 10]
+%s14_ohk = expand %s14_ohc shape=[100 10]
+%s14_ohq = cmpeq %s14_ohe %s14_ohk
+%s14_oh = cast %s14_ohq dtype=f32
+%s14_wl = load %s13_w
+%s14_W = reshape %s14_wl shape=[784 10]
+%s14_z0 = matmul %s14_x %s14_W
+%s14_z = stage %s14_z0
+%s14_zt = permute %s14_z order=[1 0]
+%s14_m = reduce %s14_zt op=max
+%s14_md = detach %s14_m
+%s14_mr = reshape %s14_md shape=[100 1]
+%s14_me = expand %s14_mr shape=[100 10]
+%s14_zs = sub %s14_z %s14_me
+%s14_e = exp %s14_zs
+%s14_et = permute %s14_e order=[1 0]
+%s14_se = reduce %s14_et op=add
+%s14_ls = log %s14_se
+%s14_lr = reshape %s14_ls shape=[100 1]
+%s14_le = expand %s14_lr shape=[100 10]
+%s14_lp = sub %s14_zs %s14_le
+%s14_pick = mul %s14_lp %s14_oh
+%s14_pf = reshape %s14_pick shape=[1000]
+%s14_tot = reduce %s14_pf op=add
+%s14_loss = mul %s14_tot -0.01
+%s14_g = gradient %s14_loss %s14_W
+%s14_lrx = expand 1.0 shape=[784 10]
+%s14_d = mul %s14_g %s14_lrx
+%s14_W1 = sub %s14_W %s14_d
+%s14_wf = reshape %s14_W1 shape=[7840]
+%s14_st = store %s13_w %s14_wf
+%s14_w = after %s13_w %s14_st
+# step 15
+%s15_xv = shrink %xs 1176000 shape=[78400]
+%s15_xl = load %s15_xv
+%s15_x = reshape %s15_xl shape=[100 784]
+%s15_yv = shrink %ys 1500 shape=[100]
+%s15_yl = load %s15_yv
+%s15_ohl = reshape %s15_yl shape=[100 1]
+%s15_ohe = expand %s15_ohl shape=[100 10]
+%s15_ohc = reshape %classes shape=[1 10]
+%s15_ohk = expand %s15_ohc shape=[100 10]
+%s15_ohq = cmpeq %s15_ohe %s15_ohk
+%s15_oh = cast %s15_ohq dtype=f32
+%s15_wl = load %s14_w
+%s15_W = reshape %s15_wl shape=[784 10]
+%s15_z0 = matmul %s15_x %s15_W
+%s15_z = stage %s15_z0
+%s15_zt = permute %s15_z order=[1 0]
+%s15_m = reduce %s15_zt op=max
+%s15_md = detach %s15_m
+%s15_mr = reshape %s15_md shape=[100 1]
+%s15_me = expand %s15_mr shape=[100 10]
+%s15_zs = sub %s15_z %s15_me
+%s15_e = exp %s15_zs
+%s15_et = permute %s15_e order=[1 0]
+%s15_se = reduce %s15_et op=add
+%s15_ls = log %s15_se
+%s15_lr = reshape %s15_ls shape=[100 1]
+%s15_le = expand %s15_lr shape=[100 10]
+%s15_lp = sub %s15_zs %s15_le
+%s15_pick = mul %s15_lp %s15_oh
+%s15_pf = reshape %s15_pick shape=[1000]
+%s15_tot = reduce %s15_pf op=add
+%s15_loss = mul %s15_tot -0.01
+%s15_g = gradient %s15_loss %s15_W
+%s15_lrx = expand 1.0 shape=[784 10]
+%s15_d = mul %s15_g %s15_lrx
+%s15_W1 = sub %s15_W %s15_d
+%s15_wf = reshape %s15_W1 shape=[7840]
+%s15_st = store %s14_w %s15_wf
+%s15_w = after %s14_w %s15_st
+# step 16
+%s16_xv = shrink %xs 1254400 shape=[78400]
+%s16_xl = load %s16_xv
+%s16_x = reshape %s16_xl shape=[100 784]
+%s16_yv = shrink %ys 1600 shape=[100]
+%s16_yl = load %s16_yv
+%s16_ohl = reshape %s16_yl shape=[100 1]
+%s16_ohe = expand %s16_ohl shape=[100 10]
+%s16_ohc = reshape %classes shape=[1 10]
+%s16_ohk = expand %s16_ohc shape=[100 10]
+%s16_ohq = cmpeq %s16_ohe %s16_ohk
+%s16_oh = cast %s16_ohq dtype=f32
+%s16_wl = load %s15_w
+%s16_W = reshape %s16_wl shape=[784 10]
+%s16_z0 = matmul %s16_x %s16_W
+%s16_z = stage %s16_z0
+%s16_zt = permute %s16_z order=[1 0]
+%s16_m = reduce %s16_zt op=max
+%s16_md = detach %s16_m
+%s16_mr = reshape %s16_md shape=[100 1]
+%s16_me = expand %s16_mr shape=[100 10]
+%s16_zs = sub %s16_z %s16_me
+%s16_e = exp %s16_zs
+%s16_et = permute %s16_e order=[1 0]
+%s16_se = reduce %s16_et op=add
+%s16_ls = log %s16_se
+%s16_lr = reshape %s16_ls shape=[100 1]
+%s16_le = expand %s16_lr shape=[100 10]
+%s16_lp = sub %s16_zs %s16_le
+%s16_pick = mul %s16_lp %s16_oh
+%s16_pf = reshape %s16_pick shape=[1000]
+%s16_tot = reduce %s16_pf op=add
+%s16_loss = mul %s16_tot -0.01
+%s16_g = gradient %s16_loss %s16_W
+%s16_lrx = expand 1.0 shape=[784 10]
+%s16_d = mul %s16_g %s16_lrx
+%s16_W1 = sub %s16_W %s16_d
+%s16_wf = reshape %s16_W1 shape=[7840]
+%s16_st = store %s15_w %s16_wf
+%s16_w = after %s15_w %s16_st
+# step 17
+%s17_xv = shrink %xs 1332800 shape=[78400]
+%s17_xl = load %s17_xv
+%s17_x = reshape %s17_xl shape=[100 784]
+%s17_yv = shrink %ys 1700 shape=[100]
+%s17_yl = load %s17_yv
+%s17_ohl = reshape %s17_yl shape=[100 1]
+%s17_ohe = expand %s17_ohl shape=[100 10]
+%s17_ohc = reshape %classes shape=[1 10]
+%s17_ohk = expand %s17_ohc shape=[100 10]
+%s17_ohq = cmpeq %s17_ohe %s17_ohk
+%s17_oh = cast %s17_ohq dtype=f32
+%s17_wl = load %s16_w
+%s17_W = reshape %s17_wl shape=[784 10]
+%s17_z0 = matmul %s17_x %s17_W
+%s17_z = stage %s17_z0
+%s17_zt = permute %s17_z order=[1 0]
+%s17_m = reduce %s17_zt op=max
+%s17_md = detach %s17_m
+%s17_mr = reshape %s17_md shape=[100 1]
+%s17_me = expand %s17_mr shape=[100 10]
+%s17_zs = sub %s17_z %s17_me
+%s17_e = exp %s17_zs
+%s17_et = permute %s17_e order=[1 0]
+%s17_se = reduce %s17_et op=add
+%s17_ls = log %s17_se
+%s17_lr = reshape %s17_ls shape=[100 1]
+%s17_le = expand %s17_lr shape=[100 10]
+%s17_lp = sub %s17_zs %s17_le
+%s17_pick = mul %s17_lp %s17_oh
+%s17_pf = reshape %s17_pick shape=[1000]
+%s17_tot = reduce %s17_pf op=add
+%s17_loss = mul %s17_tot -0.01
+%s17_g = gradient %s17_loss %s17_W
+%s17_lrx = expand 1.0 shape=[784 10]
+%s17_d = mul %s17_g %s17_lrx
+%s17_W1 = sub %s17_W %s17_d
+%s17_wf = reshape %s17_W1 shape=[7840]
+%s17_st = store %s16_w %s17_wf
+%s17_w = after %s16_w %s17_st
+# step 18
+%s18_xv = shrink %xs 1411200 shape=[78400]
+%s18_xl = load %s18_xv
+%s18_x = reshape %s18_xl shape=[100 784]
+%s18_yv = shrink %ys 1800 shape=[100]
+%s18_yl = load %s18_yv
+%s18_ohl = reshape %s18_yl shape=[100 1]
+%s18_ohe = expand %s18_ohl shape=[100 10]
+%s18_ohc = reshape %classes shape=[1 10]
+%s18_ohk = expand %s18_ohc shape=[100 10]
+%s18_ohq = cmpeq %s18_ohe %s18_ohk
+%s18_oh = cast %s18_ohq dtype=f32
+%s18_wl = load %s17_w
+%s18_W = reshape %s18_wl shape=[784 10]
+%s18_z0 = matmul %s18_x %s18_W
+%s18_z = stage %s18_z0
+%s18_zt = permute %s18_z order=[1 0]
+%s18_m = reduce %s18_zt op=max
+%s18_md = detach %s18_m
+%s18_mr = reshape %s18_md shape=[100 1]
+%s18_me = expand %s18_mr shape=[100 10]
+%s18_zs = sub %s18_z %s18_me
+%s18_e = exp %s18_zs
+%s18_et = permute %s18_e order=[1 0]
+%s18_se = reduce %s18_et op=add
+%s18_ls = log %s18_se
+%s18_lr = reshape %s18_ls shape=[100 1]
+%s18_le = expand %s18_lr shape=[100 10]
+%s18_lp = sub %s18_zs %s18_le
+%s18_pick = mul %s18_lp %s18_oh
+%s18_pf = reshape %s18_pick shape=[1000]
+%s18_tot = reduce %s18_pf op=add
+%s18_loss = mul %s18_tot -0.01
+%s18_g = gradient %s18_loss %s18_W
+%s18_lrx = expand 1.0 shape=[784 10]
+%s18_d = mul %s18_g %s18_lrx
+%s18_W1 = sub %s18_W %s18_d
+%s18_wf = reshape %s18_W1 shape=[7840]
+%s18_st = store %s17_w %s18_wf
+%s18_w = after %s17_w %s18_st
+# step 19
+%s19_xv = shrink %xs 1489600 shape=[78400]
+%s19_xl = load %s19_xv
+%s19_x = reshape %s19_xl shape=[100 784]
+%s19_yv = shrink %ys 1900 shape=[100]
+%s19_yl = load %s19_yv
+%s19_ohl = reshape %s19_yl shape=[100 1]
+%s19_ohe = expand %s19_ohl shape=[100 10]
+%s19_ohc = reshape %classes shape=[1 10]
+%s19_ohk = expand %s19_ohc shape=[100 10]
+%s19_ohq = cmpeq %s19_ohe %s19_ohk
+%s19_oh = cast %s19_ohq dtype=f32
+%s19_wl = load %s18_w
+%s19_W = reshape %s19_wl shape=[784 10]
+%s19_z0 = matmul %s19_x %s19_W
+%s19_z = stage %s19_z0
+%s19_zt = permute %s19_z order=[1 0]
+%s19_m = reduce %s19_zt op=max
+%s19_md = detach %s19_m
+%s19_mr = reshape %s19_md shape=[100 1]
+%s19_me = expand %s19_mr shape=[100 10]
+%s19_zs = sub %s19_z %s19_me
+%s19_e = exp %s19_zs
+%s19_et = permute %s19_e order=[1 0]
+%s19_se = reduce %s19_et op=add
+%s19_ls = log %s19_se
+%s19_lr = reshape %s19_ls shape=[100 1]
+%s19_le = expand %s19_lr shape=[100 10]
+%s19_lp = sub %s19_zs %s19_le
+%s19_pick = mul %s19_lp %s19_oh
+%s19_pf = reshape %s19_pick shape=[1000]
+%s19_tot = reduce %s19_pf op=add
+%s19_loss = mul %s19_tot -0.01
+%s19_g = gradient %s19_loss %s19_W
+%s19_lrx = expand 1.0 shape=[784 10]
+%s19_d = mul %s19_g %s19_lrx
+%s19_W1 = sub %s19_W %s19_d
+%s19_wf = reshape %s19_W1 shape=[7840]
+%s19_st = store %s18_w %s19_wf
+%s19_w = after %s18_w %s19_st
+# step 20
+%s20_xv = shrink %xs 1568000 shape=[78400]
+%s20_xl = load %s20_xv
+%s20_x = reshape %s20_xl shape=[100 784]
+%s20_yv = shrink %ys 2000 shape=[100]
+%s20_yl = load %s20_yv
+%s20_ohl = reshape %s20_yl shape=[100 1]
+%s20_ohe = expand %s20_ohl shape=[100 10]
+%s20_ohc = reshape %classes shape=[1 10]
+%s20_ohk = expand %s20_ohc shape=[100 10]
+%s20_ohq = cmpeq %s20_ohe %s20_ohk
+%s20_oh = cast %s20_ohq dtype=f32
+%s20_wl = load %s19_w
+%s20_W = reshape %s20_wl shape=[784 10]
+%s20_z0 = matmul %s20_x %s20_W
+%s20_z = stage %s20_z0
+%s20_zt = permute %s20_z order=[1 0]
+%s20_m = reduce %s20_zt op=max
+%s20_md = detach %s20_m
+%s20_mr = reshape %s20_md shape=[100 1]
+%s20_me = expand %s20_mr shape=[100 10]
+%s20_zs = sub %s20_z %s20_me
+%s20_e = exp %s20_zs
+%s20_et = permute %s20_e order=[1 0]
+%s20_se = reduce %s20_et op=add
+%s20_ls = log %s20_se
+%s20_lr = reshape %s20_ls shape=[100 1]
+%s20_le = expand %s20_lr shape=[100 10]
+%s20_lp = sub %s20_zs %s20_le
+%s20_pick = mul %s20_lp %s20_oh
+%s20_pf = reshape %s20_pick shape=[1000]
+%s20_tot = reduce %s20_pf op=add
+%s20_loss = mul %s20_tot -0.01
+%s20_g = gradient %s20_loss %s20_W
+%s20_lrx = expand 1.0 shape=[784 10]
+%s20_d = mul %s20_g %s20_lrx
+%s20_W1 = sub %s20_W %s20_d
+%s20_wf = reshape %s20_W1 shape=[7840]
+%s20_st = store %s19_w %s20_wf
+%s20_w = after %s19_w %s20_st
+# step 21
+%s21_xv = shrink %xs 1646400 shape=[78400]
+%s21_xl = load %s21_xv
+%s21_x = reshape %s21_xl shape=[100 784]
+%s21_yv = shrink %ys 2100 shape=[100]
+%s21_yl = load %s21_yv
+%s21_ohl = reshape %s21_yl shape=[100 1]
+%s21_ohe = expand %s21_ohl shape=[100 10]
+%s21_ohc = reshape %classes shape=[1 10]
+%s21_ohk = expand %s21_ohc shape=[100 10]
+%s21_ohq = cmpeq %s21_ohe %s21_ohk
+%s21_oh = cast %s21_ohq dtype=f32
+%s21_wl = load %s20_w
+%s21_W = reshape %s21_wl shape=[784 10]
+%s21_z0 = matmul %s21_x %s21_W
+%s21_z = stage %s21_z0
+%s21_zt = permute %s21_z order=[1 0]
+%s21_m = reduce %s21_zt op=max
+%s21_md = detach %s21_m
+%s21_mr = reshape %s21_md shape=[100 1]
+%s21_me = expand %s21_mr shape=[100 10]
+%s21_zs = sub %s21_z %s21_me
+%s21_e = exp %s21_zs
+%s21_et = permute %s21_e order=[1 0]
+%s21_se = reduce %s21_et op=add
+%s21_ls = log %s21_se
+%s21_lr = reshape %s21_ls shape=[100 1]
+%s21_le = expand %s21_lr shape=[100 10]
+%s21_lp = sub %s21_zs %s21_le
+%s21_pick = mul %s21_lp %s21_oh
+%s21_pf = reshape %s21_pick shape=[1000]
+%s21_tot = reduce %s21_pf op=add
+%s21_loss = mul %s21_tot -0.01
+%s21_g = gradient %s21_loss %s21_W
+%s21_lrx = expand 1.0 shape=[784 10]
+%s21_d = mul %s21_g %s21_lrx
+%s21_W1 = sub %s21_W %s21_d
+%s21_wf = reshape %s21_W1 shape=[7840]
+%s21_st = store %s20_w %s21_wf
+%s21_w = after %s20_w %s21_st
+# step 22
+%s22_xv = shrink %xs 1724800 shape=[78400]
+%s22_xl = load %s22_xv
+%s22_x = reshape %s22_xl shape=[100 784]
+%s22_yv = shrink %ys 2200 shape=[100]
+%s22_yl = load %s22_yv
+%s22_ohl = reshape %s22_yl shape=[100 1]
+%s22_ohe = expand %s22_ohl shape=[100 10]
+%s22_ohc = reshape %classes shape=[1 10]
+%s22_ohk = expand %s22_ohc shape=[100 10]
+%s22_ohq = cmpeq %s22_ohe %s22_ohk
+%s22_oh = cast %s22_ohq dtype=f32
+%s22_wl = load %s21_w
+%s22_W = reshape %s22_wl shape=[784 10]
+%s22_z0 = matmul %s22_x %s22_W
+%s22_z = stage %s22_z0
+%s22_zt = permute %s22_z order=[1 0]
+%s22_m = reduce %s22_zt op=max
+%s22_md = detach %s22_m
+%s22_mr = reshape %s22_md shape=[100 1]
+%s22_me = expand %s22_mr shape=[100 10]
+%s22_zs = sub %s22_z %s22_me
+%s22_e = exp %s22_zs
+%s22_et = permute %s22_e order=[1 0]
+%s22_se = reduce %s22_et op=add
+%s22_ls = log %s22_se
+%s22_lr = reshape %s22_ls shape=[100 1]
+%s22_le = expand %s22_lr shape=[100 10]
+%s22_lp = sub %s22_zs %s22_le
+%s22_pick = mul %s22_lp %s22_oh
+%s22_pf = reshape %s22_pick shape=[1000]
+%s22_tot = reduce %s22_pf op=add
+%s22_loss = mul %s22_tot -0.01
+%s22_g = gradient %s22_loss %s22_W
+%s22_lrx = expand 1.0 shape=[784 10]
+%s22_d = mul %s22_g %s22_lrx
+%s22_W1 = sub %s22_W %s22_d
+%s22_wf = reshape %s22_W1 shape=[7840]
+%s22_st = store %s21_w %s22_wf
+%s22_w = after %s21_w %s22_st
+# step 23
+%s23_xv = shrink %xs 1803200 shape=[78400]
+%s23_xl = load %s23_xv
+%s23_x = reshape %s23_xl shape=[100 784]
+%s23_yv = shrink %ys 2300 shape=[100]
+%s23_yl = load %s23_yv
+%s23_ohl = reshape %s23_yl shape=[100 1]
+%s23_ohe = expand %s23_ohl shape=[100 10]
+%s23_ohc = reshape %classes shape=[1 10]
+%s23_ohk = expand %s23_ohc shape=[100 10]
+%s23_ohq = cmpeq %s23_ohe %s23_ohk
+%s23_oh = cast %s23_ohq dtype=f32
+%s23_wl = load %s22_w
+%s23_W = reshape %s23_wl shape=[784 10]
+%s23_z0 = matmul %s23_x %s23_W
+%s23_z = stage %s23_z0
+%s23_zt = permute %s23_z order=[1 0]
+%s23_m = reduce %s23_zt op=max
+%s23_md = detach %s23_m
+%s23_mr = reshape %s23_md shape=[100 1]
+%s23_me = expand %s23_mr shape=[100 10]
+%s23_zs = sub %s23_z %s23_me
+%s23_e = exp %s23_zs
+%s23_et = permute %s23_e order=[1 0]
+%s23_se = reduce %s23_et op=add
+%s23_ls = log %s23_se
+%s23_lr = reshape %s23_ls shape=[100 1]
+%s23_le = expand %s23_lr shape=[100 10]
+%s23_lp = sub %s23_zs %s23_le
+%s23_pick = mul %s23_lp %s23_oh
+%s23_pf = reshape %s23_pick shape=[1000]
+%s23_tot = reduce %s23_pf op=add
+%s23_loss = mul %s23_tot -0.01
+%s23_g = gradient %s23_loss %s23_W
+%s23_lrx = expand 1.0 shape=[784 10]
+%s23_d = mul %s23_g %s23_lrx
+%s23_W1 = sub %s23_W %s23_d
+%s23_wf = reshape %s23_W1 shape=[7840]
+%s23_st = store %s22_w %s23_wf
+%s23_w = after %s22_w %s23_st
+# step 24
+%s24_xv = shrink %xs 1881600 shape=[78400]
+%s24_xl = load %s24_xv
+%s24_x = reshape %s24_xl shape=[100 784]
+%s24_yv = shrink %ys 2400 shape=[100]
+%s24_yl = load %s24_yv
+%s24_ohl = reshape %s24_yl shape=[100 1]
+%s24_ohe = expand %s24_ohl shape=[100 10]
+%s24_ohc = reshape %classes shape=[1 10]
+%s24_ohk = expand %s24_ohc shape=[100 10]
+%s24_ohq = cmpeq %s24_ohe %s24_ohk
+%s24_oh = cast %s24_ohq dtype=f32
+%s24_wl = load %s23_w
+%s24_W = reshape %s24_wl shape=[784 10]
+%s24_z0 = matmul %s24_x %s24_W
+%s24_z = stage %s24_z0
+%s24_zt = permute %s24_z order=[1 0]
+%s24_m = reduce %s24_zt op=max
+%s24_md = detach %s24_m
+%s24_mr = reshape %s24_md shape=[100 1]
+%s24_me = expand %s24_mr shape=[100 10]
+%s24_zs = sub %s24_z %s24_me
+%s24_e = exp %s24_zs
+%s24_et = permute %s24_e order=[1 0]
+%s24_se = reduce %s24_et op=add
+%s24_ls = log %s24_se
+%s24_lr = reshape %s24_ls shape=[100 1]
+%s24_le = expand %s24_lr shape=[100 10]
+%s24_lp = sub %s24_zs %s24_le
+%s24_pick = mul %s24_lp %s24_oh
+%s24_pf = reshape %s24_pick shape=[1000]
+%s24_tot = reduce %s24_pf op=add
+%s24_loss = mul %s24_tot -0.01
+%s24_g = gradient %s24_loss %s24_W
+%s24_lrx = expand 1.0 shape=[784 10]
+%s24_d = mul %s24_g %s24_lrx
+%s24_W1 = sub %s24_W %s24_d
+%s24_wf = reshape %s24_W1 shape=[7840]
+%s24_st = store %s23_w %s24_wf
+%s24_w = after %s23_w %s24_st
+# step 25
+%s25_xv = shrink %xs 1960000 shape=[78400]
+%s25_xl = load %s25_xv
+%s25_x = reshape %s25_xl shape=[100 784]
+%s25_yv = shrink %ys 2500 shape=[100]
+%s25_yl = load %s25_yv
+%s25_ohl = reshape %s25_yl shape=[100 1]
+%s25_ohe = expand %s25_ohl shape=[100 10]
+%s25_ohc = reshape %classes shape=[1 10]
+%s25_ohk = expand %s25_ohc shape=[100 10]
+%s25_ohq = cmpeq %s25_ohe %s25_ohk
+%s25_oh = cast %s25_ohq dtype=f32
+%s25_wl = load %s24_w
+%s25_W = reshape %s25_wl shape=[784 10]
+%s25_z0 = matmul %s25_x %s25_W
+%s25_z = stage %s25_z0
+%s25_zt = permute %s25_z order=[1 0]
+%s25_m = reduce %s25_zt op=max
+%s25_md = detach %s25_m
+%s25_mr = reshape %s25_md shape=[100 1]
+%s25_me = expand %s25_mr shape=[100 10]
+%s25_zs = sub %s25_z %s25_me
+%s25_e = exp %s25_zs
+%s25_et = permute %s25_e order=[1 0]
+%s25_se = reduce %s25_et op=add
+%s25_ls = log %s25_se
+%s25_lr = reshape %s25_ls shape=[100 1]
+%s25_le = expand %s25_lr shape=[100 10]
+%s25_lp = sub %s25_zs %s25_le
+%s25_pick = mul %s25_lp %s25_oh
+%s25_pf = reshape %s25_pick shape=[1000]
+%s25_tot = reduce %s25_pf op=add
+%s25_loss = mul %s25_tot -0.01
+%s25_g = gradient %s25_loss %s25_W
+%s25_lrx = expand 1.0 shape=[784 10]
+%s25_d = mul %s25_g %s25_lrx
+%s25_W1 = sub %s25_W %s25_d
+%s25_wf = reshape %s25_W1 shape=[7840]
+%s25_st = store %s24_w %s25_wf
+%s25_w = after %s24_w %s25_st
+# step 26
+%s26_xv = shrink %xs 2038400 shape=[78400]
+%s26_xl = load %s26_xv
+%s26_x = reshape %s26_xl shape=[100 784]
+%s26_yv = shrink %ys 2600 shape=[100]
+%s26_yl = load %s26_yv
+%s26_ohl = reshape %s26_yl shape=[100 1]
+%s26_ohe = expand %s26_ohl shape=[100 10]
+%s26_ohc = reshape %classes shape=[1 10]
+%s26_ohk = expand %s26_ohc shape=[100 10]
+%s26_ohq = cmpeq %s26_ohe %s26_ohk
+%s26_oh = cast %s26_ohq dtype=f32
+%s26_wl = load %s25_w
+%s26_W = reshape %s26_wl shape=[784 10]
+%s26_z0 = matmul %s26_x %s26_W
+%s26_z = stage %s26_z0
+%s26_zt = permute %s26_z order=[1 0]
+%s26_m = reduce %s26_zt op=max
+%s26_md = detach %s26_m
+%s26_mr = reshape %s26_md shape=[100 1]
+%s26_me = expand %s26_mr shape=[100 10]
+%s26_zs = sub %s26_z %s26_me
+%s26_e = exp %s26_zs
+%s26_et = permute %s26_e order=[1 0]
+%s26_se = reduce %s26_et op=add
+%s26_ls = log %s26_se
+%s26_lr = reshape %s26_ls shape=[100 1]
+%s26_le = expand %s26_lr shape=[100 10]
+%s26_lp = sub %s26_zs %s26_le
+%s26_pick = mul %s26_lp %s26_oh
+%s26_pf = reshape %s26_pick shape=[1000]
+%s26_tot = reduce %s26_pf op=add
+%s26_loss = mul %s26_tot -0.01
+%s26_g = gradient %s26_loss %s26_W
+%s26_lrx = expand 1.0 shape=[784 10]
+%s26_d = mul %s26_g %s26_lrx
+%s26_W1 = sub %s26_W %s26_d
+%s26_wf = reshape %s26_W1 shape=[7840]
+%s26_st = store %s25_w %s26_wf
+%s26_w = after %s25_w %s26_st
+# step 27
+%s27_xv = shrink %xs 2116800 shape=[78400]
+%s27_xl = load %s27_xv
+%s27_x = reshape %s27_xl shape=[100 784]
+%s27_yv = shrink %ys 2700 shape=[100]
+%s27_yl = load %s27_yv
+%s27_ohl = reshape %s27_yl shape=[100 1]
+%s27_ohe = expand %s27_ohl shape=[100 10]
+%s27_ohc = reshape %classes shape=[1 10]
+%s27_ohk = expand %s27_ohc shape=[100 10]
+%s27_ohq = cmpeq %s27_ohe %s27_ohk
+%s27_oh = cast %s27_ohq dtype=f32
+%s27_wl = load %s26_w
+%s27_W = reshape %s27_wl shape=[784 10]
+%s27_z0 = matmul %s27_x %s27_W
+%s27_z = stage %s27_z0
+%s27_zt = permute %s27_z order=[1 0]
+%s27_m = reduce %s27_zt op=max
+%s27_md = detach %s27_m
+%s27_mr = reshape %s27_md shape=[100 1]
+%s27_me = expand %s27_mr shape=[100 10]
+%s27_zs = sub %s27_z %s27_me
+%s27_e = exp %s27_zs
+%s27_et = permute %s27_e order=[1 0]
+%s27_se = reduce %s27_et op=add
+%s27_ls = log %s27_se
+%s27_lr = reshape %s27_ls shape=[100 1]
+%s27_le = expand %s27_lr shape=[100 10]
+%s27_lp = sub %s27_zs %s27_le
+%s27_pick = mul %s27_lp %s27_oh
+%s27_pf = reshape %s27_pick shape=[1000]
+%s27_tot = reduce %s27_pf op=add
+%s27_loss = mul %s27_tot -0.01
+%s27_g = gradient %s27_loss %s27_W
+%s27_lrx = expand 1.0 shape=[784 10]
+%s27_d = mul %s27_g %s27_lrx
+%s27_W1 = sub %s27_W %s27_d
+%s27_wf = reshape %s27_W1 shape=[7840]
+%s27_st = store %s26_w %s27_wf
+%s27_w = after %s26_w %s27_st
+# step 28
+%s28_xv = shrink %xs 2195200 shape=[78400]
+%s28_xl = load %s28_xv
+%s28_x = reshape %s28_xl shape=[100 784]
+%s28_yv = shrink %ys 2800 shape=[100]
+%s28_yl = load %s28_yv
+%s28_ohl = reshape %s28_yl shape=[100 1]
+%s28_ohe = expand %s28_ohl shape=[100 10]
+%s28_ohc = reshape %classes shape=[1 10]
+%s28_ohk = expand %s28_ohc shape=[100 10]
+%s28_ohq = cmpeq %s28_ohe %s28_ohk
+%s28_oh = cast %s28_ohq dtype=f32
+%s28_wl = load %s27_w
+%s28_W = reshape %s28_wl shape=[784 10]
+%s28_z0 = matmul %s28_x %s28_W
+%s28_z = stage %s28_z0
+%s28_zt = permute %s28_z order=[1 0]
+%s28_m = reduce %s28_zt op=max
+%s28_md = detach %s28_m
+%s28_mr = reshape %s28_md shape=[100 1]
+%s28_me = expand %s28_mr shape=[100 10]
+%s28_zs = sub %s28_z %s28_me
+%s28_e = exp %s28_zs
+%s28_et = permute %s28_e order=[1 0]
+%s28_se = reduce %s28_et op=add
+%s28_ls = log %s28_se
+%s28_lr = reshape %s28_ls shape=[100 1]
+%s28_le = expand %s28_lr shape=[100 10]
+%s28_lp = sub %s28_zs %s28_le
+%s28_pick = mul %s28_lp %s28_oh
+%s28_pf = reshape %s28_pick shape=[1000]
+%s28_tot = reduce %s28_pf op=add
+%s28_loss = mul %s28_tot -0.01
+%s28_g = gradient %s28_loss %s28_W
+%s28_lrx = expand 1.0 shape=[784 10]
+%s28_d = mul %s28_g %s28_lrx
+%s28_W1 = sub %s28_W %s28_d
+%s28_wf = reshape %s28_W1 shape=[7840]
+%s28_st = store %s27_w %s28_wf
+%s28_w = after %s27_w %s28_st
+# step 29
+%s29_xv = shrink %xs 2273600 shape=[78400]
+%s29_xl = load %s29_xv
+%s29_x = reshape %s29_xl shape=[100 784]
+%s29_yv = shrink %ys 2900 shape=[100]
+%s29_yl = load %s29_yv
+%s29_ohl = reshape %s29_yl shape=[100 1]
+%s29_ohe = expand %s29_ohl shape=[100 10]
+%s29_ohc = reshape %classes shape=[1 10]
+%s29_ohk = expand %s29_ohc shape=[100 10]
+%s29_ohq = cmpeq %s29_ohe %s29_ohk
+%s29_oh = cast %s29_ohq dtype=f32
+%s29_wl = load %s28_w
+%s29_W = reshape %s29_wl shape=[784 10]
+%s29_z0 = matmul %s29_x %s29_W
+%s29_z = stage %s29_z0
+%s29_zt = permute %s29_z order=[1 0]
+%s29_m = reduce %s29_zt op=max
+%s29_md = detach %s29_m
+%s29_mr = reshape %s29_md shape=[100 1]
+%s29_me = expand %s29_mr shape=[100 10]
+%s29_zs = sub %s29_z %s29_me
+%s29_e = exp %s29_zs
+%s29_et = permute %s29_e order=[1 0]
+%s29_se = reduce %s29_et op=add
+%s29_ls = log %s29_se
+%s29_lr = reshape %s29_ls shape=[100 1]
+%s29_le = expand %s29_lr shape=[100 10]
+%s29_lp = sub %s29_zs %s29_le
+%s29_pick = mul %s29_lp %s29_oh
+%s29_pf = reshape %s29_pick shape=[1000]
+%s29_tot = reduce %s29_pf op=add
+%s29_loss = mul %s29_tot -0.01
+%s29_g = gradient %s29_loss %s29_W
+%s29_lrx = expand 1.0 shape=[784 10]
+%s29_d = mul %s29_g %s29_lrx
+%s29_W1 = sub %s29_W %s29_d
+%s29_wf = reshape %s29_W1 shape=[7840]
+%s29_st = store %s28_w %s29_wf
+%s29_w = after %s28_w %s29_st
+# step 30
+%s30_xv = shrink %xs 2352000 shape=[78400]
+%s30_xl = load %s30_xv
+%s30_x = reshape %s30_xl shape=[100 784]
+%s30_yv = shrink %ys 3000 shape=[100]
+%s30_yl = load %s30_yv
+%s30_ohl = reshape %s30_yl shape=[100 1]
+%s30_ohe = expand %s30_ohl shape=[100 10]
+%s30_ohc = reshape %classes shape=[1 10]
+%s30_ohk = expand %s30_ohc shape=[100 10]
+%s30_ohq = cmpeq %s30_ohe %s30_ohk
+%s30_oh = cast %s30_ohq dtype=f32
+%s30_wl = load %s29_w
+%s30_W = reshape %s30_wl shape=[784 10]
+%s30_z0 = matmul %s30_x %s30_W
+%s30_z = stage %s30_z0
+%s30_zt = permute %s30_z order=[1 0]
+%s30_m = reduce %s30_zt op=max
+%s30_md = detach %s30_m
+%s30_mr = reshape %s30_md shape=[100 1]
+%s30_me = expand %s30_mr shape=[100 10]
+%s30_zs = sub %s30_z %s30_me
+%s30_e = exp %s30_zs
+%s30_et = permute %s30_e order=[1 0]
+%s30_se = reduce %s30_et op=add
+%s30_ls = log %s30_se
+%s30_lr = reshape %s30_ls shape=[100 1]
+%s30_le = expand %s30_lr shape=[100 10]
+%s30_lp = sub %s30_zs %s30_le
+%s30_pick = mul %s30_lp %s30_oh
+%s30_pf = reshape %s30_pick shape=[1000]
+%s30_tot = reduce %s30_pf op=add
+%s30_loss = mul %s30_tot -0.01
+%s30_g = gradient %s30_loss %s30_W
+%s30_lrx = expand 1.0 shape=[784 10]
+%s30_d = mul %s30_g %s30_lrx
+%s30_W1 = sub %s30_W %s30_d
+%s30_wf = reshape %s30_W1 shape=[7840]
+%s30_st = store %s29_w %s30_wf
+%s30_w = after %s29_w %s30_st
+# step 31
+%s31_xv = shrink %xs 2430400 shape=[78400]
+%s31_xl = load %s31_xv
+%s31_x = reshape %s31_xl shape=[100 784]
+%s31_yv = shrink %ys 3100 shape=[100]
+%s31_yl = load %s31_yv
+%s31_ohl = reshape %s31_yl shape=[100 1]
+%s31_ohe = expand %s31_ohl shape=[100 10]
+%s31_ohc = reshape %classes shape=[1 10]
+%s31_ohk = expand %s31_ohc shape=[100 10]
+%s31_ohq = cmpeq %s31_ohe %s31_ohk
+%s31_oh = cast %s31_ohq dtype=f32
+%s31_wl = load %s30_w
+%s31_W = reshape %s31_wl shape=[784 10]
+%s31_z0 = matmul %s31_x %s31_W
+%s31_z = stage %s31_z0
+%s31_zt = permute %s31_z order=[1 0]
+%s31_m = reduce %s31_zt op=max
+%s31_md = detach %s31_m
+%s31_mr = reshape %s31_md shape=[100 1]
+%s31_me = expand %s31_mr shape=[100 10]
+%s31_zs = sub %s31_z %s31_me
+%s31_e = exp %s31_zs
+%s31_et = permute %s31_e order=[1 0]
+%s31_se = reduce %s31_et op=add
+%s31_ls = log %s31_se
+%s31_lr = reshape %s31_ls shape=[100 1]
+%s31_le = expand %s31_lr shape=[100 10]
+%s31_lp = sub %s31_zs %s31_le
+%s31_pick = mul %s31_lp %s31_oh
+%s31_pf = reshape %s31_pick shape=[1000]
+%s31_tot = reduce %s31_pf op=add
+%s31_loss = mul %s31_tot -0.01
+%s31_g = gradient %s31_loss %s31_W
+%s31_lrx = expand 1.0 shape=[784 10]
+%s31_d = mul %s31_g %s31_lrx
+%s31_W1 = sub %s31_W %s31_d
+%s31_wf = reshape %s31_W1 shape=[7840]
+%s31_st = store %s30_w %s31_wf
+%s31_w = after %s30_w %s31_st
+# step 32
+%s32_xv = shrink %xs 2508800 shape=[78400]
+%s32_xl = load %s32_xv
+%s32_x = reshape %s32_xl shape=[100 784]
+%s32_yv = shrink %ys 3200 shape=[100]
+%s32_yl = load %s32_yv
+%s32_ohl = reshape %s32_yl shape=[100 1]
+%s32_ohe = expand %s32_ohl shape=[100 10]
+%s32_ohc = reshape %classes shape=[1 10]
+%s32_ohk = expand %s32_ohc shape=[100 10]
+%s32_ohq = cmpeq %s32_ohe %s32_ohk
+%s32_oh = cast %s32_ohq dtype=f32
+%s32_wl = load %s31_w
+%s32_W = reshape %s32_wl shape=[784 10]
+%s32_z0 = matmul %s32_x %s32_W
+%s32_z = stage %s32_z0
+%s32_zt = permute %s32_z order=[1 0]
+%s32_m = reduce %s32_zt op=max
+%s32_md = detach %s32_m
+%s32_mr = reshape %s32_md shape=[100 1]
+%s32_me = expand %s32_mr shape=[100 10]
+%s32_zs = sub %s32_z %s32_me
+%s32_e = exp %s32_zs
+%s32_et = permute %s32_e order=[1 0]
+%s32_se = reduce %s32_et op=add
+%s32_ls = log %s32_se
+%s32_lr = reshape %s32_ls shape=[100 1]
+%s32_le = expand %s32_lr shape=[100 10]
+%s32_lp = sub %s32_zs %s32_le
+%s32_pick = mul %s32_lp %s32_oh
+%s32_pf = reshape %s32_pick shape=[1000]
+%s32_tot = reduce %s32_pf op=add
+%s32_loss = mul %s32_tot -0.01
+%s32_g = gradient %s32_loss %s32_W
+%s32_lrx = expand 1.0 shape=[784 10]
+%s32_d = mul %s32_g %s32_lrx
+%s32_W1 = sub %s32_W %s32_d
+%s32_wf = reshape %s32_W1 shape=[7840]
+%s32_st = store %s31_w %s32_wf
+%s32_w = after %s31_w %s32_st
+# step 33
+%s33_xv = shrink %xs 2587200 shape=[78400]
+%s33_xl = load %s33_xv
+%s33_x = reshape %s33_xl shape=[100 784]
+%s33_yv = shrink %ys 3300 shape=[100]
+%s33_yl = load %s33_yv
+%s33_ohl = reshape %s33_yl shape=[100 1]
+%s33_ohe = expand %s33_ohl shape=[100 10]
+%s33_ohc = reshape %classes shape=[1 10]
+%s33_ohk = expand %s33_ohc shape=[100 10]
+%s33_ohq = cmpeq %s33_ohe %s33_ohk
+%s33_oh = cast %s33_ohq dtype=f32
+%s33_wl = load %s32_w
+%s33_W = reshape %s33_wl shape=[784 10]
+%s33_z0 = matmul %s33_x %s33_W
+%s33_z = stage %s33_z0
+%s33_zt = permute %s33_z order=[1 0]
+%s33_m = reduce %s33_zt op=max
+%s33_md = detach %s33_m
+%s33_mr = reshape %s33_md shape=[100 1]
+%s33_me = expand %s33_mr shape=[100 10]
+%s33_zs = sub %s33_z %s33_me
+%s33_e = exp %s33_zs
+%s33_et = permute %s33_e order=[1 0]
+%s33_se = reduce %s33_et op=add
+%s33_ls = log %s33_se
+%s33_lr = reshape %s33_ls shape=[100 1]
+%s33_le = expand %s33_lr shape=[100 10]
+%s33_lp = sub %s33_zs %s33_le
+%s33_pick = mul %s33_lp %s33_oh
+%s33_pf = reshape %s33_pick shape=[1000]
+%s33_tot = reduce %s33_pf op=add
+%s33_loss = mul %s33_tot -0.01
+%s33_g = gradient %s33_loss %s33_W
+%s33_lrx = expand 1.0 shape=[784 10]
+%s33_d = mul %s33_g %s33_lrx
+%s33_W1 = sub %s33_W %s33_d
+%s33_wf = reshape %s33_W1 shape=[7840]
+%s33_st = store %s32_w %s33_wf
+%s33_w = after %s32_w %s33_st
+# step 34
+%s34_xv = shrink %xs 2665600 shape=[78400]
+%s34_xl = load %s34_xv
+%s34_x = reshape %s34_xl shape=[100 784]
+%s34_yv = shrink %ys 3400 shape=[100]
+%s34_yl = load %s34_yv
+%s34_ohl = reshape %s34_yl shape=[100 1]
+%s34_ohe = expand %s34_ohl shape=[100 10]
+%s34_ohc = reshape %classes shape=[1 10]
+%s34_ohk = expand %s34_ohc shape=[100 10]
+%s34_ohq = cmpeq %s34_ohe %s34_ohk
+%s34_oh = cast %s34_ohq dtype=f32
+%s34_wl = load %s33_w
+%s34_W = reshape %s34_wl shape=[784 10]
+%s34_z0 = matmul %s34_x %s34_W
+%s34_z = stage %s34_z0
+%s34_zt = permute %s34_z order=[1 0]
+%s34_m = reduce %s34_zt op=max
+%s34_md = detach %s34_m
+%s34_mr = reshape %s34_md shape=[100 1]
+%s34_me = expand %s34_mr shape=[100 10]
+%s34_zs = sub %s34_z %s34_me
+%s34_e = exp %s34_zs
+%s34_et = permute %s34_e order=[1 0]
+%s34_se = reduce %s34_et op=add
+%s34_ls = log %s34_se
+%s34_lr = reshape %s34_ls shape=[100 1]
+%s34_le = expand %s34_lr shape=[100 10]
+%s34_lp = sub %s34_zs %s34_le
+%s34_pick = mul %s34_lp %s34_oh
+%s34_pf = reshape %s34_pick shape=[1000]
+%s34_tot = reduce %s34_pf op=add
+%s34_loss = mul %s34_tot -0.01
+%s34_g = gradient %s34_loss %s34_W
+%s34_lrx = expand 1.0 shape=[784 10]
+%s34_d = mul %s34_g %s34_lrx
+%s34_W1 = sub %s34_W %s34_d
+%s34_wf = reshape %s34_W1 shape=[7840]
+%s34_st = store %s33_w %s34_wf
+%s34_w = after %s33_w %s34_st
+# step 35
+%s35_xv = shrink %xs 2744000 shape=[78400]
+%s35_xl = load %s35_xv
+%s35_x = reshape %s35_xl shape=[100 784]
+%s35_yv = shrink %ys 3500 shape=[100]
+%s35_yl = load %s35_yv
+%s35_ohl = reshape %s35_yl shape=[100 1]
+%s35_ohe = expand %s35_ohl shape=[100 10]
+%s35_ohc = reshape %classes shape=[1 10]
+%s35_ohk = expand %s35_ohc shape=[100 10]
+%s35_ohq = cmpeq %s35_ohe %s35_ohk
+%s35_oh = cast %s35_ohq dtype=f32
+%s35_wl = load %s34_w
+%s35_W = reshape %s35_wl shape=[784 10]
+%s35_z0 = matmul %s35_x %s35_W
+%s35_z = stage %s35_z0
+%s35_zt = permute %s35_z order=[1 0]
+%s35_m = reduce %s35_zt op=max
+%s35_md = detach %s35_m
+%s35_mr = reshape %s35_md shape=[100 1]
+%s35_me = expand %s35_mr shape=[100 10]
+%s35_zs = sub %s35_z %s35_me
+%s35_e = exp %s35_zs
+%s35_et = permute %s35_e order=[1 0]
+%s35_se = reduce %s35_et op=add
+%s35_ls = log %s35_se
+%s35_lr = reshape %s35_ls shape=[100 1]
+%s35_le = expand %s35_lr shape=[100 10]
+%s35_lp = sub %s35_zs %s35_le
+%s35_pick = mul %s35_lp %s35_oh
+%s35_pf = reshape %s35_pick shape=[1000]
+%s35_tot = reduce %s35_pf op=add
+%s35_loss = mul %s35_tot -0.01
+%s35_g = gradient %s35_loss %s35_W
+%s35_lrx = expand 1.0 shape=[784 10]
+%s35_d = mul %s35_g %s35_lrx
+%s35_W1 = sub %s35_W %s35_d
+%s35_wf = reshape %s35_W1 shape=[7840]
+%s35_st = store %s34_w %s35_wf
+%s35_w = after %s34_w %s35_st
+# step 36
+%s36_xv = shrink %xs 2822400 shape=[78400]
+%s36_xl = load %s36_xv
+%s36_x = reshape %s36_xl shape=[100 784]
+%s36_yv = shrink %ys 3600 shape=[100]
+%s36_yl = load %s36_yv
+%s36_ohl = reshape %s36_yl shape=[100 1]
+%s36_ohe = expand %s36_ohl shape=[100 10]
+%s36_ohc = reshape %classes shape=[1 10]
+%s36_ohk = expand %s36_ohc shape=[100 10]
+%s36_ohq = cmpeq %s36_ohe %s36_ohk
+%s36_oh = cast %s36_ohq dtype=f32
+%s36_wl = load %s35_w
+%s36_W = reshape %s36_wl shape=[784 10]
+%s36_z0 = matmul %s36_x %s36_W
+%s36_z = stage %s36_z0
+%s36_zt = permute %s36_z order=[1 0]
+%s36_m = reduce %s36_zt op=max
+%s36_md = detach %s36_m
+%s36_mr = reshape %s36_md shape=[100 1]
+%s36_me = expand %s36_mr shape=[100 10]
+%s36_zs = sub %s36_z %s36_me
+%s36_e = exp %s36_zs
+%s36_et = permute %s36_e order=[1 0]
+%s36_se = reduce %s36_et op=add
+%s36_ls = log %s36_se
+%s36_lr = reshape %s36_ls shape=[100 1]
+%s36_le = expand %s36_lr shape=[100 10]
+%s36_lp = sub %s36_zs %s36_le
+%s36_pick = mul %s36_lp %s36_oh
+%s36_pf = reshape %s36_pick shape=[1000]
+%s36_tot = reduce %s36_pf op=add
+%s36_loss = mul %s36_tot -0.01
+%s36_g = gradient %s36_loss %s36_W
+%s36_lrx = expand 1.0 shape=[784 10]
+%s36_d = mul %s36_g %s36_lrx
+%s36_W1 = sub %s36_W %s36_d
+%s36_wf = reshape %s36_W1 shape=[7840]
+%s36_st = store %s35_w %s36_wf
+%s36_w = after %s35_w %s36_st
+# step 37
+%s37_xv = shrink %xs 2900800 shape=[78400]
+%s37_xl = load %s37_xv
+%s37_x = reshape %s37_xl shape=[100 784]
+%s37_yv = shrink %ys 3700 shape=[100]
+%s37_yl = load %s37_yv
+%s37_ohl = reshape %s37_yl shape=[100 1]
+%s37_ohe = expand %s37_ohl shape=[100 10]
+%s37_ohc = reshape %classes shape=[1 10]
+%s37_ohk = expand %s37_ohc shape=[100 10]
+%s37_ohq = cmpeq %s37_ohe %s37_ohk
+%s37_oh = cast %s37_ohq dtype=f32
+%s37_wl = load %s36_w
+%s37_W = reshape %s37_wl shape=[784 10]
+%s37_z0 = matmul %s37_x %s37_W
+%s37_z = stage %s37_z0
+%s37_zt = permute %s37_z order=[1 0]
+%s37_m = reduce %s37_zt op=max
+%s37_md = detach %s37_m
+%s37_mr = reshape %s37_md shape=[100 1]
+%s37_me = expand %s37_mr shape=[100 10]
+%s37_zs = sub %s37_z %s37_me
+%s37_e = exp %s37_zs
+%s37_et = permute %s37_e order=[1 0]
+%s37_se = reduce %s37_et op=add
+%s37_ls = log %s37_se
+%s37_lr = reshape %s37_ls shape=[100 1]
+%s37_le = expand %s37_lr shape=[100 10]
+%s37_lp = sub %s37_zs %s37_le
+%s37_pick = mul %s37_lp %s37_oh
+%s37_pf = reshape %s37_pick shape=[1000]
+%s37_tot = reduce %s37_pf op=add
+%s37_loss = mul %s37_tot -0.01
+%s37_g = gradient %s37_loss %s37_W
+%s37_lrx = expand 1.0 shape=[784 10]
+%s37_d = mul %s37_g %s37_lrx
+%s37_W1 = sub %s37_W %s37_d
+%s37_wf = reshape %s37_W1 shape=[7840]
+%s37_st = store %s36_w %s37_wf
+%s37_w = after %s36_w %s37_st
+# step 38
+%s38_xv = shrink %xs 2979200 shape=[78400]
+%s38_xl = load %s38_xv
+%s38_x = reshape %s38_xl shape=[100 784]
+%s38_yv = shrink %ys 3800 shape=[100]
+%s38_yl = load %s38_yv
+%s38_ohl = reshape %s38_yl shape=[100 1]
+%s38_ohe = expand %s38_ohl shape=[100 10]
+%s38_ohc = reshape %classes shape=[1 10]
+%s38_ohk = expand %s38_ohc shape=[100 10]
+%s38_ohq = cmpeq %s38_ohe %s38_ohk
+%s38_oh = cast %s38_ohq dtype=f32
+%s38_wl = load %s37_w
+%s38_W = reshape %s38_wl shape=[784 10]
+%s38_z0 = matmul %s38_x %s38_W
+%s38_z = stage %s38_z0
+%s38_zt = permute %s38_z order=[1 0]
+%s38_m = reduce %s38_zt op=max
+%s38_md = detach %s38_m
+%s38_mr = reshape %s38_md shape=[100 1]
+%s38_me = expand %s38_mr shape=[100 10]
+%s38_zs = sub %s38_z %s38_me
+%s38_e = exp %s38_zs
+%s38_et = permute %s38_e order=[1 0]
+%s38_se = reduce %s38_et op=add
+%s38_ls = log %s38_se
+%s38_lr = reshape %s38_ls shape=[100 1]
+%s38_le = expand %s38_lr shape=[100 10]
+%s38_lp = sub %s38_zs %s38_le
+%s38_pick = mul %s38_lp %s38_oh
+%s38_pf = reshape %s38_pick shape=[1000]
+%s38_tot = reduce %s38_pf op=add
+%s38_loss = mul %s38_tot -0.01
+%s38_g = gradient %s38_loss %s38_W
+%s38_lrx = expand 1.0 shape=[784 10]
+%s38_d = mul %s38_g %s38_lrx
+%s38_W1 = sub %s38_W %s38_d
+%s38_wf = reshape %s38_W1 shape=[7840]
+%s38_st = store %s37_w %s38_wf
+%s38_w = after %s37_w %s38_st
+# step 39
+%s39_xv = shrink %xs 3057600 shape=[78400]
+%s39_xl = load %s39_xv
+%s39_x = reshape %s39_xl shape=[100 784]
+%s39_yv = shrink %ys 3900 shape=[100]
+%s39_yl = load %s39_yv
+%s39_ohl = reshape %s39_yl shape=[100 1]
+%s39_ohe = expand %s39_ohl shape=[100 10]
+%s39_ohc = reshape %classes shape=[1 10]
+%s39_ohk = expand %s39_ohc shape=[100 10]
+%s39_ohq = cmpeq %s39_ohe %s39_ohk
+%s39_oh = cast %s39_ohq dtype=f32
+%s39_wl = load %s38_w
+%s39_W = reshape %s39_wl shape=[784 10]
+%s39_z0 = matmul %s39_x %s39_W
+%s39_z = stage %s39_z0
+%s39_zt = permute %s39_z order=[1 0]
+%s39_m = reduce %s39_zt op=max
+%s39_md = detach %s39_m
+%s39_mr = reshape %s39_md shape=[100 1]
+%s39_me = expand %s39_mr shape=[100 10]
+%s39_zs = sub %s39_z %s39_me
+%s39_e = exp %s39_zs
+%s39_et = permute %s39_e order=[1 0]
+%s39_se = reduce %s39_et op=add
+%s39_ls = log %s39_se
+%s39_lr = reshape %s39_ls shape=[100 1]
+%s39_le = expand %s39_lr shape=[100 10]
+%s39_lp = sub %s39_zs %s39_le
+%s39_pick = mul %s39_lp %s39_oh
+%s39_pf = reshape %s39_pick shape=[1000]
+%s39_tot = reduce %s39_pf op=add
+%s39_loss = mul %s39_tot -0.01
+%s39_g = gradient %s39_loss %s39_W
+%s39_lrx = expand 1.0 shape=[784 10]
+%s39_d = mul %s39_g %s39_lrx
+%s39_W1 = sub %s39_W %s39_d
+%s39_wf = reshape %s39_W1 shape=[7840]
+%s39_st = store %s38_w %s39_wf
+%s39_w = after %s38_w %s39_st
+# step 40
+%s40_xv = shrink %xs 3136000 shape=[78400]
+%s40_xl = load %s40_xv
+%s40_x = reshape %s40_xl shape=[100 784]
+%s40_yv = shrink %ys 4000 shape=[100]
+%s40_yl = load %s40_yv
+%s40_ohl = reshape %s40_yl shape=[100 1]
+%s40_ohe = expand %s40_ohl shape=[100 10]
+%s40_ohc = reshape %classes shape=[1 10]
+%s40_ohk = expand %s40_ohc shape=[100 10]
+%s40_ohq = cmpeq %s40_ohe %s40_ohk
+%s40_oh = cast %s40_ohq dtype=f32
+%s40_wl = load %s39_w
+%s40_W = reshape %s40_wl shape=[784 10]
+%s40_z0 = matmul %s40_x %s40_W
+%s40_z = stage %s40_z0
+%s40_zt = permute %s40_z order=[1 0]
+%s40_m = reduce %s40_zt op=max
+%s40_md = detach %s40_m
+%s40_mr = reshape %s40_md shape=[100 1]
+%s40_me = expand %s40_mr shape=[100 10]
+%s40_zs = sub %s40_z %s40_me
+%s40_e = exp %s40_zs
+%s40_et = permute %s40_e order=[1 0]
+%s40_se = reduce %s40_et op=add
+%s40_ls = log %s40_se
+%s40_lr = reshape %s40_ls shape=[100 1]
+%s40_le = expand %s40_lr shape=[100 10]
+%s40_lp = sub %s40_zs %s40_le
+%s40_pick = mul %s40_lp %s40_oh
+%s40_pf = reshape %s40_pick shape=[1000]
+%s40_tot = reduce %s40_pf op=add
+%s40_loss = mul %s40_tot -0.01
+%s40_g = gradient %s40_loss %s40_W
+%s40_lrx = expand 1.0 shape=[784 10]
+%s40_d = mul %s40_g %s40_lrx
+%s40_W1 = sub %s40_W %s40_d
+%s40_wf = reshape %s40_W1 shape=[7840]
+%s40_st = store %s39_w %s40_wf
+%s40_w = after %s39_w %s40_st
+# step 41
+%s41_xv = shrink %xs 3214400 shape=[78400]
+%s41_xl = load %s41_xv
+%s41_x = reshape %s41_xl shape=[100 784]
+%s41_yv = shrink %ys 4100 shape=[100]
+%s41_yl = load %s41_yv
+%s41_ohl = reshape %s41_yl shape=[100 1]
+%s41_ohe = expand %s41_ohl shape=[100 10]
+%s41_ohc = reshape %classes shape=[1 10]
+%s41_ohk = expand %s41_ohc shape=[100 10]
+%s41_ohq = cmpeq %s41_ohe %s41_ohk
+%s41_oh = cast %s41_ohq dtype=f32
+%s41_wl = load %s40_w
+%s41_W = reshape %s41_wl shape=[784 10]
+%s41_z0 = matmul %s41_x %s41_W
+%s41_z = stage %s41_z0
+%s41_zt = permute %s41_z order=[1 0]
+%s41_m = reduce %s41_zt op=max
+%s41_md = detach %s41_m
+%s41_mr = reshape %s41_md shape=[100 1]
+%s41_me = expand %s41_mr shape=[100 10]
+%s41_zs = sub %s41_z %s41_me
+%s41_e = exp %s41_zs
+%s41_et = permute %s41_e order=[1 0]
+%s41_se = reduce %s41_et op=add
+%s41_ls = log %s41_se
+%s41_lr = reshape %s41_ls shape=[100 1]
+%s41_le = expand %s41_lr shape=[100 10]
+%s41_lp = sub %s41_zs %s41_le
+%s41_pick = mul %s41_lp %s41_oh
+%s41_pf = reshape %s41_pick shape=[1000]
+%s41_tot = reduce %s41_pf op=add
+%s41_loss = mul %s41_tot -0.01
+%s41_g = gradient %s41_loss %s41_W
+%s41_lrx = expand 1.0 shape=[784 10]
+%s41_d = mul %s41_g %s41_lrx
+%s41_W1 = sub %s41_W %s41_d
+%s41_wf = reshape %s41_W1 shape=[7840]
+%s41_st = store %s40_w %s41_wf
+%s41_w = after %s40_w %s41_st
+# step 42
+%s42_xv = shrink %xs 3292800 shape=[78400]
+%s42_xl = load %s42_xv
+%s42_x = reshape %s42_xl shape=[100 784]
+%s42_yv = shrink %ys 4200 shape=[100]
+%s42_yl = load %s42_yv
+%s42_ohl = reshape %s42_yl shape=[100 1]
+%s42_ohe = expand %s42_ohl shape=[100 10]
+%s42_ohc = reshape %classes shape=[1 10]
+%s42_ohk = expand %s42_ohc shape=[100 10]
+%s42_ohq = cmpeq %s42_ohe %s42_ohk
+%s42_oh = cast %s42_ohq dtype=f32
+%s42_wl = load %s41_w
+%s42_W = reshape %s42_wl shape=[784 10]
+%s42_z0 = matmul %s42_x %s42_W
+%s42_z = stage %s42_z0
+%s42_zt = permute %s42_z order=[1 0]
+%s42_m = reduce %s42_zt op=max
+%s42_md = detach %s42_m
+%s42_mr = reshape %s42_md shape=[100 1]
+%s42_me = expand %s42_mr shape=[100 10]
+%s42_zs = sub %s42_z %s42_me
+%s42_e = exp %s42_zs
+%s42_et = permute %s42_e order=[1 0]
+%s42_se = reduce %s42_et op=add
+%s42_ls = log %s42_se
+%s42_lr = reshape %s42_ls shape=[100 1]
+%s42_le = expand %s42_lr shape=[100 10]
+%s42_lp = sub %s42_zs %s42_le
+%s42_pick = mul %s42_lp %s42_oh
+%s42_pf = reshape %s42_pick shape=[1000]
+%s42_tot = reduce %s42_pf op=add
+%s42_loss = mul %s42_tot -0.01
+%s42_g = gradient %s42_loss %s42_W
+%s42_lrx = expand 1.0 shape=[784 10]
+%s42_d = mul %s42_g %s42_lrx
+%s42_W1 = sub %s42_W %s42_d
+%s42_wf = reshape %s42_W1 shape=[7840]
+%s42_st = store %s41_w %s42_wf
+%s42_w = after %s41_w %s42_st
+# step 43
+%s43_xv = shrink %xs 3371200 shape=[78400]
+%s43_xl = load %s43_xv
+%s43_x = reshape %s43_xl shape=[100 784]
+%s43_yv = shrink %ys 4300 shape=[100]
+%s43_yl = load %s43_yv
+%s43_ohl = reshape %s43_yl shape=[100 1]
+%s43_ohe = expand %s43_ohl shape=[100 10]
+%s43_ohc = reshape %classes shape=[1 10]
+%s43_ohk = expand %s43_ohc shape=[100 10]
+%s43_ohq = cmpeq %s43_ohe %s43_ohk
+%s43_oh = cast %s43_ohq dtype=f32
+%s43_wl = load %s42_w
+%s43_W = reshape %s43_wl shape=[784 10]
+%s43_z0 = matmul %s43_x %s43_W
+%s43_z = stage %s43_z0
+%s43_zt = permute %s43_z order=[1 0]
+%s43_m = reduce %s43_zt op=max
+%s43_md = detach %s43_m
+%s43_mr = reshape %s43_md shape=[100 1]
+%s43_me = expand %s43_mr shape=[100 10]
+%s43_zs = sub %s43_z %s43_me
+%s43_e = exp %s43_zs
+%s43_et = permute %s43_e order=[1 0]
+%s43_se = reduce %s43_et op=add
+%s43_ls = log %s43_se
+%s43_lr = reshape %s43_ls shape=[100 1]
+%s43_le = expand %s43_lr shape=[100 10]
+%s43_lp = sub %s43_zs %s43_le
+%s43_pick = mul %s43_lp %s43_oh
+%s43_pf = reshape %s43_pick shape=[1000]
+%s43_tot = reduce %s43_pf op=add
+%s43_loss = mul %s43_tot -0.01
+%s43_g = gradient %s43_loss %s43_W
+%s43_lrx = expand 1.0 shape=[784 10]
+%s43_d = mul %s43_g %s43_lrx
+%s43_W1 = sub %s43_W %s43_d
+%s43_wf = reshape %s43_W1 shape=[7840]
+%s43_st = store %s42_w %s43_wf
+%s43_w = after %s42_w %s43_st
+# step 44
+%s44_xv = shrink %xs 3449600 shape=[78400]
+%s44_xl = load %s44_xv
+%s44_x = reshape %s44_xl shape=[100 784]
+%s44_yv = shrink %ys 4400 shape=[100]
+%s44_yl = load %s44_yv
+%s44_ohl = reshape %s44_yl shape=[100 1]
+%s44_ohe = expand %s44_ohl shape=[100 10]
+%s44_ohc = reshape %classes shape=[1 10]
+%s44_ohk = expand %s44_ohc shape=[100 10]
+%s44_ohq = cmpeq %s44_ohe %s44_ohk
+%s44_oh = cast %s44_ohq dtype=f32
+%s44_wl = load %s43_w
+%s44_W = reshape %s44_wl shape=[784 10]
+%s44_z0 = matmul %s44_x %s44_W
+%s44_z = stage %s44_z0
+%s44_zt = permute %s44_z order=[1 0]
+%s44_m = reduce %s44_zt op=max
+%s44_md = detach %s44_m
+%s44_mr = reshape %s44_md shape=[100 1]
+%s44_me = expand %s44_mr shape=[100 10]
+%s44_zs = sub %s44_z %s44_me
+%s44_e = exp %s44_zs
+%s44_et = permute %s44_e order=[1 0]
+%s44_se = reduce %s44_et op=add
+%s44_ls = log %s44_se
+%s44_lr = reshape %s44_ls shape=[100 1]
+%s44_le = expand %s44_lr shape=[100 10]
+%s44_lp = sub %s44_zs %s44_le
+%s44_pick = mul %s44_lp %s44_oh
+%s44_pf = reshape %s44_pick shape=[1000]
+%s44_tot = reduce %s44_pf op=add
+%s44_loss = mul %s44_tot -0.01
+%s44_g = gradient %s44_loss %s44_W
+%s44_lrx = expand 1.0 shape=[784 10]
+%s44_d = mul %s44_g %s44_lrx
+%s44_W1 = sub %s44_W %s44_d
+%s44_wf = reshape %s44_W1 shape=[7840]
+%s44_st = store %s43_w %s44_wf
+%s44_w = after %s43_w %s44_st
+# step 45
+%s45_xv = shrink %xs 3528000 shape=[78400]
+%s45_xl = load %s45_xv
+%s45_x = reshape %s45_xl shape=[100 784]
+%s45_yv = shrink %ys 4500 shape=[100]
+%s45_yl = load %s45_yv
+%s45_ohl = reshape %s45_yl shape=[100 1]
+%s45_ohe = expand %s45_ohl shape=[100 10]
+%s45_ohc = reshape %classes shape=[1 10]
+%s45_ohk = expand %s45_ohc shape=[100 10]
+%s45_ohq = cmpeq %s45_ohe %s45_ohk
+%s45_oh = cast %s45_ohq dtype=f32
+%s45_wl = load %s44_w
+%s45_W = reshape %s45_wl shape=[784 10]
+%s45_z0 = matmul %s45_x %s45_W
+%s45_z = stage %s45_z0
+%s45_zt = permute %s45_z order=[1 0]
+%s45_m = reduce %s45_zt op=max
+%s45_md = detach %s45_m
+%s45_mr = reshape %s45_md shape=[100 1]
+%s45_me = expand %s45_mr shape=[100 10]
+%s45_zs = sub %s45_z %s45_me
+%s45_e = exp %s45_zs
+%s45_et = permute %s45_e order=[1 0]
+%s45_se = reduce %s45_et op=add
+%s45_ls = log %s45_se
+%s45_lr = reshape %s45_ls shape=[100 1]
+%s45_le = expand %s45_lr shape=[100 10]
+%s45_lp = sub %s45_zs %s45_le
+%s45_pick = mul %s45_lp %s45_oh
+%s45_pf = reshape %s45_pick shape=[1000]
+%s45_tot = reduce %s45_pf op=add
+%s45_loss = mul %s45_tot -0.01
+%s45_g = gradient %s45_loss %s45_W
+%s45_lrx = expand 1.0 shape=[784 10]
+%s45_d = mul %s45_g %s45_lrx
+%s45_W1 = sub %s45_W %s45_d
+%s45_wf = reshape %s45_W1 shape=[7840]
+%s45_st = store %s44_w %s45_wf
+%s45_w = after %s44_w %s45_st
+# step 46
+%s46_xv = shrink %xs 3606400 shape=[78400]
+%s46_xl = load %s46_xv
+%s46_x = reshape %s46_xl shape=[100 784]
+%s46_yv = shrink %ys 4600 shape=[100]
+%s46_yl = load %s46_yv
+%s46_ohl = reshape %s46_yl shape=[100 1]
+%s46_ohe = expand %s46_ohl shape=[100 10]
+%s46_ohc = reshape %classes shape=[1 10]
+%s46_ohk = expand %s46_ohc shape=[100 10]
+%s46_ohq = cmpeq %s46_ohe %s46_ohk
+%s46_oh = cast %s46_ohq dtype=f32
+%s46_wl = load %s45_w
+%s46_W = reshape %s46_wl shape=[784 10]
+%s46_z0 = matmul %s46_x %s46_W
+%s46_z = stage %s46_z0
+%s46_zt = permute %s46_z order=[1 0]
+%s46_m = reduce %s46_zt op=max
+%s46_md = detach %s46_m
+%s46_mr = reshape %s46_md shape=[100 1]
+%s46_me = expand %s46_mr shape=[100 10]
+%s46_zs = sub %s46_z %s46_me
+%s46_e = exp %s46_zs
+%s46_et = permute %s46_e order=[1 0]
+%s46_se = reduce %s46_et op=add
+%s46_ls = log %s46_se
+%s46_lr = reshape %s46_ls shape=[100 1]
+%s46_le = expand %s46_lr shape=[100 10]
+%s46_lp = sub %s46_zs %s46_le
+%s46_pick = mul %s46_lp %s46_oh
+%s46_pf = reshape %s46_pick shape=[1000]
+%s46_tot = reduce %s46_pf op=add
+%s46_loss = mul %s46_tot -0.01
+%s46_g = gradient %s46_loss %s46_W
+%s46_lrx = expand 1.0 shape=[784 10]
+%s46_d = mul %s46_g %s46_lrx
+%s46_W1 = sub %s46_W %s46_d
+%s46_wf = reshape %s46_W1 shape=[7840]
+%s46_st = store %s45_w %s46_wf
+%s46_w = after %s45_w %s46_st
+# step 47
+%s47_xv = shrink %xs 3684800 shape=[78400]
+%s47_xl = load %s47_xv
+%s47_x = reshape %s47_xl shape=[100 784]
+%s47_yv = shrink %ys 4700 shape=[100]
+%s47_yl = load %s47_yv
+%s47_ohl = reshape %s47_yl shape=[100 1]
+%s47_ohe = expand %s47_ohl shape=[100 10]
+%s47_ohc = reshape %classes shape=[1 10]
+%s47_ohk = expand %s47_ohc shape=[100 10]
+%s47_ohq = cmpeq %s47_ohe %s47_ohk
+%s47_oh = cast %s47_ohq dtype=f32
+%s47_wl = load %s46_w
+%s47_W = reshape %s47_wl shape=[784 10]
+%s47_z0 = matmul %s47_x %s47_W
+%s47_z = stage %s47_z0
+%s47_zt = permute %s47_z order=[1 0]
+%s47_m = reduce %s47_zt op=max
+%s47_md = detach %s47_m
+%s47_mr = reshape %s47_md shape=[100 1]
+%s47_me = expand %s47_mr shape=[100 10]
+%s47_zs = sub %s47_z %s47_me
+%s47_e = exp %s47_zs
+%s47_et = permute %s47_e order=[1 0]
+%s47_se = reduce %s47_et op=add
+%s47_ls = log %s47_se
+%s47_lr = reshape %s47_ls shape=[100 1]
+%s47_le = expand %s47_lr shape=[100 10]
+%s47_lp = sub %s47_zs %s47_le
+%s47_pick = mul %s47_lp %s47_oh
+%s47_pf = reshape %s47_pick shape=[1000]
+%s47_tot = reduce %s47_pf op=add
+%s47_loss = mul %s47_tot -0.01
+%s47_g = gradient %s47_loss %s47_W
+%s47_lrx = expand 1.0 shape=[784 10]
+%s47_d = mul %s47_g %s47_lrx
+%s47_W1 = sub %s47_W %s47_d
+%s47_wf = reshape %s47_W1 shape=[7840]
+%s47_st = store %s46_w %s47_wf
+%s47_w = after %s46_w %s47_st
+# step 48
+%s48_xv = shrink %xs 3763200 shape=[78400]
+%s48_xl = load %s48_xv
+%s48_x = reshape %s48_xl shape=[100 784]
+%s48_yv = shrink %ys 4800 shape=[100]
+%s48_yl = load %s48_yv
+%s48_ohl = reshape %s48_yl shape=[100 1]
+%s48_ohe = expand %s48_ohl shape=[100 10]
+%s48_ohc = reshape %classes shape=[1 10]
+%s48_ohk = expand %s48_ohc shape=[100 10]
+%s48_ohq = cmpeq %s48_ohe %s48_ohk
+%s48_oh = cast %s48_ohq dtype=f32
+%s48_wl = load %s47_w
+%s48_W = reshape %s48_wl shape=[784 10]
+%s48_z0 = matmul %s48_x %s48_W
+%s48_z = stage %s48_z0
+%s48_zt = permute %s48_z order=[1 0]
+%s48_m = reduce %s48_zt op=max
+%s48_md = detach %s48_m
+%s48_mr = reshape %s48_md shape=[100 1]
+%s48_me = expand %s48_mr shape=[100 10]
+%s48_zs = sub %s48_z %s48_me
+%s48_e = exp %s48_zs
+%s48_et = permute %s48_e order=[1 0]
+%s48_se = reduce %s48_et op=add
+%s48_ls = log %s48_se
+%s48_lr = reshape %s48_ls shape=[100 1]
+%s48_le = expand %s48_lr shape=[100 10]
+%s48_lp = sub %s48_zs %s48_le
+%s48_pick = mul %s48_lp %s48_oh
+%s48_pf = reshape %s48_pick shape=[1000]
+%s48_tot = reduce %s48_pf op=add
+%s48_loss = mul %s48_tot -0.01
+%s48_g = gradient %s48_loss %s48_W
+%s48_lrx = expand 1.0 shape=[784 10]
+%s48_d = mul %s48_g %s48_lrx
+%s48_W1 = sub %s48_W %s48_d
+%s48_wf = reshape %s48_W1 shape=[7840]
+%s48_st = store %s47_w %s48_wf
+%s48_w = after %s47_w %s48_st
+# step 49
+%s49_xv = shrink %xs 3841600 shape=[78400]
+%s49_xl = load %s49_xv
+%s49_x = reshape %s49_xl shape=[100 784]
+%s49_yv = shrink %ys 4900 shape=[100]
+%s49_yl = load %s49_yv
+%s49_ohl = reshape %s49_yl shape=[100 1]
+%s49_ohe = expand %s49_ohl shape=[100 10]
+%s49_ohc = reshape %classes shape=[1 10]
+%s49_ohk = expand %s49_ohc shape=[100 10]
+%s49_ohq = cmpeq %s49_ohe %s49_ohk
+%s49_oh = cast %s49_ohq dtype=f32
+%s49_wl = load %s48_w
+%s49_W = reshape %s49_wl shape=[784 10]
+%s49_z0 = matmul %s49_x %s49_W
+%s49_z = stage %s49_z0
+%s49_zt = permute %s49_z order=[1 0]
+%s49_m = reduce %s49_zt op=max
+%s49_md = detach %s49_m
+%s49_mr = reshape %s49_md shape=[100 1]
+%s49_me = expand %s49_mr shape=[100 10]
+%s49_zs = sub %s49_z %s49_me
+%s49_e = exp %s49_zs
+%s49_et = permute %s49_e order=[1 0]
+%s49_se = reduce %s49_et op=add
+%s49_ls = log %s49_se
+%s49_lr = reshape %s49_ls shape=[100 1]
+%s49_le = expand %s49_lr shape=[100 10]
+%s49_lp = sub %s49_zs %s49_le
+%s49_pick = mul %s49_lp %s49_oh
+%s49_pf = reshape %s49_pick shape=[1000]
+%s49_tot = reduce %s49_pf op=add
+%s49_loss = mul %s49_tot -0.01
+%s49_g = gradient %s49_loss %s49_W
+%s49_lrx = expand 1.0 shape=[784 10]
+%s49_d = mul %s49_g %s49_lrx
+%s49_W1 = sub %s49_W %s49_d
+%s49_wf = reshape %s49_W1 shape=[7840]
+%s49_st = store %s48_w %s49_wf
+%s49_w = after %s48_w %s49_st
+# test: a digit counts as right when its label's logit is the largest
+%tl = load %xt
+%tx = reshape %tl shape=[1000 784]
+%twl = load %s49_w
+%tW = reshape %twl shape=[784 10]
+%tz0 = matmul %tx %tW
+%tz = stage %tz0
+%tzt = permute %tz order=[1 0]
+%tm = reduce %tzt op=max
+%tyl = load %yt
+%tohl = reshape %tyl shape=[1000 1]
+%tohe = expand %tohl shape=[1000 10]
+%tohc = reshape %classes shape=[1 10]
+%tohk = expand %tohc shape=[1000 10]
+%tohq = cmpeq %tohe %tohk
+%toh = cast %tohq dtype=f32
+%tp = mul %tz %toh
+%tpt = permute %tp order=[1 0]
+%tpick = reduce %tpt op=add          # the label's logit
+%tlow = cmplt %tpick %tm
+%tyes = expand true shape=[1000]
+%thit = xor %tlow %tyes
+%tn = cast %thit dtype=i32
+%tc = reduce %tn op=add
+%okv = shrink %ok 0 shape=[]
+%okst = store %okv %tc
+%ok1 = after %ok %okst

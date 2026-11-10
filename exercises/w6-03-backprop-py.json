@@ -1,0 +1,51 @@
+{
+  "id": "w6-03-backprop-py",
+  "lang": "python",
+  "title": "Backpropagation on a tape",
+  "prompt": "<p>A tape is a program as a list: entry <code>i</code> is <code>('x', v)</code> (an input), <code>('const', v)</code>, <code>('add', a, b)</code> or <code>('mul', a, b)</code>, where <code>a</code> and <code>b</code> are earlier entries. Write <code>grads(tape)</code>: the derivative of the <b>last</b> entry with respect to every entry, as a list. Compute every value forward, seed the last entry with 1.0, then walk backward and send each entry's gradient to its operands.</p>",
+  "show": "lambda v: ' '.join('%g' % x for x in v)",
+  "starter": "def grads(tape: list) -> list[float]:\n    \"\"\"tape[i] is ('x', v), ('const', v), ('add', a, b) or ('mul', a, b), where a and b index\n    earlier entries. Return d(last entry)/d(entry i) for every i.\"\"\"\n    g = [0.0] * len(tape)\n    g[-1] = 1.0                                        # the seed: d(last)/d(last) = 1\n    return g\n",
+  "tests": [
+    {
+      "expr": "grads([('x', 3.0), ('mul', 0, 0)])",
+      "sample": true,
+      "expect": "6 1"
+    },
+    {
+      "expr": "grads([('x', 2.0), ('mul', 0, 0), ('mul', 1, 0)])",
+      "sample": true,
+      "expect": "12 2 1"
+    },
+    {
+      "expr": "grads([('x', 5.0), ('const', 7.0), ('add', 0, 1)])",
+      "sample": false,
+      "expect": "1 1 1"
+    },
+    {
+      "expr": "grads([('x', 2.0), ('x', 3.0), ('mul', 0, 1), ('add', 2, 0)])",
+      "sample": false,
+      "expect": "4 2 1 1"
+    },
+    {
+      "expr": "grads([('x', 1.5), ('const', 2.0), ('mul', 0, 1), ('mul', 2, 2), ('add', 3, 0)])",
+      "sample": false,
+      "expect": "13 9 6 1 1"
+    },
+    {
+      "expr": "grads([('x', -1.0), ('x', 4.0), ('add', 0, 1), ('mul', 2, 1), ('mul', 3, 0)])",
+      "sample": false,
+      "expect": "8 -7 -4 -1 1"
+    },
+    {
+      "expr": "grads([('x', 3.0)])",
+      "sample": false,
+      "expect": "1"
+    }
+  ],
+  "hints": [
+    "Two passes. Forward: compute each entry's value in order. Backward: from the last entry to the first.",
+    "An <code>add</code> passes its gradient to both operands unchanged. A <code>mul</code> passes <code>g · (the other operand's value)</code> to each side.",
+    "Use <code>+=</code>, never <code>=</code>: an entry used twice (like <code>('mul', 0, 0)</code>) receives two contributions, and the derivative is their sum."
+  ],
+  "explain": "This is reverse mode in miniature. Walking the tape backward guarantees every entry has received all its contributions before it passes its own gradient on, because users always come later on the tape than what they use. <code>x · x</code> at 3 gives 6: two contributions of 3 each. The <code>+=</code> is the whole trick, and it's why the spec has to say in which order the contributions are added: in f32, the order changes the bits."
+}

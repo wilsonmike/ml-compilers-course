@@ -1,0 +1,118 @@
+{
+  "id": "w6-06-sgd-step",
+  "lang": "uir",
+  "mode": "buffers",
+  "out_slot": 2,
+  "title": "One step of gradient descent",
+  "starter": "%x  = buffer 8 dtype=f32 slot=0\n%y  = buffer 4 dtype=f32 slot=1\n%w  = buffer 2 dtype=f32 slot=2\n# X is 4x2 (slot 0), y has 4 targets (slot 1), w has 2 weights (slot 2).\n# loss = 0.25 * the sum of (X @ w - y)^2. Update w in place: w - 0.1 * d(loss)/dw.\n%vx = load %x\n%X  = reshape %vx shape=[4 2]\n%vw = load %w\n%W  = reshape %vw shape=[2 1]\n%p  = matmul %X %W\n%pf = reshape %p shape=[4]\n%vy = load %y\n%d  = sub %pf %vy\n%sq = mul %d %d\n%s  = reduce %sq op=add\n%l  = mul %s 0.25\n%g  = gradient %l %vw\n%lr = expand 0.1 shape=[2]\n%st = mul %g %lr\n%w1 = add %vw %st\n%sw = store %w %w1\n%wv = after %w %sw\n",
+  "tests": [
+    {
+      "data": {
+        "0": [
+          1.0,
+          2.0,
+          2.0,
+          1.0,
+          3.0,
+          0.0,
+          0.5,
+          1.5
+        ],
+        "1": [
+          5.0,
+          4.0,
+          3.0,
+          3.5
+        ],
+        "2": [
+          0.0,
+          0.0
+        ]
+      },
+      "sample": true,
+      "expect": "[1.1875 0.9625000357627869]"
+    },
+    {
+      "data": {
+        "0": [
+          1.0,
+          2.0,
+          2.0,
+          1.0,
+          3.0,
+          0.0,
+          0.5,
+          1.5
+        ],
+        "1": [
+          5.0,
+          4.0,
+          3.0,
+          3.5
+        ],
+        "2": [
+          1.0,
+          2.0
+        ]
+      },
+      "sample": true,
+      "expect": "[1.0 2.0]"
+    },
+    {
+      "data": {
+        "0": [
+          1.0,
+          2.0,
+          2.0,
+          1.0,
+          3.0,
+          0.0,
+          0.5,
+          1.5
+        ],
+        "1": [
+          1.0,
+          -1.0,
+          2.0,
+          0.0
+        ],
+        "2": [
+          0.5,
+          -0.5
+        ]
+      },
+      "expect": "[0.512499988079071 -0.38749998807907104]"
+    },
+    {
+      "data": {
+        "0": [
+          1.0,
+          0.0,
+          0.0,
+          1.0,
+          1.0,
+          1.0,
+          2.0,
+          1.0
+        ],
+        "1": [
+          1.0,
+          2.0,
+          3.0,
+          4.0
+        ],
+        "2": [
+          1.0,
+          2.0
+        ]
+      },
+      "expect": "[1.0 2.0]"
+    }
+  ],
+  "hints": [
+    "The starter adds the step instead of subtracting it, so the loss goes up.",
+    "Gradient descent moves against the gradient: `w - lr · g`. `sub %vw %st` does it.",
+    "The second sample is already a perfect fit (the targets are exactly X @ w), so its gradient is zero and w comes back unchanged. If your answer moves it, the sign or the loss is off."
+  ],
+  "explain": "The gradient points uphill, so a step against it lowers the loss. The update reads the old `w` (through `%vw`) and stores into the same buffer, which is safe: a store's value is computed from the contents before the store. A renderer that turns that store into an element-by-element loop has to keep it safe too, by computing the new values first. The lab's MNIST program is this step 50 times, with a bigger model and a softmax loss."
+}

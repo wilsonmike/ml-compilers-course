@@ -36,7 +36,7 @@
 <thead><tr><th>value</th><th>its element at <code>i</code></th></tr></thead>
 <tbody>
 <tr><td>an elementwise op <code>add %a %b</code></td><td><code>add</code> of a's element at i and b's element at i</td></tr>
-<tr><td><code>load</code> of a view at offset o</td><td>a scalar load of <code>shrink view i shape=[]</code>, element <code>o + i</code></td></tr>
+<tr><td><code>load</code> of a view at offset o</td><td>a scalar load of <code>shrink %view %i shape=[]</code>, which reads buffer element <code>o + i</code></td></tr>
 <tr><td><code>expand %s shape=[n]</code></td><td><code>%s</code> itself: the index doesn't matter</td></tr>
 <tr><td><code>stack a b c</code></td><td><code>index</code> of the stack at i</td></tr>
 </tbody>
@@ -72,7 +72,7 @@ for (int32_t r14 = 0; r14 &lt; 3; r14++) {
 }
 float v24 = a4[0];
 b1[0] = v24;</code></pre>
-<p>The <code>% 4</code> line comes from decoding a flat loop counter back into an index. Here <code>r + 1</code> is always below 4, so it's provably redundant. Lesson 5.5 shows how a simplifier removes lines like it.</p>
+<p>The <code>% 4</code> line is there because the oracle builds every index as if the value could have several axes, so it always adds a <code>% n</code> step. For a vector that step never changes the value. Here <code>r + 1</code> is always below 4, so it's provably redundant. Lesson 5.5 shows how a simplifier removes lines like it.</p>
 <p>The loop runs n-1 times over indices 1 to n-1, so the fold is left to right from <code>x[0]</code>, as the spec requires. The accumulator's load sits inside the loop because of week 3's placement rule: its only use is in the loop, and the loop stores into the version it reads.</p>
 </div>
 
@@ -83,12 +83,12 @@ b1[0] = v24;</code></pre>
 
 <div class="exercise" data-ex="w4-03-lower" data-ex-py="w4-03-lower-py">
 <h3>The element at index i</h3>
-<p>On a toy type of vector expressions (buffers, broadcasts, adds and multiplies), write <code>at e i</code>: the scalar expression for element <code>i</code> of <code>e</code>. The printer is given.</p>
+<p>On a toy type of vector expressions (buffers, broadcasts, adds and multiplies), write <span class="only-ocaml"><code>at e i</code></span><span class="only-python"><code>at(e, i)</code></span>: the scalar expression for element <code>i</code> of <code>e</code>. The printer is given.</p>
 </div>
 
 <h2>Why the C must be small</h2>
 <div class="prose">
-<p>Week 4 render tests include vectors of 4096 floats, and the grader rejects rendered C over 20,000 bytes. A renderer that kept vectors as C arrays and unrolled every elementwise op would emit thousands of lines, but a rangeified one emits a few loops no matter how big n is. The <code>x / sum(x)</code> example from lesson 4.2, on 4096 floats, renders to about 800 bytes (801 with the current oracle) with two loops: the reduce's 4095 iterations, then the 4096-iteration store.</p>
+<p>Week 4 render tests include vectors of 4096 floats, and the grader rejects rendered C over 20,000 bytes. A renderer that kept vectors as C arrays and unrolled every elementwise op would emit thousands of lines, but a rangeified one emits a few loops no matter how big n is. The <code>x / sum(x)</code> example from lesson 4.2, on 4096 floats, renders to about a kilobyte (990 bytes with the current oracle) with two loops: the reduce's 4095 iterations, then the 4096-iteration store.</p>
 </div>
 
 <div class="exercise small" data-ex="w4-03-sumleft">
@@ -163,7 +163,7 @@ b1[0] = v24;</code></pre>
 
 <nav class="pager">
 <a href="02-reduce-expand.html">← Lesson 2: Reduce and expand</a>
-<a href="04-materialization.html">Lesson 4: Materialization →</a>
+<a href="04-materialization.html">Lesson 4: Fuse or materialize →</a>
 </nav>
 </main>
 

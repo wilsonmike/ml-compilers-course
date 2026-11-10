@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automatic Differentiation</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Training means nudging every weight in the direction that lowers the loss, and that direction is the gradient. %g = gradient %loss %w asks your compiler for...">
+<link rel="canonical" href="https://sharpterminal.com/site/week6/03-autodiff">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Automatic Differentiation">
+<meta property="og:description" content="Training means nudging every weight in the direction that lowers the loss, and that direction is the gradient. %g = gradient %loss %w asks your compiler for it. Your compiler answers by building more...">
+<meta property="og:url" content="https://sharpterminal.com/site/week6/03-autodiff">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .ad { width: 100%; border-collapse: collapse; font: 0.875rem/1.6 var(--mono); }
+  .ad th, .ad td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .ad th { color: var(--ink-3); font-weight: 500; }
+  .ad tr.on td { color: var(--ink); font-weight: 600; }
+  .ad td.dim { color: var(--ink-3); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 6 · Lesson 3</p>
+<h1>Automatic differentiation</h1>
+<p class="lede">Training means nudging every weight in the direction that lowers the loss, and that direction is the gradient. <code>%g = gradient %loss %w</code> asks your compiler for it. Your compiler answers by building more graph: it walks backward from the loss and applies the chain rule, one op at a time.</p>
+
+<div class="prose">
+<h2>What gradient means</h2>
+<p>For a scalar <code>y</code> and a value <code>x</code> of any shape, <code>gradient y x</code> has <code>x</code>'s shape, and element <code>i</code> is <code>∂y/∂x[i]</code>: how fast y changes when you wiggle <code>x[i]</code> alone. If <code>y = x · x</code> and x is 3, the gradient is 6.</p>
+<p>Your compiler computes this <em>while building the program</em>, not while running it. The result is an ordinary graph of <code>mul</code>s and <code>add</code>s, so everything else (run, render, hash consing, staging) works on it unchanged. You can even take the gradient of a gradient.</p>
+
+<h2>The chain rule, backward</h2>
+<p>Every op knows its local derivatives. For <code>u = mul a b</code>, <code>∂u/∂a = b</code> and <code>∂u/∂b = a</code>. The chain rule says that if you already know <code>g = ∂y/∂u</code>, then u sends <code>g · b</code> to a and <code>g · a</code> to b. Those are a and b's <b>shares</b> of the gradient.</p>
+<p>So start at y with <code>g = 1.0</code> (<code>∂y/∂y</code>), and walk the graph from y back toward x. At each node, add up the shares it has received, then pass on its own shares to its operands. When the walk reaches x, the sum there is the answer. This is <b>reverse mode</b>. One backward walk gives the gradient with respect to every weight at once, which is why it's what trains networks: one loss, millions of weights.</p>
+<p>A node has to receive all of its shares before it passes anything on. The spec orders the walk to guarantee that: take the <b>post-order</b> of y's graph (depth first, operands left to right, each node once) and visit it in reverse. Every node comes before the nodes it uses.</p>
+</div>
+
+<div class="fig" id="walk" data-title="gradient of y = (x · x) · x, at x = 2"></div>
+
+<div class="prose">
+<h2>The rules for elementwise ops</h2>
+<p>The spec lists a share for every op. These are the ones from calculus, written as ops (<code>u</code> is the op's own result):</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>op</th><th>shares, given <code>g</code></th></tr></thead>
+<tbody>
+<tr><td><code>add a b</code></td><td><code>g</code> to both</td></tr>
+<tr><td><code>mul a b</code></td><td><code>mul g b</code> to a, <code>mul g a</code> to b</td></tr>
+<tr><td><code>recip a</code></td><td><code>g · -(u · u)</code>, since <code>d(1/a) = -1/a²</code></td></tr>
+<tr><td><code>max a b</code></td><td>all of <code>g</code> to the larger, half each on a tie</td></tr>
+<tr><td><code>where c a b</code></td><td><code>g</code> to the side c picked, 0 to the other, nothing to c</td></tr>
+<tr><td><code>exp2 a</code></td><td><code>g · u · ln 2</code></td></tr>
+<tr><td><code>log2 a</code></td><td><code>g / (a · ln 2)</code>, as <code>mul g (recip (mul a 0.6931472))</code></td></tr>
+<tr><td><code>sqrt a</code></td><td><code>g / (2u)</code></td></tr>
+<tr><td><code>sin a</code></td><td><code>g · sin(a + π/2)</code>: cos, written with sin</td></tr>
+<tr><td><code>cast</code>, <code>bitcast</code></td><td><code>g</code>, but only from f32 to f32</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<p>Comparisons and integer ops have no rule because they don't need one: their results aren't f32, and only f32 nodes carry gradients. A path that leaves f32 is a dead end. That's why <code>floor</code> (a cast to i32 and back) has gradient 0 for <code>|x| &lt; 2^23</code>, which is also the true derivative almost everywhere.</p>
+
+<h2>Adding shares up, in order</h2>
+<p>In <code>(x · x) · x</code>, x receives three shares. In exact arithmetic the order doesn't matter, but in f32 it does: <code>(a + b) + c</code> and <code>a + (b + c)</code> can round differently. So the spec fixes it. Shares are added in the order they arrive during the reverse walk, as a left fold: <code>add c1 c2</code>, then <code>add</code> that and <code>c3</code>. Because the walk runs backward, arrival order is often the reverse of the order the statements appear in the file. The test <code>grad_accumulation_order</code> has three shares whose sum depends on the order, and <code>grad_accumulation_other_order</code> checks that the program-order sum is <em>not</em> what you get.</p>
+
+<h2>Which nodes take part</h2>
+<p>Only nodes on a path from x to y. A node that doesn't depend on x can't pass anything back to x, so the walk skips it. Skipping isn't just faster. A node off the path may be an op with no rule (a <code>reduce op=mul</code> of some unrelated data, say), and that's fine as long as x doesn't reach it. The walk also stops at x: x's own operands don't matter, because x is what you're differentiating against.</p>
+<p>What can be on the path is limited. Gradients don't go through <code>call</code>, <code>load</code>, <code>store</code> or loops, so a program like that is invalid. That's the syllabus's rule: autodiff works on pure graphs. x itself may be a <code>load</code>, though. The weights of a model are.</p>
+</div>
+
+<div class="exercise small" data-ex="w6-03-backprop" data-ex-py="w6-03-backprop-py">
+<h3>Backpropagation on a tape</h3>
+<p>A tape is a program as a list: inputs, constants, and <code>add</code> or <code>mul</code> of earlier entries. Return the derivative of the last entry with respect to every entry. Forward for values, backward for gradients.</p>
+</div>
+
+<div class="prose">
+<h2>detach: "treat this as a constant"</h2>
+<p><code>detach x</code> has the value of x and passes no gradient. <code>gradient (mul x (detach x)) x</code> is x, not 2x: the detached copy counts as a constant. It's how you stop a gradient on purpose. Lesson 6.5 uses it on the max subtracted for a stable softmax, whose gradient cancels out anyway.</p>
+
+<h2>When gradient is invalid</h2>
+<ul>
+<li>The loss isn't an f32 scalar, or x isn't an f32 value (a buffer, an i32).</li>
+<li>x is a literal. <code>gradient %y 2.0</code> would mean every <code>2.0</code> in the program, because equal literals are one hash-consed node.</li>
+<li>Either depends on an open range: no gradients inside hand-written loops.</li>
+<li>A <code>call</code>, <code>load</code> or <code>store</code> lies on a path from x to y, or an op with no rule does (<code>reduce op=mul</code>).</li>
+</ul>
+<p>If y doesn't depend on x at all, that's not an error. The gradient is zeros of x's shape.</p>
+</div>
+
+<div class="exercise" data-ex="w6-03-deriv">
+<h3>f'(x) for five x at once</h3>
+<p>Slot 0 holds five values of x. For <code>f(x) = x³ - 2x</code>, store <code>f'(x)</code> for each into slot 1, using <code>gradient</code>. The starter stores f(x).</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="12">
+<p class="q">What is <code>gradient</code> of <code>y = (x · x) · x</code> at <code>x = 2</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint"><code>d/dx x³ = 3x²</code>, or follow the figure.</p>
+<div class="why"><p>x receives three shares: 4 from the outer mul (<code>g · c</code> with <code>c = 4</code>), then 4 and 4 from the inner mul (<code>2 · x</code> each). <code>4 + 4 + 4 = 12 = 3 · 2²</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why reverse mode and not forward mode for training?</p>
+<div class="opts">
+<button data-k="a">Reverse mode is more accurate</button>
+<button data-k="b">One backward walk gives the gradient with respect to every input at once, and training has one loss and many weights</button>
+<button data-k="c">Forward mode can't handle matmul</button>
+</div>
+<p class="hint">Forward mode pushes one input's wiggle forward through the program.</p>
+<div class="why"><p>Forward mode needs one pass per input. With a million weights that's a million passes. Reverse mode needs one pass per output, and a loss is one number.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">The walk visits nodes in reverse post-order. Why that order?</p>
+<div class="opts">
+<button data-k="a">It's the order the statements appear in the file</button>
+<button data-k="b">Any order works, it's just a convention</button>
+<button data-k="c">It puts every node before everything it uses, so a node has all its shares before it passes on its own. And it fixes the order shares are added, which f32 needs.</button>
+</div>
+<p class="hint">What would go wrong if a node passed its gradient on before receiving its last share?</p>
+<div class="why"><p>Its operands would get a partial gradient. Reverse post-order is a reverse topological order, so users always come first. And because f32 addition isn't associative, a fixed walk also fixes the bits.</p></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">What is <code>gradient (mul x (detach x)) x</code> at <code>x = 3</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The detached x is a constant with value 3.</p>
+<div class="why"><p><code>d/dx (x · c) = c = 3</code>. Without the detach it would be <code>2x = 6</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>y = cast (cast x dtype=i32) dtype=f32</code>. What is <code>gradient y x</code>?</p>
+<div class="opts">
+<button data-k="a">0: the path goes through an i32, and only f32 nodes carry gradients</button>
+<button data-k="b">1: casts pass the gradient through</button>
+<button data-k="c">Invalid: you can't differentiate a cast</button>
+</div>
+<p class="hint">Which dtype is the middle node?</p>
+<div class="why"><p>The i32 node never receives a share, so nothing reaches x and the gradient is 0. That matches the math: rounding to an integer is flat almost everywhere.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>gradient %y 2.0</code>: why is it invalid?</p>
+<div class="opts">
+<button data-k="a">Constants have no derivative</button>
+<button data-k="b">Equal literals are one hash-consed node, so "the 2.0" is every 2.0 in the program</button>
+<button data-k="c">x must be a vector</button>
+</div>
+<p class="hint">How many nodes does <code>add %a 2.0</code> and <code>mul %b 2.0</code> make for the literal?</p>
+<div class="why"><p>One. A gradient with respect to it would mix every use of 2.0 together, which is never what anyone means. If you want a variable, load it or <code>stage</code> it.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">y uses x, and also <code>reduce %d op=mul</code> of some data <code>%d</code> that x doesn't touch. Is <code>gradient y x</code> valid?</p>
+<div class="opts">
+<button data-k="a">No: reduce op=mul has no gradient rule</button>
+<button data-k="b">Only if %d is a constant</button>
+<button data-k="c">Yes: the walk only visits nodes on a path from x, and the reduce isn't on one</button>
+</div>
+<p class="hint">Which nodes receive shares?</p>
+<div class="why"><p>Only nodes that depend on x. The reduce's value is used, but it never needs a rule. The test <code>grad_reduce_mul_off_path</code> checks exactly this.</p></div>
+</div>
+
+<nav class="pager">
+<a href="02-sugar.html">← Lesson 2: Sugar</a>
+<a href="04-gradients-of-shapes.html">Lesson 4: Gradients through shapes →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  // y = mul c x, c = mul x x, at x = 2. Reverse post-order: y, c, x.
+  const rows = [['x', '2', 'load'], ['c', '4', 'mul x x'], ['y', '8', 'mul c x']];
+  const states = [
+    { cap: 'Forward: x = 2, c = x · x = 4, y = c · x = 8. Post-order is x, c, y, and the walk visits it in reverse: y, c, x.', on: -1, g: { y: '', c: '', x: '' } },
+    { cap: 'Seed y with 1.0. y is <code>mul c x</code>, so it sends <code>1 · x = 2</code> to c and <code>1 · c = 4</code> to x.', on: 2, g: { y: '1', c: '2', x: '4' } },
+    { cap: 'c has its one share, 2. c is <code>mul x x</code>: it sends <code>2 · x = 4</code> to its first operand and <code>2 · x = 4</code> to its second. Both are x.', on: 1, g: { y: '1', c: '2', x: '4, 4, 4' } },
+    { cap: 'x has three shares, in arrival order. Fold them left: <code>(4 + 4) + 4 = 12</code>. That is <code>3x²</code> at 2. Stop: x is what we differentiate against.', on: 0, g: { y: '1', c: '2', x: '4, 4, 4 → 12' } },
+  ];
+  CC.stepper(document.getElementById('walk'), states.map(s => ({ caption: s.cap, s })), (st, body) => {
+    const s = st.s;
+    body.append(h('table', { class: 'ad' }, [
+      h('thead', {}, h('tr', {}, ['node', 'op', 'value', 'shares received'].map(t => h('th', { text: t })))),
+      h('tbody', {}, [2, 1, 0].map(i => { const [n, v, op] = rows[i]; return h('tr', { class: i === s.on ? 'on' : '' }, [h('td', { text: n }), h('td', { text: op }), h('td', { text: v }), h('td', { class: s.g[n] ? '' : 'dim', text: s.g[n] || '(none yet)' })]); })),
+    ]));
+  });
+});
+</script>
+</body>
+</html>

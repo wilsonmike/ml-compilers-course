@@ -1,0 +1,16 @@
+# expect: pass
+# stack: each operand gets its own row of the gradient
+%xb = buffer 2 dtype=f32 slot=0 data=[2.0 3.0]
+%x = load %xb
+%v = stage %x
+%a = index %v 0
+%b = index %v 1
+%s = stack %b %a %b
+%k = stack 1.0 10.0 100.0
+%q = mul %s %k
+%y = reduce %q op=add
+%g = gradient %y %v
+%gf = reshape %g shape=[2]
+%wb = buffer 2 dtype=f32 slot=1 data=[1e+01 101.0]
+%w = load %wb
+%t = assert %gf %w

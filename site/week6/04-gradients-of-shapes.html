@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gradients Through Shapes</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A model is mostly reshapes, broadcasts, matmuls and sums, so the gradient pass has to get through all of them. Each one has a partner: the op that sends a...">
+<link rel="canonical" href="https://sharpterminal.com/site/week6/04-gradients-of-shapes">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Gradients Through Shapes">
+<meta property="og:description" content="A model is mostly reshapes, broadcasts, matmuls and sums, so the gradient pass has to get through all of them. Each one has a partner: the op that sends a gradient back to where the numbers came...">
+<meta property="og:url" content="https://sharpterminal.com/site/week6/04-gradients-of-shapes">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s4); }
+  .grid { display: grid; gap: 3px; justify-content: start; }
+  .grid .c { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; min-width: 2.25rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+  .grid .c.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .vlabel { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
+  @media (max-width: 640px) { .pairs { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 6 · Lesson 4</p>
+<h1>Gradients through movement ops and reduce</h1>
+<p class="lede">A model is mostly reshapes, broadcasts, matmuls and sums, so the gradient pass has to get through all of them. Each one has a partner: the op that sends a gradient back to where the numbers came from. Learn the pairs and you never have to derive the gradient of a matmul.</p>
+
+<div class="prose">
+<h2>Moving numbers, moving them back</h2>
+<p>A movement op doesn't compute anything. Each output element is some input element, or a zero from padding. So the share an input element receives is the gradient of the output position it went to. For the pure rearrangements, the gradient just goes back through the opposite move:</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>op</th><th>its gradient, sent back to the operand</th></tr></thead>
+<tbody>
+<tr><td><code>reshape</code></td><td><code>reshape g</code> back to the operand's shape. Row-major order never changed, so neither does anything else.</td></tr>
+<tr><td><code>permute order=p</code></td><td><code>permute g</code> by the inverse order: <code>inv[p[k]] = k</code></td></tr>
+<tr><td><code>pad pads=[l0 r0 ...]</code></td><td><code>shrink g l0 l1 ...</code>: the padding zeros were constants, so their gradient is dropped</td></tr>
+<tr><td><code>shrink x o0 ...</code></td><td><code>pad g</code> with zeros around the window: elements outside it didn't affect y</td></tr>
+<tr><td><code>stack a0 ... an</code></td><td><code>index g j</code> to <code>aj</code></td></tr>
+<tr><td><code>index x j</code></td><td><code>g</code> padded back to <code>x</code>'s shape, at position <code>j</code></td></tr>
+<tr><td><code>stage x</code></td><td><code>stage g</code>: the gradient of a staged value is staged too</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<p>Shrink and index need literal offsets for their gradients, because the pad that undoes them needs constant pad widths. A shrink at a computed offset is fine in a program, but you can't differentiate through it.</p>
+
+<h2>expand and reduce are partners</h2>
+<p><code>expand</code> copies one value into many places. Each copy affects y, so the original receives the gradient of every copy, added up. The gradient of an expand is a <b>sum</b> over the axes it grew. The spec makes that concrete: permute the grown axes to the front (in increasing order, the rest after), <code>reduce op=add pop=</code> how many there were, then reshape to the operand's shape.</p>
+<p>It works the other way too. <code>reduce op=add</code> makes one number out of many, and each of the many contributed with weight 1. So every input gets the full gradient of the sum: the gradient of a reduce is an <b>expand</b>. Reshape <code>g</code> to put size-1 axes where the popped axes were, then expand.</p>
+</div>
+
+<div class="fig" id="dual" data-title="expand and reduce, forward and backward"></div>
+
+<div class="prose">
+<h2>reduce max picks a winner</h2>
+<p>The max of several numbers depends on only one of them, the largest. So <code>reduce op=max</code> sends the gradient to the position that holds the max and 0 to the rest. When several positions tie, the spec splits the gradient evenly among them, like <code>max a b</code> splits a tie in half. In ops: compare every input to the result expanded back, cast the hits to 1.0, count them with a reduce, and multiply the hits by <code>g / count</code>.</p>
+<p><code>reduce op=mul</code> has no rule. Its derivative is "the product of all the others", and the cheap way to compute that, <code>u / x[i]</code>, divides by zero when an input is zero. It's not on any path the course needs, so the spec makes it invalid on a gradient path.</p>
+
+<h2>matmul needs no rule</h2>
+<p><code>matmul</code> is sugar for reshape, permute, expand, mul and reduce, and each of those has a rule. Run them backward and the textbook result appears by itself. Say A is <code>M×K</code> and B is <code>K×N</code>. For <code>C = A @ B</code> with <code>G = ∂y/∂C</code>:</p>
+<ul>
+<li>The reduce over k expands <code>G</code> back along the k axis.</li>
+<li>The mul sends A's copy <code>G · B</code>, and B's copy <code>G · A</code>, elementwise on the <code>K×M×N</code> block.</li>
+<li>A's expand sums over the N axis it grew, and its permute and reshape move the result back into place.</li>
+</ul>
+<p>The result is <code>∂y/∂A = G Bᵀ</code> and <code>∂y/∂B = Aᵀ G</code>, the two matmuls every deep learning library hard-codes. Your compiler derives them.</p>
+</div>
+
+<div class="exercise small" data-ex="w6-04-adjoint" data-ex-py="w6-04-adjoint-py">
+<h3>Undoing permute and expand</h3>
+<p>Write <code>inverse_order</code>, the order that undoes a permute, and <code>summed_axes</code>, the axes an expand grew (its gradient sums over them).</p>
+</div>
+
+<div class="exercise" data-ex="w6-04-matmul-grad">
+<h3>The gradient of a matmul</h3>
+<p>Slot 0 holds A (2x3) and slot 1 holds B (3x2). For L = the sum of every element of <code>A @ B</code>, store <code>dL/dA</code> into slot 2. The starter takes the gradient with respect to the wrong matrix.</p>
+</div>
+
+<div class="prose">
+<h2>Staging the backward pass</h2>
+<p>Week 4's fusion recomputes an unstaged value at every use. That's cheap for a forward pass, but a gradient graph reuses things a lot. Each element of the gradient with respect to a matmul's output is used once per input feature, 784 times for MNIST. Recomputing it at every use multiplies that work by 784. The spec's rule for <code>stage</code> helps: a staged value's gradient is staged too. Stage the logits of a layer, and their gradient is computed once into a buffer, exactly where the backward pass needs it.</p>
+</div>
+
+<div class="key">
+<span class="label">Bits only care about arithmetic</span>
+<p>How you write a gradient's movement ops doesn't change any bits: they only move numbers. You can skip a reshape to the same shape, or merge two permutes. What has to match the spec exactly is the arithmetic: each share's ops, the order shares are added, and the fold order of the reduces in expand's gradient.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">What is the gradient of <code>permute x order=[2 0 1]</code>, given <code>g</code>?</p>
+<div class="opts">
+<button data-k="a"><code>permute g order=[2 0 1]</code></button>
+<button data-k="b"><code>permute g order=[1 2 0]</code></button>
+<button data-k="c"><code>reshape g</code> to x's shape</button>
+</div>
+<p class="hint"><code>inv[p[k]] = k</code>.</p>
+<div class="why"><p><code>p = [2 0 1]</code>: <code>inv[2] = 0</code>, <code>inv[0] = 1</code>, <code>inv[1] = 2</code>, so <code>[1 2 0]</code>. Permuting by p and then by inv is the identity. A reshape would put the numbers back in the wrong places.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">x has shape <code>(3, 1)</code> and is expanded to <code>(3, 4)</code>. What shape does the gradient pass reduce, and over what?</p>
+<div class="opts">
+<button data-k="a">It reduces <code>(3, 4)</code> over axis 0</button>
+<button data-k="b">Nothing: expand's gradient is a reshape</button>
+<button data-k="c">It permutes <code>g</code> to <code>(4, 3)</code>, reduces the 4 away, and reshapes the <code>(3,)</code> to <code>(3, 1)</code></button>
+</div>
+<p class="hint">Which axis grew?</p>
+<div class="why"><p>Axis 1 grew from 1 to 4. Each of x's 3 values was copied 4 times, so each receives the sum of 4 shares. reduce pops leading axes, so the grown axis is permuted to the front first.</p></div>
+</div>
+
+<div class="quiz" data-fill="0.5">
+<p class="q"><code>reduce [1 5 5 2] op=max</code> is 5. With <code>g = 1</code>, what share does the element at index 1 get?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">How many positions hold the max?</p>
+<div class="why"><p>Two positions tie at 5, so each gets <code>1 / 2 = 0.5</code>, and the others get 0.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">The gradient of <code>pad x pads=[2 1]</code> for a 3-element x?</p>
+<div class="opts">
+<button data-k="a"><code>shrink g 2 shape=[3]</code>: keep the 3 positions x landed on</button>
+<button data-k="b"><code>shrink g 1 shape=[3]</code></button>
+<button data-k="c"><code>pad g pads=[2 1]</code></button>
+</div>
+<p class="hint">Where in the 6-element output did x's elements go?</p>
+<div class="why"><p>Positions 2, 3 and 4. The padded zeros (positions 0, 1 and 5) were constants, so their gradient is dropped.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">L is the sum of every element of <code>C = A @ B</code>. What is <code>dL/dA</code>?</p>
+<div class="opts">
+<button data-k="a">B, transposed</button>
+<button data-k="b"><code>G Bᵀ</code> with G all ones: every row is the row sums of B</button>
+<button data-k="c">All ones, A's shape</button>
+</div>
+<p class="hint">G = dL/dC is all ones.</p>
+<div class="why"><p><code>(G Bᵀ)[i][k] = Σⱼ G[i][j] B[k][j] = Σⱼ B[k][j]</code>: the k-th row sum of B, the same for every row i. That is the exercise above.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Why does the stage rule matter for training speed?</p>
+<div class="opts">
+<button data-k="a">It changes the gradient's value</button>
+<button data-k="b">stage makes the forward pass faster</button>
+<button data-k="c">Without it, fusion would recompute a gradient (like the logits' gradient) at every one of its many uses in the weight gradient</button>
+</div>
+<p class="hint">How many times is each element of <code>dL/dlogits</code> used in <code>dL/dW</code>?</p>
+<div class="why"><p>Once per input feature, 784 times for MNIST. Staged, it's computed once and read 784 times. The value is identical either way.</p></div>
+</div>
+
+<nav class="pager">
+<a href="03-autodiff.html">← Lesson 3: Automatic differentiation</a>
+<a href="05-data-and-mnist.html">Lesson 5: Data and MNIST →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const grid = (rows, cols, val, on) => h('div', { class: 'grid', style: `grid-template-columns: repeat(${cols}, auto)` },
+    Array.from({ length: rows * cols }, (_, n) => h('div', { class: 'c' + (on && on(Math.floor(n / cols), n % cols) ? ' on' : ''), text: val(Math.floor(n / cols), n % cols) })));
+  const steps = [
+    { caption: 'Forward: <code>expand</code> copies x, shape <code>(3, 1)</code>, into 4 columns. Each value of x now appears 4 times.',
+      draw: () => [h('div', {}, [h('div', { class: 'vlabel', text: 'x  (3, 1)' }), grid(3, 1, i => [2, 5, 7][i])]), h('div', {}, [h('div', { class: 'vlabel', text: 'expand  (3, 4)' }), grid(3, 4, i => [2, 5, 7][i], i => i === 1)])] },
+    { caption: 'Backward: g has the expanded shape. Row 1 holds the shares of the 4 copies of x[1].',
+      draw: () => [h('div', {}, [h('div', { class: 'vlabel', text: 'g  (3, 4)' }), grid(3, 4, (i, j) => [[1, 0, 2, 1], [3, 1, 0, 2], [1, 1, 1, 1]][i][j], i => i === 1)]), h('div', {}, [h('div', { class: 'vlabel', text: 'gradient of x  (3, 1)' }), grid(3, 1, () => '')])] },
+    { caption: 'Every copy affected y, so x[1] gets the sum of its copies\' shares: <code>3 + 1 + 0 + 2 = 6</code>. The gradient of an expand is a reduce.',
+      draw: () => [h('div', {}, [h('div', { class: 'vlabel', text: 'g  (3, 4)' }), grid(3, 4, (i, j) => [[1, 0, 2, 1], [3, 1, 0, 2], [1, 1, 1, 1]][i][j], i => i === 1)]), h('div', {}, [h('div', { class: 'vlabel', text: 'gradient of x  (3, 1)' }), grid(3, 1, i => [4, 6, 4][i], i => i === 1)])] },
+    { caption: 'And the reverse: <code>reduce op=add</code> of a row gives one number, and each input contributed with weight 1. So the gradient of the sum, 5, is expanded back to every input.',
+      draw: () => [h('div', {}, [h('div', { class: 'vlabel', text: 'g of the row sum  (1,)' }), grid(1, 1, () => 5, () => true)]), h('div', {}, [h('div', { class: 'vlabel', text: 'gradient of the row  (4,)' }), grid(1, 4, () => 5, () => true)])] },
+  ];
+  CC.stepper(document.getElementById('dual'), steps, (s, body) => body.append(h('div', { class: 'pairs' }, s.draw())));
+});
+</script>
+</body>
+</html>

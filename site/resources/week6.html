@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 6 Study Guide</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Week 6 makes your compiler able to train. Four math functions are built from adds and multiplies, nine sugar ops expand into core ops, gradient walks the chain...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/week6">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 6 Study Guide">
+<meta property="og:description" content="Week 6 makes your compiler able to train. Four math functions are built from adds and multiplies, nine sugar ops expand into core ops, gradient walks the chain rule backward, and buffers can come...">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/week6">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 6 study guide</h1>
+  <p class="lede">Week 6 makes your compiler able to train. Four math functions are built from adds and multiplies, nine sugar ops expand into core ops, <code>gradient</code> walks the chain rule backward, and buffers can come from files checked by hash. The lab trains a digit classifier on MNIST. This page recaps the week, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week6/01-math.html">6.1 Math from adds</a></h3>
+  <p><code>exp2</code>, <code>log2</code>, <code>sqrt</code> and <code>sin</code> are each defined by an exact program in the spec: reduce the input to a small range, then a short polynomial. <code>bitcast</code> reads an f32's bits as an i32 and back, which is how <code>exp2</code> builds <code>2^n</code> and <code>log2</code> reads an exponent. Matching the bits means doing exactly the spec's steps.</p>
+  <h3><a href="../week6/02-sugar.html">6.2 Sugar</a></h3>
+  <p><code>neg</code>, <code>sub</code>, <code>fdiv</code>, <code>relu</code>, <code>exp</code>, <code>log</code>, <code>floor</code>, <code>cmpeq</code> and <code>matmul</code> each mean their expansion. Expand them in the parser and nothing downstream changes. <code>fdiv</code> is <code>a · recip(b)</code>, not correctly rounded division, and <code>div</code> stays i32-only.</p>
+  <h3><a href="../week6/03-autodiff.html">6.3 Automatic differentiation</a></h3>
+  <p><code>gradient y x</code> is built as more graph. Seed y with 1.0, visit y's graph in reverse post-order, add each node's shares in arrival order, and send shares to its f32 operands on a path to x. <code>detach</code> stops a gradient. A call, load or loop on the path from x to y is invalid, and so is a literal as x.</p>
+  <h3><a href="../week6/04-gradients-of-shapes.html">6.4 Gradients through shapes</a></h3>
+  <p>Every movement op has a partner: reshape and reshape back, permute and the inverse order, pad and shrink, expand and reduce add. reduce max splits the gradient between tied maxima. matmul needs no rule, and a staged value's gradient is staged.</p>
+  <h3><a href="../week6/05-data-and-mnist.html">6.5 Data and MNIST</a></h3>
+  <p><code>url=</code> and <code>sha256=</code> fill a buffer from a raw little-endian file, rejected if the hash or size is wrong. The MNIST program trains a softmax regression for 50 steps of 100 digits and counts how many of 1000 test digits it gets right.</p>
+  <h3><a href="../week6/06-lab.html">6.6 Lab</a></h3>
+  <p>The suite has 147 tests. One renders and runs the whole training program and needs 850 of 1000 right within 120 seconds. Weeks 1 to 5 must stay green. <code>tools/bench.py</code> times your kernels.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>op</th><th>how the spec computes it</th></tr></thead>
+    <tbody>
+      <tr><td><code>exp2 x</code></td><td><code>n = floor(x + 0.5)</code>, <code>f = x - n</code>, <code>2^f</code> by an 8-term Taylor polynomial (Horner), times <code>2^h · 2^k</code> built from bits, <code>h + k = n</code></td></tr>
+      <tr><td><code>log2 x</code></td><td>exponent <code>e</code> and mantissa <code>m</code> from the bits, fold m into <code>[0.707, 1.414]</code>, then <code>e + (2/ln 2)(s + s³/3 + ... + s⁹/9)</code> with <code>s = (m-1)/(m+1)</code></td></tr>
+      <tr><td><code>sqrt x</code></td><td><code>y = exp2(log2(x) / 2)</code>, then one Newton step <code>(y + x · recip y) · 0.5</code></td></tr>
+      <tr><td><code>sin x</code></td><td>subtract <code>k</code> turns of 2π (in two parts), fold into <code>[-π/2, π/2]</code>, Taylor up to <code>r^13</code></td></tr>
+      <tr><td><code>bitcast x dtype=</code></td><td>the same 32 bits as the other type. Any NaN gives <code>0x7fc00000</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>op</th><th>gradient share, given <code>g</code></th></tr></thead>
+    <tbody>
+      <tr><td><code>add a b</code> / <code>mul a b</code></td><td><code>g, g</code> / <code>g·b, g·a</code></td></tr>
+      <tr><td><code>max a b</code></td><td>all to the larger, half each on a tie</td></tr>
+      <tr><td><code>recip</code>, <code>exp2</code>, <code>log2</code>, <code>sqrt</code>, <code>sin</code></td><td><code>-g·u²</code>, <code>g·u·ln2</code>, <code>g/(a·ln2)</code>, <code>g/(2u)</code>, <code>g·sin(a + π/2)</code></td></tr>
+      <tr><td><code>where c a b</code></td><td><code>g</code> to the chosen side, 0 to the other</td></tr>
+      <tr><td><code>reshape</code> / <code>permute</code></td><td>reshape back / permute by the inverse order</td></tr>
+      <tr><td><code>pad</code> / <code>shrink</code></td><td>shrink / pad</td></tr>
+      <tr><td><code>expand</code> / <code>reduce add</code></td><td>reduce add over the grown axes / expand back</td></tr>
+      <tr><td><code>reduce max</code></td><td><code>g / count</code> to each position equal to the max</td></tr>
+      <tr><td><code>stack</code> / <code>index</code></td><td><code>index g j</code> / pad back at <code>j</code></td></tr>
+      <tr><td><code>stage</code> / <code>detach</code></td><td><code>stage g</code> / nothing</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Mistakes people make</h2>
+  <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week6.html">week 6 test guide</a> lists every test with the bugs known to fail it.</p>
+  <ol>
+    <li><strong>A polynomial one term short, or a different one.</strong> The answer is close and the bits are wrong. Caught by <code>r_exp2</code>, <code>r_exp_log</code>, <code>r_grad_softmax</code>.</li>
+    <li><strong>Rounding n down instead of to nearest in exp2.</strong> f lands in <code>[0, 1)</code>, where the same polynomial is less accurate. Caught by <code>r_exp2</code>, <code>r_exp_log</code>, <code>r_grad_softmax</code>.</li>
+    <li><strong>Building 2^n as one bit pattern.</strong> Below <code>2^-126</code> there is no such pattern, so the subnormal results come out wrong. Caught by <code>r_exp2</code>, <code>r_exp_log</code>, <code>exp2_integers</code>.</li>
+    <li><strong>Skipping log2's fold at 1.414, or its subnormal scaling.</strong> Caught by <code>r_exp_log</code>, <code>r_log2</code>, <code>r_sqrt</code>.</li>
+    <li><strong>Leaving out sqrt's Newton step.</strong> The guess alone is a few units off. Caught by <code>r_sqrt</code>, <code>sqrt_values</code>.</li>
+    <li><strong>A bitcast that leaks which NaN you had.</strong> x86 makes a negative NaN for <code>0 · inf</code>. Caught by <code>bitcast_nan_from_bits</code>, <code>r_bitcast</code>.</li>
+    <li><strong>A floor that truncates.</strong> <code>floor -2.5</code> is -3. Caught by <code>r_exp2</code>, <code>r_exp_log</code>, <code>r_floor</code>.</li>
+    <li><strong>Mixing up a mul's shares.</strong> a gets <code>g · b</code>, not <code>g · a</code>. Caught by <code>mnist_train</code>, <code>r_grad_regression_step</code>, <code>r_grad_softmax</code>.</li>
+    <li><strong>Adding shares in a different order.</strong> f32 addition isn't associative. Caught by <code>grad_accumulation_order_inner</code>.</li>
+    <li><strong>Ignoring detach, or letting gradients flow into integers.</strong> Caught by <code>mnist_train</code>, <code>r_grad_softmax</code>, <code>grad_detach</code>.</li>
+    <li><strong>Getting a movement op's partner backward.</strong> The inverse permutation, the side of a pad, the offsets of a shrink. Caught by <code>grad_permute</code>, <code>r_grad_movement</code>, <code>grad_pad</code>.</li>
+    <li><strong>Not splitting reduce max between ties.</strong> Caught by <code>grad_reduce_max_ties</code>.</li>
+    <li><strong>Trusting a file without its hash or size.</strong> Caught by <code>err_url_sha_mismatch</code>, <code>err_url_file_too_long</code>.</li>
+    <li><strong>Fusing a store that reads its own buffer.</strong> Later elements see earlier ones' new values. The week 5 test <code>r_inplace_transpose</code> checks this, and <code>r_grad_regression_step</code> and <code>mnist_train</code> update their weights in place.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py run FILE</code>).</p>
+  <ol>
+    <li><strong>bitcast and floor.</strong> Done when this passes:
+<pre><code>%a = bitcast 1.0 dtype=i32
+%t1 = assert %a 1065353216
+%f = floor -2.5
+%t2 = assert %f -3.0
+%n = bitcast nan dtype=i32
+%t3 = assert %n 2143289344</code></pre></li>
+    <li><strong>exp2, exactly.</strong> Integers are exact, so start there: <code>exp2 3.0</code> is 8.0 and <code>exp2 -149.0</code> is <code>1.4e-45</code>. Then compare <code>exp2 0.1</code> bit for bit with the oracle using <code>bitcast</code>: if it's one unit off, check the constants and the order of the Horner steps against the spec.</li>
+    <li><strong>log2, sqrt, sin.</strong> <code>log2 8.0</code> is 3.0, <code>sqrt 16.0</code> is 4.0, <code>sin 0.0</code> is 0.0. Then the suite's <code>*_bits</code> tests.</li>
+    <li><strong>Sugar.</strong> Done when <code>sugar_*</code> passes. <code>fdiv 10.0 3.0</code> must give <code>3.3333335</code>.</li>
+    <li><strong>Gradient on scalars.</strong> Done when this passes:
+<pre><code>%b = buffer 1 dtype=f32 slot=0 data=[2.0]
+%v = shrink %b 0 shape=[]
+%x = load %v
+%c = mul %x %x
+%y = mul %c %x
+%g = gradient %y %x
+%t = assert %g 12.0</code></pre>
+      If you get 4, each share is overwriting the last instead of adding to it: x receives three shares of 4.</li>
+    <li><strong>Gradient through shapes.</strong> The suite's <code>grad_expand_*</code>, <code>grad_permute</code>, <code>grad_pad</code> and <code>grad_matmul_*</code> tests, one rule at a time.</li>
+    <li><strong>Files, then render, then MNIST.</strong> <code>url_*</code> first. For a slow MNIST render, look for any walk over the whole graph that runs once per node.</li>
+  </ol>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-fill="8">
+    <p class="q">What is <code>exp2 3.0</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">n = 3, f = 0.</p>
+    <div class="why">The polynomial at 0 is exactly 1.0, and <code>2^3</code> is built from bits, so the result is exactly 8.</div>
+  </div>
+  <div class="quiz" data-fill="-1">
+    <p class="q">What is <code>log2 0.5</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">0.5 is <code>1.0 · 2^-1</code>.</p>
+    <div class="why">m = 1.0, so s = 0 and the series is 0. The result is the exponent, -1, exactly.</div>
+  </div>
+  <div class="quiz" data-fill="6">
+    <p class="q">What is <code>gradient (mul x x) x</code> at <code>x = 3</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Two shares, one per operand.</p>
+    <div class="why">Each operand gets <code>g · 3</code>, and both are x, so <code>3 + 3 = 6</code>.</div>
+  </div>
+  <div class="quiz" data-answer="b">
+    <p class="q">The gradient of <code>expand</code> from <code>(2, 1)</code> to <code>(2, 5)</code> is:</p>
+    <div class="opts"><button data-k="a"><code>g</code>, reshaped to <code>(2, 1)</code></button><button data-k="b">the sum of <code>g</code> over axis 1, reshaped to <code>(2, 1)</code></button><button data-k="c">the max of <code>g</code> over axis 1</button></div>
+    <p class="hint">Each value was copied 5 times.</p>
+    <div class="why">Every copy affected the loss, so each original value gets the sum of its copies' shares.</div>
+  </div>
+  <div class="quiz" data-answer="c">
+    <p class="q">A <code>url=</code> file has the right hash but 4 bytes too many for its buffer. What happens?</p>
+    <div class="opts"><button data-k="a">The extra bytes are ignored</button><button data-k="b">The buffer grows</button><button data-k="c">The program is invalid (exit 2)</button></div>
+    <p class="hint">The size is part of the contract.</p>
+    <div class="why">A file must hold exactly N elements. Any other size means it isn't the data the program describes.</div>
+  </div>
+</main>
+</body>
+</html>

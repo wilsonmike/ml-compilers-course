@@ -1,0 +1,13 @@
+# expect: pass
+# an inner node with three shares: arrival order (1.0, then 3.1e-08, then 3e-08) gives exactly 1.0 there, so 2.0 at x
+%sb = buffer 1 dtype=f32 slot=0 data=[1.0]
+%sv = shrink %sb 0 shape=[]
+%s = load %sv
+%h = mul %s 2.0
+%a = mul %h 3e-08
+%b = mul %h 3.1e-08
+%c = mul %h 1.0
+%ab = add %a %b
+%y = add %ab %c
+%g = gradient %y %s
+%t = assert %g 2.0

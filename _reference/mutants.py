@@ -1,11 +1,14 @@
-# SPOILERS. Proves the week 1 to 5 suites have teeth: each mutant plants one plausible student bug in the
-# reference compiler, and the suite must catch (kill) every one. Run: python _reference/mutants.py
-import os, sys, json, glob, hashlib, threading, subprocess, tempfile
+# SPOILERS. Proves the week 1 to 6 suites have teeth: each mutant plants one plausible student bug in the
+# reference compiler, and the suite must catch (kill) every one. A few minutes for all of them.
+#   python _reference/mutants.py               every mutant, stopping at the first test that catches it
+#   python _reference/mutants.py w6 grad       only mutants whose names contain 'w6' or 'grad'
+#   python _reference/mutants.py --matrix      every mutant against every test (which tests catch what)
+#   python _reference/mutants.py --checks      also switch off each validation and each simplifier rule, one at a time
+import os, re, sys, json, glob, threading, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
-WORKERS, JOBS = 2, 2   # mutants at once, tests per mutant at once: keep memory modest
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 SRC = open(os.path.join(HERE, 'uirc.py'), encoding='utf-8').read()
-WEEKS = (1, 2, 3, 4, 5)
+WEEKS = (1, 2, 3, 4, 5, 6)
 
 # (name, [(old, new), ...]) -- every old must occur exactly once in uirc.py
 M = [
@@ -142,7 +145,7 @@ M = [
   # ---------------- week 3: loops ----------------
   ("w3 loads never move into loops",      [("      paths[id(n)] = P\n", "      pass\n")]),
   ("w3 loads follow their deepest use",   [("base, P = paths[id(n)], common([paths[id(c)] for c in cons[id(n)]])", "base, P = paths[id(n)], max([paths[id(c)] for c in cons[id(n)]], key=len)")]),
-  ("w3 placement sees only the roots",    [("  for r in universe:\n", "  for r in ():\n")]),
+  ("w3 placement sees only the roots",    [("  for r in universe: allnodes += toposort(r, seen=aseen)", "  for r in (): allnodes += toposort(r, seen=aseen)")]),
   ("w3 loop runs one extra time",         [("for t in range(val(r.src[0])):", "for t in range(val(r.src[0]) + 1):")]),
   ("w3 zero-trip loops run once",         [("for t in range(val(r.src[0])):", "for t in range(max(val(r.src[0]), 1)):")]),
   ("w3 loop runs backwards",              [("for t in range(val(r.src[0])):", "for t in reversed(range(val(r.src[0]))):")]),
@@ -194,7 +197,75 @@ M = [
   ("w5 stack shapes unchecked",   [("    need(len({s.shape for s in src}) == 1, \"stack operands must share one shape\")", "    pass")]),
   ("w5 index count unchecked",    [("    need(n >= 2 and n - 1 <= len(src[0].shape),", "    need(n >= 2,")]),
   ("w5 shrink offset count unchecked", [("    need(n == 1 + len(x.shape) and 'shape' in attrs,", "    need('shape' in attrs,")]),
+  # ---------------- week 6: math, sugar, autodiff, data ----------------
+  ("w6 exp2 series one term short", [("p = horner(f, [math.log(2) ** k / math.factorial(k) for k in range(7, -1, -1)])", "p = horner(f, [math.log(2) ** k / math.factorial(k) for k in range(6, -1, -1)])")]),
+  ("w6 exp2 rounds n down",         [("    n = floor_(B('add', xc, F(0.5)))", "    n = floor_(xc)")]),
+  ("w6 exp2 clamps at -126",        [("    xc = B('where', B('cmplt', xc, F(-150.0)), F(-150.0), xc)", "    xc = B('where', B('cmplt', xc, F(-126.0)), F(-126.0), xc)")]),
+  ("w6 exp2 nan becomes 1",         [("    r = B('where', nan, x, B('mul', B('mul', p, two(h)), two(k)))", "    r = B('mul', B('mul', p, two(h)), two(k))")]),
+  ("w6 log2 no sqrt2 fold",         [("    big = B('cmplt', F(1.4142135), m)", "    big = B('cmplt', F(2.0), m)")]),
+  ("w6 log2 subnormals not scaled", [("    sub = B('cmplt', xs, F(1.1754943508222875e-38))", "    sub = B('cmplt', xs, F(0.0))")]),
+  ("w6 log2 zero gives nan",        [("B('where', B('cmplt', x, F(0.0)), F(math.nan), F(-math.inf)))", "B('where', B('cmplt', x, F(0.0)), F(math.nan), F(math.nan)))")]),
+  ("w6 sqrt no Newton step",        [("    y = B('mul', B('add', y, B('mul', xs, B('recip', y))), F(0.5))\n", "")]),
+  ("w6 sqrt -0.0 loses its sign",   [("B('where', B('cmplt', x, F(0.0)), F(math.nan), x))\n    r = B('where', B('cmplt', x, F(math.inf)), r, x)\n  elif op == 'sin':", "B('where', B('cmplt', x, F(0.0)), F(math.nan), F(0.0)))\n    r = B('where', B('cmplt', x, F(math.inf)), r, x)\n  elif op == 'sin':")]),
+  ("w6 sin series one term short",  [("for j in range(6, -1, -1)])", "for j in range(5, -1, -1)])")]),
+  ("w6 sin one-part 2pi",           [("B('mul', k, F(-(2 * math.pi - 6.28125))))", "F(0.0))")]),
+  ("w6 sin no fold",                [("    r = B('where', B('cmplt', F(math.pi / 2), r), B('add', F(math.pi), nr),", "    r = B('where', B('cmplt', F(math.pi / 2), r), r,")]),
+  ("w6 bitcast nan not canonical",  [("CANON_NAN if math.isnan(v) else struct.unpack", "struct.unpack")]),
+  ("w6 floor truncates",            [("  t = B('where', B('cmplt', xc, t), B('add', t, K(-1.0)), t)        # below zero, truncation rounded up", "")]),
+  ("w6 floor casts big values",     [("B('cmplt', B('max', x, B('mul', x, K(-1.0))), K(8388608.0))", "B('cmplt', B('max', x, B('mul', x, K(-1.0))), K(1e30))")]),
+  ("w6 exp uses ln 2",              [("  if op == 'exp': return B('exp2', B('mul', x, F(LOG2E, sh)))", "  if op == 'exp': return B('exp2', B('mul', x, F(LN2, sh)))")]),
+  ("w6 cmpeq is cmplt",             [("    return B('where', B('cmplt', x, y), no, B('where', B('cmplt', y, x), no, full(True, 'bool', sh)))", "    return B('cmplt', x, y)")]),
+  ("w6 matmul without transpose",   [("B('reshape', A, shape=f\"[{M} {K} 1]\"), order=\"[1 0 2]\")", "B('reshape', A, shape=f\"[{M} {K} 1]\"), order=\"[0 1 2]\")")]),
+  ("w6 neg is identity",            [("  if op == 'neg': return B('mul', x, full(-1.0 if x.dtype == 'f32' else -1, x.dtype, sh))", "  if op == 'neg': return x")]),
+  ("w6 relu clamps at 1",           [("  if op == 'relu': return B('max', x, full(ZERO[x.dtype], x.dtype, sh))", "  if op == 'relu': return B('max', x, full(1.0 if x.dtype == 'f32' else 1, x.dtype, sh))")]),
+  ("w6 grad mul shares swapped",    [("    if op == 'mul': return [(s[0], B('mul', g, s[1])), (s[1], B('mul', g, s[0]))]", "    if op == 'mul': return [(s[0], B('mul', g, s[0])), (s[1], B('mul', g, s[1]))]")]),
+  ("w6 grad max tie goes to a",     [("      a, b = s; z, half = K(0.0, sh), B('mul', g, K(0.5, sh))", "      a, b = s; z, half = K(0.0, sh), g")]),
+  ("w6 grad recip sign",            [("    if op == 'recip': return [(s[0], B('mul', g, B('mul', B('mul', u, u), K(-1.0, sh))))]", "    if op == 'recip': return [(s[0], B('mul', g, B('mul', u, u)))]")]),
+  ("w6 grad exp2 forgets ln 2",     [("    if op == 'exp2': return [(s[0], B('mul', g, B('mul', u, K(LN2, sh))))]", "    if op == 'exp2': return [(s[0], B('mul', g, u))]")]),
+  ("w6 grad log2 forgets ln 2",     [("    if op == 'log2': return [(s[0], B('mul', g, B('recip', B('mul', s[0], K(LN2, sh)))))]", "    if op == 'log2': return [(s[0], B('mul', g, B('recip', s[0])))]")]),
+  ("w6 grad sqrt forgets the 2",    [("    if op == 'sqrt': return [(s[0], B('mul', g, B('recip', B('mul', u, K(2.0, sh)))))]", "    if op == 'sqrt': return [(s[0], B('mul', g, B('recip', u)))]")]),
+  ("w6 grad sin is sin",            [("    if op == 'sin': return [(s[0], B('mul', g, B('sin', B('add', s[0], K(math.pi / 2, sh)))))]", "    if op == 'sin': return [(s[0], B('mul', g, B('sin', s[0])))]")]),
+  ("w6 grad where feeds both sides",[("      return [(s[1], B('where', s[0], g, z)), (s[2], B('where', s[0], z, g))]", "      return [(s[1], g), (s[2], g)]")]),
+  ("w6 grad detach ignored",        [("    reach[id(u)] = u is x or (u.op != 'detach' and any(reach[id(s)] for s in srcs))", "    reach[id(u)] = u is x or any(reach[id(s)] for s in srcs)")]),
+  ("w6 grad shares added last first", [("    gs = parts[id(u)]; g = gs[0]", "    gs = parts[id(u)][::-1]; g = gs[0]")]),
+  ("w6 grad expand takes the max",  [("      r = UOp('reduce', (p,), ('add', len(E)), dt, tuple(sh[k] for k in rest))", "      r = UOp('reduce', (p,), ('max', len(E)), dt, tuple(sh[k] for k in rest))")]),
+  ("w6 grad reduce max ties not split", [("      share = UOp('expand', (UOp('reshape', (B('mul', g, B('recip', cnt)),), None, dt, (1,) * m + sh),), None, dt, xs)", "      share = UOp('expand', (UOp('reshape', (g,), None, dt, (1,) * m + sh),), None, dt, xs)")]),
+  ("w6 grad permute not inverted",  [("      for k, p in enumerate(u.arg): inv[p] = k\n      return", "      for k, p in enumerate(u.arg): inv[k] = p\n      return")]),
+  ("w6 grad pad shrinks from the right", [("      return [(s[0], UOp('vshrink', (g,) + tuple(const(u.arg[2 * k], 'i32')", "      return [(s[0], UOp('vshrink', (g,) + tuple(const(u.arg[2 * k + 1], 'i32')")]),
+  ("w6 grad shrink pads swapped",   [("for v in (o.arg, d - o.arg - sh[k]))", "for v in (d - o.arg - sh[k], o.arg))")]),
+  ("w6 grad index pads swapped",    [("for v in (j.arg, d - 1 - j.arg)) + (0, 0)", "for v in (d - 1 - j.arg, j.arg)) + (0, 0)")]),
+  ("w6 grad wrt literal allowed",   [("  need(x.op != 'const', \"can't differentiate with respect to a literal: equal literals are one shared node\")\n", "")]),
+  ("w6 grad flows into i32",        [("      if reach[id(a)] and a.dtype == 'f32': parts.setdefault(id(a), []).append(ga)", "      if reach[id(a)]: parts.setdefault(id(a), []).append(ga)")]),
+  ("w6 grad seed is 2",             [("  parts = {id(y): [F(1.0)]}", "  parts = {id(y): [F(2.0)]}")]),
+  ("w6 url sha unchecked",          [("  if hashlib.sha256(data).hexdigest() != sha: raise UIRError(f\"sha256 mismatch for {url}\")\n", "")]),
+  ("w6 url size unchecked",         [("  if len(data) != n * SIZE[dt]: raise UIRError", "  if len(data) < n * SIZE[dt]: raise UIRError")]),
+  ("w6 url bool bytes unchecked",   [("  if dt == 'bool' and data.translate(None, b'\\x00\\x01'): raise UIRError(f\"{url}: bool bytes must be 0 or 1\")\n", "")]),
+  ("w6 url with data allowed",      [("            if 'data' in attrs: raise UIRError(\"a buffer takes data= or url=, not both\")\n", "")]),
+  ("w6 url big-endian",             [("    return iter(struct.unpack(f\"<{self.n}{'f' if self.dtype == 'f32' else 'i'}\", b))", "    return iter(struct.unpack(f\">{self.n}{'f' if self.dtype == 'f32' else 'i'}\", b))")]),
+  ("w6 render bitcast nan not canonical", [("{ int32_t i; if (isnan(x)) return 0x7fc00000; memcpy(&i, &x, 4); return i; }", "{ int32_t i; memcpy(&i, &x, 4); return i; }")]),
+  ("w5 render in-place store fused", [("      if any(n.op == 'load' and storage_of(n.src[0]) is storage_of(view) for n in toposort(val)):", "      if False:")]),
+  ("w5 render reduce of a broadcast hoisted", [("      a1 = sv(acc1, c(0) if r in opens(xe) else A('mul', r, c(0)))", "      a1 = sv(acc1, c(0))")]),
 ]
+
+# Generated mutants: every validation in the reference, switched off one at a time. A `need(cond, msg)` becomes
+# `need(True or cond, msg)`, and a line ending in `raise UIRError(...)` stops raising. Each one stands for a student
+# compiler that forgot one rule, so some test must notice. Opt in with --checks (they take a few more minutes).
+def auto_mutants():
+  out, lines = [], SRC.split('\n')
+  for k, ln in enumerate(lines):
+    if SRC.count(ln + '\n') != 1: continue
+    m = re.match(r"(\s*)need\((.*)", ln)
+    if m: out.append((f"check off, line {k + 1}: {ln.strip()[:70]}", [(ln + '\n', f"{m.group(1)}need(True or {m.group(2)}" + '\n')])); continue
+    m = re.search(r"raise UIRError\(.*\)( from None)?\s*$", ln)
+    if m and not ln.strip().startswith('except'): out.append((f"check off, line {k + 1}: {ln.strip()[:70]}", [(ln + '\n', ln[:m.start()] + 'pass' + '\n')]))
+  # and every rewrite rule of the simplifier, switched off: a student who forgot that rule must fail some test
+  i, j = SRC.index('def rewrite_one'), SRC.index('def simplify')
+  for ln in SRC[i:j].split('\n'):
+    m = re.search(r":\s*return (?!None)(.*)$", ln)
+    if m and SRC.count(ln + '\n') == 1:
+      out.append((f"rule off: {ln.strip()[:80]}", [(ln + '\n', ln[:m.start()] + ': return None' + '\n')]))
+  return out
+AUTO = auto_mutants()
 
 def apply(muts):
   s = SRC
@@ -203,64 +274,107 @@ def apply(muts):
     s = s.replace(old, new)
   return s
 
-def kill(i_name_muts, tmp):
-  i, (name, muts) = i_name_muts
-  path = os.path.join(tmp, f"m{i}", "uirc.py"); os.makedirs(os.path.dirname(path))
-  open(path, 'w', encoding='utf-8').write(apply(muts))
-  comp = f'"{sys.executable}" "{path}"' if os.name == 'nt' else f"{sys.executable} {path}"
-  fails, killed = [], False
-  # a "wN ..." mutant is tried against week N first: same verdict (killed if any week fails), far less work
-  first = int(name[1]) if name[:1] == 'w' and name[1:2].isdigit() and name[2:3] == ' ' else WEEKS[0]
-  for week in [first] + [w for w in WEEKS if w != first]:   # the control must pass them all
-    p = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'test.py'), '--compiler', comp, '--week', str(week), '--jobs', str(JOBS)],
-                       capture_output=True, text=True, cwd=ROOT)
-    fails += [l.split()[1] for l in p.stdout.splitlines() if l.startswith('FAIL ')]
-    killed = killed or p.returncode != 0
-    if killed and name != 'control': break
-  return name, killed, fails
+# ---------------- the runner ----------------
+# Each mutant runs in its own short-lived process (so a hang or a memory blowup can't take the run down), and
+# inside it every test is graded in-process: the mutated compiler is loaded as a module and tools/test.py's own
+# graders are pointed at it, so a test costs milliseconds instead of a Python start-up. A render test only
+# compiles C when the mutant changed the C, because identical C gives the reference's (passing) result.
+# The MNIST test is skipped: it is an end-to-end check whose parts the other tests cover, and it costs 30 s.
+SKIP = ('mnist_train',)
+TIMEOUT = 300                                   # seconds per mutant: a hang counts as killed
 
-# Results are cached per mutant, keyed by a hash of the oracle, the tools, every test, and the mutant itself,
-# so a run that gets killed (this machine runs low on memory) resumes where it stopped. Any change to the
-# oracle, the grader or a test invalidates every entry. --fresh ignores the cache.
-CACHE = os.path.join(HERE, '.mutant_cache.json')
-def fingerprint():
-  h = hashlib.sha256(SRC.encode())
-  for f in sorted(glob.glob(os.path.join(ROOT, 'tests', '**', '*.uir'), recursive=True)) + [os.path.join(ROOT, 'tools', 'test.py')]:
-    h.update(f.replace(os.sep, '/').encode()); h.update(open(f, 'rb').read())
-  return h.hexdigest()
-def load_cache(fp):
+def test_files():
+  fs = sorted(glob.glob(os.path.join(ROOT, 'tests', 'week*', '**', '*.uir'), recursive=True))
+  return [f for f in fs if not any(s in f for s in SKIP)]
+
+def week_of(f): return int(f.replace('\\', '/').split('/tests/week')[1].split('/')[0])
+
+def worker(index, ref_c_path, matrix):
+  import io, shutil, importlib.util, contextlib
+  sys.setrecursionlimit(100000); threading.stack_size(128 * 1024 * 1024)
+  out = {}
+  def body():
+    name, muts = (M + AUTO)[index] if index >= 0 else ('control', [])
+    code = apply(muts)
+    spec = importlib.util.spec_from_loader('mutant', loader=None); Mu = importlib.util.module_from_spec(spec)
+    exec(compile(code, os.path.join(HERE, 'uirc.py'), 'exec'), Mu.__dict__)
+    ts = importlib.util.spec_from_file_location('grader', os.path.join(ROOT, 'tools', 'test.py'))
+    T = importlib.util.module_from_spec(ts); ts.loader.exec_module(T)
+    ref_c = json.load(open(ref_c_path, encoding='utf-8'))
+    def call(cmd, sub, text, base=None, timeout=10):   # tools/test.py's call(), served by the mutant in-process
+      d = tempfile.mkdtemp()
+      try:
+        path = os.path.join(d, 'case.uir'); open(path, 'w', encoding='utf-8', newline='\n').write(text)
+        for u in T.url_files(text):
+          src = os.path.join(base or ROOT, *u.split('/'))
+          if os.path.isfile(src):
+            dst = os.path.join(d, *u.split('/')); os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copyfile(src, dst)
+        o, e = io.StringIO(), io.StringIO()
+        try:
+          with contextlib.redirect_stdout(o), contextlib.redirect_stderr(e): rc = Mu.main(['uirc', sub, path])
+        except Exception as x: rc, e = 3, io.StringIO(f"crash: {type(x).__name__}: {x}")
+        return rc, o.getvalue(), e.getvalue()
+      finally: shutil.rmtree(d, ignore_errors=True)
+    T.call = call
+    first = int(name[1]) if name[:1] == 'w' and name[1:2].isdigit() else 1
+    fs = sorted(test_files(), key=lambda f: (week_of(f) != first, f))
+    fails = []
+    for f in fs:
+      text, h = Mu.read_text(f), T.headers(Mu.read_text(f))
+      rel = os.path.relpath(f, ROOT).replace('\\', '/')
+      try:
+        if h.get('render'):
+          rc, c, _ = call(None, 'render', text, os.path.dirname(f), 10)
+          bad = None if rc == 0 and c == ref_c.get(rel) else T.grade_render(None, text, os.path.dirname(f), h)
+        else: bad = T.grade(None, f)
+      except Exception as x: bad = f"crash: {x}"
+      if bad:
+        fails.append(rel)
+        if not matrix and name != 'control': break
+    out.update(name=name, killed=bool(fails), fails=fails)
+  t = threading.Thread(target=body); t.start(); t.join()
+  print(json.dumps(out))
+
+def reference_c(path):
+  # the reference's C for every render test, once: a mutant whose C is identical can't change the verdict
+  import importlib.util
+  sys.setrecursionlimit(100000)
+  spec = importlib.util.spec_from_file_location('ref', os.path.join(HERE, 'uirc.py')); R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
+  out = {}
+  for f in test_files():
+    text = R.read_text(f)
+    if not re.search(r"^#\s*render", text, re.M): continue
+    try: out[os.path.relpath(f, ROOT).replace('\\', '/')] = R.render_c(R.parse(text, os.path.dirname(f))[0])
+    except R.UIRError: pass
+  json.dump(out, open(path, 'w', encoding='utf-8'))
+
+def run_one(i, ref, matrix):
   try:
-    c = json.load(open(CACHE, encoding='utf-8'))
-    return c['entries'] if c.get('fingerprint') == fp else {}
-  except (OSError, ValueError, KeyError): return {}
-def save_cache(fp, entries):
-  tmp = CACHE + '.tmp'
-  json.dump({'fingerprint': fp, 'entries': entries}, open(tmp, 'w', encoding='utf-8'))
-  os.replace(tmp, CACHE)
-def key(name, muts): return hashlib.sha256(json.dumps([name, muts]).encode()).hexdigest()
+    p = subprocess.run([sys.executable, os.path.abspath(__file__), '--worker', str(i), ref] + (['--matrix'] if matrix else []),
+                       capture_output=True, text=True, timeout=TIMEOUT)
+    return json.loads(p.stdout.strip().splitlines()[-1])
+  except subprocess.TimeoutExpired: return {'name': (M + AUTO)[i][0] if i >= 0 else 'control', 'killed': True, 'fails': ['(timed out)']}
+  except (IndexError, ValueError): return {'name': (M + AUTO)[i][0] if i >= 0 else 'control', 'killed': True, 'fails': [f'(worker crashed: {p.stderr.strip()[-200:]})']}
 
 if __name__ == '__main__':
-  fp = fingerprint()
-  entries = {} if '--fresh' in sys.argv else load_cache(fp)
-  lock = threading.Lock()
-  with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(max_workers=WORKERS) as ex:
-    if entries.get('control') != 'passed':                           # an unmutated copy must pass, or every 'kill' is fake
-      _, ctrl_failed, fails = kill((len(M), ("control", [])), tmp)
-      if ctrl_failed: raise SystemExit(f"control (unmutated reference) failed the suite: {fails[:5]}")
-      entries['control'] = 'passed'; save_cache(fp, entries)
-    todo = [(i, m) for i, m in enumerate(M) if key(*m) not in entries]
-    print(f"{len(M) - len(todo)} cached, {len(todo)} to run", flush=True)
-    def run_one(x):
-      name, killed, fails = kill(x, tmp)
-      with lock:
-        entries[key(*x[1])] = {'name': name, 'killed': killed, 'fails': fails[:3]}; save_cache(fp, entries)
-        print(f"  {'killed' if killed else 'SURVIVED'} {name}", flush=True)
-      return name
-    list(ex.map(run_one, todo))
-  res = [entries[key(*m)] for m in M]
+  import re, time
+  if sys.argv[1:2] == ['--worker']: worker(int(sys.argv[2]), sys.argv[3], '--matrix' in sys.argv); sys.exit(0)
+  matrix = '--matrix' in sys.argv            # every mutant against every test: which tests catch what
+  only = [a for a in sys.argv[1:] if not a.startswith('--')]
+  jobs = int(next((a.split('=')[1] for a in sys.argv if a.startswith('--jobs=')), max(1, min(6, (os.cpu_count() or 2) - 1))))
+  t0 = time.time()
+  with tempfile.TemporaryDirectory() as tmp:
+    ref = os.path.join(tmp, 'ref_c.json'); reference_c(ref)
+    ctrl = run_one(-1, ref, True)
+    if ctrl['killed']: raise SystemExit(f"control (the unmutated reference) fails its own tests: {ctrl['fails'][:5]}")
+    pool = M + AUTO if '--checks' in sys.argv else M
+    todo = [i for i, (n, _) in enumerate(pool) if not only or any(o in n for o in only)]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=jobs) as ex: res = list(ex.map(lambda i: run_one(i, ref, matrix), todo))
   for r in res:
     if not r['killed']: print(f"SURVIVED  {r['name']}")
-  alive = [r['name'] for r in res if not r['killed']]
-  print()
-  print(f"{len(res) - len(alive)} / {len(res)} mutants killed (control passed all weeks)")
+  if matrix or not only:                      # the test guides read this: which bugs each test is known to catch
+    json.dump({'matrix': matrix, 'entries': {r['name']: r for r in res}}, open(os.path.join(HERE, '.mutant_results.json'), 'w', encoding='utf-8'), indent=0)
+  alive = sum(not r['killed'] for r in res)
+  print(f"\n{len(res) - alive} / {len(res)} mutants killed, control passed, {time.time() - t0:.0f} s")
   sys.exit(1 if alive else 0)

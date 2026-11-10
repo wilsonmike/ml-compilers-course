@@ -1,0 +1,78 @@
+{
+  "id": "w6-02-softmax",
+  "lang": "uir",
+  "mode": "buffers",
+  "out_slot": 1,
+  "title": "Softmax",
+  "starter": "%x  = buffer 5 dtype=f32 slot=0\n%y  = buffer 5 dtype=f32 slot=1\n# Store softmax(x) into slot 1, exactly as: e = exp x, s = the sum of e (reduce op=add),\n# then fdiv e by s expanded to 5 elements.\n%v  = load %x\n%e  = exp %v\n%st = store %y %e\n%y1 = after %y %st\n",
+  "tests": [
+    {
+      "data": {
+        "0": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "sample": true,
+      "expect": "[0.20000000298023224 0.20000000298023224 0.20000000298023224 0.20000000298023224 0.20000000298023224]"
+    },
+    {
+      "data": {
+        "0": [
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0
+        ]
+      },
+      "sample": true,
+      "expect": "[0.011656231246888638 0.03168492019176483 0.08612854033708572 0.2341216504573822 0.6364086866378784]"
+    },
+    {
+      "data": {
+        "0": [
+          -0.2289,
+          -0.06731,
+          0.3149,
+          2.882,
+          -2.011
+        ]
+      },
+      "expect": "[0.03772526979446411 0.04434145987033844 0.0649832934141159 0.8466014266014099 0.0063485740683972836]"
+    },
+    {
+      "data": {
+        "0": [
+          10.0,
+          -10.0,
+          0.0,
+          0.5,
+          -0.5
+        ]
+      },
+      "expect": "[0.9998522400856018 2.0608488249251877e-09 4.539321889751591e-05 7.484076195396483e-05 2.753238004515879e-05]"
+    },
+    {
+      "data": {
+        "0": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          80.0
+        ]
+      },
+      "expect": "[1.8048508981059524e-35 1.8048508981059524e-35 1.8048508981059524e-35 1.8048508981059524e-35 1.0]"
+    }
+  ],
+  "hints": [
+    "The starter stores `exp x`. Softmax divides each of those by their sum, so the five outputs add up to about 1.",
+    "`%s = reduce %e op=add` is a scalar. `fdiv` needs two values of one shape, so `expand %s shape=[5]` first.",
+    "`%se = expand %s shape=[5]`, `%p = fdiv %e %se`, then store `%p`."
+  ],
+  "explain": "Softmax turns scores into probabilities: `exp` makes every score positive, and dividing by the sum makes them add up to 1. `exp` and `fdiv` are sugar (`exp2` of a scaled x, and a multiply by `recip`), so this program is exactly the core ops the spec lists, bit for bit. All-zero scores give five equal probabilities, 0.2 each (in f32, 1/5 is not exact, and `fdiv`'s `1 * recip 5` gives `0.2` rounded once). A score of 80 is still safe (`exp 80` is about 5.5e34), but from about 89 up `exp` overflows to inf, and inf divided by inf is NaN. The lab's version subtracts the largest score first, so every `exp` is at most 1."
+}

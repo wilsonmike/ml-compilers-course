@@ -42,6 +42,10 @@ const CC = (() => {
       ['week5/01-shapes.html', 'Any rank, flat memory', '5.1'], ['week5/02-reshape-permute.html', 'Reshape and permute', '5.2'],
       ['week5/03-pad-shrink-expand.html', 'Pad, shrink, expand, stack', '5.3'], ['week5/04-matmul-conv.html', 'Matmul and conv from movement', '5.4'],
       ['week5/05-rangeify-movement.html', 'Rangeify movement ops', '5.5'], ['week5/06-lab.html', 'Lab: movement ops', '5.6']] },
+    { title: 'Week 6 · Autodiff', items: [
+      ['week6/01-math.html', 'Math from adds', '6.1'], ['week6/02-sugar.html', 'Sugar', '6.2'],
+      ['week6/03-autodiff.html', 'Automatic differentiation', '6.3'], ['week6/04-gradients-of-shapes.html', 'Gradients through shapes', '6.4'],
+      ['week6/05-data-and-mnist.html', 'Data and MNIST', '6.5'], ['week6/06-lab.html', 'Lab: train MNIST', '6.6']] },
   ];
   const ROOT = () => document.body.dataset.root || './';
   // The course's source, linked from the top bar of every page
@@ -218,7 +222,7 @@ const CC = (() => {
   function stepper(fig, steps, draw) {
     const prev = h('button', { class: 'btn', type: 'button', text: 'Prev' }), next = h('button', { class: 'btn primary', type: 'button', text: 'Next' });
     const count = h('span', { class: 'count' }), body = h('div', { class: 'body' }), cap = h('div', { class: 'cap', 'aria-live': 'polite' });
-    fig.replaceChildren(h('div', { class: 'head' }, h('span', { class: 'title', text: fig.dataset.title || '' }), count, prev, next), body, cap);
+    fig.replaceChildren(h('div', { class: 'head' }, h('span', { class: 'title', text: fig.dataset.title || '' }), h('span', { class: 'ctl' }, count, prev, next)), body, cap);
     let i = 0;
     const show = () => { body.replaceChildren(); draw(steps[i], body, i); cap.innerHTML = steps[i].caption || '';
       count.textContent = `${i + 1} / ${steps.length}`; prev.disabled = i === 0; next.disabled = i === steps.length - 1; };
@@ -239,6 +243,21 @@ const CC = (() => {
   // Wrong answers can be retried. The score counts first-try answers; "Show answer" never counts as right.
   // Every quiz has an id (data-qid, or page + position). A quiz not answered right on the first try is
   // remembered as "missed" until it's answered right first try, so the review page can bring it back.
+  // A typed answer matches when it equals an accepted one after trimming and lowercasing, or when both read
+  // as the same number (12 and 12.0, 0x40000000 and 1073741824, -inf and −inf), or as the same list
+  // once brackets and commas are dropped ((4, 3), [4 3] and 4 by 3).
+  function fillMatch(accepted, typed) {
+    const norm = x => x.trim().toLowerCase().replace(/\s+/g, ' ').replace(/−/g, '-');
+    const num = x => {
+      if (/^[-+]?(inf|infinity)$/.test(x)) return x.startsWith('-') ? -Infinity : Infinity;
+      if (/^[-+]?0x[0-9a-f]+$/.test(x)) return (x.startsWith('-') ? -1 : 1) * parseInt(x.replace(/^[-+]/, ''), 16);
+      return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/.test(x) ? Number(x) : null;
+    };
+    const t = norm(typed), tn = num(t);
+    const flat = x => x.replace(/[\[\]()]/g, ' ').replace(/,|\bby\b/g, ' ').replace(/\s+/g, ' ').trim();   // shapes: (4, 3) = [4 3] = 4 by 3
+    return accepted.some(a => { a = norm(a); return a === t || (tn !== null && num(a) === tn) || (flat(a) !== '' && flat(a) === flat(t)); });
+  }
+
   function quizzes(root = document) {
     const all = [...root.querySelectorAll('.quiz')]; let first = 0, done = 0;
     const page = here(); const pageKey = page ? page[1][0] : location.pathname;
@@ -272,7 +291,7 @@ const CC = (() => {
         if (b.dataset.k === q.dataset.answer) return finish(tries ? 'later' : 'first');
         b.classList.add('wrong'); b.disabled = true; miss(hints.length && seen < hints.length ? 'Not quite. Try another, or take a hint.' : 'Not quite. Try another.'); }; });
       if (inp) { const check = () => { if (q.classList.contains('done') || !inp.value.trim()) return;
-          if (ans.includes(inp.value.trim().toLowerCase().replace(/\s+/g, ' '))) return finish(tries ? 'later' : 'first');
+          if (fillMatch(ans, inp.value)) return finish(tries ? 'later' : 'first');
           inp.classList.add('bad'); miss(`Not quite${inp.value.trim().length < 40 ? ': ' + inp.value.trim() + ' isn\u2019t it' : ''}. Try again${hints.length && seen < hints.length ? ', or take a hint' : ''}.`); inp.select(); };
         checkB.type = 'button'; checkB.textContent = 'Check'; checkB.onclick = check; inp.onkeydown = e => { if (e.key === 'Enter') check(); };
         inp.oninput = () => inp.classList.remove('bad'); }
@@ -412,7 +431,7 @@ const CC = (() => {
     h('a', { href: REPO + '#taking-the-course', text: 'how' }), ') and start ', h('code', { text: 'python tools/serve.py' }), '.');
   // A line diff of your code against the answer. Comments are left out, lines are compared without their spacing, and
   // blank lines are skipped, so a starter's comments or formatting alone never show as a difference.
-  const COMMENTS = { ocaml: [/\(\*[\s\S]*?\*\)/g], c: [/\/\*[\s\S]*?\*\//g, /\/\/.*$/gm], uir: [/#.*$/gm], python: [/("""|''')[\s\S]*?/g, /#.*$/gm] };
+  const COMMENTS = { ocaml: [/\(\*[\s\S]*?\*\)/g], c: [/\/\*[\s\S]*?\*\//g, /\/\/.*$/gm], uir: [/#.*$/gm], python: [/("""|''')[\s\S]*?\1/g, /#.*$/gm] };
   function diffView(mine, answer, lang) {
     const strip = s => (COMMENTS[lang] || []).reduce((t, re) => t.replace(re, ''), s);
     const prep = s => strip(s).replace(/\r/g, '').split('\n').filter(l => l.trim()).map(l => ({ text: l.replace(/\s+$/, ''), key: l.trim().replace(/\s+/g, ' ') }));

@@ -1,0 +1,16 @@
+# expect: pass
+# a longer chain: sigmoid written with exp, fdiv and add
+%xb = buffer 4 dtype=f32 slot=0 data=[-2.0 -0.5 0.0 1.5]
+%x = load %xb
+%v = stage %x
+%n = neg %v
+%e = exp %n
+%one = expand 1.0 shape=[4]
+%d = add %one %e
+%sg = fdiv %one %d
+%y = reduce %sg op=add
+%g = gradient %y %v
+%gf = reshape %g shape=[4]
+%wb = buffer 4 dtype=f32 slot=1 data=[0.104993604 0.23500371 0.25 0.14914644]
+%w = load %wb
+%t = assert %gf %w

@@ -1,0 +1,50 @@
+{
+  "id": "w6-01-pow2-py",
+  "lang": "python",
+  "title": "2^n from its bits",
+  "prompt": "<p>An f32 is a sign bit, an 8-bit exponent field and a 23-bit mantissa. A power of two has mantissa 0 and exponent field <code>n + 127</code>. Write <code>pow2(n: int) -&gt; float</code> for <code>-126 &lt;= n &lt;= 127</code> by building those 32 bits as an integer and reinterpreting them as an f32, with <code>struct.pack('&lt;i', ...)</code> and <code>struct.unpack('&lt;f', ...)</code>. Don't use <code>**</code> or <code>math</code>.</p>",
+  "show": "lambda v: '%.9g' % v",
+  "starter": "import struct\n\n\ndef pow2(n: int) -> float:\n    \"\"\"2^n for -126 <= n <= 127, built from the f32 bit pattern.\"\"\"\n    bits = n << 23\n    return struct.unpack('<f', struct.pack('<i', bits))[0]\n",
+  "tests": [
+    {
+      "expr": "pow2(0)",
+      "sample": true,
+      "expect": "1"
+    },
+    {
+      "expr": "pow2(3)",
+      "sample": true,
+      "expect": "8"
+    },
+    {
+      "expr": "pow2(-1)",
+      "expect": "0.5"
+    },
+    {
+      "expr": "pow2(10)",
+      "expect": "1024"
+    },
+    {
+      "expr": "pow2(127)",
+      "expect": "1.70141183e+38"
+    },
+    {
+      "expr": "pow2(-126)",
+      "expect": "1.17549435e-38"
+    },
+    {
+      "expr": "pow2(-20)",
+      "expect": "9.53674316e-07"
+    },
+    {
+      "expr": "pow2(1)",
+      "expect": "2"
+    }
+  ],
+  "hints": [
+    "The exponent field is stored with a bias of 127: exponent 0 is stored as 127.",
+    "So the bits of 2^n are <code>(n + 127) &lt;&lt; 23</code>: exponent field <code>n + 127</code>, mantissa 0, sign 0.",
+    "<code>pow2(-126)</code> is the smallest normal f32, <code>1.17549435e-38</code>. Below that the exponent field would be 0, which means subnormal, and above 127 it would be 255, which means inf. exp2 needs n from -150 to 128, which is why the spec builds <code>2^n</code> as two factors."
+  ],
+  "explain": "An f32's value is <code>1.mantissa · 2^(field - 127)</code>. With mantissa 0 and field <code>n + 127</code> that's exactly <code>2^n</code>, so <code>(n + 127) &lt;&lt; 23</code> read as a float is the power of two, with no multiplication at all. The starter forgot the bias, so <code>pow2(0)</code> had field 0 and came out as 0.0. This is how the spec's <code>exp2</code> scales its polynomial by <code>2^n</code>."
+}

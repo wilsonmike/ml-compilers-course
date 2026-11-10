@@ -1,6 +1,6 @@
 # SPOILERS. This is the reference compiler for the course. If you are taking the course, do not read it.
 # It doubles as the oracle: `python _reference/uirc.py run FILE` / `simplify FILE` / `render FILE` (weeks 2-3).
-import sys, re, math, struct, random, threading, itertools
+import sys, os, re, math, struct, random, threading, itertools, hashlib
 
 class UIRError(Exception): pass          # invalid program -> exit 2
 class AssertFail(Exception): pass        # a failing assert -> exit 1
@@ -20,7 +20,8 @@ def argkey(a):
 
 # ---------------- the UOp, hash consed ----------------
 
-ALU = {'cast', 'recip', 'add', 'mul', 'max', 'xor', 'cmplt', 'shl', 'div', 'mod', 'where'}
+MATH = {'exp2', 'log2', 'sqrt', 'sin'}           # week 6: defined by exact expansions (math_body)
+ALU = {'cast', 'recip', 'add', 'mul', 'max', 'xor', 'cmplt', 'shl', 'div', 'mod', 'where', 'bitcast', 'detach'} | MATH
 STORAGE = {'buffer', 'alloc', 'after'}           # a whole version of some memory
 MEM = STORAGE | {'shrink'}                       # addrspace GLOBAL: memory, not values
 def is_mem(u): return u.op in MEM
@@ -51,9 +52,13 @@ _OPEN = {}
 def opens(u):
   # the ranges u depends on that no end has closed yet (week 3). Memoized forever: nodes are immortal.
   if id(u) in _OPEN: return _OPEN[id(u)]
-  for x in toposort(u):
+  stack = [(u, False)]                           # post-order, but never below a node already known
+  while stack:
+    x, done = stack.pop()
     if id(x) in _OPEN: continue
     srcs = x.src[1:] if x.op == 'call' else x.src
+    if not done:
+      stack.append((x, True)); stack.extend((y, False) for y in srcs if id(y) not in _OPEN); continue
     o = frozenset().union(*(_OPEN[id(y)] for y in srcs)) if srcs else frozenset()
     if x.op == 'range': o = o | {x}
     elif x.op == 'end': o = o - {x.src[-1]}
@@ -67,9 +72,10 @@ def stores_under(e):
 
 def const(v, dtype): return UOp('const', (), f32(float(v)) if dtype == 'f32' else v, dtype, ())
 
-def toposort(root, into_bodies=False):
-  # iterative post-order. CALL bodies are closed, so by default we don't walk into src[0]
-  out, seen, stack = [], set(), [(root, False)]
+def toposort(root, into_bodies=False, seen=None):
+  # iterative post-order. CALL bodies are closed, so by default we don't walk into src[0].
+  # Pass one `seen` set across calls to get only the nodes no earlier call returned.
+  out, seen, stack = [], (set() if seen is None else seen), [(root, False)]
   while stack:
     u, done = stack.pop()
     if done: out.append(u); continue
@@ -96,6 +102,19 @@ def build(op, src, attrs):
   for s in src: need(s.dtype != 'void' or (op in ('after', 'end') and s.op in EFFECT), "void operand")
   if op not in ('shrink', 'load', 'store', 'after'): need(not any(is_mem(s) for s in src), "memory can't be an operand here (load it first)")
   n = len(src)
+  if op in SUGAR:                               # week 6: rewritten into core ops
+    return desugar(op, src, need)
+  if op == 'gradient':
+    need(n == 2, "gradient LOSS X")
+    return grad(src[0], src[1])
+  if op in ('detach', 'bitcast') or op in MATH:
+    need(n == 1, f"{op} takes one operand")
+    if op in MATH: need(src[0].dtype == 'f32', "f32 only")
+    if src[0].shape: need(not opens(src[0]), "rank-1 values can't depend on an open range")
+    if op == 'bitcast':
+      need(attrs.get('dtype') in ('i32', 'f32') and src[0].dtype in ('i32', 'f32'), "bitcast X dtype=i32|f32, X i32 or f32")
+      return UOp('bitcast', src, None, attrs['dtype'], src[0].shape)
+    return UOp(op, src, None, src[0].dtype, src[0].shape)
   if op == 'range':
     need(n == 1 and src[0].dtype == 'i32' and src[0].shape == (), "range N, N an i32 scalar")
     need(not opens(src[0]), "a range's bound can't depend on another range")
@@ -232,7 +251,16 @@ def do_cast(v, frm, to):
   if math.isnan(v) or math.isinf(v) or not (INT_MIN <= math.trunc(v) <= INT_MAX): raise UIRError(f"cast {v} to i32 out of range")
   return math.trunc(v)
 
+CANON_NAN = 0x7fc00000                          # bitcast of any NaN gives this i32 (spec week 6)
+def do_bitcast(v, frm, to):
+  if frm == to: return v
+  if frm == 'f32': return CANON_NAN if math.isnan(v) else struct.unpack('<i', struct.pack('<f', v))[0]
+  return struct.unpack('<f', struct.pack('<i', v))[0]
+
 def alu(op, dtypes, vs, out):
+  if op == 'detach': return vs[0]
+  if op == 'bitcast': return do_bitcast(vs[0], dtypes[0], out)
+  if op in MATH: return evaluate(math_body(op), {0: vs[0]})
   if op == 'cast': return do_cast(vs[0], dtypes[0], out)
   if op == 'where': return vs[1] if vs[0] else vs[2]
   a, b = vs[0], vs[1] if len(vs) > 1 else None
@@ -338,13 +366,265 @@ def equal(a, b):
   if isinstance(a, float) and math.isnan(a): return isinstance(b, float) and math.isnan(b)
   return a == b
 
+# ---------------- week 6: sugar, math, autodiff, data ----------------
+
+def B(op_, *src, **attrs): return build(op_, list(src), {k: str(v) for k, v in attrs.items()})
+def full(v, dt, shape):
+  c = const(v, dt)
+  return c if not shape else UOp('expand', (c,), None, dt, shape)
+def F(v, shape=()): return full(v, 'f32', shape)
+LOG2E, LN2 = f32(1 / math.log(2)), f32(math.log(2))
+
+def floor_(x):
+  # f32 floor without leaving f32 for big values: |x| >= 2^23 (or inf, nan) is already an integer
+  K = lambda v: F(v, x.shape)
+  big = B('xor', B('cmplt', B('max', x, B('mul', x, K(-1.0))), K(8388608.0)), full(True, 'bool', x.shape))
+  xc = B('where', big, K(0.0), x)
+  t = B('cast', B('cast', xc, dtype='i32'), dtype='f32')            # truncates toward zero
+  t = B('where', B('cmplt', xc, t), B('add', t, K(-1.0)), t)        # below zero, truncation rounded up
+  return B('where', big, x, t)
+
+SUGAR = {'sub', 'neg', 'relu', 'exp', 'log', 'floor', 'fdiv', 'matmul', 'cmpeq'}
+def desugar(op, s, need):
+  n = len(s)
+  need(n == (1 if op in ('neg', 'relu', 'exp', 'log', 'floor') else 2), f"{op} takes {1 if op in ('neg', 'relu', 'exp', 'log', 'floor') else 2} operand(s)")
+  x = s[0]; sh = x.shape
+  if op in ('exp', 'log', 'floor', 'fdiv'): need(all(v.dtype == 'f32' for v in s), "f32 only")
+  if op in ('sub', 'neg', 'relu'): need(x.dtype in NUM, "i32 or f32 only")
+  if op == 'neg': return B('mul', x, full(-1.0 if x.dtype == 'f32' else -1, x.dtype, sh))
+  if op == 'sub':
+    need(s[1].dtype == x.dtype, "two operands of the same dtype")
+    return B('add', x, B('mul', s[1], full(-1.0 if x.dtype == 'f32' else -1, x.dtype, s[1].shape)))
+  if op == 'relu': return B('max', x, full(ZERO[x.dtype], x.dtype, sh))
+  if op == 'fdiv': return B('mul', x, B('recip', s[1]))                 # f32 division: times the reciprocal
+  if op == 'exp': return B('exp2', B('mul', x, F(LOG2E, sh)))
+  if op == 'log': return B('mul', B('log2', x), F(LN2, sh))
+  if op == 'floor': return floor_(x)
+  if op == 'cmpeq':
+    y = s[1]
+    need(x.dtype == y.dtype and x.dtype in ('i32', 'bool'), "cmpeq compares two i32 or two bool values")
+    if x.dtype == 'bool': return B('xor', B('xor', x, y), full(True, 'bool', sh))
+    no = full(False, 'bool', sh)
+    return B('where', B('cmplt', x, y), no, B('where', B('cmplt', y, x), no, full(True, 'bool', sh)))
+  if op == 'matmul':                                                     # the week 5 composite, exactly
+    A, Bm = s
+    need(len(A.shape) == 2 and len(Bm.shape) == 2 and A.shape[1] == Bm.shape[0], "matmul A B: A is MxK, B is KxN")
+    M, K = A.shape; N = Bm.shape[1]
+    a = B('expand', B('permute', B('reshape', A, shape=f"[{M} {K} 1]"), order="[1 0 2]"), shape=f"[{K} {M} {N}]")
+    b = B('expand', B('reshape', Bm, shape=f"[{K} 1 {N}]"), shape=f"[{K} {M} {N}]")
+    return B('reduce', B('mul', a, b), op='add', pop=1)
+  raise UIRError(f"internal: no sugar for {op}")
+
+def isnan_(x): return B('where', B('cmplt', x, F(math.inf)), const(False, 'bool'), B('where', B('cmplt', F(-math.inf), x), const(False, 'bool'), const(True, 'bool')))
+def horner(x, cs):
+  p = F(cs[0])
+  for c in cs[1:]: p = B('add', B('mul', p, x), F(c))
+  return p
+
+_BODY = {}
+def math_body(op):
+  """The exact definition of each math op, as a graph of core ops on one f32 scalar, param 0."""
+  if op in _BODY: return _BODY[op]
+  x = UOp('param', (), 0, 'f32', ())
+  I = lambda v: const(v, 'i32')
+  if op == 'exp2':
+    nan = isnan_(x)
+    xc = B('where', nan, F(0.0), x)
+    xc = B('where', B('cmplt', F(128.0), xc), F(128.0), xc)           # 2^128 is already inf in f32
+    xc = B('where', B('cmplt', xc, F(-150.0)), F(-150.0), xc)         # 2^-150 already rounds to 0
+    n = floor_(B('add', xc, F(0.5)))                                   # nearest integer
+    f = B('add', xc, B('mul', n, F(-1.0)))                             # in [-0.5, 0.5]
+    p = horner(f, [math.log(2) ** k / math.factorial(k) for k in range(7, -1, -1)])
+    ni = B('cast', n, dtype='i32'); h = B('div', ni, I(2)); k = B('add', ni, B('mul', h, I(-1)))
+    two = lambda e: B('bitcast', B('mul', B('add', e, I(127)), I(8388608)), dtype='f32')   # 2^e, e in [-75, 64]
+    r = B('where', nan, x, B('mul', B('mul', p, two(h)), two(k)))
+  elif op == 'log2':
+    ok = B('where', B('cmplt', F(0.0), x), B('cmplt', x, F(math.inf)), const(False, 'bool'))
+    xs = B('where', ok, x, F(1.0))
+    sub = B('cmplt', xs, F(1.1754943508222875e-38))                    # subnormal: scale up by 2^23 first
+    xn = B('where', sub, B('mul', xs, F(8388608.0)), xs)
+    b = B('bitcast', xn, dtype='i32')
+    e = B('add', B('div', b, I(8388608)), I(-127))                     # the exponent field
+    m = B('bitcast', B('add', B('mod', b, I(8388608)), I(1065353216)), dtype='f32')   # mantissa, in [1, 2)
+    big = B('cmplt', F(1.4142135), m)
+    m = B('where', big, B('mul', m, F(0.5)), m)                        # in [0.707, 1.414]
+    e = B('add', B('cast', B('add', e, B('cast', big, dtype='i32')), dtype='f32'), B('where', sub, F(-23.0), F(0.0)))
+    s = B('mul', B('add', m, F(-1.0)), B('recip', B('add', m, F(1.0))))
+    q = horner(B('mul', s, s), [2 / (math.log(2) * k) for k in (9, 7, 5, 3, 1)])
+    r = B('add', e, B('mul', s, q))
+    r = B('where', B('cmplt', F(0.0), x), r, B('where', B('cmplt', x, F(0.0)), F(math.nan), F(-math.inf)))
+    r = B('where', B('cmplt', x, F(math.inf)), r, x)
+  elif op == 'sqrt':
+    ok = B('where', B('cmplt', F(0.0), x), B('cmplt', x, F(math.inf)), const(False, 'bool'))
+    xs = B('where', ok, x, F(1.0))
+    y = B('exp2', B('mul', B('log2', xs), F(0.5)))                     # a first guess, then one Newton step
+    y = B('mul', B('add', y, B('mul', xs, B('recip', y))), F(0.5))
+    r = B('where', B('cmplt', F(0.0), x), y, B('where', B('cmplt', x, F(0.0)), F(math.nan), x))
+    r = B('where', B('cmplt', x, F(math.inf)), r, x)
+  elif op == 'sin':
+    fin = B('cmplt', B('max', x, B('mul', x, F(-1.0))), F(math.inf))
+    xs = B('where', fin, x, F(0.0))
+    k = floor_(B('add', B('mul', xs, F(1 / (2 * math.pi))), F(0.5)))  # turns, rounded
+    r = B('add', B('add', xs, B('mul', k, F(-6.28125))), B('mul', k, F(-(2 * math.pi - 6.28125))))
+    nr = B('mul', r, F(-1.0))
+    r = B('where', B('cmplt', F(math.pi / 2), r), B('add', F(math.pi), nr),
+          B('where', B('cmplt', r, F(-math.pi / 2)), B('add', F(-math.pi), nr), r))   # fold into [-pi/2, pi/2]
+    r = B('where', B('cmplt', F(math.pi / 2), r), F(math.pi / 2), B('max', r, F(-math.pi / 2)))   # huge x: stay in [-1, 1]
+    q = horner(B('mul', r, r), [(-1) ** j / math.factorial(2 * j + 1) for j in range(6, -1, -1)])
+    r = B('where', fin, B('mul', r, q), F(math.nan))
+  _BODY[op] = r
+  return r
+
+def lower_math(roots):
+  # replace every math op by its body (render only: run evaluates the bodies directly)
+  memo = {}
+  def rb(u):
+    if id(u) in memo: return memo[id(u)]
+    if u.op in MATH and not u.shape: r = rb(substitute(math_body(u.op), (rb(u.src[0]),)))
+    elif u.op == 'call': r = u
+    else: r = u if not u.src else UOp(u.op, tuple(rb(x) for x in u.src), u.arg, u.dtype, u.shape)
+    memo[id(u)] = r; return r
+  return [rb(r) for r in roots]
+
+# autodiff: gradients flow through these ops; detach stops them
+DIFF = ALU | {'expand', 'reduce', 'reshape', 'permute', 'pad', 'stage', 'vshrink', 'stack', 'index'}
+
+def grad(y, x):
+  def need(c, m):
+    if not c: raise UIRError(f"gradient: {m}")
+  need(not is_mem(y) and y.dtype == 'f32' and y.shape == (), "the first operand (the loss) must be an f32 scalar")
+  need(not is_mem(x) and x.dtype == 'f32', "the second operand must be an f32 value")
+  need(x.op != 'const', "can't differentiate with respect to a literal: equal literals are one shared node")
+  need(not opens(y) and not opens(x), "gradient can't be taken inside a loop")
+  order = toposort(y)
+  reach = {}
+  for u in order:
+    srcs = u.src[1:] if u.op == 'call' else u.src
+    reach[id(u)] = u is x or (u.op != 'detach' and any(reach[id(s)] for s in srcs))
+  zero = F(0.0, x.shape)
+  if not reach[id(y)]: return zero
+  for u in order:
+    if reach[id(u)] and u is not x: need(u.op in DIFF, f"gradients can't flow through {u.op}")
+  dt = 'f32'
+  def K(v, sh): return F(v, sh)
+  def rules(u, g):
+    # yields (operand, its share of the gradient), in operand order
+    s, op = u.src, u.op; sh = u.shape
+    if op == 'add': return [(s[0], g), (s[1], g)]
+    if op == 'mul': return [(s[0], B('mul', g, s[1])), (s[1], B('mul', g, s[0]))]
+    if op == 'max':
+      a, b = s; z, half = K(0.0, sh), B('mul', g, K(0.5, sh))
+      return [(a, B('where', B('cmplt', b, a), g, B('where', B('cmplt', a, b), z, half))),
+              (b, B('where', B('cmplt', a, b), g, B('where', B('cmplt', b, a), z, half)))]
+    if op == 'recip': return [(s[0], B('mul', g, B('mul', B('mul', u, u), K(-1.0, sh))))]
+    if op == 'where':
+      z = K(0.0, sh)
+      return [(s[1], B('where', s[0], g, z)), (s[2], B('where', s[0], z, g))]
+    if op in ('cast', 'bitcast'): return [(s[0], g)]                   # f32 to f32 only: other inputs carry no gradient
+    if op == 'stage': return [(s[0], UOp('stage', (g,), None, dt, sh))]  # a staged value's gradient is staged too
+    if op == 'exp2': return [(s[0], B('mul', g, B('mul', u, K(LN2, sh))))]
+    if op == 'log2': return [(s[0], B('mul', g, B('recip', B('mul', s[0], K(LN2, sh)))))]
+    if op == 'sqrt': return [(s[0], B('mul', g, B('recip', B('mul', u, K(2.0, sh)))))]
+    if op == 'sin': return [(s[0], B('mul', g, B('sin', B('add', s[0], K(math.pi / 2, sh)))))]
+    if op == 'reshape': return [(s[0], UOp('reshape', (g,), None, dt, s[0].shape))]
+    if op == 'permute':
+      inv = [0] * len(u.arg)
+      for k, p in enumerate(u.arg): inv[p] = k
+      return [(s[0], UOp('permute', (g,), tuple(inv), dt, s[0].shape))]
+    if op == 'pad':
+      return [(s[0], UOp('vshrink', (g,) + tuple(const(u.arg[2 * k], 'i32') for k in range(len(sh))), None, dt, s[0].shape))]
+    if op == 'vshrink':
+      need(all(o.op == 'const' for o in s[1:]), "a shrink's offsets must be literals to take its gradient")
+      pads = tuple(v for k, (o, d) in enumerate(zip(s[1:], s[0].shape)) for v in (o.arg, d - o.arg - sh[k]))
+      return [(s[0], UOp('pad', (g,), pads, dt, s[0].shape))]
+    if op == 'expand':
+      xs = s[0].shape
+      if not xs: return [(s[0], UOp('reduce', (UOp('reshape', (g,), None, dt, (prod(sh),)),), ('add', 1), dt, ()))]
+      E = [k for k in range(len(sh)) if xs[k] == 1 and sh[k] != 1]
+      if not E: return [(s[0], g)]
+      rest = [k for k in range(len(sh)) if k not in E]
+      p = UOp('permute', (g,), tuple(E + rest), dt, tuple(sh[k] for k in E + rest))
+      r = UOp('reduce', (p,), ('add', len(E)), dt, tuple(sh[k] for k in rest))
+      return [(s[0], UOp('reshape', (r,), None, dt, xs))]
+    if op == 'reduce':
+      rop, m = u.arg; xs = s[0].shape
+      ge = UOp('expand', (UOp('reshape', (g,), None, dt, (1,) * m + sh),), None, dt, xs)
+      if rop == 'add': return [(s[0], ge)]
+      need(rop == 'max', "reduce op=mul has no gradient rule")
+      ye = UOp('expand', (UOp('reshape', (u,), None, dt, (1,) * m + sh),), None, dt, xs)
+      hit = B('cast', B('xor', B('cmplt', s[0], ye), full(True, 'bool', xs)), dtype='f32')   # 1.0 where x is the max
+      cnt = UOp('reduce', (hit,), ('add', m), dt, sh)
+      share = UOp('expand', (UOp('reshape', (B('mul', g, B('recip', cnt)),), None, dt, (1,) * m + sh),), None, dt, xs)
+      return [(s[0], B('mul', share, hit))]                            # split evenly between tied maxima
+    if op == 'stack': return [(a, UOp('index', (g, const(j, 'i32')), None, dt, sh[1:])) for j, a in enumerate(s)]
+    if op == 'index':
+      need(all(j.op == 'const' and 0 <= j.arg < d for j, d in zip(s[1:], s[0].shape)), "index needs in-range literal indices to take its gradient")
+      xs, m = s[0].shape, len(s) - 1
+      pads = tuple(v for j, d in zip(s[1:], xs) for v in (j.arg, d - 1 - j.arg)) + (0, 0) * (len(xs) - m)
+      return [(s[0], UOp('pad', (UOp('reshape', (g,), None, dt, (1,) * m + sh),), pads, dt, xs))]
+    raise UIRError(f"gradient: no rule for {op}")
+  parts = {id(y): [F(1.0)]}
+  for u in reversed(order):
+    if u is x or id(u) not in parts: continue
+    gs = parts[id(u)]; g = gs[0]
+    for more in gs[1:]: g = B('add', g, more)
+    for a, ga in rules(u, g):
+      if reach[id(a)] and a.dtype == 'f32': parts.setdefault(id(a), []).append(ga)
+  if id(x) not in parts: return zero
+  g = parts[id(x)][0]
+  for more in parts[id(x)][1:]: g = B('add', g, more)
+  return g
+
+# buffers with url= and sha256=: the contents come from a file, checked by hash
+CACHE_DIR = os.environ.get('UIR_CACHE') or os.path.join(os.path.expanduser('~'), '.cache', 'uir')
+URL_RE = re.compile(r"https://[!-~]+|[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*", re.A)
+SIZE = {'f32': 4, 'i32': 4, 'bool': 1}
+
+class Blob:
+  """A buffer's contents from url=. Equal blobs hash cons; values are decoded only when run needs them."""
+  __slots__ = ('url', 'sha', 'dtype', 'n', 'path')
+  def __init__(self, url, sha, dtype, n, path): self.url, self.sha, self.dtype, self.n, self.path = url, sha, dtype, n, path
+  # the path is part of the identity: a node built from a file in one folder must never read another one's
+  def __hash__(self): return hash((self.url, self.sha, self.dtype, self.n, self.path))
+  def __eq__(self, o): return isinstance(o, Blob) and (self.url, self.sha, self.dtype, self.n, self.path) == (o.url, o.sha, o.dtype, o.n, o.path)
+  def __len__(self): return self.n
+  def __iter__(self):
+    b = open(self.path, 'rb').read()
+    if self.dtype == 'bool': return iter([x == 1 for x in b])
+    return iter(struct.unpack(f"<{self.n}{'f' if self.dtype == 'f32' else 'i'}", b))
+
+def fetch(url, base):
+  if url.startswith('https://'):
+    import urllib.request
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    path = os.path.join(CACHE_DIR, hashlib.sha256(url.encode()).hexdigest()[:32])
+    if not os.path.exists(path):
+      try:
+        with urllib.request.urlopen(url, timeout=120) as r: data = r.read()
+      except Exception as e: raise UIRError(f"can't download {url}: {e}") from None
+      open(path + '.part', 'wb').write(data); os.replace(path + '.part', path)
+    return path
+  path = os.path.join(base or '.', *url.split('/'))
+  if not os.path.isfile(path): raise UIRError(f"no file {url} next to the program")
+  return path
+
+def blob(url, sha, dt, n, base):
+  if not URL_RE.fullmatch(url) or '..' in url.split('/'): raise UIRError(f"url must be https://... or a relative path without '..', got {url}")
+  if not re.fullmatch(r"[0-9a-f]{64}", sha, re.A): raise UIRError("sha256 must be 64 lowercase hex digits")
+  path = fetch(url, base)
+  data = open(path, 'rb').read()
+  if hashlib.sha256(data).hexdigest() != sha: raise UIRError(f"sha256 mismatch for {url}")
+  if len(data) != n * SIZE[dt]: raise UIRError(f"{url} has {len(data)} bytes, a {n}-element {dt} buffer needs {n * SIZE[dt]}")
+  if dt == 'bool' and data.translate(None, b'\x00\x01'): raise UIRError(f"{url}: bool bytes must be 0 or 1")
+  return Blob(url, sha, dt, n, path)
+
 # ---------------- parser ----------------
 
 # exact lexical grammar (spec section 1). ASCII only.
 INT_RE = re.compile(r"-?[0-9]+", re.A)
 FLOAT_RE = re.compile(r"-?(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|-?[0-9]+[eE][-+]?[0-9]+", re.A)
-NAME_RE = re.compile(r"%([A-Za-z0-9_]+)[ \t]*=[ \t]*([a-z_]+)(.*)", re.A)
-ATTRS = {'const': {'dtype'}, 'param': {'dtype', 'shape'}, 'cast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data'}, 'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
+NAME_RE = re.compile(r"%([A-Za-z0-9_]+)[ \t]*=[ \t]*([a-z_][a-z0-9_]*)(.*)", re.A)
+ATTRS = {'const': {'dtype'}, 'param': {'dtype', 'shape'}, 'cast': {'dtype'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data', 'url', 'sha256'}, 'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
 TOK = re.compile(r"[A-Za-z_]+=\[[^\]]*\]|[^ \t]+")
 
 def literal(t):
@@ -375,7 +655,8 @@ def shape_attr(v):
   if not m or int(m.group(1)) < 1: raise UIRError(f"shape must be [k] with k >= 1 in week 1, got {v}")
   return (int(m.group(1)),)
 
-def parse(text):
+def parse(text, base=None):
+  # base: the directory relative url= paths are read from (the program's own folder)
   names, order = {}, []
   for lineno, line in enumerate(text.split('\n'), 1):
     line = line.rstrip('\r').split('#', 1)[0].strip(' \t')
@@ -402,7 +683,11 @@ def parse(text):
         if op == 'alloc': u = UOp('alloc', (), ('alloc', n, name), dt, (n,))   # each alloc is its own storage
         else:
           if not re.fullmatch(r"[0-9]+", attrs.get('slot', ''), re.A): raise UIRError("buffer needs slot=N")
-          if 'data' in attrs:
+          if 'url' in attrs or 'sha256' in attrs:
+            if 'url' not in attrs or 'sha256' not in attrs: raise UIRError("url= and sha256= go together")
+            if 'data' in attrs: raise UIRError("a buffer takes data= or url=, not both")
+            data = blob(attrs['url'], attrs['sha256'], dt, n, base)
+          elif 'data' in attrs:
             toks = attrs['data'].strip('[]').split()
             if len(toks) != n: raise UIRError(f"data has {len(toks)} values, the buffer has {n}")
             vals = []
@@ -443,9 +728,7 @@ def parse(text):
 
 def all_nodes(names):
   seen, out = set(), []
-  for u in names.values():
-    for x in toposort(u, into_bodies=True):
-      if id(x) not in seen: seen.add(id(x)); out.append(x)
+  for u in names.values(): out += toposort(u, into_bodies=True, seen=seen)
   return out
 
 def check_memory(names):
@@ -481,13 +764,9 @@ def linearize(roots, universe=()):
   `universe` is every top-level statement of the program: where a load runs depends on all of its uses,
   not only the ones reachable from these roots, so run (one assert at a time) and render agree."""
   nodes, seen = [], set()
-  for r in roots:
-    for x in toposort(r):
-      if id(x) not in seen: seen.add(id(x)); nodes.append(x)
+  for r in roots: nodes += toposort(r, seen=seen)
   allnodes, aseen = list(nodes), set(seen)
-  for r in universe:
-    for x in toposort(r):
-      if id(x) not in aseen: aseen.add(id(x)); allnodes.append(x)
+  for r in universe: allnodes += toposort(r, seen=aseen)
   idx = {id(n): i for i, n in enumerate(nodes)}
   ends = {}
   for n in allnodes:
@@ -639,8 +918,8 @@ def assert_value(u, names):
   vals, _ = execute(linearize([r], uni))
   return vals[id(r)]
 
-def run(text):
-  names, order = parse(text)
+def run(text, base=None):
+  names, order = parse(text, base)
   for n in order:
     u = names[n]
     if u.op == 'assert' and not assert_value(u, names): raise AssertFail(f"assert failed: %{n}")
@@ -752,7 +1031,7 @@ def render(root, name='out'):
     nm = f"%{name}" if u is root else f"%t{len(lines)}"
     if u.op == 'param': rhs = f"param {u.arg} dtype={u.dtype}" + (f" shape=[{u.shape[0]}]" if u.shape else "")
     else:
-      rhs = ' '.join([u.op] + [names[id(s)] for s in u.src]) + (f" dtype={u.dtype}" if u.op == 'cast' else '')
+      rhs = ' '.join([u.op] + [names[id(s)] for s in u.src]) + (f" dtype={u.dtype}" if u.op in ('cast', 'bitcast') else '')
     names[id(u)] = nm; lines.append(f"{nm} = {rhs}")
   if root.op == 'const': lines.append(f"%{name} = const {lit(root)}")
   return '\n'.join(lines) + '\n'
@@ -781,6 +1060,8 @@ C_HELPERS = """static inline float f32_max(float a, float b) {
   if (a == 0.0f && b == 0.0f) return signbit(a) ? b : a;   /* max(-0.0, 0.0) is +0.0 either way */
   return a > b ? a : b;
 }
+static inline int32_t f32_bits(float x) { int32_t i; if (isnan(x)) return 0x7fc00000; memcpy(&i, &x, 4); return i; }
+static inline float bits_f32(int32_t i) { float x; memcpy(&x, &i, 4); return x; }
 """
 
 def needs_loops(names):
@@ -829,6 +1110,10 @@ def rangeify(nodes):
     if not u.shape and (op in SHAPE_OPS or (op == 'index' and u.src[0].op != 'stack')): out = el(u, ())
     elif op == 'store' and u.src[1].shape:
       view, val = u.src; r = rng(val.shape[0], f"st{id(u)}")
+      # the value is computed from the old contents. If it reads the memory this loop overwrites, a later
+      # iteration would see an earlier one's store: materialize the value first, then copy it in
+      if any(n.op == 'load' and storage_of(n.src[0]) is storage_of(view) for n in toposort(val)):
+        val = UOp('stage', (val,), None, val.dtype, val.shape)
       out = end(store(sv(low(view), r), el(val, (r,))), r)
     else: out = u if not u.src else UOp(op, tuple(low(x) for x in u.src), u.arg, u.dtype, u.shape)
     low_memo[id(u)] = out; return out
@@ -868,8 +1153,12 @@ def rangeify(nodes):
       lead, T, t = xs[:m], prod(xs[:m]), tag(u, idx)
       acc = UOp('alloc', (), ('alloc', 1, f"_acc{t}"), u.dtype, (1,))
       acc1 = after(acc, store(sv(acc, c(0)), el(x, (c(0),) * m + idx)))  # start from the first element
-      r = rng(T - 1, f"red{t}"); a1 = sv(acc1, c(0))
-      nxt = UOp(rop, (load(a1, u.dtype), el(x, unflat(A('add', r, c(1)), lead) + idx)), None, u.dtype, ())
+      r = rng(T - 1, f"red{t}")
+      xe = el(x, unflat(A('add', r, c(1)), lead) + idx)
+      # an element that doesn't depend on r (an expanded axis, read at 0) must still be added T - 1 times:
+      # tie the accumulator's address to r, or the add is hoisted out of an empty loop
+      a1 = sv(acc1, c(0) if r in opens(xe) else A('mul', r, c(0)))
+      nxt = UOp(rop, (load(a1, u.dtype), xe), None, u.dtype, ())
       out = load(sv(after(acc1, end(store(a1, nxt), r)), c(0)), u.dtype)  # fold the rest in row-major order
     elif op == 'stack':
       items, rest = u.src, idx[1:]
@@ -890,6 +1179,8 @@ def render_c(names):
   if needs_loops(names):                         # week 4: shapes become loops; week 2 programs stay loopless
     low = rangeify(roots + uni)                  # asserts stay in the universe: they decide where loads run
     roots, uni = low[:len(roots)], low[len(roots):]
+  low = lower_math(roots + uni)                  # week 6: exp2, log2, sqrt, sin become their bodies
+  roots, uni = low[:len(roots)], low[len(roots):]
   block = linearize(roots, uni)
   ptr, name, lines = {}, {}, []
   for (slot, v), r in zip(outs.items(), roots): ptr[id(storage_of(r))] = f"b{slot}"
@@ -924,6 +1215,8 @@ def render_c(names):
       a = [ex(x) for x in u.src]
       if op == 'stack': lines.append(f"{pad}{t} {v}[{len(a)}] = {{{', '.join(a)}}};"); name[id(u)] = v; continue
       if op == 'index': e = f"{a[0]}[{a[1]}]"
+      elif op == 'detach': e = a[0]
+      elif op == 'bitcast': e = a[0] if u.src[0].dtype == u.dtype else f"f32_bits({a[0]})" if u.dtype == 'i32' else f"bits_f32({a[0]})"
       elif op == 'where': e = f"({a[0]} ? {a[1]} : {a[2]})"
       elif op == 'cast':
         fr = u.src[0].dtype
@@ -942,7 +1235,7 @@ def render_c(names):
       lines.append(f"{pad}{t} {v} = {e};"); name[id(u)] = v
   emit(block, 1)
   params = ', '.join(f"{CT[v.dtype]} *b{slot}" for slot, v in outs.items()) or 'void'
-  return ("#include <stdint.h>\n#include <stdbool.h>\n#include <math.h>\n\n" + C_HELPERS +
+  return ("#include <stdint.h>\n#include <stdbool.h>\n#include <string.h>\n#include <math.h>\n\n" + C_HELPERS +
           f"\nvoid kernel({params}) {{\n" + ''.join(f"{l}\n" for l in lines) + "}\n")
 
 def count_ops(root): return sum(u.op not in ('const', 'param') for u in toposort(root, into_bodies=True))
@@ -956,10 +1249,10 @@ def main(argv):
   if len(argv) != 3 or argv[1] not in ('run', 'simplify', 'render'):
     print("usage: uirc.py run|simplify|render FILE", file=sys.stderr); return 2
   try:
-    text = read_text(argv[2])
-    if argv[1] == 'run': run(text); return 0
-    if argv[1] == 'render': sys.stdout.write(render_c(parse(text)[0])); return 0
-    names, _ = parse(text)
+    text, base = read_text(argv[2]), os.path.dirname(os.path.abspath(argv[2]))
+    if argv[1] == 'run': run(text, base); return 0
+    if argv[1] == 'render': sys.stdout.write(render_c(parse(text, base)[0])); return 0
+    names, _ = parse(text, base)
     if 'out' not in names: raise UIRError("simplify needs %out")
     sys.stdout.write(render(simplify(names['out']))); return 0
   except AssertFail as e: print(e, file=sys.stderr); return 1

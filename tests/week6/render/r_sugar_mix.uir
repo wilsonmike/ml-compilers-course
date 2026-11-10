@@ -1,0 +1,23 @@
+# render
+# sub, neg, fdiv, relu and cmpeq in one kernel
+%a = buffer 8 dtype=f32 slot=0 data=[1.0 -2.0 3.5 0.0 -0.5 10.0 -7.25 2.0]
+%b = buffer 8 dtype=f32 slot=1 data=[3.0 4.0 -1.0 2.0 0.25 3.0 5.0 -8.0]
+%i = buffer 8 dtype=i32 slot=2 data=[1 2 3 4 5 6 7 8]
+%o = buffer 8 dtype=f32 slot=3
+%q = buffer 8 dtype=i32 slot=4
+%va = load %a
+%vb = load %b
+%d = sub %va %vb
+%n = neg %d
+%f = fdiv %n %vb
+%r = relu %f
+%s = store %o %r
+%o1 = after %o %s
+%vi = load %i
+%three = expand 3 shape=[8]
+%m = mod %vi %three
+%one = expand 1 shape=[8]
+%e = cmpeq %m %one
+%c = cast %e dtype=i32
+%s2 = store %q %c
+%q1 = after %q %s2

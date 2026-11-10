@@ -1,0 +1,49 @@
+{
+  "id": "w6-01-pow2",
+  "lang": "ocaml",
+  "title": "2^n from its bits",
+  "show": "(fun v -> Printf.sprintf \"%.9g\" v)",
+  "starter": "(* 2^n for -126 <= n <= 127, built from the f32 bit pattern:\n   sign 0, exponent field n + 127, mantissa 0. Don't use ** or exp. *)\nlet pow2 (n : int) : float =\n  Int32.float_of_bits (Int32.shift_left (Int32.of_int n) 23)\n",
+  "hints": [
+    "The exponent field is stored with a bias of 127: exponent 0 is stored as 127.",
+    "So the bits of 2^n are `(n + 127) lsl 23`: exponent field `n + 127`, mantissa 0, sign 0. `Int32.float_of_bits` reads 32 bits as an f32.",
+    "`pow2 (-126)` is the smallest normal f32, `1.17549435e-38`. Below that the exponent field would be 0, which means subnormal, and above 127 it would be 255, which means inf. exp2 needs n from -150 to 128, which is why the spec builds `2^n` as two factors."
+  ],
+  "explain": "An f32's value is `1.mantissa · 2^(field - 127)`. With mantissa 0 and field `n + 127` that's exactly `2^n`, so `(n + 127) lsl 23` read as a float is the power of two, with no multiplication at all. The starter forgot the bias, so `pow2 0` had field 0 and came out as 0. This is how the spec's `exp2` scales its polynomial by `2^n`.",
+  "tests": [
+    {
+      "expr": "pow2 0",
+      "sample": true,
+      "expect": "1"
+    },
+    {
+      "expr": "pow2 3",
+      "sample": true,
+      "expect": "8"
+    },
+    {
+      "expr": "pow2 (-1)",
+      "expect": "0.5"
+    },
+    {
+      "expr": "pow2 10",
+      "expect": "1024"
+    },
+    {
+      "expr": "pow2 127",
+      "expect": "1.70141183e+38"
+    },
+    {
+      "expr": "pow2 (-126)",
+      "expect": "1.17549435e-38"
+    },
+    {
+      "expr": "pow2 (-20)",
+      "expect": "9.53674316e-07"
+    },
+    {
+      "expr": "pow2 1",
+      "expect": "2"
+    }
+  ]
+}

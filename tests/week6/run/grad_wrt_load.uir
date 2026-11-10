@@ -1,0 +1,14 @@
+# expect: pass
+# x may be a load: the weights of a model are
+%xb = buffer 3 dtype=f32 slot=0 data=[0.5 -0.25 2.0]
+%x = load %xb
+%v = stage %x
+%ib = buffer 3 dtype=f32 slot=2 data=[1.0 2.0 3.0]
+%i = load %ib
+%p = mul %x %i
+%y = reduce %p op=add
+%g = gradient %y %x
+%gf = reshape %g shape=[3]
+%wb = buffer 3 dtype=f32 slot=1 data=[1.0 2.0 3.0]
+%w = load %wb
+%t = assert %gf %w

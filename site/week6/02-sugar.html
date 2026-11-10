@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sugar</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A training program needs subtraction, division, exp, relu and matrix multiply on almost every line. None of them is a new idea for your compiler. Week 6 adds...">
+<link rel="canonical" href="https://sharpterminal.com/site/week6/02-sugar">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Sugar">
+<meta property="og:description" content="A training program needs subtraction, division, exp, relu and matrix multiply on almost every line. None of them is a new idea for your compiler. Week 6 adds them as sugar: one op you can write...">
+<meta property="og:url" content="https://sharpterminal.com/site/week6/02-sugar">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 6 · Lesson 2</p>
+<h1>Sugar: ops that are really several ops</h1>
+<p class="lede">A training program needs subtraction, division, <code>exp</code>, <code>relu</code> and matrix multiply on almost every line. None of them is a new idea for your compiler. Week 6 adds them as <b>sugar</b>: one op you can write, defined as a few core ops your compiler already has.</p>
+
+<div class="prose">
+<h2>Sugar is a rewrite at parse time</h2>
+<p>When your parser reads <code>%d = sub %a %b</code>, it can build <code>add a (mul b -1)</code> on the spot and hand that to the rest of the compiler. The type checker, the interpreter, rangeify and the renderer never see a <code>sub</code>. That's the point: nine new spellings, and no new cases anywhere past the parser.</p>
+<p>Because the sugar <em>is</em> its expansion, the results are bit-identical to writing the core ops by hand. Hash consing makes it tidier still: two <code>sub %a %b</code> statements expand to the same nodes, so they're one node.</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>sugar</th><th>means</th><th>notes</th></tr></thead>
+<tbody>
+<tr><td><code>neg x</code></td><td><code>mul x -1</code></td><td>i32 or f32. Exact: flipping the sign never rounds.</td></tr>
+<tr><td><code>sub a b</code></td><td><code>add a (neg b)</code></td><td>The same as <code>a - b</code> in IEEE arithmetic, and it wraps on i32.</td></tr>
+<tr><td><code>fdiv a b</code></td><td><code>mul a (recip b)</code></td><td>f32 only. Two roundings, so not always the correctly rounded quotient.</td></tr>
+<tr><td><code>relu x</code></td><td><code>max x 0</code></td><td>i32 or f32</td></tr>
+<tr><td><code>exp x</code></td><td><code>exp2 (mul x 1.442695)</code></td><td><code>log2(e)</code> as an f32</td></tr>
+<tr><td><code>log x</code></td><td><code>mul (log2 x) 0.6931472</code></td><td><code>ln 2</code> as an f32</td></tr>
+<tr><td><code>floor x</code></td><td>a 12-line program</td><td>f32. Shown below.</td></tr>
+<tr><td><code>cmpeq a b</code></td><td>two <code>cmplt</code>s and two <code>where</code>s</td><td>i32 or bool, not f32</td></tr>
+<tr><td><code>matmul A B</code></td><td>the week 5 composite</td><td>reshape, permute, expand, mul, reduce</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>fdiv is not division</h2>
+<p>IEEE division rounds once: <code>10 / 3</code> is the f32 nearest 3.333..., which is <code>3.3333333</code>. <code>fdiv 10.0 3.0</code> rounds twice, once for <code>recip 3.0</code> and once for the multiply, and lands one unit higher, on <code>3.3333335</code>. The spec defines division this way because a reciprocal is cheaper than a divide on most hardware, and tinygrad does the same. It's also why <code>div</code> stays i32-only: week 1 made <code>div</code> on f32 an error, and that test still has to pass.</p>
+
+<h2>cmpeq, and why not on f32</h2>
+<p>Two integers are equal when neither is less than the other: <code>where (cmplt a b) false (where (cmplt b a) false true)</code>. For bools, <code>xor (xor a b) true</code>. On f32 that trick breaks. NaN is neither less than nor greater than anything, so the formula would call NaN equal to everything. Rather than pick a rule for that, the spec leaves f32 out. The lab uses <code>cmpeq</code> on integer labels, where it's exactly right.</p>
+
+<h2>floor, carefully</h2>
+<p><code>floor</code> needs a cast to i32 and back, which truncates toward zero. Below zero, truncation rounds up (<code>-2.5</code> becomes <code>-2</code>), so a correction subtracts 1. Two edge cases shape the rest. Any f32 with <code>|x| ≥ 2^23</code> is already a whole number, and casting a big one to i32 would be an error, so those go around the cast. So do inf and NaN.</p>
+</div>
+
+<pre><code>%x   = param 0 dtype=f32
+%nx  = mul %x -1.0
+%ax  = max %x %nx
+%lt  = cmplt %ax 8388608.0
+%big = xor %lt true             # |x| &gt;= 2^23, inf or nan: already an integer
+%xc  = where %big 0.0 %x
+%ti  = cast %xc dtype=i32       # truncates toward zero
+%t   = cast %ti dtype=f32
+%up  = cmplt %xc %t             # a negative number was truncated up
+%t1  = add %t -1.0
+%fl  = where %up %t1 %t
+%r   = where %big %x %fl</code></pre>
+
+<div class="prose">
+<p><code>exp2</code> and <code>sin</code> use <code>floor</code> internally, so this exact program sits inside both. And it's an example of a function that's defined everywhere and still has a bump: <code>floor -0.0</code> is <code>+0.0</code> by this definition, where IEEE's own floor would keep the sign.</p>
+</div>
+
+<div class="exercise" data-ex="w6-02-softmax">
+<h3>Softmax</h3>
+<p>Slot 0 holds five scores. Store <code>softmax(x)</code> into slot 1, exactly as: <code>e = exp x</code>, <code>s</code> = the sum of <code>e</code>, then <code>fdiv e</code> by <code>s</code> expanded to five elements. The starter stores <code>exp x</code>.</p>
+</div>
+
+<div class="prose">
+<h2>Sugar and gradients</h2>
+<p>Lessons 6.3 and 6.4 differentiate programs. Sugar costs nothing there either. <code>exp</code> is <code>exp2</code> of a scaled x, so its gradient is the <code>exp2</code> rule times the chain rule through the <code>mul</code>, and no "gradient of exp" rule is needed. The same goes for <code>sub</code>, <code>fdiv</code>, <code>relu</code> and <code>matmul</code>. <code>floor</code>'s gradient is zero for <code>|x| &lt; 2^23</code>, and that falls out too: its value goes through a cast to i32, and gradients don't flow through integers. (Bigger values go around the cast unchanged, so there the gradient is 1.)</p>
+<p>The four math ops are different. They stay as ops until render, because their gradient rules (<code>d/dx 2^x = 2^x ln 2</code>) need to see them whole. Differentiating the polynomial inside <code>exp2</code> would be both slower and less accurate.</p>
+</div>
+
+<div class="key">
+<span class="label">Where to expand</span>
+<p>Expand sugar in the parser, right where you build nodes. Keep <code>exp2</code>, <code>log2</code>, <code>sqrt</code> and <code>sin</code> as nodes through type checking and gradients, and expand them when you lower for <code>run</code> or <code>render</code> (or write a C function per op that performs exactly the spec's steps).</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">What is <code>sub -2147483648 1</code>?</p>
+<div class="opts">
+<button data-k="a">An error: it overflows</button>
+<button data-k="b"><code>2147483647</code>: it's <code>add</code> of <code>mul 1 -1</code>, and i32 wraps</button>
+<button data-k="c"><code>-2147483649</code></button>
+</div>
+<p class="hint">What does the expansion do on i32?</p>
+<div class="why"><p><code>add -2147483648 -1</code> wraps around to <code>2147483647</code>, exactly like C's unsigned arithmetic cast back to <code>int32_t</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>fdiv 10.0 3.0</code> gives <code>3.3333335</code>, and the correctly rounded quotient is <code>3.3333333</code>. Which is right?</p>
+<div class="opts">
+<button data-k="a"><code>3.3333335</code>: <code>fdiv</code> is defined as <code>mul a (recip b)</code>, and that is its value</button>
+<button data-k="b"><code>3.3333333</code>: division should be correctly rounded</button>
+<button data-k="c">Either: the grader allows one unit of error</button>
+</div>
+<p class="hint">What does sugar mean?</p>
+<div class="why"><p>Sugar means its expansion, nothing else. The grader compares bits, and the test <code>sugar_fdiv</code> expects exactly <code>3.3333335</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Why is <code>cmpeq</code> not defined on f32?</p>
+<div class="opts">
+<button data-k="a">Floats can't be compared</button>
+<button data-k="b">It would be too slow</button>
+<button data-k="c">With two <code>cmplt</code>s, NaN would compare equal to everything, because nothing is less than NaN</button>
+</div>
+<p class="hint">What is <code>cmplt nan 1.0</code>? And <code>cmplt 1.0 nan</code>?</p>
+<div class="why"><p>Both are false, so "neither is less" holds, and the formula would say NaN equals 1.0. IEEE says NaN equals nothing, not even itself.</p></div>
+</div>
+
+<div class="quiz" data-fill="-3">
+<p class="q">What is <code>floor -2.5</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The cast truncates to -2. Is <code>-2.5 &lt; -2</code>?</p>
+<div class="why"><p>Truncation gave -2, which is above -2.5, so the correction subtracts 1: <code>-3.0</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why does <code>floor</code> skip the cast when <code>|x| ≥ 2^23</code>?</p>
+<div class="opts">
+<button data-k="a">To be faster on big numbers</button>
+<button data-k="b">Every f32 that large is already a whole number, and casting one above <code>2^31</code> to i32 is an error</button>
+<button data-k="c">Because big numbers can't be negative</button>
+</div>
+<p class="hint">How many mantissa bits does an f32 have?</p>
+<div class="why"><p>23. From <code>2^23</code> up, the spacing between f32s is 1 or more, so there's no fraction left to drop. Sending those around the cast avoids the out-of-range error for values like <code>1e10</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Does <code>exp</code> need its own gradient rule?</p>
+<div class="opts">
+<button data-k="a">No: it's <code>exp2</code> of <code>mul x 1.442695</code>, and the rules for <code>exp2</code> and <code>mul</code> combine through the chain rule</button>
+<button data-k="b">Yes: <code>d/dx e^x = e^x</code> is a special rule</button>
+<button data-k="c">No: exp has no gradient</button>
+</div>
+<p class="hint">What does the gradient pass see after parsing?</p>
+<div class="why"><p>It only sees core ops and the four math ops. <code>exp2</code>'s rule gives <code>2^y ln 2</code>, and the <code>mul</code> multiplies that by <code>1.442695 = 1/ln 2</code>, which gives <code>e^x</code> up to rounding.</p></div>
+</div>
+
+<nav class="pager">
+<a href="01-math.html">← Lesson 1: Math from adds</a>
+<a href="03-autodiff.html">Lesson 3: Automatic differentiation →</a>
+</nav>
+</main>
+</body>
+</html>

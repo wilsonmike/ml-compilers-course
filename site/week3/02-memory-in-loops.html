@@ -55,7 +55,7 @@
 
 <div class="key">
 <span class="label">Where a load runs</span>
-<p>A load is placed like any other value: inside every loop whose range it depends on, and no deeper. One exception makes accumulators work. Take the innermost loop that contains <strong>every use</strong> of the load. If that loop is deeper than the load's own place, and it stores into the version the load reads, the load moves into it: it runs on every iteration and sees the <strong>current</strong> contents (the previous iteration's store, or the contents before the loop on the first iteration).</p>
+<p>A load is placed like any other value: inside every loop whose range it depends on, and no deeper. One exception makes accumulators work. First place the load by its own open ranges, like any value. Then find the innermost loop that holds <strong>every use</strong> of the load. If that loop is deeper, and it stores into the version the load reads, the load moves into that loop: it runs on every iteration and sees the <strong>current</strong> contents (the previous iteration's store, or the contents before the loop on the first iteration).</p>
 <p>A use counts as inside a loop only if it's placed there itself: because it depends on that loop's range, or because it's a load this same rule moved there.</p>
 </div>
 
@@ -83,7 +83,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 
 <h2>Split uses read the old contents</h2>
 <div class="prose">
-<p>If a load is used both inside and outside a loop, the innermost loop holding every use is the one <em>around</em> the loop. The load runs once, before the loop, and every use sees the contents from before the loop:</p>
+<p>If a load is used both inside and outside a loop, no loop holds both uses, so the load stays <em>outside</em> the loop. It runs once, before the loop, and every use sees the contents from before the loop:</p>
 <pre><code>%b   = buffer 2 dtype=i32 slot=0 data=[5 0]
 %acc = shrink %b 0 shape=[]
 %cur = load %acc            # used inside AND outside the loop
@@ -135,7 +135,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 %ej   = end %s %j
 %ei   = end %ej %i
 %out1 = after %out %ei          # the output: no open ranges</code></pre>
-<p><code>%out0</code> has <code>{i}</code> open, so it's local to one iteration of the i loop. Only an <code>after</code> with nothing open counts as the buffer's output, which is why <code>%out1</code> builds on <code>%out</code>, not on <code>%out0</code>. When the effect is an <code>end</code>, the rule is that the loop must store into the same memory <code>after</code> names.</p>
+<p><code>%out0</code> has <code>{i}</code> open, so it's local to one iteration of the i loop. Only an <code>after</code> with nothing open counts as the buffer's output, which is why <code>%out1</code> builds on <code>%out</code>, not on <code>%out0</code>. If the <code>after</code>'s effect is an <code>end</code>, some store inside that loop must write to the buffer the <code>after</code> names.</p>
 </div>
 
 <div class="exercise small" data-ex="w3-02-max">
@@ -182,7 +182,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q">A reset store <code>store %o 0</code> with <code>%o = shrink %acc 0 shape=[]</code> sits next to an i loop and a j loop. How often does it run?</p>
+<p class="q">A program has an i loop around a j loop. It also has <code>store %o 0</code> with <code>%o = shrink %acc 0 shape=[]</code>. How often does that store run?</p>
 <div class="opts">
 <button data-k="a">Once per i.</button>
 <button data-k="b">Once per (i, j).</button>

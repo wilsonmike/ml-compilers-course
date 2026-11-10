@@ -8,19 +8,21 @@ of [10-411, Compilers for Machine Learning](https://10-411.com/)
 The original course assumes strong C, a systems course, and some GPU experience. This one adds a week 0 that teaches
 those, and puts a diagram before every idea.
 
-## Status: weeks 0 to 5
+## Status: weeks 0 to 6
 
 | week | topic | lessons | tests | spec |
 |---|---|---|---|---|
 | 0 | prerequisites: C, memory, IRs, tensors, matmul, Python or OCaml | 7 | exercises only | |
-| 1 | UOps and rewrites | 6 | 142 | [uir-week1.md](spec/uir-week1.md) |
-| 2 | memory and rendering C | 6 | 99 | [uir-week2.md](spec/uir-week2.md) |
+| 1 | UOps and rewrites | 6 | 148 | [uir-week1.md](spec/uir-week1.md) |
+| 2 | memory and rendering C | 6 | 100 | [uir-week2.md](spec/uir-week2.md) |
 | 3 | loops | 6 | 90 | [uir-week3.md](spec/uir-week3.md) |
-| 4 | rangeify, reduce, materialization | 6 | 77 | [uir-week4.md](spec/uir-week4.md) |
-| 5 | movement ops: reshape, permute, pad, shrink, any rank | 6 | 94 | [uir-week5.md](spec/uir-week5.md) |
+| 4 | rangeify, reduce, materialization | 6 | 78 | [uir-week4.md](spec/uir-week4.md) |
+| 5 | movement ops: reshape, permute, pad, shrink, any rank | 6 | 96 | [uir-week5.md](spec/uir-week5.md) |
+| 6 | math ops, sugar, autodiff, data files, training on MNIST | 6 | 147 | [uir-week6.md](spec/uir-week6.md) |
 
-225 quizzes with hints and answers, 110 graded exercises (26 of them in Python), and 502 compiler tests. The tests catch all 159 bugs that
-`_reference/mutants.py` plants in the reference compiler. The `.uir` format is our own until the official 10-411 one
+261 quizzes with hints and answers, 123 graded exercises (30 of them in Python), and 659 compiler tests. The tests catch all 206 plausible bugs that `_reference/mutants.py` plants in the
+reference compiler, one at a time. `--checks` also switches off each of its 138 validations and simplifier rules:
+106 are caught, and the other 32 are backed up by a second check that rejects the same program. The `.uir` format is our own until the official 10-411 one
 is published, and then the specs and tests migrate.
 
 ## Taking the course
@@ -73,28 +75,35 @@ an executable `mlc` script on macOS and Linux).
 | `tools/test.py` | the compiler test runner |
 | `tools/serve.py` | the local course server and exercise runner |
 | `tools/build_helpers.py`, `tools/build_static.py` | generate the test guides and the exercise data for the hosted site |
-| `tools/design_lint.py` | checks the site against the design and copy rules |
+| `tools/check.py` | every check, in one command (below) |
 | `site/vendor/codemirror/` | CodeMirror 5.65.16 (MIT), vendored so nothing loads from a CDN |
 | `_reference/` | **spoilers.** The reference compiler, the exercise answers, and the mutation harness. |
 
-## How the suite is proven
+## Checking a change
 
 ```
-python tools/test.py --self-check --week 1      # every test header agrees with the reference compiler
-python _reference/mutants.py                    # every planted bug fails at least one test
-python _reference/check_exercises.py            # every exercise: the solution passes and the starter fails
+python tools/check.py           # about a minute: everything below except the two slow ones, in parallel
+python tools/check.py --full    # also the MNIST training test and the planted-bug run (about 6 minutes)
 ```
 
-1. `--self-check`: every test header agrees with the reference, and the reference reaches every simplify target.
-2. The tricky values (f32 rounding, i32 wrap, C division, f32 to i32 casts) were cross-checked against real C compiled
-   with clang.
-3. `_reference/mutants.py` plants 159 plausible bugs into the reference, one at a time. Each must fail at least one
-   test, and an unmutated control copy must pass all of them.
+What it runs, and what each part protects:
+
+| check | catches |
+|---|---|
+| `tools/design_lint.py` | design and copy rules: tints, small text, em dashes, semicolons in prose |
+| `tools/check_site.py` | broken HTML, quiz keys that aren't an option, quizzes missing a hint or explanation, broken links, exercises without a solution, inline scripts that don't parse |
+| `tools/check_spec_w6.py` | the week 6 spec's math definitions drifting from the reference |
+| `tools/test.py --self-check --week N` | a test header that disagrees with the reference compiler |
+| `_reference/check_exercises.py` | an exercise whose solution fails or whose starter already passes |
+| `_reference/mutants.py` | tests too weak to notice a bug: it plants 206 plausible bugs into the reference, one at a time, and each must fail some test while an unmutated copy passes them all (5 minutes). `--checks` adds one bug per validation and simplifier rule. `--matrix` records every test each bug fails, for the test guides. |
+
+The tricky values (f32 rounding, i32 wrap, C division, f32 to i32 casts) were also cross-checked against real C
+compiled with clang, and the week 6 gradients against finite differences.
 
 ## Contributing
 
-Fixes to lessons, tests, and specs are welcome. Before a pull request, run the checks above for the weeks you touched,
-`python tools/design_lint.py`, and `python tools/build_static.py` if you changed an exercise.
+Fixes to lessons, tests, and specs are welcome. Run `python tools/check.py` before a pull request, and
+`python tools/build_seo.py` if you added or renamed a page.
 
 ## License
 

@@ -25,7 +25,7 @@
   <p>The sketches show a technique on a small piece. None of them is a week's solution, and several stop at <code>...</code> on purpose where the lab begins. For the basics, see <a href="../week0/06-ocaml.html">0.6 OCaml crash course</a> and <a href="../week0/07-python.html">0.7 Python for this course</a>.</p>
 
   <h2>How to choose</h2>
-  <p>Both languages can pass every test. Pick the one you'd rather think in for five weeks.</p>
+  <p>Both languages can pass every test. Pick the one you'd rather think in for the whole course.</p>
   <div class="tablewrap"><table>
     <thead><tr><th></th><th>Python</th><th>OCaml</th></tr></thead>
     <tbody>
@@ -284,6 +284,26 @@ end</code></pre>
     <p>Collect <code>numel</code>, <code>strides</code>, <code>unravel</code>, and <code>permute</code> in one module with an <code>.mli</code>. Each is a few lines, and having them in one place makes it easy to test them against each other.</p>
     <h3>Index expressions are uops</h3>
     <p>Build the new index of a rangeified movement op with your smart constructors, so hash consing shares it and your week 1 simplifier cleans it up. If you added a new op this week, the exhaustive-match warnings point at every pass that needs it.</p>
+  </div>
+
+  <h2>Week 6: math, autodiff and data</h2>
+
+  <div class="only-python">
+    <h3>Bits with <code>struct</code></h3>
+    <p><code>bitcast</code> is a pack and an unpack: <code>struct.unpack("&lt;i", struct.pack("&lt;f", x))[0]</code> gives an f32&#x27;s bits as an i32, and the reverse goes back. Check <code>math.isnan</code> first and return <code>0x7fc00000</code>, because Python keeps whichever NaN it was given.</p>
+    <h3>Data files with <code>hashlib</code> and <code>struct</code></h3>
+    <p>Read the file with <code>open(path, "rb").read()</code>, compare <code>hashlib.sha256(data).hexdigest()</code> with the <code>sha256=</code> value, then check the length. <code>struct.unpack(f"&lt;{n}f", data)</code> decodes n little-endian f32s in one call, and <code>"&lt;{n}i"</code> does i32s.</p>
+    <h3>One walk per gradient</h3>
+    <p>Write the post-order as an explicit stack with a <code>seen</code> set, not as recursion (the worklist from week 1). The MNIST program&#x27;s graph can be deep enough to hit Python&#x27;s recursion limit. Keep each node&#x27;s received shares in a dict of lists, so they stay in arrival order until you add them up.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>Bits with <code>Int32</code></h3>
+    <p><code>Int32.bits_of_float</code> and <code>Int32.float_of_bits</code> convert between a float and its f32 bits. Check for NaN first and return <code>0x7fc00000l</code>, so the result doesn&#x27;t depend on which NaN you had.</p>
+    <h3>Data files with <code>In_channel</code> and <code>String</code></h3>
+    <p><code>In_channel.with_open_bin path In_channel.input_all</code> reads the whole file. <code>String.get_int32_le</code> decodes one little-endian i32 at a byte offset, and <code>Int32.float_of_bits</code> on that gives the f32 value. The standard library has no SHA-256, so write one over <code>Int32</code> (about 60 lines) or call <code>sha256sum</code>.</p>
+    <h3>One walk per gradient</h3>
+    <p>Compute the post-order once, with a <code>Hashtbl</code> of node ids already seen. Keep each node&#x27;s received shares in a table of lists. Consing puts the newest first, so <code>List.rev</code> the list before folding it with <code>List.fold_left</code>, or the shares are added in the wrong order.</p>
   </div>
 
   <h2>Profiling and testing</h2>

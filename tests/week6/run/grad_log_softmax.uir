@@ -1,0 +1,21 @@
+# expect: pass
+# the gradient of a log-softmax loss is softmax minus one-hot
+%xb = buffer 4 dtype=f32 slot=0 data=[0.5 -1.0 2.0 0.25]
+%x = load %xb
+%v = stage %x
+%m = reduce %v op=max
+%md = detach %m
+%me = expand %md shape=[4]
+%z = sub %v %me
+%e = exp %z
+%s = reduce %e op=add
+%ls = log %s
+%pick = shrink %z 2 shape=[1]
+%pr = reshape %pick shape=[]
+%lp = sub %pr %ls
+%y = neg %lp
+%g = gradient %y %v
+%gf = reshape %g shape=[4]
+%wb = buffer 4 dtype=f32 slot=1 data=[0.15423481 0.034414444 -0.3087675 0.12011819]
+%w = load %wb
+%t = assert %gf %w

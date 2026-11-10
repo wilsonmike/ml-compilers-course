@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data and MNIST</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Real training data doesn&#x27;t fit in data=[...]. Week 6 lets a buffer name a file and its hash. Then you put everything together: a program that reads 5000...">
+<link rel="canonical" href="https://sharpterminal.com/site/week6/05-data-and-mnist">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Data and MNIST">
+<meta property="og:description" content="Real training data doesn&#x27;t fit in data=[...]. Week 6 lets a buffer name a file and its hash. Then you put everything together: a program that reads 5000 handwritten digits, trains a classifier for 50...">
+<meta property="og:url" content="https://sharpterminal.com/site/week6/05-data-and-mnist">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 6 · Lesson 5</p>
+<h1>Reading data, and a program that learns digits</h1>
+<p class="lede">Real training data doesn't fit in <code>data=[...]</code>. Week 6 lets a buffer name a file and its hash. Then you put everything together: a program that reads 5000 handwritten digits, trains a classifier for 50 steps, and counts how many of 1000 new digits it gets right.</p>
+
+<div class="prose">
+<h2>url= and sha256=</h2>
+<pre><code>%xs = buffer 3920000 dtype=f32 slot=0 url=data/mnist-train-images.f32 sha256=1ac7f6c8...</code></pre>
+<p>The buffer's contents come from the file instead of a literal list. The format is the simplest there is: the elements back to back, little-endian (each element's lowest byte first), no header. That's 4 bytes per f32 or i32 and 1 byte per bool, which must be 0 or 1. A file of the wrong size is an error, and so is a hash that doesn't match.</p>
+<p>SHA-256 turns any file into a 64-hex-digit fingerprint, and changing one byte changes the fingerprint. The hash is what makes a URL safe to depend on. Files on the internet change, mirrors go stale, and downloads get cut off. With <code>sha256=</code>, a program means exactly one set of bytes: if what you fetched isn't it, the program is invalid rather than quietly wrong. It also means a download can be cached by its hash and never fetched twice.</p>
+<p><code>url=</code> is either <code>https://...</code> or a relative path, read from the folder the <code>.uir</code> file is in. Relative paths may not contain <code>..</code>, so a program can't reach outside its own folder. The test suite only uses relative paths, and the grader copies each data file next to the program it runs, so your compiler never needs the network to pass. For <code>https</code>, fetching with <code>curl</code> into a cache folder is plenty.</p>
+
+<h2>Where the bytes go</h2>
+<p>In <code>run</code>, your compiler reads the file, checks it, and decodes it into the buffer's values. In <code>render</code>, nothing changes: the C harness fills every buffer before calling your kernel, file buffers included, with one <code>fread</code> straight into a <code>float</code> array. Little-endian is the byte order of x86 and ARM, so no conversion is needed. That's why the format is what it is.</p>
+</div>
+
+<div class="exercise small" data-ex="w6-05-decode" data-ex-py="w6-05-decode-py">
+<h3>Read i32s from bytes</h3>
+<p>Decode a byte string of little-endian, two's complement i32s into integers, with plain arithmetic.</p>
+</div>
+
+<div class="prose">
+<h2>The data</h2>
+<p><a href="https://en.wikipedia.org/wiki/MNIST_database">MNIST</a> is 70,000 handwritten digits, each a 28×28 grayscale image with a label from 0 to 9. The course uses a fixed slice: the first 5000 training images and the first 1000 test images. <code>tools/mnist.py</code> converted them from the official files (checking their published hashes) into the raw format above, with pixels as f32 from 0 to 1. The four files live in <code>tests/week6/render/data/</code>: 15.7 MB of training pixels, 3.1 MB of test pixels, and two small label files.</p>
+
+<h2>The model</h2>
+<p>The simplest classifier that works: <b>softmax regression</b>. One weight matrix W, <code>784×10</code>, starting at zero. For an image x (784 pixels), the ten <b>logits</b> <code>z = x W</code> are scores, one per digit. Softmax turns them into probabilities, and the loss for one image is <code>-log p[label]</code>: small when the model puts high probability on the right digit. Averaged over a batch of 100, that's one number, and its gradient with respect to W says how to change every weight.</p>
+<p>A step is <code>W ← W - 1.0 · gradient(loss, W)</code>. The 1.0 is the <b>learning rate</b>: how far each step moves. Fifty steps of 100 images go once through the 5000 training digits.</p>
+
+<h2>One step, line by line</h2>
+<p>This is step 0 of <code>tests/week6/render/mnist_train.uir</code>, which <code>python tools/mnist.py program</code> writes:</p>
+</div>
+
+<pre><code># the batch: 100 images, and their labels as one-hot rows
+%s0_xv = shrink %xs 0 shape=[78400]
+%s0_xl = load %s0_xv
+%s0_x = reshape %s0_xl shape=[100 784]
+%s0_yv = shrink %ys 0 shape=[100]
+%s0_yl = load %s0_yv
+%s0_ohl = reshape %s0_yl shape=[100 1]
+%s0_ohe = expand %s0_ohl shape=[100 10]
+%s0_ohc = reshape %classes shape=[1 10]
+%s0_ohk = expand %s0_ohc shape=[100 10]
+%s0_ohq = cmpeq %s0_ohe %s0_ohk          # label == class, for every pair
+%s0_oh = cast %s0_ohq dtype=f32
+# the logits, staged: computed once, and so is their gradient
+%s0_wl = load %w
+%s0_W = reshape %s0_wl shape=[784 10]
+%s0_z0 = matmul %s0_x %s0_W
+%s0_z = stage %s0_z0
+# log-softmax, made safe by subtracting each row's max (detached)
+%s0_zt = permute %s0_z order=[1 0]
+%s0_m = reduce %s0_zt op=max
+%s0_md = detach %s0_m
+%s0_mr = reshape %s0_md shape=[100 1]
+%s0_me = expand %s0_mr shape=[100 10]
+%s0_zs = sub %s0_z %s0_me
+%s0_e = exp %s0_zs
+%s0_et = permute %s0_e order=[1 0]
+%s0_se = reduce %s0_et op=add
+%s0_ls = log %s0_se
+%s0_lr = reshape %s0_ls shape=[100 1]
+%s0_le = expand %s0_lr shape=[100 10]
+%s0_lp = sub %s0_zs %s0_le
+# the loss: minus the mean log-probability of the right digit
+%s0_pick = mul %s0_lp %s0_oh
+%s0_pf = reshape %s0_pick shape=[1000]
+%s0_tot = reduce %s0_pf op=add
+%s0_loss = mul %s0_tot -0.01
+# the update, stored back into the weights
+%s0_g = gradient %s0_loss %s0_W
+%s0_lrx = expand 1.0 shape=[784 10]
+%s0_d = mul %s0_g %s0_lrx
+%s0_W1 = sub %s0_W %s0_d
+%s0_wf = reshape %s0_W1 shape=[7840]
+%s0_st = store %w %s0_wf
+%s0_w = after %w %s0_st</code></pre>
+
+<div class="prose">
+<p>A few lines deserve a second look.</p>
+<ul>
+<li><b>The max subtraction.</b> <code>exp</code> overflows f32 above about 88, so the program subtracts each row's largest logit first. The answer doesn't change, because softmax is the same if you shift every score by a constant. The shift's gradient is zero in exact math, so <code>detach</code> skips computing it.</li>
+<li><b>The one-hot rows.</b> Each label becomes ten numbers: 1.0 at the true digit and 0.0 elsewhere. Multiplying by that row keeps only the log-probability of the right digit.</li>
+<li><b>The log-softmax.</b> The program computes <code>log p</code> directly as <code>z - log Σ e^z</code> per row, with z already shifted by the max. That is the log of softmax, without the division. The loss is minus the mean of the picked values.</li>
+<li><b>The permutes.</b> <code>reduce</code> pops leading axes, and the classes are the trailing axis, so each per-row reduction transposes first.</li>
+<li><b>The stage.</b> Without it, fusion would recompute each logit (a 784-term dot product) at every use. Because the gradient of a staged value is staged too, the backward pass gets the same benefit.</li>
+<li><b>The update.</b> It reads <code>%w</code> and stores into <code>%w</code>. That's allowed: a store's value is computed from the contents before it. Your renderer must keep it that way when the store becomes a loop (lesson 6.6).</li>
+</ul>
+
+<h2>Fifty steps, written out</h2>
+<p>Step 1 is the same with <code>s1_</code> names, batch 1 (<code>shrink %xs 78400</code>), and the weights step 0 left: <code>load %s0_w</code>, stored into <code>%s0_w</code>. Week 6 has no loops around whole tensors, so all 50 steps are written out, about 2000 lines. Every step is the same shape of graph, so most of the work your compiler does on step 0 it does again 49 times. It needs to be fast enough to render the whole program in a reasonable time, and the test gives it 120 seconds.</p>
+<p>After step 49, the program runs the 1000 test images through the final weights. A digit counts as right when the logit of its true label is the largest. The count goes into slot 4. The reference gets 864, and the test needs at least 850.</p>
+</div>
+
+<div class="trap">
+<span class="label">The obvious step is quadratic</span>
+<p>If anything in your compiler walks the whole graph each time it adds a node (computing open ranges, for example, or a topological sort per statement), 2000 statements make it a million node visits, and the MNIST program slows to a crawl. The reference compiler had exactly this bug, at 63 seconds a render. Memoize per node, and give one walk a shared "seen" set instead of starting each from scratch.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="15680000">
+<p class="q">How many bytes is the file for <code>buffer 3920000 dtype=f32</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">4 bytes per f32.</p>
+<div class="why"><p><code>3920000 · 4 = 15680000</code>: 5000 images of 784 pixels.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The file is there, the right size, but its SHA-256 doesn't match. What does <code>run</code> do?</p>
+<div class="opts">
+<button data-k="a">Runs it with a warning</button>
+<button data-k="b">Exits 2: the program is invalid</button>
+<button data-k="c">Downloads it again and uses that</button>
+</div>
+<p class="hint">What does the hash promise?</p>
+<div class="why"><p>The program means those exact bytes. Anything else is a different program, so it's rejected before it runs.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Which <code>url=</code> is invalid?</p>
+<div class="opts">
+<button data-k="a"><code>data/five.f32</code></button>
+<button data-k="b"><code>https://example.com/w.f32</code></button>
+<button data-k="c"><code>data/../data/five.f32</code></button>
+</div>
+<p class="hint">Can a relative path leave the program's folder?</p>
+<div class="why"><p>Relative paths may not contain <code>..</code>, even when the path would end up inside the folder anyway. It keeps the rule simple to check.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Why subtract each row's max before <code>exp</code>?</p>
+<div class="opts">
+<button data-k="a"><code>exp</code> of a logit above about 88 is inf in f32, and softmax doesn't change when every score shifts by the same amount</button>
+<button data-k="b">To make the gradient smaller</button>
+<button data-k="c">Because <code>exp</code> is only defined for negative inputs</button>
+</div>
+<p class="hint">What is the largest f32?</p>
+<div class="why"><p>About <code>3.4e38</code>, and <code>e^89</code> is already larger. After the shift, every input to exp is at most 0, so every result is at most 1.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The program detaches the max it subtracts. What would change without the <code>detach</code>?</p>
+<div class="opts">
+<button data-k="a">The loss value</button>
+<button data-k="b">Only the work: the max's gradient cancels out mathematically, so the weights barely change (only rounding differs)</button>
+<button data-k="c">The program would be invalid</button>
+</div>
+<p class="hint">Does shifting all ten logits by the same amount change the loss?</p>
+<div class="why"><p>No, so the derivative with respect to the shift is zero. Computing it would add a reduce-max gradient per step for nothing.</p></div>
+</div>
+
+<div class="quiz" data-fill="50">
+<p class="q">5000 training images, batches of 100: how many steps go through the data once?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Divide.</p>
+<div class="why"><p>50 steps, one pass. That's what the test program does.</p></div>
+</div>
+
+<nav class="pager">
+<a href="04-gradients-of-shapes.html">← Lesson 4: Gradients through shapes</a>
+<a href="06-lab.html">Lesson 6: The week 6 lab →</a>
+</nav>
+</main>
+</body>
+</html>

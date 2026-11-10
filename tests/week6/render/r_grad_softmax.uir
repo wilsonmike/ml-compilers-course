@@ -1,0 +1,30 @@
+# render
+# the gradient of a 4-row log-softmax loss with respect to its logits
+%x = buffer 20 dtype=f32 slot=0 data=[-0.26664484 1.8226568 0.43142208 1.4039056 2.8265882 0.7559269 2.470042 -1.3562392 -2.9907994 2.294421 -2.820745 2.9618144 -0.2655311 -2.6323013 -1.352051 1.3278487 -0.69557285 0.7430174 -2.3884182 2.0138614]
+%o = buffer 20 dtype=f32 slot=1
+%v = load %x
+%z = reshape %v shape=[4 5]
+%zt = permute %z order=[1 0]
+%m = reduce %zt op=max
+%md = detach %m
+%mr = reshape %md shape=[4 1]
+%me = expand %mr shape=[4 5]
+%zs = sub %z %me
+%e = exp %zs
+%et = permute %e order=[1 0]
+%se = reduce %et op=add
+%ls = log %se
+%lr = reshape %ls shape=[4 1]
+%le = expand %lr shape=[4 5]
+%lp = sub %zs %le
+%oh = buffer 20 dtype=f32 slot=2 data=[1.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 0.0 0.0 0.0]
+%ohv = load %oh
+%ohm = reshape %ohv shape=[4 5]
+%pk = mul %lp %ohm
+%pf = reshape %pk shape=[20]
+%t = reduce %pf op=add
+%loss = mul %t -0.25
+%g = gradient %loss %z
+%gf = reshape %g shape=[20]
+%s = store %o %gf
+%o1 = after %o %s

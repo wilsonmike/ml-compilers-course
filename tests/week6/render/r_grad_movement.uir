@@ -1,0 +1,18 @@
+# render
+# a gradient through pad, shrink, permute and expand, rendered as loops
+%x = buffer 6 dtype=f32 slot=0 data=[1.0 -2.0 0.5 3.0 -1.5 2.25]
+%o = buffer 6 dtype=f32 slot=1
+%v = load %x
+%m = reshape %v shape=[2 3]
+%p = pad %m pads=[1 0 0 2]
+%s0 = shrink %p 1 1 shape=[2 3]
+%t = permute %s0 order=[1 0]
+%r = reshape %t shape=[3 2 1]
+%e = expand %r shape=[3 2 4]
+%q = mul %e %e
+%f = reshape %q shape=[24]
+%l = reduce %f op=add
+%g = gradient %l %m
+%gf = reshape %g shape=[6]
+%s = store %o %gf
+%o1 = after %o %s

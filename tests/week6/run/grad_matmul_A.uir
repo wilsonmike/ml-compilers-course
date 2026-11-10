@@ -1,0 +1,16 @@
+# expect: pass
+# matmul: dL/dA = G B^T
+%xb = buffer 6 dtype=f32 slot=0 data=[1.0 2.0 3.0 4.0 5.0 6.0]
+%x = load %xb
+%v = reshape %x shape=[2 3]
+%bb = buffer 6 dtype=f32 slot=2 data=[1.0 0.0 -1.0 2.0 0.5 1.0]
+%b = load %bb
+%B = reshape %b shape=[3 2]
+%C = matmul %v %B
+%f = reshape %C shape=[4]
+%y = reduce %f op=add
+%g = gradient %y %v
+%gf = reshape %g shape=[6]
+%wb = buffer 6 dtype=f32 slot=1 data=[1.0 1.0 1.5 1.0 1.0 1.5]
+%w = load %wb
+%t = assert %gf %w

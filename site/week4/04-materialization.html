@@ -45,7 +45,7 @@
 
 <h2>Recompute: fusion</h2>
 <div class="prose">
-<p>Without <code>stage</code>, the spec lets your compiler choose either way. The oracle always recomputes, and <code>stage</code> forces a temp. Recomputing means rangeify answers each question by computing the element where it's needed. The square is <strong>fused</strong> into both loops. No temp memory, no extra pass, but the multiply happens twice per element.</p>
+<p><code>%q = stage %d</code> is the same value as <code>%d</code>, but it tells rangeify to compute every element once into a temp buffer. Without <code>stage</code>, the spec lets your compiler choose either way, and the oracle always recomputes. Recomputing means rangeify answers each question by computing the element where it's needed. The square is <strong>fused</strong> into both loops. No temp memory, no extra pass, but the multiply happens twice per element.</p>
 <p>Put <code>%q = stage %d</code> in front of both uses, and rangeify does something different: it fills a temp buffer with every element of <code>%d</code> in a loop of its own, then answers both questions with a load from that buffer. The value is <strong>materialized</strong>. One multiply per element, but a write and two reads of a 4-element temp.</p>
 </div>
 
@@ -98,7 +98,7 @@ for (int32_t r34 = 0; r34 &lt; 4; r34++) {
   b1[r34] = v38;
 }</code></pre></div>
 </div>
-<div class="cap">Two loops become three. Fusion multiplies twice per element. Materializing multiplies once but writes four floats and reads them twice. The <code>% 4</code> lines come from decoding a flat loop counter into an index. Here they never change the value, and lesson 5.5 shows how a simplifier removes them.</div>
+<div class="cap">Two loops become three. Fusion multiplies twice per element. Materializing multiplies once but writes four floats and reads them twice. The <code>% 4</code> lines are the extra index step from lesson 4.3. Here they never change the value, and lesson 5.5 shows how a simplifier removes them.</div>
 </div>
 
 <div class="exercise small" data-ex="w4-04-two-outputs">

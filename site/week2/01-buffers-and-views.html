@@ -45,7 +45,7 @@
 <pre><code>%a = alloc 3 dtype=f32</code></pre>
 
 <h2>A view is a window</h2>
-<p>You rarely want a whole buffer. <code>shrink</code> makes a <strong>view</strong>: a window that starts some number of elements in and covers a fixed number of them. Nothing is copied. A view is just a buffer plus an offset plus a length.</p>
+<p>You rarely want a whole buffer. <code>shrink</code> makes a <strong>view</strong>: a window that starts some number of elements in and covers a fixed number of them. The offset is an i32 operand. It can be a literal or a computed value, and lesson 3 shows how computed offsets are checked. Nothing is copied. A view is just a buffer plus an offset plus a length.</p>
 <pre><code>%v = shrink %b 2 shape=[3]     # elements 2, 3, 4
 %e = shrink %b 5 shape=[]      # just element 5</code></pre>
 <p><code>shape=[k]</code> gives a rank-1 window of k elements. <code>shape=[]</code> gives a single element, a rank-0 view, which is what you load and store scalars through. Step through the picture: the window slides over the same six cells.</p>
@@ -63,7 +63,7 @@
 
 <div class="exercise" data-ex="w2-01-resolve" data-ex-py="w2-01-resolve-py">
 <h3>Resolve a view</h3>
-<p>Here views are a small type with three cases: a <code>Buffer n</code>, a <code>Shrink (parent, off, k)</code> for <code>shape=[k]</code>, or an <code>Elem (parent, off)</code> for <code>shape=[]</code>. Write <code>resolve v</code>, returning <code>(start, len)</code>: where the view starts inside its buffer, and how many elements it covers.</p>
+<p>Here views are a small type with three cases: a <span class="only-ocaml"><code>Buffer n</code>, a <code>Shrink (parent, off, k)</code></span><span class="only-python"><code>Buffer(n)</code>, a <code>Shrink(parent, off, k)</code></span> for <code>shape=[k]</code>, or an <span class="only-ocaml"><code>Elem (parent, off)</code></span><span class="only-python"><code>Elem(parent, off)</code></span> for <code>shape=[]</code>. Write <span class="only-ocaml"><code>resolve v</code></span><span class="only-python"><code>resolve(v)</code></span>, returning <code>(start, len)</code>: where the view starts inside its buffer, and how many elements it covers.</p>
 <p>Raise <span class="only-ocaml"><code>Invalid_argument "out of bounds"</code></span><span class="only-python">the "out of bounds" error the starter code describes</span> if any step in the chain doesn't fit inside its parent: a negative offset, or a window that runs past the end of the parent.</p>
 </div>
 

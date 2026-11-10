@@ -1,0 +1,81 @@
+{
+  "id": "w6-04-matmul-grad",
+  "lang": "uir",
+  "mode": "buffers",
+  "out_slot": 2,
+  "title": "The gradient of a matmul",
+  "starter": "%a  = buffer 6 dtype=f32 slot=0\n%b  = buffer 6 dtype=f32 slot=1\n%o  = buffer 6 dtype=f32 slot=2\n# A is 2x3 (slot 0), B is 3x2 (slot 1), both row-major. L is the sum of every element of A @ B.\n# Store dL/dA, 2x3 row-major, into slot 2.\n%va = load %a\n%vb = load %b\n%A  = reshape %va shape=[2 3]\n%B  = reshape %vb shape=[3 2]\n%C  = matmul %A %B\n%f  = reshape %C shape=[4]\n%L  = reduce %f op=add\n%g  = gradient %L %B\n%gf = reshape %g shape=[6]\n%st = store %o %gf\n%o1 = after %o %st\n",
+  "tests": [
+    {
+      "data": {
+        "0": [
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0
+        ],
+        "1": [
+          1.0,
+          0.0,
+          0.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "sample": true,
+      "expect": "[1.0 1.0 2.0 1.0 1.0 2.0]"
+    },
+    {
+      "data": {
+        "0": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "1": [
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0
+        ]
+      },
+      "sample": true,
+      "expect": "[3.0 7.0 11.0 3.0 7.0 11.0]"
+    },
+    {
+      "data": {
+        "0": [
+          0.5,
+          -1.0,
+          2.0,
+          0.0,
+          3.0,
+          -2.0
+        ],
+        "1": [
+          2.0,
+          -1.0,
+          0.5,
+          0.25,
+          -3.0,
+          4.0
+        ]
+      },
+      "expect": "[1.0 0.75 1.0 1.0 0.75 1.0]"
+    }
+  ],
+  "hints": [
+    "The starter takes the gradient with respect to B. You want it with respect to A.",
+    "The math: dL/dA = G B^T, where G is all ones (L sums every element). So each row of the answer is the row sums of B.",
+    "Change `gradient %L %B` to `gradient %L %A`. The shapes then match: dL/dA is 2x3, like A."
+  ],
+  "explain": "With G = dL/dC all ones, dL/dA = G B^T: entry (i, k) is the sum over j of B[k][j], the k-th row sum of B, the same for every i. You never wrote that formula. The gradient pass found it by running the rules backward through the matmul's expand, mul and reduce: the reduce's gradient expands G, the mul sends it times B's copy, and A's expand sums it back down. That's why matmul needs no gradient rule of its own."
+}

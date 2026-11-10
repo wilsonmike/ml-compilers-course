@@ -4,7 +4,7 @@
   python tools/build_helpers.py
 
 For every test: what it checks (its header comment), what kind of test it is, and the plausible bugs known to
-fail it. The bugs come from the planted-bug run (_reference/mutants.py writes _reference/.mutant_cache.json);
+fail it. The bugs come from the planted-bug run (python _reference/mutants.py --matrix writes _reference/.mutant_results.json);
 run that first for the bug column. Bug names describe mistakes, not solutions, so they're safe to show.
 """
 import os, re, glob, json, html
@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, 'site', 'resources')
 
 def bugs_by_test():
-  try: entries = json.load(open(os.path.join(ROOT, '_reference', '.mutant_cache.json'), encoding='utf-8'))['entries']
+  try: entries = json.load(open(os.path.join(ROOT, '_reference', '.mutant_results.json'), encoding='utf-8'))['entries']
   except (OSError, ValueError, KeyError): return {}
   out = {}
   for e in entries.values():
@@ -29,7 +29,8 @@ def describe(path):
     if l.startswith('expect:'): kind = 'run: ' + l.split(':', 1)[1].strip()
     elif l.startswith('simplify:'): kind = 'simplify, ' + l.split(':', 1)[1].strip()
     elif l == 'render': kind = 'render'
-  why = next((l for l in lines if not re.match(r'(expect|simplify):|render$', l)), '')
+    elif l.startswith('render check:'): kind = 'render, ' + l.split(':', 1)[1].strip()
+  why = next((l for l in lines if not re.match(r'(expect|simplify|render check|time|max_bytes):|render$', l)), '')
   return kind, why
 
 def page(week, rows):

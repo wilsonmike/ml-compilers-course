@@ -76,7 +76,7 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 <h2>Canonicalization: one way to write it</h2>
 <p><code>add 3 %x</code> and <code>add %x 3</code> mean the same thing. Without help, every rule would need two versions, one for each side. Instead we add one <strong>canonicalization</strong> rule for each commutative op (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>):</p>
 <pre><code>op(c, x) → op(x, c)      when c is a const and x is not</code></pre>
-<p class="muted"><code>max</code> is only commutative because the spec pins down its two tricky f32 cases: <code>max(-0.0, 0.0)</code> is <code>+0.0</code> in either order, and a NaN on either side gives NaN. A naive <code>if a &gt; b then a else b</code> returns whichever comes second in both cases, and <code>recip</code> can tell <code>-0.0</code> from <code>+0.0</code>.</p>
+<p class="muted"><code>max</code> is only commutative because the spec pins down its two tricky f32 cases: <code>max(-0.0, 0.0)</code> is <code>+0.0</code> in either order, and a NaN on either side gives NaN. A naive <code>if a &gt; b then a else b</code> returns <code>b</code> in both cases, so swapping the operands changes the answer. That matters, because <code>recip -0.0</code> is <code>-inf</code> and <code>recip 0.0</code> is <code>inf</code>.</p>
 <p>Now every other rule can assume constants sit on the right. Canonical forms also help hash consing, because two equivalent expressions are more likely to become the <em>same</em> node.</p>
 
 <h2>Why hash consing makes this cheap</h2>

@@ -26,10 +26,10 @@ def check(ex, cfg):
   return problems
 
 if __name__ == '__main__':
-  ap = argparse.ArgumentParser(); ap.add_argument('--ocaml'); ap.add_argument('-k', default=''); ap.add_argument('--timeout', type=int, default=30)
+  ap = argparse.ArgumentParser(); ap.add_argument('--ocaml'); ap.add_argument('-k', default=''); ap.add_argument('--timeout', type=int, default=30); ap.add_argument('--skip-lang', default='')
   a = ap.parse_args(); cfg = S.config(a); k = a.k
   exs = [json.load(open(p, encoding='utf-8')) for p in sorted(glob.glob(os.path.join(ROOT, 'exercises', '*.json')))]
-  exs = [e for e in exs if k in e['id']]
+  exs = [e for e in exs if k in e['id'] and e['lang'] != a.skip_lang]
   with ThreadPoolExecutor(max_workers=4) as pool: res = list(pool.map(lambda e: check(e, cfg), exs))
   for e, p in zip(exs, res): print(f"{'ok  ' if not p else 'BAD '} {e['id']:34} {e['lang']:5} {len(e['tests'])} tests" + ''.join(f"\n      {x}" for x in p))
   bad = sum(bool(p) for p in res); print(f"\n{len(exs) - bad} / {len(exs)} exercises verified")

@@ -1,0 +1,15 @@
+# expect: pass
+# pad: the gradient is the shrink back to the original window
+%xb = buffer 3 dtype=f32 slot=0 data=[1.0 2.0 3.0]
+%x = load %xb
+%v = stage %x
+%p = pad %v pads=[2 1]
+%kb = buffer 6 dtype=f32 slot=2 data=[1e+01 2e+01 3e+01 4e+01 5e+01 6e+01]
+%k = load %kb
+%q = mul %p %k
+%y = reduce %q op=add
+%g = gradient %y %v
+%gf = reshape %g shape=[3]
+%wb = buffer 3 dtype=f32 slot=1 data=[3e+01 4e+01 5e+01]
+%w = load %wb
+%t = assert %gf %w

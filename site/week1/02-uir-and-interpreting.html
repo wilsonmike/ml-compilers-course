@@ -50,7 +50,7 @@
     <tr><td><code>%x = const 3 dtype=f32</code></td><td>an explicit const. This one is <code>3.0</code>.</td></tr>
   </table></div>
 
-  <div class="key"><span class="label">Params in one paragraph</span><p><code>%x = param 0 dtype=i32</code> declares an input: slot 0, an i32. The exercises in lessons 1 to 4 use this: the tests fill slot 0 (and 1, and so on) with numbers and print what your <code>%out</code> computes. Lesson 5 shows how <code>call</code> fills params inside a program. Until then, think of a param as "a number the test hands in".</p></div>
+  <div class="key"><span class="label">Params in one paragraph</span><p><code>%x = param 0 dtype=i32</code> declares an input: slot 0, an i32. The exercises in lessons 1 to 4 use this: the tests fill slot 0 (and 1, and so on) with numbers and print what your <code>%out</code> computes. Lesson 5 shows how <code>call</code> fills params inside a program. Until then, think of a param as "a number the test hands in". In a plain <code>run</code>, nothing fills a param that sits outside any <code>call</code>, so evaluating one is a runtime error (lesson 5).</p></div>
 
   <h2>Four dtypes, zero conversions</h2>
   <div class="tablewrap"><table>
@@ -61,6 +61,19 @@
     <tr><td><code>f32</code></td><td>IEEE single precision</td><td>Rounded to nearest-even after <em>every</em> op.</td></tr>
   </table></div>
   <div class="trap"><span class="label">No implicit conversion</span><p><code>add 1.5 1</code> is a <strong>type error</strong>, not <code>2.5</code>. <code>1</code> is an <code>i32</code> and <code>1.5</code> is an <code>f32</code>, and binary ops need matching dtypes. Write <code>add 1.5 1.0</code>, or <code>cast</code> one side. C would quietly convert for you. Here, the conversion has to be its own visible node.</p></div>
+  <div class="prose"><p>The ALU ops, the ones that compute on values, are below. The spec has the full typing rules.</p></div>
+  <div class="tablewrap"><table>
+    <tr><th>op</th><th>means</th></tr>
+    <tr><td><code>add a b</code>, <code>mul a b</code></td><td><code>a + b</code>, <code>a * b</code></td></tr>
+    <tr><td><code>div a b</code>, <code>mod a b</code></td><td>i32 quotient and remainder, C style (below)</td></tr>
+    <tr><td><code>max a b</code></td><td>the larger of <code>a</code> and <code>b</code></td></tr>
+    <tr><td><code>recip a</code></td><td><code>1 / a</code>, f32 only. <code>recip 0.0</code> is <code>inf</code> and <code>recip -0.0</code> is <code>-inf</code>.</td></tr>
+    <tr><td><code>xor a b</code></td><td>bitwise exclusive or for i32, logical for bool</td></tr>
+    <tr><td><code>shl a b</code></td><td><code>a</code> shifted left by <code>b</code> bits, i32 only</td></tr>
+    <tr><td><code>cmplt a b</code></td><td><code>a &lt; b</code>, as a bool</td></tr>
+    <tr><td><code>where c a b</code></td><td><code>a</code> if the bool <code>c</code> is true, else <code>b</code>. Both branches are evaluated.</td></tr>
+    <tr><td><code>cast a dtype=T</code></td><td><code>a</code> converted to dtype <code>T</code> (rules below)</td></tr>
+  </table></div>
 
   <h2>Evaluating: sources first</h2>
   <div class="prose">
@@ -85,7 +98,7 @@
     <tr><th>exit</th><th>when</th><th>example</th></tr>
     <tr><td><code>0</code></td><td>every assert passed</td><td><code>%s = add 2 3</code><br><code>%t = assert %s 5</code></td></tr>
     <tr><td><code>1</code></td><td>an assert failed. Print <code>assert failed: %name</code> to stderr for the first one in file order.</td><td><code>%s = add 2 2</code><br><code>%t = assert %s 5</code></td></tr>
-    <tr><td><code>2</code></td><td>invalid: a parse error, type error, undefined name, or a runtime error in something an assert needs</td><td><code>%a = add 1.5 1</code>, or<br><code>%d = div 1 0</code><br><code>%t = assert %d 0</code></td></tr>
+    <tr><td><code>2</code></td><td>invalid: a parse error, type error, undefined name, or a runtime error in something an assert needs. Print a line starting <code>invalid:</code> to stderr.</td><td><code>%a = add 1.5 1</code>, or<br><code>%d = div 1 0</code><br><code>%t = assert %d 0</code></td></tr>
   </table></div>
 
   <h2>i32: what a C programmer expects, made exact</h2>
@@ -218,7 +231,7 @@
       <button data-k="a">Yes. Assert treats two NaNs as equal.</button>
       <button data-k="b">No. In IEEE, NaN never equals NaN.</button>
     </div>
-    <p class="hint">IEEE says NaN never equals NaN, but this course's spec defines assert equality on purpose. Check section 3.</p>
+    <p class="hint">IEEE says NaN never equals NaN, but this course's spec defines assert equality on purpose. Check the list under "What assert means by equal" above.</p>
     <div class="why"><p>The spec defines assert equality so you can test for NaN. Inside the program, <code>cmplt</code> still follows IEEE: any NaN gives <code>false</code>.</p></div>
   </div>
 

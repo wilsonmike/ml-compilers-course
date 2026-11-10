@@ -1,0 +1,20 @@
+%x  = buffer 8 dtype=f32 slot=0
+%y  = buffer 4 dtype=f32 slot=1
+%w  = buffer 2 dtype=f32 slot=2
+%vx = load %x
+%X  = reshape %vx shape=[4 2]
+%vw = load %w
+%W  = reshape %vw shape=[2 1]
+%p  = matmul %X %W
+%pf = reshape %p shape=[4]
+%vy = load %y
+%d  = sub %pf %vy
+%sq = mul %d %d
+%s  = reduce %sq op=add
+%l  = mul %s 0.25
+%g  = gradient %l %vw
+%lr = expand 0.1 shape=[2]
+%st = mul %g %lr
+%w1 = sub %vw %st
+%sw = store %w %w1
+%wv = after %w %sw

@@ -1,0 +1,14 @@
+# expect: pass
+# two overlapping windows: their gradients add up
+%xb = buffer 5 dtype=f32 slot=0 data=[1.0 2.0 3.0 4.0 5.0]
+%x = load %xb
+%v = stage %x
+%a = shrink %v 0 shape=[3]
+%b = shrink %v 2 shape=[3]
+%q = mul %a %b
+%y = reduce %q op=add
+%g = gradient %y %v
+%gf = reshape %g shape=[5]
+%wb = buffer 5 dtype=f32 slot=1 data=[3.0 4.0 6.0 2.0 3.0]
+%w = load %wb
+%t = assert %gf %w

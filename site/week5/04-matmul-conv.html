@@ -21,7 +21,7 @@
   .vlabel { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
   .planes { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
   .plane .vlabel { margin-bottom: var(--s1); }
-  .grid { display: grid; gap: 3px; }
+  .grid { display: grid; gap: 3px; justify-content: start; }
   .grid .c { font: 0.875rem var(--mono); text-align: center; padding: 6px var(--s1); min-width: 2.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
   .grid .c.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 </style>
@@ -59,11 +59,11 @@
 <h2>The general form</h2>
 <p>When A arrives as M x K, row-major, add one <code>permute</code> to move <code>k</code> to the front. The reduce still folds the first axis, so whatever you want to sum over has to be first:</p>
 </div>
-<pre><code># %A, %B: loaded values (load the buffers first: memory can't be reshaped)
-%a3 = reshape %A shape=[M K 1]
+<pre><code># %a, %b: loaded values (load the buffers first: memory can't be reshaped)
+%a3 = reshape %a shape=[M K 1]
 %aT = permute %a3 order=[1 0 2]       # K M 1
 %ax = expand %aT shape=[K M N]
-%b3 = reshape %B shape=[K 1 N]
+%b3 = reshape %b shape=[K 1 N]
 %bx = expand %b3 shape=[K M N]
 %p  = mul %ax %bx
 %C  = reduce %p op=add pop=1          # M N</code></pre>
@@ -90,7 +90,7 @@
 %pr  = mul %win %wx
 %y   = reduce %pr op=add pop=1        # 5</code></pre>
 <div class="prose">
-<p>The stack of shifted windows is the <strong>im2col</strong> view: it turns the convolution into a multiply and a sum over taps, the same shape of computation as the matmul above. With <code>x = 1..5</code> and <code>w = [1 0 -1]</code>, the oracle gives <code>y[0] = 0·1 + 1·0 + 2·(-1) = -2</code> and <code>y[4] = 4·1 + 5·0 + 0·(-1) = 4</code>.</p>
+<p>The stack of shifted windows is called the <strong>im2col</strong> view ("image to columns"): one row per kernel tap, one column per output, like the windows matrix in lesson 3.4. It turns the convolution into a multiply and a sum over taps, the same shape of computation as the matmul above. With <code>x = 1..5</code> and <code>w = [1 0 -1]</code>, the oracle gives <code>y[0] = 0·1 + 1·0 + 2·(-1) = -2</code> and <code>y[4] = 4·1 + 5·0 + 0·(-1) = 4</code>.</p>
 </div>
 
 <div class="exercise small" data-ex="w5-04-conv1d">

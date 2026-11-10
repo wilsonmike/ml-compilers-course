@@ -19,34 +19,44 @@ ORACLE = [sys.executable, os.path.join(ROOT, '_reference', 'uirc.py')]
 TIMEOUT = 10
 
 def headers(text):
-  h = dict(re.findall(r"^#\s*(expect|simplify):\s*(.+?)\s*$", text, re.M))
+  h = dict(re.findall(r"^#\s*(expect|simplify|time|max_bytes):\s*(.+?)\s*$", text, re.M))
   if 'simplify' in h: h['max_ops'] = int(re.search(r"max_ops=(\d+)", h['simplify']).group(1))
   if re.search(r"^#\s*render\s*$", text, re.M): h['render'] = True
+  if (m := re.search(r"^#\s*render check:\s*slot\s+(\d+)\s*>=\s*(-?[0-9.]+)\s*$", text, re.M)):   # week 6: a threshold, not bits
+    h['render'] = True; h['check'] = (int(m.group(1)), float(m.group(2)))
   return h
 
-def oracle_run(text):
-  try: O.run(text); return 'pass', None
+def url_files(text):
+  # relative url= paths a program reads: the grader copies them next to the neutral test file
+  return [u for u in re.findall(r"\burl=([^ \t\r\n#]+)", text) if not u.startswith('https://')]
+
+def oracle_run(text, base=None):
+  try: O.run(text, base); return 'pass', None
   except O.AssertFail as e: return 'assert_fail', str(e)
   except O.UIRError as e: return 'invalid', str(e)
 
-def call(cmd, sub, text):
+def call(cmd, sub, text, base=None, timeout=TIMEOUT):
   # tests run under a neutral file name, so a compiler can't read the expected outcome off "err_*.uir"
   with tempfile.TemporaryDirectory() as d:
     path = os.path.join(d, 'case.uir')
     open(path, 'w', encoding='utf-8', newline='\n').write(text)
+    for u in url_files(text):                       # week 6: data files travel with the test
+      parts = u.split('/'); src = os.path.join(base or ROOT, *parts)
+      if '..' not in parts and os.path.isfile(src):
+        dst = os.path.join(d, *parts); os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copyfile(src, dst)
     try:
-      p = subprocess.run(cmd + [sub, path], capture_output=True, timeout=TIMEOUT)
+      p = subprocess.run(cmd + [sub, path], capture_output=True, timeout=timeout)
       dec = lambda b: b.decode('utf-8', 'replace').replace(chr(13) + chr(10), chr(10))   # Windows CRLF
       return p.returncode, dec(p.stdout), dec(p.stderr)
-    except subprocess.TimeoutExpired: return 'timeout', '', f'timed out after {TIMEOUT}s'
+    except subprocess.TimeoutExpired: return 'timeout', '', f'timed out after {timeout:g}s'
     except OSError as e: return 'error', '', str(e)
 
 CODE = {'pass': 0, 'assert_fail': 1, 'invalid': 2}
 ASSERT_LINE = re.compile(r"^assert failed: %([A-Za-z0-9_]+)[ \t]*$", re.M | re.A)
 
-def grade_run(cmd, text):
-  want, msg = oracle_run(text)
-  rc, _, err = call(cmd, 'run', text)
+def grade_run(cmd, text, base=None):
+  want, msg = oracle_run(text, base)
+  rc, _, err = call(cmd, 'run', text, base)
   tail = f"\n    stderr: {err.strip()[:300]}" if err.strip() else ""
   if rc != CODE[want]: return f"expected exit {CODE[want]} ({want}), got {rc}" + (f"\n    oracle: {msg}" if msg else "") + tail
   if want == 'invalid' and not re.search(r"^invalid:", err, re.M):
@@ -97,7 +107,7 @@ def text_ops(out):
   # ops as written: every reachable "%name = op" statement except const/param. Duplicates count.
   defs = {}
   for line in out.split('\n'):
-    m = re.match(r"[ \t]*%([A-Za-z0-9_]+)[ \t]*=[ \t]*([a-z_]+)(.*)", line.split('#', 1)[0], re.A)
+    m = re.match(r"[ \t]*%([A-Za-z0-9_]+)[ \t]*=[ \t]*([a-z_][a-z0-9_]*)(.*)", line.split('#', 1)[0], re.A)
     if m: defs[m.group(1)] = (m.group(2), re.findall(r"%([A-Za-z0-9_]+)", m.group(3), re.A))
   seen, todo = set(), ['out']
   while todo:
@@ -147,40 +157,57 @@ def harness(names):
            'void kernel(' + (', '.join(f"{CT[bufs[k].dtype]} *b{k}" for k in outs) or 'void') + ');', 'int main(void) {']
   for k, b in bufs.items():
     n, data = b.arg[2], b.arg[3]
-    if b.dtype == 'f32':
+    if isinstance(data, O.Blob):                     # week 6 url=: read the verified file at run time
+      lines.append(f"  static {CT[b.dtype]} b{k}[{n}];")
+      lines.append(f'  {{ FILE *f = fopen("{data.path.replace(chr(92), "/")}", "rb"); if (!f || fread(b{k}, 1, sizeof b{k}, f) != sizeof b{k}) return 3; fclose(f); }}')
+    elif b.dtype == 'f32':
       lines.append(f"  static const uint32_t i{k}[{n}] = {{{', '.join(hex(struct.unpack('<I', O.fbits(x))[0]) for x in data)}}};")
       lines.append(f"  static float b{k}[{n}]; memcpy(b{k}, i{k}, sizeof b{k});")
     else: lines.append(f"  static {CT[b.dtype]} b{k}[{n}] = {{{', '.join(str(int(x)) for x in data)}}};")
   lines.append('  kernel(' + ', '.join(f"b{k}" for k in outs) + ');')
   for k, b in bufs.items():
+    if isinstance(b.arg[3], O.Blob) and outs[k] is b: continue          # an input file nothing stores to
     if b.dtype == 'f32': lines.append(f"  for (int i = 0; i < {b.arg[2]}; i++) {{ uint32_t u; memcpy(&u, &b{k}[i], 4); printf(\"{k} %08x\\n\", u); }}")
     else: lines.append(f"  for (int i = 0; i < {b.arg[2]}; i++) printf(\"{k} %d\\n\", (int)b{k}[i]);")
   return '\n'.join(lines + ['  return 0;', '}']) + '\n'
 
-def grade_render(cmd, text):
+def grade_render(cmd, text, base=None, h=None):
   if not CC: return "no C compiler found (clang or gcc) to build your rendered C"
-  rc, out, err = call(cmd, 'render', text)
+  h = h or {}
+  limit = float(h.get('time', TIMEOUT))
+  rc, out, err = call(cmd, 'render', text, base, limit)
   if rc != 0: return f"render exited {rc}\n    stderr: {err.strip()[:300]}"
-  names = O.parse(text)[0]
+  names = O.parse(text, base)[0]
   looped = O.needs_loops(names)                 # weeks 3-4: ranges, or shape ops that rangeify into loops
-  if len(out.encode()) > 20000: return f"rendered C is {len(out.encode())} bytes; the limit is 20000 (rank-1 values must become loops, not unrolled code)"
+  cap = int(h.get('max_bytes', 20000))
+  if len(out.encode()) > cap: return f"rendered C is {len(out.encode())} bytes; the limit is {cap} (rank-1 values must become loops, not unrolled code)"
   if re.search(r'\b(while|goto|do)\b' if looped else r'\b(for|while|goto|do)\b', strip_c(out)):
     return ("render may only use for loops" if looped else "render must produce loopless C (found for/while/do/goto)") + "\n    output:\n" + indent(out)
-  want = O.final_buffers(names)
+  outs = O.final_versions(names)
+  skip = {k for k, v in outs.items() if v.op == 'buffer' and isinstance(v.arg[3], O.Blob)}   # unchanged input files
+  want = {} if 'check' in h else {k: v for k, v in O.final_buffers(names).items() if k not in skip}
   with tempfile.TemporaryDirectory() as d:
     k, hp, exe = os.path.join(d, 'kernel.c'), os.path.join(d, 'harness.c'), os.path.join(d, 'a.exe' if os.name == 'nt' else 'a.out')
     open(k, 'w', encoding='utf-8').write(out); open(hp, 'w', encoding='utf-8').write(harness(names))
     flags = CFLAGS if 'clang' in os.path.basename(CC) else CFLAGS[:-1] + ['-fsanitize-undefined-trap-on-error']
-    c = subprocess.run([CC, *flags, k, hp, '-o', exe, '-lm'], capture_output=True, timeout=60)
+    c = subprocess.run([CC, *flags, k, hp, '-o', exe, '-lm'], capture_output=True, timeout=max(60, limit))
     if c.returncode != 0: return "your C doesn't compile:\n" + indent(c.stderr.decode('utf-8', 'replace').replace(d + os.sep, ''))
-    try: r = subprocess.run([exe], capture_output=True, timeout=TIMEOUT)
-    except subprocess.TimeoutExpired: return (f"your kernel didn't finish in {TIMEOUT}s. With no loops allowed, the usual cause is undefined behavior: "
+    try: r = subprocess.run([exe], capture_output=True, timeout=limit)
+    except subprocess.TimeoutExpired:
+      if looped: return f"your kernel didn't finish in {limit:g}s"
+      return (f"your kernel didn't finish in {limit:g}s. With no loops allowed, the usual cause is undefined behavior: "
                                                "on Windows a plain INT_MIN / -1 (or % -1) hangs instead of trapping. Guard div and mod.")
+    if r.returncode == 3 and skip: return "the harness couldn't read a url= data file"
     if r.returncode != 0: return f"your kernel crashed (exit {r.returncode}). With -fsanitize-trap that usually means undefined behavior: signed overflow, INT_MIN / -1, a bad shift, or an out-of-bounds access."
     got, vals = {}, r.stdout.decode().split('\n')
     for line in vals:
       if not line.strip(): continue
       slot, v = line.split(); got.setdefault(int(slot), []).append(v)
+  if 'check' in h:
+    slot, lo = h['check']; g = got.get(slot, [])
+    if not g: return f"buffer {slot}: the harness read nothing"
+    v = struct.unpack('<f', struct.pack('<I', int(g[0], 16)))[0] if outs[slot].dtype == 'f32' else int(g[0])
+    return None if v >= lo else f"buffer {slot}[0] is {v:g}, the target is >= {lo:g}"
   for slot, (dt, data) in want.items():
     g = got.get(slot, [])
     if len(g) != len(data): return f"buffer {slot}: harness read {len(g)} values, expected {len(data)}"
@@ -202,9 +229,9 @@ def files(week, k):
 
 def grade(cmd, f):
   try:
-    text = O.read_text(f); h = headers(text)
-    if h.get('render'): return grade_render(cmd, text)
-    return grade_simplify(cmd, text, h['max_ops']) if 'max_ops' in h else grade_run(cmd, text)
+    text = O.read_text(f); h = headers(text); base = os.path.dirname(f)
+    if h.get('render'): return grade_render(cmd, text, base, h)
+    return grade_simplify(cmd, text, h['max_ops']) if 'max_ops' in h else grade_run(cmd, text, base)
   except Exception as e:                            # one broken case fails that case, never the whole run
     return f"grader error on this test: {type(e).__name__}: {e}"
 
@@ -221,13 +248,13 @@ def check_tests(fs):
   for f in fs:
     try:
       text = O.read_text(f); h = headers(text)
-      if h.get('render'): r = grade_render(ORACLE, text)
+      if h.get('render'): r = grade_render(ORACLE, text, os.path.dirname(f), h)
       elif 'max_ops' in h:
         try: O.parse(text)[0]['out']; r = grade_simplify(ORACLE, text, h['max_ops'])
         except (O.UIRError, KeyError) as e: r = f"simplify test must parse and define %out: {e}"
       elif 'expect' not in h: r = "missing '# expect: pass|assert_fail|invalid' header"
       else:
-        got, msg = oracle_run(text)
+        got, msg = oracle_run(text, os.path.dirname(f))
         r = None if got == h['expect'].split()[0] else f"header says {h['expect']}, oracle says {got}" + (f" ({msg})" if msg else "")
     except Exception as e: r = f"couldn't check: {type(e).__name__}: {e}"
     if r: bad += 1; print(f"BAD  {os.path.relpath(f)}\n    {r}")
@@ -238,6 +265,7 @@ def main():
   ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
   ap.add_argument('--compiler'); ap.add_argument('--week', type=int, default=1)
   ap.add_argument('-k', default=''); ap.add_argument('-v', action='store_true')
+  ap.add_argument('--skip', default='', help='leave out tests whose path contains this (e.g. mnist)')
   ap.add_argument('--jobs', type=int, default=os.cpu_count() or 4, help='parallel tests (use 1 if your compiler shares a lock, e.g. dune exec)')
   ap.add_argument('--check-tests'); ap.add_argument('--self-check', action='store_true')
   a = ap.parse_args()
@@ -246,7 +274,7 @@ def main():
     fs = sorted(glob.glob(os.path.join(a.check_tests, '**', '*.uir'), recursive=True))
     if not fs: sys.exit(f"no .uir files in {a.check_tests}")
     sys.exit(1 if check_tests(fs) else 0)
-  fs = files(a.week, a.k)
+  fs = [f for f in files(a.week, a.k) if not a.skip or a.skip not in rel(f)]
   if not fs: sys.exit(f"no tests for week {a.week}" + (f" matching '{a.k}'" if a.k else ""))
   if a.self_check: sys.exit(1 if check_tests(fs) else 0)
   if not a.compiler: ap.error("--compiler is required")

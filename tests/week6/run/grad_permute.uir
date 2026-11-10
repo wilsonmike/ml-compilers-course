@@ -1,0 +1,16 @@
+# expect: pass
+# permute: the gradient goes back through the inverse order
+%xb = buffer 6 dtype=f32 slot=0 data=[1.0 2.0 3.0 4.0 5.0 6.0]
+%x = load %xb
+%v = reshape %x shape=[1 2 3]
+%p = permute %v order=[2 0 1]
+%f = reshape %p shape=[6]
+%kb = buffer 6 dtype=f32 slot=2 data=[1.0 1e+01 1e+02 1e+03 1e+04 1e+05]
+%k = load %kb
+%q = mul %f %k
+%y = reduce %q op=add
+%g = gradient %y %v
+%gf = reshape %g shape=[6]
+%wb = buffer 6 dtype=f32 slot=1 data=[1.0 1e+02 1e+04 1e+01 1e+03 1e+05]
+%w = load %wb
+%t = assert %gf %w
