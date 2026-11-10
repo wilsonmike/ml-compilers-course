@@ -1,0 +1,54 @@
+{
+ "id": "w1-05-subst-py",
+ "lang": "python",
+ "title": "Substitution with closed bodies",
+ "prompt": "<p>Here is a toy term language with numbers, params, <code>Add</code>, and <code>Call(body, args)</code>. Write <code>subst(args, t)</code>: replace every <code>Param(i)</code> reachable from <code>t</code> with <code>args[i]</code>.</p><ul><li>A nested <code>Call</code>'s <strong>body is closed</strong>: leave it exactly as it is.</li><li>Its <strong>args are not</strong>: substitute inside them.</li><li>If there is no i-th arg, leave <code>Param(i)</code> alone.</li></ul><p>This is the 101 vs 102 bug from above, on a type small enough to see in one screen. Keep the given <code>show</code> function, because the tests print with it.</p>",
+ "show": "show",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Num:\n    n: int\n\n\n@dataclass(frozen=True)\nclass Param:\n    i: int\n\n\n@dataclass(frozen=True)\nclass Add:\n    a: \"Term\"\n    b: \"Term\"\n\n\n@dataclass(frozen=True)\nclass Call:\n    body: \"Term\"\n    args: list[\"Term\"]\n\n\nTerm = Num | Param | Add | Call\n\n\ndef show(t: Term) -> str:\n    \"\"\"Given: prints a term. Keep it. The tests use it.\"\"\"\n    match t:\n        case Num(n):\n            return str(n)\n        case Param(i):\n            return f\"p{i}\"\n        case Add(a, b):\n            return f\"add({show(a)}, {show(b)})\"\n        case Call(body, args):\n            return f\"call({show(body)}, [{'; '.join(show(x) for x in args)}])\"\n\n\ndef subst(args: list[Term], t: Term) -> Term:\n    \"\"\"Replace every Param(i) reachable from t with args[i] (leave it alone if there's no such arg).\n    A nested Call's body is closed: don't go inside it. Its args are not closed: do.\"\"\"\n    return t\n",
+ "tests": [
+  {
+   "expr": "subst([Num(5)], Add(Param(0), Num(1)))",
+   "expect": "add(5, 1)",
+   "sample": true
+  },
+  {
+   "expr": "subst([Num(7), Num(9)], Call(Add(Param(0), Num(100)), [Param(1)]))",
+   "expect": "call(add(p0, 100), [9])",
+   "sample": true
+  },
+  {
+   "expr": "subst([Num(1)], Num(42))",
+   "expect": "42"
+  },
+  {
+   "expr": "subst([Num(1), Num(2)], Add(Param(1), Param(0)))",
+   "expect": "add(2, 1)"
+  },
+  {
+   "expr": "subst([Num(3)], Param(4))",
+   "expect": "p4"
+  },
+  {
+   "expr": "subst([Add(Param(0), Num(1))], Add(Param(0), Param(0)))",
+   "expect": "add(add(p0, 1), add(p0, 1))"
+  },
+  {
+   "expr": "subst([Num(8)], Call(Call(Param(0), [Param(0)]), [Add(Param(0), Num(2))]))",
+   "expect": "call(call(p0, [p0]), [add(8, 2)])"
+  },
+  {
+   "expr": "subst([Num(2)], Add(Call(Param(0), [Param(0)]), Param(0)))",
+   "expect": "add(call(p0, [2]), 2)"
+  },
+  {
+   "expr": "subst([], Call(Param(0), []))",
+   "expect": "call(p0, [])"
+  }
+ ],
+ "hints": [
+  "Write one `match` case per class. `Num` has nothing to replace. `Param(i)` is the only place a replacement happens.",
+  "For `Param(i)`, check `i < len(args)` before indexing, because `args[4]` on a short list raises `IndexError`. Keep the `Param` when there's no such arg. `Add` rebuilds itself from both substituted sides.",
+  "For `Call(body, xs)`, substitute inside each arg in `xs` but return `body` exactly as it is. Its params belong to that inner call, not to you."
+ ],
+ "explain": "Substitution only touches `Param` nodes, rebuilds `Add` from its substituted sides, and at a nested `Call` rewrites the args but keeps the body. That is the closed-body rule: the inner body's `Param(0)` refers to the inner call's own args, so walking into it would wire in the wrong values."
+}

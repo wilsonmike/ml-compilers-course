@@ -12,14 +12,14 @@ those, and puts a diagram before every idea.
 
 | week | topic | lessons | tests | spec |
 |---|---|---|---|---|
-| 0 | prerequisites: C, memory, IRs, tensors, matmul, OCaml | 6 | exercises only | |
+| 0 | prerequisites: C, memory, IRs, tensors, matmul, Python or OCaml | 7 | exercises only | |
 | 1 | UOps and rewrites | 6 | 142 | [uir-week1.md](spec/uir-week1.md) |
 | 2 | memory and rendering C | 6 | 99 | [uir-week2.md](spec/uir-week2.md) |
 | 3 | loops | 6 | 89 | [uir-week3.md](spec/uir-week3.md) |
 | 4 | rangeify, reduce, materialization | 6 | 77 | [uir-week4.md](spec/uir-week4.md) |
 | 5 | movement ops: reshape, permute, pad, shrink, any rank | 6 | 94 | [uir-week5.md](spec/uir-week5.md) |
 
-221 quizzes with hints and answers, 84 graded exercises, and 501 compiler tests. The tests catch all 158 bugs that
+225 quizzes with hints and answers, 110 graded exercises (26 of them Python versions), and 501 compiler tests. The tests catch all 158 bugs that
 `_reference/mutants.py` plants in the reference compiler. The `.uir` format is our own until the official 10-411 one
 is published, and then the specs and tests migrate.
 
@@ -31,10 +31,17 @@ cd ml-compilers-course
 python tools/serve.py                       # the course and exercise runner at http://127.0.0.1:4111
 ```
 
-Python 3.10 or newer, standard library only. Every lesson has LeetCode-style exercises in OCaml, C, or .uir. Type in
-the editor (Vim, Emacs, or Sublime keys, picked in the sidebar). **Run** checks the examples and **Submit** runs the
-hidden tests, compiled on your machine. C needs `clang` or `gcc`, and OCaml needs `ocaml` on PATH. Without a local
-OCaml you can use `--ocaml "docker run --rm -i ocaml/opam:alpine-ocaml-5.2 ocaml"`. The runner only listens on
+Python 3.10 or newer, standard library only.
+
+You write your compiler in one of two languages, picked under Language in the sidebar: **Python** (the default) or
+**OCaml**. Lesson 0.7 sets up a Python compiler project and covers the Python traps that matter here (i32 wrapping,
+floor division, f32 rounding). Lesson 0.6 teaches OCaml from scratch. Exercises and the few instructions that differ
+follow the track you pick.
+
+Every lesson has LeetCode-style exercises in your language, C, or .uir. Type in the editor (Vim, Emacs, or Sublime
+keys, picked in the sidebar). **Run** checks the examples and **Submit** runs the hidden tests, on your machine.
+Python exercises need nothing extra. C needs `clang` or `gcc`, and OCaml exercises need `ocaml` on PATH. Without a
+local OCaml you can use `--ocaml "docker run --rm -i ocaml/opam:alpine-ocaml-5.2 ocaml"`. The runner only listens on
 127.0.0.1 and refuses requests from other sites.
 
 The lessons also read fine on the hosted site or straight from disk. There the exercises show their examples, hints,
@@ -50,6 +57,10 @@ python tools/test.py --compiler C:/path/to/your.exe --week 1        # grade your
 python tools/test.py --compiler C:/path/to/your.exe -k call -v      # one topic, with details
 python tools/test.py --check-tests C:/path/to/your/tests/week1      # check your own tests' headers
 ```
+
+`--compiler` is anything the runner can start as `COMPILER run FILE`: a built OCaml executable such as
+`_build/default/bin/main.exe`, or for a Python compiler the small wrapper script from lesson 0.7 (`mlc.cmd` on Windows,
+an executable `mlc` script on macOS and Linux).
 
 ## Layout
 

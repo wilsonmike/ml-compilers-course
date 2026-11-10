@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Python for This Course</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Week 0|Python for this course" data-root="../">
+<main>
+  <p class="eyebrow">Week 0 · Lesson 7</p>
+  <h1>Python for this course</h1>
+  <p class="lede">You're going to write your compiler in Python. You probably know the language already. This lesson is about the parts that matter for a compiler: a project the grader can run, the places where Python's numbers differ from C's, and the tools that make graphs of nodes easy.</p>
+
+  <div class="note">
+    <span class="label">Which track is this?</span>
+    <p>This lesson is for the Python track. If you picked OCaml under Language in the sidebar, <a href="06-ocaml.html">lesson 0.6</a> is yours instead, and you can skip this one.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">Why the examples are cards and words</span>
+    <p>Like lesson 0.6, this page teaches the language, not the course. You won't find a UOp class or a parser here, on purpose. Turning "deck of cards" ideas into "graph of ops" ideas is part of the learning.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Install</h2>
+    <p>You need Python 3.10 or newer, because <code>match</code> arrived in 3.10. The course uses only the standard library, so there's nothing else to install. Check what you have:</p>
+  </div>
+<pre><code>python --version              # Windows. 3.10 or newer?
+python3 --version             # macOS and Linux</code></pre>
+  <div class="prose">
+    <p>If it's missing or too old: on Windows, <code>winget install Python.Python.3.12</code> (then open a new terminal), or the installer from python.org with "Add python.exe to PATH" ticked. On macOS, <code>brew install python</code>. On Ubuntu or WSL, <code>sudo apt install python3</code>. The course's own tools, <code>tools/serve.py</code> and <code>tools/test.py</code>, run on the same Python.</p>
+    <p>For an editor, use VS Code with the <b>Python</b> extension. Write type hints on your functions (<code>def wrap32(x: int) -&gt; int</code>). Python ignores them at run time, but the editor uses them to show the type of anything you hover and to flag a <code>None</code> you forgot to handle. In a compiler full of nodes, that catches real bugs.</p>
+
+    <h2>A project the grader can run</h2>
+    <p>Your compiler is a <b>package</b>: a folder of modules with an <code>__init__.py</code>. A <code>__main__.py</code> inside it is what <code>python -m mlc</code> runs. Make a new folder <em>outside</em> the course repo, like this:</p>
+  </div>
+<pre><code>my-ml-compiler/
+  mlc/
+    __init__.py         # empty: it marks mlc as a package
+    __main__.py         # the command line: reads sys.argv, calls the rest, exits
+    ...                 # your modules: one per idea, as the weeks go on
+  tests/                # your own .uir tests
+  mlc.cmd               # Windows wrapper (below)
+  mlc                   # macOS and Linux wrapper (below)
+  AGENTS.md             # copied from the course's templates/</code></pre>
+  <div class="prose">
+    <p>Each <code>.py</code> file is a module, and inside the package you import siblings by name: <code>from mlc.words import count</code>. Start <code>__main__.py</code> with something that only reads its arguments and sets the exit code:</p>
+  </div>
+<pre><code>import sys
+
+def main(argv: list[str]) -&gt; int:
+    match argv:
+        case ["count", path]:
+            with open(path, encoding="utf-8") as f:
+                print(len(f.read().splitlines()), "lines")
+            return 0
+        case _:
+            print("usage: mlc count FILE", file=sys.stderr)
+            return 2
+
+sys.exit(main(sys.argv[1:]))</code></pre>
+  <div class="prose">
+    <p><code>sys.argv[0]</code> is the program name, so <code>sys.argv[1:]</code> is the arguments. <code>sys.exit(n)</code> ends the program with status <code>n</code>, which is how the course's test runner learns whether a test passed. <code>print(..., file=sys.stderr)</code> writes to stderr. <code>splitlines()</code> doesn't count an empty line after a final newline, which plain <code>split("\n")</code> does.</p>
+    <p>The test runner, <code>tools/test.py</code>, runs your compiler as <code>COMPILER run FILE</code> from the course repo's folder. <code>python -m mlc</code> only finds <code>mlc</code> when its parent folder is on Python's path, so give the grader a small wrapper that sets it. On Windows, save this as <code>mlc.cmd</code> next to the <code>mlc</code> folder:</p>
+  </div>
+<pre><code>@echo off
+set "PYTHONPATH=%~dp0"
+python -m mlc %*</code></pre>
+  <div class="prose">
+    <p><code>%~dp0</code> is the folder the <code>.cmd</code> file lives in, and <code>%*</code> passes every argument through. The exit code of the last line becomes the wrapper's exit code. On macOS and Linux, save this as <code>mlc</code> and run <code>chmod +x mlc</code> once:</p>
+  </div>
+<pre><code>#!/bin/sh
+PYTHONPATH="$(dirname "$0")" exec python3 -m mlc "$@"</code></pre>
+  <div class="prose">
+    <p>Then, from the course repo, point the grader at the wrapper:</p>
+  </div>
+<pre><code>python tools/test.py --compiler "C:/path/to/my-ml-compiler/mlc.cmd" --week 1     # Windows
+python3 tools/test.py --compiler ~/my-ml-compiler/mlc --week 1                   # macOS and Linux</code></pre>
+  <div class="trap">
+    <span class="label">A traceback is not an answer</span>
+    <p>An uncaught exception prints a traceback and exits with status 1, which the grader reads as "an assert failed". When your compiler rejects a program, it must print a line starting <code>invalid:</code> to stderr and exit 2. Raise your own exception class for that, catch it in <code>main</code>, and let anything else crash loudly while you're developing, so you see it.</p>
+  </div>
+<div class="note">
+    <span class="label">Running the exercises</span>
+    <p>The editors in these lessons are graded by <code>python tools/serve.py</code>, which runs your Python exercises with the same Python that runs the server. Nothing else is needed.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Integers never overflow</h2>
+    <p>A Python <code>int</code> grows as large as it needs to. <code>2147483647 + 1</code> is <code>2147483648</code>, and <code>2**100</code> is exact. That's lovely for a calculator and wrong for your compiler: the language you're compiling has a 32-bit <code>i32</code> that <em>must</em> wrap, the way C's <code>int32_t</code> does. Python won't wrap for you, so you wrap after every operation.</p>
+  </div>
+<pre><code>x = 2147483647 + 1                 # 2147483648: no wrap
+low = x &amp; 0xFFFFFFFF               # 2147483648: the low 32 bits, read as unsigned
+y = low - 2**32 if low &gt;= 2**31 else low    # -2147483648: read as signed
+print(x, low, y)</code></pre>
+  <div class="prose">
+    <p><code>&amp;</code> on a negative int acts as if it had infinitely many sign bits, so <code>-1 &amp; 0xFFFFFFFF</code> is <code>4294967295</code>. Masking then fixing the sign works for every int. Do it in one helper and call it everywhere an i32 is produced: add, multiply, shift left, negate, and division (yes, division, see below).</p>
+    <p><code>&gt;&gt;</code> on a negative int is an arithmetic shift, like C's on signed values. <code>&lt;&lt;</code> never drops bits, so <code>1 &lt;&lt; 40</code> is a 41-bit number until you wrap it.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-07-wrap32">
+    <h3>Wrap a Python int to 32 bits</h3>
+    <p>Write <code>wrap32(x)</code>: the signed 32-bit value with the same low 32 bits as <code>x</code>. It has to work for any size of int, positive or negative.</p>
+    <p class="muted">A mask and a sign fix, or the one-line version that shifts the range first.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Division floors, C truncates</h2>
+    <p>Python's <code>//</code> rounds toward negative infinity. C's <code>/</code> on ints rounds toward zero. They agree when the signs agree and disagree otherwise. <code>%</code> follows <code>//</code>, so it takes the sign of the divisor in Python and the sign of the dividend in C.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>expression</th><th>Python</th><th>C (and your compiler's <code>div</code>, <code>mod</code>)</th></tr></thead>
+    <tbody>
+      <tr><td><code>7 / 2</code>, <code>7 % 2</code></td><td><code>3</code>, <code>1</code></td><td><code>3</code>, <code>1</code></td></tr>
+      <tr><td><code>-7 / 2</code>, <code>-7 % 2</code></td><td><code>-4</code>, <code>1</code></td><td><code>-3</code>, <code>-1</code></td></tr>
+      <tr><td><code>7 / -2</code>, <code>7 % -2</code></td><td><code>-4</code>, <code>-1</code></td><td><code>-3</code>, <code>1</code></td></tr>
+      <tr><td><code>-7 / -2</code>, <code>-7 % -2</code></td><td><code>3</code>, <code>-1</code></td><td><code>3</code>, <code>-1</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>The Python column uses <code>//</code> where the table says <code>/</code>. Plain <code>/</code> in Python always gives a float: <code>7 / 2</code> is <code>3.5</code>. <code>int(3.5)</code> truncates toward zero, but going through a float is a habit to avoid, since floats can't hold every 64-bit int. Divide the absolute values with <code>//</code> and put the sign back yourself. <code>math.fmod</code> is C's <code>fmod</code> for floats, which truncates like C. And <code>round(2.5)</code> is <code>2</code>, because Python rounds halves to even.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-07-div32">
+    <h3>C-style 32-bit division</h3>
+    <p>Write <code>div32(a, b)</code> for i32 values: truncate toward zero, wrap to 32 bits, and return <code>None</code> when <code>b</code> is 0. (The OCaml track raises an exception for zero. Lesson 1.2 returns "no value" too.)</p>
+    <p class="muted">The starter's <code>//</code> is wrong for mixed signs. And exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
+  </div>
+
+  <div class="prose">
+    <h2>Floats are doubles</h2>
+    <p>Python's <code>float</code> is a 64-bit double. The course's <code>f32</code> is single precision. To round a double to the nearest single, pack it into 4 bytes with <code>struct</code> and unpack it again:</p>
+  </div>
+<pre><code>import struct
+
+def to_f32(x: float) -&gt; float:
+    return struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]
+
+print(repr(0.1), repr(to_f32(0.1)))
+# 0.1 0.10000000149011612</code></pre>
+  <div class="prose">
+    <p><code>"&lt;f"</code> means one little-endian 32-bit float. <code>struct.pack</code> rounds to the nearest single, ties to even, exactly like C's <code>(float)</code> cast. <code>"&lt;I"</code> reads the same 4 bytes as an unsigned int, which is how you get at an f32's bits: <code>struct.unpack("&lt;I", struct.pack("&lt;f", x))[0]</code>.</p>
+  </div>
+  <div class="trap">
+    <span class="label">struct refuses to overflow</span>
+    <p>C turns a double that's too big for a float into infinity. <code>struct.pack("&lt;f", 1e39)</code> raises <code>OverflowError</code> instead. Catch it and return <code>math.copysign(math.inf, x)</code>. NaN and the infinities themselves pack fine. And round after <em>every</em> f32 operation, not just at the end: <code>a + b</code> on two f32 values is computed in double, and the sum has to be rounded back before anything else uses it.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-07-is-f32">
+    <h3>Is it already an f32?</h3>
+    <p>Write <code>is_f32(x)</code>: <code>True</code> when the float <code>x</code> is exactly representable in single precision. NaN and the infinities count as representable.</p>
+    <p class="muted">Round it with the trick above and compare. Then check what your answer says about <code>float('nan')</code> and <code>1e39</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Equal is not the same key</h2>
+    <p>A dict finds a key by its hash and then by <code>==</code>. That's usually what you want, and for a compiler it hides three traps, because Python considers some different values equal:</p>
+  </div>
+<pre><code>print({0.0: "a", -0.0: "b"})       # {0.0: 'b'}: one key, since -0.0 == 0.0
+print({1: "a", True: "b"})          # {1: 'b'}: True == 1, and 1 == 1.0 too
+nan = float("nan")
+d = {nan: "a"}
+print(d.get(nan), d.get(float("nan")))   # a None: the same NaN object is found, a new one isn't</code></pre>
+  <div class="prose">
+    <p>In week 1 you'll keep a table from "what a node is" to the node itself, so that building the same node twice returns the one you already have. If its key holds a float constant as a plain float, <code>0.0</code> and <code>-0.0</code> become one node, and they are different f32 values (in C, <code>1.0f / -0.0f</code> is <code>-inf</code>). A NaN constant never finds itself. An i32 <code>1</code> and a bool <code>true</code> collide unless the dtype is part of the key. The fix for all three: key on the dtype plus the value's <em>bits</em>, not the value. <code>struct</code> gives you the bits.</p>
+    <p>NaN also breaks <code>==</code> everywhere else: <code>nan == nan</code> is <code>False</code>. Test for it with <code>math.isnan</code>. Test for <code>-0.0</code> with <code>math.copysign(1.0, x) &lt; 0</code>, since <code>-0.0 == 0.0</code>.</p>
+
+    <h2>Frozen dataclasses, <code>==</code> and <code>is</code></h2>
+    <p>A <b>dataclass</b> writes the boring parts of a class for you: the constructor, a readable <code>repr</code>, and <code>==</code>. <code>frozen=True</code> makes instances immutable, which is what a node in a graph should be: once built, it never changes.</p>
+  </div>
+<pre><code>from dataclasses import dataclass
+from enum import Enum
+
+class Suit(Enum):
+    HEARTS = 1
+    DIAMONDS = 2
+    CLUBS = 3
+    SPADES = 4
+
+@dataclass(frozen=True)
+class Card:
+    rank: int        # 2 through 14, where 11 is a Jack and 14 an Ace
+    suit: Suit
+
+a = Card(14, Suit.SPADES)
+b = Card(14, Suit.SPADES)
+print(a == b, a is b)        # True False
+print(len({a, b}))           # 1: frozen dataclasses hash by their fields
+# a.rank = 2                 # dataclasses.FrozenInstanceError</code></pre>
+  <div class="prose">
+    <p>An <b>enum</b> is a fixed set of named values. <code>Suit.HEARTS</code> is never equal to <code>1</code> or to a string, so a typo becomes an error instead of a silent mismatch. Use one for anything with a fixed list of choices, like a set of ops or dtypes.</p>
+    <p>Python has two equalities. <code>a == b</code> calls the class's <code>__eq__</code>. For a dataclass, that compares every field, and if a field holds another node, it compares that one too, all the way down. On a big graph that can take as long as the graph is big. <code>a is b</code> asks whether they're the very same object in memory, which is one pointer comparison. Remember this distinction. It matters in week 1.</p>
+    <p>Writing <code>@dataclass(frozen=True, eq=False)</code> keeps the fields immutable but leaves <code>==</code> and <code>hash</code> as identity, the same as <code>is</code>. That's the right choice for a class whose instances you guarantee are unique, and slow structural equality is the wrong one. If you ever key a dict on <code>id(x)</code>, keep <code>x</code> alive, because Python reuses the id of an object that has been freed.</p>
+
+    <h2>match</h2>
+    <p><code>match</code> takes a value apart by its shape. With one small class per kind of card, each <code>case</code> names a class and pulls out its fields. Dataclasses support positional patterns like <code>Number(n, _)</code> automatically.</p>
+  </div>
+<pre><code>@dataclass(frozen=True)
+class Number:          # 2 through 10
+    n: int
+    suit: Suit
+
+@dataclass(frozen=True)
+class King:
+    suit: Suit
+
+@dataclass(frozen=True)
+class Ace:
+    suit: Suit
+
+def describe(card) -&gt; str:
+    match card:
+        case Number(n, Suit.HEARTS) if n &gt;= 9:    # nested pattern plus a guard
+            return "a high heart"
+        case Ace(Suit.SPADES):
+            return "the ace of spades"
+        case Number(n, _):
+            return f"the number {n}"
+        case King() | Ace():                       # either class, any fields
+            return "a high card"
+        case _:
+            raise TypeError(f"not a card: {card!r}")</code></pre>
+  <div class="prose">
+    <p>Cases are tried top to bottom, and the first that matches wins. <code>Number(n, _)</code> binds the first field to <code>n</code> and ignores the second. <code>if n &gt;= 9</code> is a guard: the case only matches if it's true. Sequence patterns work too: <code>case [first, *rest]:</code> matches a list or tuple with at least one element.</p>
+  </div>
+  <div class="trap">
+    <span class="label">No one checks that you covered every case</span>
+    <p>OCaml's compiler warns when a <code>match</code> misses a case. Python doesn't. Add a class next month, and every <code>match</code> that forgot it silently falls through and returns <code>None</code>. End each <code>match</code> with <code>case _:</code> that raises, so a missing case is a loud error. And literal patterns compare with <code>==</code>: <code>case 0:</code> matches <code>0.0</code>, <code>-0.0</code>, and <code>False</code>. A rewrite rule like "x + 0 is x" must also check the dtype, because it's wrong for f32 (<code>-0.0 + 0.0</code> is <code>0.0</code>).</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-07-hand-value">
+    <h3>Blackjack hand value</h3>
+    <p>The starter defines <code>Number</code>, <code>Jack</code>, <code>Queen</code>, <code>King</code>, and <code>Ace</code> card classes. Write <code>hand_value(hand)</code>. Numbers are worth their number, faces 10, and an Ace 11. But while the total is over 21, an Ace may count as 1 instead, one Ace at a time.</p>
+    <p class="muted">A <code>match</code> for the points, <code>sum</code> for the total. Keep the classes in the starter exactly as they are: the tests build cards with them.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Dicts, sorting, and caches</h2>
+    <p>A dict is your hash table. It keeps keys in insertion order, which makes output reproducible. <code>sorted</code> takes a <code>key</code> function, and a tuple key sorts by its first element, then its second.</p>
+  </div>
+<pre><code>counts: dict[str, int] = {}
+for word in ["kiwi", "pear", "kiwi"]:
+    counts[word] = counts.get(word, 0) + 1
+print(counts)                                             # {'kiwi': 2, 'pear': 1}
+print(sorted(counts.items(), key=lambda wn: -wn[1]))      # most common first</code></pre>
+  <div class="prose">
+    <p><code>functools.cache</code> remembers a function's results by its arguments, so a second call with the same arguments returns at once. It's the quickest memo there is. It has two catches. The cache lives as long as the program, so it never forgets. And it keys only on the arguments: if the answer also depends on something else, such as the values bound for the current function call, a global cache will hand back a stale answer. A plain dict that you create, pass around, and drop when you're done is often the better memo.</p>
+  </div>
+<pre><code>from functools import cache
+
+@cache
+def ways(n: int) -&gt; int:          # ways to climb n stairs, 1 or 2 at a time
+    return 1 if n &lt;= 1 else ways(n - 1) + ways(n - 2)
+
+print(ways(90))                     # instant: each n is computed once</code></pre>
+
+  <div class="exercise" data-ex="w0-07-top-words">
+    <h3>The k most common words</h3>
+    <p>Write <code>top_words(k, words)</code>. Count every word, then return the <code>k</code> most frequent as <code>(word, count)</code> tuples: higher counts first, and ties broken alphabetically (plain string order, so <code>"A"</code> sorts before <code>"a"</code>). If there are fewer than <code>k</code> distinct words, return them all.</p>
+    <p class="muted">Tools: a dict to count, <code>sorted</code> with a tuple key, and a slice to take a prefix.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Deep graphs and the recursion limit</h2>
+    <p>Python stops any recursion deeper than about 1000 calls with <code>RecursionError</code>. A walk over a graph recurses once per level, and a .uir program can be a chain thousands of nodes long. There are two fixes. <code>sys.setrecursionlimit(100_000)</code> raises the limit, and it's fine for a few thousand levels. The sturdier fix is to keep your own stack in a list:</p>
+  </div>
+<pre><code>def total(tree) -&gt; int:            # tree: None, or a tuple (left, value, right)
+    stack, out = [tree], 0
+    while stack:
+        t = stack.pop()
+        if t is not None:
+            left, value, right = t
+            out += value
+            stack.append(left)
+            stack.append(right)
+    return out</code></pre>
+  <div class="prose">
+    <p>The loop does what the recursion would have done, but its "call stack" is an ordinary list, limited only by memory. For a walk that must visit a node's children <em>before</em> the node, push the node back with a "finished" flag before its children, and emit it when it comes off the stack the second time.</p>
+  </div>
+
+  <h2>Capstone: the toposort from lesson 0.3</h2>
+  <div class="exercise" data-ex="w0-07-topo">
+    <h3>Toposort a tiny DAG, in Python</h3>
+    <p>This is lesson 0.3's toposort, now with the traps in view. A graph is a list of <code>Node(name, srcs)</code>, each name appearing once, with <code>srcs</code> a tuple of names. Write <code>topo(graph, root)</code>: every name reachable from <code>root</code>, <b>each exactly once</b>, in depth-first post-order. Visit a node's <code>srcs</code> left to right, then emit the node itself.</p>
+    <p>For <code>(a + b) * (a + b)</code> that's <code>["a", "b", "add", "mul"]</code>. Nodes not reachable from <code>root</code> are left out. One hidden test is the 31-level doubling DAG from lesson 0.3's trap, so remember what you've visited. Another is a chain 5000 nodes deep.</p>
+    <details class="toggle">
+      <summary>Python hints</summary>
+      <p>Build <code>{n.name: n for n in graph}</code> once, so looking a node up is one dict access. A <code>set</code> remembers what you've seen. Then either raise the recursion limit or use an explicit stack, as shown just above.</p>
+    </details>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="-4">
+    <p class="q">Predict the value of <code>-7 // 2</code> in Python.</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Python's <code>//</code> doesn't truncate toward zero. Which way does it round?</p>
+    <p class="hint">The true quotient is -3.5. Round it toward negative infinity.</p>
+    <div class="why"><p><code>//</code> floors, so -3.5 becomes -4. C's <code>/</code> gives -3, and so must your compiler's <code>div</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">How many keys does <code>{0.0: "a", -0.0: "b", False: "c"}</code> have?</p>
+    <div class="opts"><button data-k="a">3</button><button data-k="b">2</button><button data-k="c">1</button></div>
+    <p class="hint">A dict treats two keys as the same when they hash alike and compare equal with <code>==</code>.</p>
+    <p class="hint">Is <code>-0.0 == 0.0</code>? Is <code>False == 0</code>?</p>
+    <div class="why"><p>All three are equal to each other, so they're one key, and the dict ends up as <code>{0.0: 'c'}</code>. That's why a node table must key on the dtype and the value's bits.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">With <code>Card</code> the frozen dataclass from above, what are <code>Card(2, Suit.CLUBS) == Card(2, Suit.CLUBS)</code> and <code>Card(2, Suit.CLUBS) is Card(2, Suit.CLUBS)</code>?</p>
+    <div class="opts"><button data-k="a"><code>True</code> and <code>False</code></button><button data-k="b"><code>True</code> and <code>True</code></button><button data-k="c"><code>False</code> and <code>False</code></button></div>
+    <p class="hint">A dataclass's <code>==</code> compares fields. <code>is</code> asks whether two values are the same object in memory.</p>
+    <p class="hint">Were the two cards built separately?</p>
+    <div class="why"><p>Same fields, so <code>==</code> is <code>True</code>. Two separate constructor calls make two objects, so <code>is</code> is <code>False</code>. If you had a way to guarantee that equal values are always the <em>same</em> object, <code>is</code> would be enough. Hold that thought until week 1.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What does <code>struct.pack("&lt;f", 1e39)</code> do?</p>
+    <div class="opts"><button data-k="a">Returns the bytes of f32 infinity</button><button data-k="b">Raises <code>OverflowError</code></button><button data-k="c">Returns the bytes of the largest finite f32</button></div>
+    <p class="hint">The largest f32 is about 3.4 × 10<sup>38</sup>. What would C do here, and does <code>struct</code> do the same?</p>
+    <div class="why"><p>C's cast gives infinity, but <code>struct</code> refuses with <code>OverflowError</code>. Your f32 rounding has to catch it and return an infinity with the right sign.</p></div>
+  </div>
+
+  <nav class="pager"><a href="06-ocaml.html">← OCaml crash course</a><a href="../week1/01-the-uop.html">week 1: the UOp →</a></nav>
+</main>
+</body>
+</html>

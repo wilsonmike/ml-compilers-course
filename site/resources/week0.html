@@ -10,7 +10,7 @@
 <body data-root="../">
 <main>
   <h1>Week 0 study guide</h1>
-  <p class="lede">Week 0 is the toolbox: C and memory, what an IR is, tensors as views of flat memory, matrix multiply, and enough OCaml to write a compiler. Use this page to review before week 1, or to find the one idea that didn't stick.</p>
+  <p class="lede">Week 0 is the toolbox: C and memory, what an IR is, tensors as views of flat memory, matrix multiply, and enough Python or OCaml to write a compiler. Use this page to review before week 1, or to find the one idea that didn't stick.</p>
 
   <h2>The week in one page</h2>
   <h3><a href="../week0/01-c-and-pointers.html">0.1 C and pointers</a></h3>
@@ -25,6 +25,9 @@
   <p>Each output of <code>A @ B</code> is a dot product of a row of A with a column of B. For M×K times K×N, that's M·N outputs and 2·M·N·K floating-point operations. The syllabus writes it as a broadcast multiply followed by a sum over the shared axis.</p>
   <h3><a href="../week0/06-ocaml.html">0.6 OCaml crash course</a></h3>
   <p>Variants plus pattern matching are the heart of a compiler written in OCaml. OCaml's <code>int</code> is 63 bits, so the course's 32-bit integers need <code>Int32</code> or explicit wrapping. Floats are doubles, so round to f32 with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
+  <h3><a href="../week0/07-python.html">0.7 Python for this course</a></h3>
+  <p>Dataclasses hold IR nodes, dicts do the hash consing, and <code>match</code> with class patterns branches on a node's shape. Python's ints never overflow, so i32 needs explicit wrapping, and <code>//</code> floors where C truncates. Floats are doubles, so round to f32 with <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>.</p>
+  <p>You only need the lesson for your track. The sidebar's Language picker chooses it, and <a href="languages.html">Python and OCaml, deeper</a> goes further in both.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -48,7 +51,19 @@
       <tr><td><code>(M, K) @ (K, N)</code></td><td>shape <code>(M, N)</code>, 2·M·N·K flops</td></tr>
     </tbody>
   </table></div>
-  <div class="tablewrap"><table>
+  <div class="tablewrap only-python"><table>
+    <thead><tr><th>Python</th><th>meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>@dataclass(frozen=True)</code></td><td>an immutable record with generated <code>__init__</code></td></tr>
+      <tr><td><code>match e:</code> / <code>case Add(x, y):</code></td><td>pattern matching on a value's class and fields</td></tr>
+      <tr><td><code>d.get(k)</code>, <code>d[k] = v</code>, <code>d.setdefault(k, v)</code></td><td>a dict lookup, store, and store if missing</td></tr>
+      <tr><td><code>-7 // 2</code>, <code>-7 % 2</code></td><td><code>-4</code>, <code>1</code> (floors, unlike C)</td></tr>
+      <tr><td><code>2**31 - 1 + 1</code></td><td><code>2147483648</code> (Python ints never wrap)</td></tr>
+      <tr><td><code>ctypes.c_int32(2**31).value</code></td><td><code>-2147483648</code> (wraps, handy for checking your own wrap)</td></tr>
+      <tr><td><code>x.hex()</code></td><td>a float's exact value as a hex float</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap only-ocaml"><table>
     <thead><tr><th>OCaml</th><th>meaning</th></tr></thead>
     <tbody>
       <tr><td><code>type t = A | B of int * t</code></td><td>a variant whose <code>B</code> carries a pair</td></tr>
@@ -69,15 +84,16 @@
     <li><strong>Mixing up bytes and elements.</strong> Lesson 0.2 counts addresses in bytes, and lesson 0.4 counts strides in elements. A float at element 5 is at byte 20.</li>
     <li><strong>Computing a size in <code>int</code> before widening.</strong> <code>4 * n</code> overflows before it reaches a <code>long long</code>. Write <code>4LL * n</code>.</li>
     <li><strong>Forgetting the clamp on a padded read.</strong> Reading <code>x[-1]</code> is undefined even if you throw the value away. Check the index first.</li>
-    <li><strong>Assuming OCaml's <code>int</code> is 32 bits.</strong> It's 63, so <code>2147483647 + 1</code> is <code>2147483648</code>, not <code>INT_MIN</code>. Use <code>Int32</code> or wrap by hand.</li>
-    <li><strong>Comparing floats with <code>=</code> and expecting NaN to equal itself.</strong> <code>nan = nan</code> is false in OCaml and C. Week 1's <code>assert</code> deliberately treats two NaNs as equal, and your own code has to do the same on purpose.</li>
+    <li class="only-ocaml"><strong>Assuming OCaml's <code>int</code> is 32 bits.</strong> It's 63, so <code>2147483647 + 1</code> is <code>2147483648</code>, not <code>INT_MIN</code>. Use <code>Int32</code> or wrap by hand.</li>
+    <li class="only-python"><strong>Assuming Python's <code>int</code> wraps somewhere.</strong> It never does, so <code>2147483647 + 1</code> is <code>2147483648</code>, not <code>INT_MIN</code>. Wrap to 32 bits after every i32 op.</li>
+    <li><strong>Comparing floats with <code>=</code> and expecting NaN to equal itself.</strong> <code>nan = nan</code> is false in OCaml and C, and <code>nan == nan</code> is false in Python. Week 1's <code>assert</code> deliberately treats two NaNs as equal, and your own code has to do the same on purpose.</li>
   </ol>
 
   <h2>Stuck on an exercise?</h2>
   <ol>
     <li><strong>Read the examples under the prompt first.</strong> They show the exact call and the expected output. Run your code on them with Run before Submit.</li>
     <li><strong>A C exercise crashes or times out on one test.</strong> The runner traps undefined behavior, so a crash usually means signed overflow, <code>INT_MIN / -1</code>, or reading past an array. On Windows, a naive <code>INT_MIN / -1</code> can hang instead of crashing.</li>
-    <li><strong>An OCaml exercise says "keep the function name and type".</strong> The tests call your function by name. If you renamed it or changed its argument types, the harness can't compile.</li>
+    <li><strong>An exercise says "keep the function name and type".</strong> The tests call your function by name. If you renamed it or changed its arguments, the harness can't <span class="only-ocaml">compile</span><span class="only-python">call it</span>.</li>
     <li><strong>A hidden test fails and you can't see why.</strong> Submit shows the input and expected value of the first failing hidden test. Re-create that case by hand and trace your code on it.</li>
     <li><strong>Still stuck.</strong> Each exercise has hints that build up one at a time, and Show answer explains the reference solution. Try one hint, then one more attempt, before looking.</li>
   </ol>
@@ -133,15 +149,18 @@
     <li><a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">What Every Programmer Should Know About Memory</a> (Ulrich Drepper). The long version of lesson 0.2: caches, TLBs and why access order matters.</li>
     <li><a href="https://blog.regehr.org/archives/213">A Guide to Undefined Behavior in C and C++</a> (John Regehr). Why compilers exploit undefined behavior, with examples that will surprise you.</li>
     <li><a href="https://en.cppreference.com/w/c/language/behavior">cppreference: undefined behavior</a>. The precise list of what C leaves undefined.</li>
-    <li><a href="https://dev.realworldocaml.org/">Real World OCaml</a>. A free book that goes well past the crash course: modules, functors, and the standard library you'll lean on.</li>
-    <li><a href="https://ocaml.org/docs">OCaml documentation</a>. The standard library reference for <code>Int32</code>, <code>Hashtbl</code> and <code>Printf</code>.</li>
+    <li class="only-ocaml"><a href="https://dev.realworldocaml.org/">Real World OCaml</a>. A free book that goes well past the crash course: modules, functors, and the standard library you'll lean on.</li>
+    <li class="only-ocaml"><a href="https://ocaml.org/docs">OCaml documentation</a>. The standard library reference for <code>Int32</code>, <code>Hashtbl</code> and <code>Printf</code>.</li>
+    <li class="only-python"><a href="https://docs.python.org/3/tutorial/">The Python tutorial</a>. The official tour, worth a skim for classes, dicts, and the standard library if your Python is rusty.</li>
+    <li class="only-python"><a href="https://docs.python.org/3/library/">The Python standard library</a>. The reference for <code>struct</code>, <code>dataclasses</code>, <code>functools</code> and <code>subprocess</code>, the modules a Python compiler leans on.</li>
+    <li><a href="languages.html">Python and OCaml, deeper</a>. Idioms, traps, and reading for each language, week by week.</li>
     <li><a href="https://en.wikipedia.org/wiki/Row-_and_column-major_order">Row- and column-major order</a>. Short, with pictures of how the same array is laid out both ways.</li>
   </ul>
   <h3>Challenges</h3>
   <ol>
     <li><strong>Time the cache effect yourself.</strong> Write a C program that sums a 4096×4096 float array row by row, then column by column, and time both with <code>clock()</code>. Predict the ratio before you run it.</li>
     <li><strong>Strides for any view.</strong> Extend <code>view_at</code> so it also handles a negative stride (a flipped axis). Check by hand that flipping twice gives the original.</li>
-    <li><strong>A tiny expression evaluator in OCaml.</strong> Define a variant for <code>+</code>, <code>*</code> and integer constants, write a function that evaluates it, and another that counts nodes. This is the shape of week 1, on a toy you control.</li>
+    <li><strong>A tiny expression evaluator in your language.</strong> Define <span class="only-ocaml">a variant</span><span class="only-python">a dataclass per node kind</span> for <code>+</code>, <code>*</code> and integer constants, write a function that evaluates it, and another that counts nodes. This is the shape of week 1, on a toy you control.</li>
   </ol>
 </main>
 </body>

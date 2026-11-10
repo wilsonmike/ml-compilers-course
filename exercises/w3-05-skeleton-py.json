@@ -1,0 +1,38 @@
+{
+ "id": "w3-05-skeleton-py",
+ "lang": "python",
+ "title": "Print a loop nest",
+ "prompt": "<p>Write <code>skeleton(loops: list[tuple[str, str]], body: str) -> str</code>. Given loops outermost first, each a <code>(variable, bound)</code> pair, return C with one <code>for (int32_t v = 0; v &lt; bound; v++) {</code> per loop, the body innermost, and a <code>}</code> per loop. Indent two spaces per level. Join lines with <code>\"\\n\"</code>, with no trailing newline. With no loops, return the body unchanged. The examples print each line break as <code>\\n</code>.</p>",
+ "show": "lambda s: s.replace('\\n', '\\\\n')",
+ "starter": "def skeleton(loops: list[tuple[str, str]], body: str) -> str:\n    \"\"\"Nest one for loop per (variable, bound), outermost first, with the body innermost.\n    Indent two spaces per level. Join lines with \"\\n\", no trailing newline.\"\"\"\n    return body\n",
+ "tests": [
+  {
+   "expr": "skeleton([], 'x = 1;')",
+   "expect": "x = 1;",
+   "sample": true
+  },
+  {
+   "expr": "skeleton([('i', '4')], 'b0[i] = 0;')",
+   "expect": "for (int32_t i = 0; i < 4; i++) {\\n  b0[i] = 0;\\n}",
+   "sample": true
+  },
+  {
+   "expr": "skeleton([('i', '2'), ('j', '3')], 'f(i, j);')",
+   "expect": "for (int32_t i = 0; i < 2; i++) {\\n  for (int32_t j = 0; j < 3; j++) {\\n    f(i, j);\\n  }\\n}"
+  },
+  {
+   "expr": "skeleton([('r0', 'n'), ('r1', 'm'), ('r2', 'k')], 's;')",
+   "expect": "for (int32_t r0 = 0; r0 < n; r0++) {\\n  for (int32_t r1 = 0; r1 < m; r1++) {\\n    for (int32_t r2 = 0; r2 < k; r2++) {\\n      s;\\n    }\\n  }\\n}"
+  },
+  {
+   "expr": "skeleton([('i', 'v3')], '')",
+   "expect": "for (int32_t i = 0; i < v3; i++) {\\n  \\n}"
+  }
+ ],
+ "hints": [
+  "Build a list of lines and join it with <code>\"\\n\".join(lines)</code>. The lines are: one <code>for</code> header per loop, the body, then one <code>}</code> per loop.",
+  "Loop number d (0 for the outermost) is indented 2*d spaces. The body is indented 2*n. The closing braces count back down from 2*(n-1) to 0.",
+  "<code>enumerate(loops)</code> gives you the depth for each header, and <code>\"  \" * d</code> makes the padding. In an f-string, write a literal brace as <code>{{</code>."
+ ],
+ "explain": "A renderer prints loops by recursion or, as here, by counting depth. Getting the closers to mirror the headers is the whole trick. The examples print each line break as <code>\\n</code> so a whole nest fits on one line."
+}

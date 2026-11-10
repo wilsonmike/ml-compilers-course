@@ -26,14 +26,15 @@ def public(ex):
   # what the page may see: no hidden tests
   samples = [{k: t[k] for k in ('expr', 'args', 'expect') if k in t} | {'label': label(ex, t)} for t in ex['tests'] if t.get('sample')]
   return {'id': ex['id'], 'lang': ex['lang'], 'title': ex.get('title', ''), 'starter': ex['starter'],
-          'samples': samples, 'ntests': len(ex['tests']), 'max_ops': ex.get('max_ops'), 'hints': ex.get('hints', [])}
+          'samples': samples, 'ntests': len(ex['tests']), 'max_ops': ex.get('max_ops'), 'hints': ex.get('hints', []),
+          **({'prompt': ex['prompt']} if ex.get('prompt') else {})}
 
 def label(ex, t):
   if 'data' in t: return '\n'.join(f"buffer slot {k} starts as [{' '.join(map(str, v))}]" for k, v in t['data'].items()) + f"\nfinal contents of slot {t.get('out', ex.get('out_slot', 0))}"
   if 'args' in t: return f"%out({', '.join(map(str, t['args']))})"
   return t.get('expr', '')
 
-EXT = {'ocaml': 'ml', 'c': 'c', 'uir': 'uir'}
+EXT = {'ocaml': 'ml', 'c': 'c', 'uir': 'uir', 'python': 'py'}
 def solution(ex):
   # the "show answer" button: the reference solution plus a short why. Only ever sent when the student asks.
   p = os.path.join(ROOT, '_reference', 'solutions', f"{ex['id']}.{EXT[ex['lang']]}")
@@ -150,7 +151,30 @@ def run_uir(ex, code, tests, cfg):
     except O.UIRError as e: res.append(f"error: {e}")
   return None, res, ''
 
-RUNNERS = {'ocaml': run_ocaml, 'c': run_c, 'uir': run_uir}
+def run_python(ex, code, tests, cfg):
+  # The student's module, then a harness that evaluates each test expression in the module's namespace and prints
+  # show(value). It runs isolated (-I) under this same Python, so the course needs nothing extra.
+  nonce = '@@' + secrets.token_hex(4) + ':'
+  harness = ("\n\n# ---- tests ----\n"
+             f"__show = {ex.get('show', 'str')}\n"
+             f"for __i, __e in enumerate({[t['expr'] for t in tests]!r}):\n"
+             "    try:\n        __v = __show(eval(__e))\n"
+             "    except Exception as __x:\n        __v = 'exception ' + type(__x).__name__ + (': ' + str(__x) if str(__x) else '')\n"
+             f"    print('\\n{nonce}' + str(__i) + ' ' + str(__v), flush=True)\n")
+  with tempfile.TemporaryDirectory() as d:
+    path = os.path.join(d, 'solution.py')
+    open(path, 'w', encoding='utf-8').write(code.rstrip() + harness)
+    rc, out, err = run_proc([sys.executable, '-I', '-X', 'utf8', path], timeout=cfg.timeout)
+  if rc == 'timeout': return err, [], ''
+  got, user = split_marked(out, nonce)
+  if not got and rc != 0:
+    err = err.replace(path, 'solution.py')
+    if '---- tests ----' in err or 'line ' + str(code.count('\n') + 3) in err:
+      err += "\n(The error is in the test harness: keep the function name and signature the starter code gives you.)"
+    return clip(err), [], clip(user)
+  return None, [got.get(i, f"crashed: {err.strip()[-300:]}") for i in range(len(tests))], clip(user)
+
+RUNNERS = {'ocaml': run_ocaml, 'c': run_c, 'uir': run_uir, 'python': run_python}
 
 def grade(ex, code, everything, cfg):
   tests = ex['tests'] if everything else [t for t in ex['tests'] if t.get('sample')]
@@ -185,7 +209,7 @@ class H(SimpleHTTPRequestHandler):
     if path in ('/', '/index.html'): self.send_response(302); self.send_header('Location', '/site/index.html'); self.end_headers(); return
     if path.startswith(('/exercises', '/_reference', '/.git')): return self.send_error(403, 'not served')
     if path == '/api/health':
-      return self.send_json(200, {'ok': True, 'ocaml': bool(self.server.cfg.ocaml_ok), 'cc': self.server.cfg.cc and os.path.basename(self.server.cfg.cc), 'uir': True})
+      return self.send_json(200, {'ok': True, 'ocaml': bool(self.server.cfg.ocaml_ok), 'cc': self.server.cfg.cc and os.path.basename(self.server.cfg.cc), 'uir': True, 'python': True})
     if path.startswith('/api/exercise/'):
       ex = load(path.rsplit('/', 1)[1])
       return self.send_json(200, public(ex)) if ex else self.send_json(404, {'error': 'no such exercise'})

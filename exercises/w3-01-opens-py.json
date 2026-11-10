@@ -1,0 +1,50 @@
+{
+ "id": "w3-01-opens-py",
+ "lang": "python",
+ "title": "Open ranges on a toy graph",
+ "prompt": "<p>Here's a toy version of the graph as five small frozen dataclasses: <code>Range(name, bound)</code>, <code>Const(value)</code>, <code>Add(a, b)</code>, <code>Store(offset, value)</code> and <code>End(effect, range)</code>, where <code>End</code> closes the range it names. Write <code>opens(n: Node) -> list[str]</code>: the names of the ranges <code>n</code> depends on that no <code>End</code> has closed, sorted, with no duplicates. This is the property your compiler computes for every UOp.</p>",
+ "show": "lambda v: '[' + ' '.join(v) + ']'",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Range:\n    name: str   # a named loop counter\n    bound: int  # and its bound\n\n@dataclass(frozen=True)\nclass Const:\n    value: int\n\n@dataclass(frozen=True)\nclass Add:\n    a: \"Node\"\n    b: \"Node\"\n\n@dataclass(frozen=True)\nclass Store:\n    offset: \"Node\"\n    value: \"Node\"\n\n@dataclass(frozen=True)\nclass End:\n    effect: \"Node\"\n    range: \"Node\"  # closes this range\n\nNode = Range | Const | Add | Store | End\n\n\ndef opens(n: Node) -> list[str]:\n    \"\"\"The names of the ranges n depends on that no End has closed, sorted, no duplicates.\"\"\"\n    return []\n",
+ "tests": [
+  {
+   "expr": "opens(Const(3))",
+   "expect": "[]",
+   "sample": true
+  },
+  {
+   "expr": "(lambda i: opens(Add(i, Const(1))))(Range('i', 4))",
+   "expect": "[i]",
+   "sample": true
+  },
+  {
+   "expr": "(lambda i: opens(End(Store(i, i), i)))(Range('i', 4))",
+   "expect": "[]"
+  },
+  {
+   "expr": "(lambda i, j: opens(Store(Add(i, j), Const(0))))(Range('i', 2), Range('j', 3))",
+   "expect": "[i j]"
+  },
+  {
+   "expr": "(lambda i, j: opens(End(Store(Add(i, j), Const(0)), j)))(Range('i', 2), Range('j', 3))",
+   "expect": "[i]"
+  },
+  {
+   "expr": "(lambda i, j: opens(End(End(Store(Add(i, j), Const(0)), j), i)))(Range('i', 2), Range('j', 3))",
+   "expect": "[]"
+  },
+  {
+   "expr": "(lambda i, j: opens(Add(j, Add(i, j))))(Range('i', 2), Range('j', 3))",
+   "expect": "[i j]"
+  },
+  {
+   "expr": "(lambda k: opens(Add(Add(k, k), Add(k, Const(2)))))(Range('k', 1))",
+   "expect": "[k]"
+  }
+ ],
+ "hints": [
+  "A <code>Range</code> is open in itself. A <code>Const</code> has nothing open. <code>Add</code> and <code>Store</code> take the union of their children.",
+  "<code>End(e, r)</code> is the one exception: the opens of <code>e</code>, minus the name of <code>r</code>.",
+  "A <code>match</code> statement with class patterns like <code>case Range(name, _):</code> reads each case off the node. <code>sorted(set(a) | set(b))</code> keeps the result sorted and free of duplicates."
+ ],
+ "explain": "Open ranges are a union over sources, with <code>Range</code> adding its own name and <code>End</code> removing the range it closes. Sorting a set keeps the result canonical. The nodes are frozen dataclasses, so they hash, and the real compiler can memoize this per node with a dict, because shared subgraphs would otherwise be walked many times."
+}

@@ -1,0 +1,46 @@
+{
+ "id": "w1-01-dag-size-py",
+ "lang": "python",
+ "title": "Count distinct nodes",
+ "prompt": "<p>Write <code>dag_size(t)</code>: the number of distinct node objects reachable from <code>t</code>. A node reached twice counts once. <code>dag_size(dbl(3))</code> is 4, and <code>dag_size(dbl(60))</code> has to finish, so walking the tree is out.</p><p>Distinct means a different object, tested with <code>is</code>. <code>Add(Leaf(1), Leaf(1))</code> has 3 distinct nodes, even though its two leaves are equal with <code>==</code>.</p><p>Remember what you've visited. <code>id(node)</code> gives a number that is unique to each live object.</p>",
+ "show": "str",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Leaf:\n    value: int\n\n\n@dataclass(frozen=True)\nclass Add:\n    a: \"Leaf | Add\"\n    b: \"Leaf | Add\"\n\n\ndef dbl(n: int) -> Leaf | Add:\n    \"\"\"n doublings: one Leaf and n Adds, each Add using the node below it twice.\"\"\"\n    if n == 0:\n        return Leaf(1)\n    s = dbl(n - 1)\n    return Add(s, s)\n\n\ndef dag_size(t: Leaf | Add) -> int:\n    \"\"\"Count DISTINCT nodes: different objects (is), not equal-looking ones.\n    dag_size(dbl(3)) is 4, not 15, and dag_size(dbl(60)) must finish.\"\"\"\n    match t:\n        case Leaf():\n            return 1\n        case Add(a, b):\n            return 1 + dag_size(a) + dag_size(b)\n",
+ "tests": [
+  {
+   "expr": "dag_size(Leaf(5))",
+   "expect": "1",
+   "sample": true
+  },
+  {
+   "expr": "dag_size(dbl(3))",
+   "expect": "4",
+   "sample": true
+  },
+  {
+   "expr": "dag_size(Add(Leaf(3), Leaf(4)))",
+   "expect": "3"
+  },
+  {
+   "expr": "dag_size(Add(Leaf(1), Leaf(1)))",
+   "expect": "3"
+  },
+  {
+   "expr": "(lambda l: dag_size(Add(Add(l, Leaf(2)), l)))(Leaf(7))",
+   "expect": "4"
+  },
+  {
+   "expr": "(lambda a: dag_size(Add(a, Add(a, Leaf(9)))))(dbl(2))",
+   "expect": "6"
+  },
+  {
+   "expr": "dag_size(dbl(60))",
+   "expect": "61"
+  }
+ ],
+ "hints": [
+  "The naive version counts a shared node once for every path that reaches it. How many paths reach the bottom of `dbl(60)`?",
+  "Walk the graph, but remember which nodes you have already visited and skip them the second time.",
+  "Keep a set of `id(node)`, not a set of nodes. These are frozen dataclasses, so `==` and `hash` compare structure. Hashing `dbl(60)` would walk 2^60 paths, and two equal leaves would count as one."
+ ],
+ "explain": "The walk records `id(node)` the first time it sees a node and never descends into it again, so it visits each distinct node once instead of once per path. For `dbl(60)` that's 61 nodes, which is instant. A set of the nodes themselves would use the dataclass's structural hash, which is wrong for equal twins and takes 2^60 steps on `dbl(60)`."
+}

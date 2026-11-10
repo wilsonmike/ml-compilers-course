@@ -60,15 +60,16 @@
       <tr><td><code>(x * c) / c → x</code></td><td>only when bounds prove no wrap</td><td>no</td></tr>
     </tbody>
   </table></div>
-  <pre><code>python tools/test.py --compiler PATH/TO/main.exe --week 1        # grade
-python tools/test.py --compiler PATH/TO/main.exe -k call -v      # one topic, details
+  <pre><code>python tools/test.py --compiler YOUR_COMPILER --week 1           # grade
+python tools/test.py --compiler YOUR_COMPILER -k call -v         # one topic, details
 python _reference/uirc.py run FILE                               # what should this do?</code></pre>
+  <p><code>YOUR_COMPILER</code> is the command that runs your compiler: <span class="only-python">a quoted command such as <code>"python C:/path/to/main.py"</code>.</span><span class="only-ocaml">the path to the <code>main.exe</code> that dune built.</span></p>
 
   <h2>Mistakes people make</h2>
   <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week1.html">week 1 test guide</a> lists every test with the bugs known to fail it.</p>
   <ol>
-    <li><strong>Using OCaml's native int for i32.</strong> It's 63 bits, so <code>2147483647 + 1</code> never wraps. Caught by <code>i32_wrap_add</code> and <code>i32_wrap_mul</code>.</li>
-    <li><strong>Dividing like Python.</strong> Floor division gives <code>-7 / 2 = -4</code>, but the spec says <code>-3</code>. Caught by <code>i32_div_trunc</code> and <code>i32_mod_sign</code>.</li>
+    <li><strong>Using your language's native int for i32.</strong> <span class="only-python">Python's ints never overflow</span><span class="only-ocaml">OCaml's is 63 bits</span>, so <code>2147483647 + 1</code> never wraps. Caught by <code>i32_wrap_add</code> and <code>i32_wrap_mul</code>.</li>
+    <li><strong>Dividing like Python's <code>//</code>.</strong> Floor division gives <code>-7 / 2 = -4</code>, but the spec says <code>-3</code>. Caught by <code>i32_div_trunc</code> and <code>i32_mod_sign</code>.</li>
     <li><strong>Doing f32 math in doubles without rounding.</strong> Every op must round to f32, including the literals. Caught by <code>f32_tenths</code>, <code>f32_rounding_step</code> and <code>f32_literals</code>.</li>
     <li><strong>Evaluating without memoization.</strong> A tree walk of a shared DAG is exponential. Caught by <code>dag_sharing_300</code> (it times out).</li>
     <li><strong>One global cache across calls.</strong> The same body called with 3 and with 4 then returns the same thing twice. Caught by <code>call_memo_per_call</code>.</li>
@@ -76,14 +77,14 @@ python _reference/uirc.py run FILE                               # what should t
     <li><strong>Type checking lazily.</strong> A bad line no assert uses still makes the program invalid. Caught by <code>err_type_static</code> and <code>err_call_missing_arg_unused</code>.</li>
     <li><strong>Checking asserts out of order, or stopping at the wrong error.</strong> Caught by <code>fail_first_in_order</code>, <code>fail_before_error</code> and <code>error_before_fail</code>.</li>
     <li><strong>Simplifying f32 like i32.</strong> <code>x * 0.0 → 0.0</code> and <code>x + 0.0 → x</code> are wrong. Caught by <code>trap_mul_zero_f32</code> and <code>trap_add_zero_f32</code>.</li>
-    <li><strong>Letting an uncaught OCaml exception be your exit 2.</strong> <code>Fatal error: exception Division_by_zero</code> exits 2 but has no <code>invalid:</code> line, so every invalid test fails. Catch your exceptions and print a diagnosis.</li>
+    <li><strong>Letting an uncaught exception decide your exit code.</strong> <span class="only-ocaml">In OCaml, <code>Fatal error: exception Division_by_zero</code> exits 2 but has no <code>invalid:</code> line</span><span class="only-python">In Python, a <code>ZeroDivisionError</code> traceback exits 1, which looks like a failed assert with no <code>assert failed:</code> line</span>, so every invalid test fails. Catch your exceptions, print a diagnosis starting <code>invalid:</code>, and exit 2.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
   <p>Build in this order, and don't move on until the check passes. Each check is a tiny program: save it, run it through your compiler and through the oracle (<code>python _reference/uirc.py run FILE</code>), and compare exit codes.</p>
   <ol>
     <li><strong>Parse and print.</strong> Done when you can print every statement back in .uir form. Check: <code>%a = add 2 3</code> / <code>%t = assert %a 5</code> should exit 0. If a later test reports a parse error, look at literals first: <code>1.</code>, <code>.5</code> and <code>1E5</code> are floats, <code>+1</code> and <code>0x10</code> are not.</li>
-    <li><strong>The hash-consed UOp.</strong> Done when building the same node twice gives back the identical node. Check: the suite's <code>dag_sharing_300</code> runs in milliseconds. If it hangs, your table key uses whole child nodes instead of child ids.</li>
+    <li><strong>The hash-consed UOp.</strong> Done when building the same node twice gives back the identical node. Check: the suite's <code>dag_sharing_300</code> runs in milliseconds. If it hangs, your table key hashes or compares whole subtrees instead of child ids or identities.</li>
     <li><strong>Types.</strong> Done when every type error is reported before anything runs. Check: <code>%a = add 1 1.0</code> / <code>%t = assert 1 1</code> must exit 2 with an <code>invalid:</code> line, even though no assert uses <code>%a</code>.</li>
     <li><strong>Interpreter.</strong> Done when asserts pass and fail correctly. Check: <code>%a = div -7 2</code> / <code>%t = assert %a -3</code> / <code>%b = mod -7 2</code> / <code>%u = assert %b -1</code> exits 0. If it exits 1, your division floors.</li>
     <li><strong>call and param.</strong> Done when bodies are closed and values are cached per call. Check: <code>%p0 = param 0 dtype=i32</code>, <code>%p1 = param 1 dtype=i32</code>, <code>%inner = add %p0 100</code>, <code>%outer = call %inner %p1</code>, <code>%r = call %outer 1 2</code>, <code>%t = assert %r 102</code> exits 0. If you get 101, substitution went into the nested body.</li>
@@ -164,6 +165,9 @@ python _reference/uirc.py run FILE                               # what should t
     <li><a href="https://en.wikipedia.org/wiki/Interval_arithmetic">Interval arithmetic</a>. The math behind bounds analysis, including why it's always safe but sometimes loose.</li>
     <li><a href="https://floating-point-gui.de/">The Floating-Point Guide</a>, then <a href="https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html">What Every Computer Scientist Should Know About Floating-Point Arithmetic</a> (Goldberg). Short first, thorough second: why f32 rewrites are so restricted.</li>
     <li><a href="https://craftinginterpreters.com/">Crafting Interpreters</a>. A free book on parsing and tree-walking interpreters, a gentle companion to lessons 1.2 and 1.3.</li>
+    <li class="only-python"><a href="https://peps.python.org/pep-0636/">PEP 636: Structural Pattern Matching tutorial</a>. How <code>match</code> with class patterns works, the natural way to write rewrite rules in Python.</li>
+    <li class="only-ocaml"><a href="https://dev.realworldocaml.org/maps-and-hashtables.html">Real World OCaml: Maps and Hash Tables</a>. Hash tables with your own key module, the tool behind hash consing.</li>
+    <li><a href="languages.html">Python and OCaml, deeper</a>. This week's idioms in your language: hash-consing keys, rewrite rules as matches, and i32 and f32 by hand.</li>
   </ul>
   <h3>Challenges</h3>
   <ol>

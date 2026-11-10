@@ -1,0 +1,50 @@
+{
+ "id": "w4-02-fold32-py",
+ "lang": "python",
+ "title": "A left fold in f32",
+ "prompt": "<p>Write <code>sum32(xs: list[float]) -> float</code> for a non-empty list: start from the first element, add the rest left to right, and round to f32 after every add with the <code>f32</code> helper the starter gives you. Python floats are 64-bit doubles, so nothing rounds to f32 unless you ask. Values print with <code>%.9g</code>, enough digits to tell f32 results apart.</p>",
+ "show": "lambda v: f'{v:.9g}'",
+ "starter": "import math\nimport struct\n\n\ndef f32(x: float) -> float:\n    \"\"\"Round a Python float (a 64-bit double) to the nearest f32.\"\"\"\n    try:\n        return struct.unpack(\"f\", struct.pack(\"f\", x))[0]\n    except OverflowError:  # finite but past the f32 range: rounds to infinity\n        return math.copysign(math.inf, x)\n\n\ndef sum32(xs: list[float]) -> float:\n    \"\"\"Sum a non-empty list the way reduce op=add does: start from the first element,\n    add left to right, round to f32 after every add.\"\"\"\n    return sum(xs)\n",
+ "tests": [
+  {
+   "expr": "sum32([1.0, 2.0, 3.0])",
+   "expect": "6",
+   "sample": true
+  },
+  {
+   "expr": "sum32([1e8, -1e8, 1.0, 1.0])",
+   "expect": "2",
+   "sample": true
+  },
+  {
+   "expr": "sum32([1e8, 1.0, 1.0, -1e8])",
+   "expect": "0"
+  },
+  {
+   "expr": "sum32([f32(0.1), f32(0.2), f32(0.3)])",
+   "expect": "0.600000024"
+  },
+  {
+   "expr": "sum32([-0.0])",
+   "expect": "-0"
+  },
+  {
+   "expr": "sum32([-0.0, -0.0])",
+   "expect": "-0"
+  },
+  {
+   "expr": "sum32([3e38, 3e38, -3e38])",
+   "expect": "inf"
+  },
+  {
+   "expr": "sum32([16777216.0, 1.0, 1.0])",
+   "expect": "16777216"
+  }
+ ],
+ "hints": [
+  "Two things are off: <code>sum</code> starts from <code>0</code> instead of the first element, and nothing rounds to f32. (Since Python 3.12, <code>sum</code> of floats even uses extra precision, which is the opposite of what you want here.)",
+  "Start with <code>acc = xs[0]</code>, then for each <code>y</code> in <code>xs[1:]</code> set <code>acc = f32(acc + y)</code>.",
+  "Starting from <code>0</code> breaks <code>[-0.0]</code> (since <code>0 + -0.0</code> is <code>0.0</code>), and skipping the rounding breaks <code>[16777216.0, 1.0, 1.0]</code> (in f32 each <code>+ 1</code> rounds away)."
+ ],
+ "explain": "Rounding after every add is what f32 hardware does, and starting from the first element (not from 0) keeps <code>-0.0</code> and matches the spec's fold exactly. <code>3e38 + 3e38</code> overflows to <code>inf</code> in f32 even though it fits in a double, so the next <code>- 3e38</code> can't bring it back. The <code>f32</code> helper catches the <code>OverflowError</code> that <code>struct.pack</code> raises there and returns infinity, which is what the hardware rounds to."
+}

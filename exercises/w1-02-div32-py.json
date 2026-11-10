@@ -1,0 +1,50 @@
+{
+ "id": "w1-02-div32-py",
+ "lang": "python",
+ "title": "i32 division, exactly",
+ "prompt": "<p>Write <code>div32(a, b)</code> for i32 values held in Python <code>int</code>s. Return <code>q</code>, the quotient truncated toward zero and wrapped to 32 bits, or <code>None</code> when <code>b == 0</code>. The tests print <code>None</code> as <code>error</code>.</p><p>Check the table above against what Python's own <code>//</code> does. Python floors, and its ints never overflow, so more than one row needs care.</p>",
+ "show": "lambda v: 'error' if v is None else str(v)",
+ "starter": "def div32(a: int, b: int) -> int | None:\n    \"\"\"a and b are i32 values held in Python ints. Return the quotient truncated\n    toward zero (like C) and wrapped to 32 bits, or None if b == 0.\"\"\"\n    return a // b\n",
+ "tests": [
+  {
+   "expr": "div32(-7, 2)",
+   "expect": "-3",
+   "sample": true
+  },
+  {
+   "expr": "div32(7, 0)",
+   "expect": "error",
+   "sample": true
+  },
+  {
+   "expr": "div32(7, -2)",
+   "expect": "-3"
+  },
+  {
+   "expr": "div32(-7, -2)",
+   "expect": "3"
+  },
+  {
+   "expr": "div32(-2147483648, -1)",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "div32(2147483647, 1)",
+   "expect": "2147483647"
+  },
+  {
+   "expr": "div32(0, 5)",
+   "expect": "0"
+  },
+  {
+   "expr": "div32(-1, 2)",
+   "expect": "0"
+  }
+ ],
+ "hints": [
+  "Python's `//` rounds toward negative infinity: `-7 // 2` is -4, but C gives -3. Divide the absolute values, then put the sign back.",
+  "The result is negative when exactly one of `a` and `b` is negative. Check `b == 0` before dividing, or Python raises `ZeroDivisionError`.",
+  "`-2147483648 / -1` is 2147483648 in Python, which doesn't fit in i32. Wrap it with `(q + 2**31) % 2**32 - 2**31`."
+ ],
+ "explain": "Dividing the magnitudes and then applying the sign gives truncation toward zero, which is what C does. Python's `//` floors instead, so it is off by one whenever the signs differ and the division isn't exact. Python ints never overflow, so the wrap is what turns `INT_MIN / -1` back into `INT_MIN`."
+}

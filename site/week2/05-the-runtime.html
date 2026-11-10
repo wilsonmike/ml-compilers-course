@@ -38,8 +38,20 @@
 </div>
 
 <div class="prose">
-<h2>Calling the compiler from OCaml</h2>
+<h2>Calling the C compiler from your compiler</h2>
 <p>You need three things from the standard library: somewhere to put files, a way to run a command, and a way to read a file back.</p>
+</div>
+<div class="prose only-python">
+<ul>
+<li><code>tempfile.TemporaryDirectory()</code> creates a fresh, empty directory. Used as <code>with tempfile.TemporaryDirectory() as d:</code>, it deletes the directory and everything in it when the block ends, even if something inside raises. <code>os.path.join(d, "kernel.c")</code> builds paths inside it.</li>
+<li><code>subprocess.run</code> runs a command given as a list of arguments, so paths with spaces need no quoting. <code>capture_output=True</code> collects stdout and stderr, <code>text=True</code> decodes them to strings, and <code>timeout=</code> stops a program that runs too long.</li>
+<li>The result's <code>.returncode</code> is the exit code, and <code>.stdout</code> and <code>.stderr</code> hold the output.</li>
+</ul>
+<pre><code>r = subprocess.run(["clang", "-O2", "my file.c", "-o", "a.out"], capture_output=True, text=True, timeout=30)
+if r.returncode != 0:
+    print(r.stderr, file=sys.stderr)      # clang's own message points at the bad line</code></pre>
+</div>
+<div class="prose only-ocaml">
 <ul>
 <li><code>Filename.temp_dir "uir" ""</code> (OCaml 5.1 and later) creates a fresh, empty directory and returns its path. <code>Filename.concat dir "kernel.c"</code> builds paths inside it.</li>
 <li><code>Filename.quote_command</code> builds a command line with every argument quoted correctly for your platform, including paths with spaces. Its <code>~stdout</code> argument redirects output into a file.</li>
@@ -47,26 +59,29 @@
 </ul>
 <pre><code>Filename.quote_command "clang" ~stdout:"out.txt" ["-O2"; "my file.c"; "-o"; "a.out"]
 (* "'clang' '-O2' 'my file.c' '-o' 'a.out' >'out.txt'" on Linux *)</code></pre>
+</div>
+<div class="prose">
 <p>Check every exit code. A compile error from clang is your renderer's bug, so show clang's message. A nonzero exit from the program means the kernel crashed.</p>
 </div>
 
 <div class="note">
 <span class="label">Why a separate program, not a shared library</span>
-<p>The fastest-looking design compiles the kernel into a <code>.so</code> or <code>.dll</code>, loads it into your compiler's process, and calls it directly. In OCaml that means the <code>ctypes</code> and <code>ctypes-foreign</code> packages, libffi, and describing every C type from OCaml. It works, but it's a lot of machinery, and a crashing kernel takes your compiler down with it. A separate program costs a few milliseconds of process startup and gives you isolation and plain-text output for free. Start there. You can always switch later.</p>
+<p>The fastest-looking design compiles the kernel into a <code>.so</code> or <code>.dll</code>, loads it into your compiler's process, and calls it directly. <span class="only-ocaml">In OCaml that means the <code>ctypes</code> and <code>ctypes-foreign</code> packages, libffi, and describing every C type from OCaml.</span><span class="only-python">In Python that means the <code>ctypes</code> module, describing every argument's C type, and keeping buffers alive while C uses them.</span> It works, but it's a lot of machinery, and a crashing kernel takes your compiler down with it. A separate program costs a few milliseconds of process startup and gives you isolation and plain-text output for free. Start there. You can always switch later.</p>
 </div>
 
 <div class="trap">
 <span class="label">Timeouts and leftovers</span>
-<p><code>Sys.command</code> waits forever. A kernel with an infinite loop, or one that faults on Windows and sits in the error reporter, will hang your compiler. If you need a timeout, the <code>unix</code> library (add <code>unix</code> to your dune <code>libraries</code>) has <code>Unix.create_process</code> and <code>Unix.waitpid</code>. And delete what you write: <code>Fun.protect ~finally:(fun () -&gt; ...)</code> runs your cleanup even when something in the middle raises.</p>
+<p class="only-ocaml"><code>Sys.command</code> waits forever. A kernel with an infinite loop, or one that faults on Windows and sits in the error reporter, will hang your compiler. If you need a timeout, the <code>unix</code> library (add <code>unix</code> to your dune <code>libraries</code>) has <code>Unix.create_process</code> and <code>Unix.waitpid</code>. And delete what you write: <code>Fun.protect ~finally:(fun () -&gt; ...)</code> runs your cleanup even when something in the middle raises.</p>
+<p class="only-python">Without <code>timeout=</code>, <code>subprocess.run</code> waits forever. A kernel with an infinite loop, or one that faults on Windows and sits in the error reporter, will hang your compiler. With it, a slow program raises <code>subprocess.TimeoutExpired</code>, which you can catch and report. And delete what you write: the <code>with</code> form of <code>TemporaryDirectory</code> cleans up even when something in the middle raises.</p>
 </div>
 
 <div class="prose">
 <h2>Reading results back exactly</h2>
-<p>The program's output is text like <code>0 3e99999a</code>: a slot, a space, and 32 bits. Turn each line back into a float by its bits, never by parsing a decimal: <code>Int32.of_string ("0x" ^ bits)</code> reads the hex (even with the top bit set, <code>0x80000000</code> becomes <code>Int32.min_int</code>), and <code>Int32.float_of_bits</code> reinterprets it. Watch for Windows line endings: lines end in <code>\r\n</code> there.</p>
+<p>The program's output is text like <code>0 3e99999a</code>: a slot, a space, and 32 bits. Turn each line back into a float by its bits, never by parsing a decimal. <span class="only-ocaml"><code>Int32.of_string ("0x" ^ bits)</code> reads the hex (even with the top bit set, <code>0x80000000</code> becomes <code>Int32.min_int</code>), and <code>Int32.float_of_bits</code> reinterprets it.</span><span class="only-python"><code>int(bits, 16)</code> reads the hex as a number from 0 to 2<sup>32</sup> − 1, <code>struct.pack("&lt;I", ...)</code> turns it into 4 bytes, and <code>struct.unpack("&lt;f", ...)[0]</code> reinterprets them as a float.</span> Watch for Windows line endings: lines end in <code>\r\n</code> there.</p>
 </div>
 
 <h2>Code it</h2>
-<div class="exercise" data-ex="w2-05-read-slot">
+<div class="exercise" data-ex="w2-05-read-slot" data-ex-py="w2-05-read-slot-py">
 <h3>Read a buffer back from the harness</h3>
 <p>The compiled program prints one line per f32 element: the slot number, a space, and the element's 32 bits as 8 hex digits, like <code>0 3f800000</code>. Write <code>read_slot : string -&gt; int -&gt; float list</code>, returning slot <code>k</code>'s values in output order. Lines may end in <code>\r\n</code>, blank lines can appear, and a slot that never appears gives <code>[]</code>.</p>
 </div>
@@ -93,10 +108,10 @@
 </div>
 
 <div class="quiz" data-fill="-1 | -1l">
-<p class="q">What does OCaml's <code>Int32.of_string "0xffffffff"</code> return?</p>
+<p class="q"><span class="only-ocaml">What does OCaml's <code>Int32.of_string "0xffffffff"</code> return?</span><span class="only-python">What does <code>struct.unpack("&lt;i", struct.pack("&lt;I", int("ffffffff", 16)))[0]</code> return? (<code>"&lt;i"</code> is a signed 32-bit int.)</span></p>
 <div class="fill"><input aria-label="value"><button class="btn">Check</button></div>
-<p class="hint">For hex input, <code>Int32.of_string</code> accepts the full 32-bit unsigned range and reinterprets it as a signed int32.</p>
-<div class="why"><p><code>-1l</code>: all 32 bits set is -1 in two's complement. That's what lets <code>Int32.of_string ("0x" ^ bits)</code> read any f32 bit pattern, including ones with the sign bit set.</p></div>
+<p class="hint"><span class="only-ocaml">For hex input, <code>Int32.of_string</code> accepts the full 32-bit unsigned range and reinterprets it as a signed int32.</span><span class="only-python"><code>int("ffffffff", 16)</code> is 4294967295. Packing it as unsigned and unpacking the same bytes as signed reinterprets the bits.</span></p>
+<div class="why"><p><span class="only-ocaml"><code>-1l</code></span><span class="only-python"><code>-1</code></span>: all 32 bits set is -1 in two's complement. That's what lets <span class="only-ocaml"><code>Int32.of_string ("0x" ^ bits)</code></span><span class="only-python">the same bytes, unpacked as <code>"&lt;f"</code>,</span> read any f32 bit pattern, including ones with the sign bit set.</p></div>
 </div>
 
 <div class="quiz" data-answer="c">
@@ -112,13 +127,13 @@
 </div>
 
 <div class="quiz" data-answer="a">
-<p class="q"><code>Sys.command (Filename.quote_command "clang" [...])</code> returns <code>1</code>. What happened?</p>
+<p class="q"><span class="only-ocaml"><code>Sys.command (Filename.quote_command "clang" [...])</code> returns <code>1</code>.</span><span class="only-python"><code>subprocess.run(["clang", ...]).returncode</code> is <code>1</code>.</span> What happened?</p>
 <div class="opts">
 <button data-k="a">clang failed, most likely a compile error in the C you rendered</button>
 <button data-k="b">The kernel produced one wrong value</button>
 <button data-k="c">Everything worked: 1 means one file was compiled</button>
 </div>
-<p class="hint"><code>Sys.command</code> returns the command's exit code. What does a nonzero exit code from a compiler mean?</p>
+<p class="hint">That number is the command's exit code. What does a nonzero exit code from a compiler mean?</p>
 <div class="why"><p>A nonzero exit code from clang means it didn't produce a program, almost always because of an error in the C. Print clang's own message: it points at the line your renderer got wrong.</p></div>
 </div>
 

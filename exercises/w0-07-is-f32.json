@@ -1,0 +1,69 @@
+{
+ "id": "w0-07-is-f32",
+ "lang": "python",
+ "title": "Is it already an f32?",
+ "starter": "import math\nimport struct\n\n# True when the float x is exactly representable as a single-precision float.\n# NaN and the infinities count as representable.\ndef is_f32(x: float) -> bool:\n    return False\n",
+ "show": "str",
+ "tests": [
+  {
+   "expr": "is_f32(0.5)",
+   "expect": "True",
+   "sample": true
+  },
+  {
+   "expr": "is_f32(0.1)",
+   "expect": "False",
+   "sample": true
+  },
+  {
+   "expr": "is_f32(float('nan'))",
+   "expect": "True"
+  },
+  {
+   "expr": "is_f32(float('inf'))",
+   "expect": "True"
+  },
+  {
+   "expr": "is_f32(float('-inf'))",
+   "expect": "True"
+  },
+  {
+   "expr": "is_f32(16777217.0)",
+   "expect": "False"
+  },
+  {
+   "expr": "is_f32(16777216.0)",
+   "expect": "True"
+  },
+  {
+   "expr": "is_f32(1e39)",
+   "expect": "False"
+  },
+  {
+   "expr": "is_f32(-1e39)",
+   "expect": "False"
+  },
+  {
+   "expr": "is_f32(-0.0)",
+   "expect": "True"
+  },
+  {
+   "expr": "is_f32(1e-45)",
+   "expect": "False"
+  },
+  {
+   "expr": "is_f32(2.0 ** -149)",
+   "expect": "True"
+  },
+  {
+   "expr": "is_f32(3.4028234663852886e38)",
+   "expect": "True"
+  }
+ ],
+ "hints": [
+  "Round-trip it: squeeze x into 32 bits and see if you get the same number back.",
+  "`struct.pack('<f', x)` rounds to single precision and gives you 4 bytes. `struct.unpack('<f', ...)[0]` turns them back into a Python float.",
+  "Two catches. NaN is never equal to itself, so check `math.isnan(x)` first. And `struct.pack('<f', x)` raises `OverflowError` when x rounds past the largest f32, so catch that: such an x is not representable."
+ ],
+ "explain": "The reference returns True for NaN and the infinities, then rounds x to f32 and back with `struct.unpack('<f', struct.pack('<f', x))[0]` and compares. A finite x too big for f32 makes `struct.pack` raise `OverflowError`, which means the answer is False."
+}

@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 _s = importlib.util.spec_from_file_location('serve', os.path.join(ROOT, 'tools', 'serve.py'))
 S = importlib.util.module_from_spec(_s); _s.loader.exec_module(S)
-EXT = {'ocaml': 'ml', 'c': 'c', 'uir': 'uir'}
+EXT = {'ocaml': 'ml', 'c': 'c', 'uir': 'uir', 'python': 'py'}
 
 def check(ex, cfg):
   problems = []

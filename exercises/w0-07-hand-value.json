@@ -1,0 +1,53 @@
+{
+ "id": "w0-07-hand-value",
+ "lang": "python",
+ "title": "Blackjack hand value",
+ "starter": "from dataclasses import dataclass\nfrom enum import Enum\n\nclass Suit(Enum):\n    HEARTS = 1\n    DIAMONDS = 2\n    CLUBS = 3\n    SPADES = 4\n\n@dataclass(frozen=True)\nclass Number:          # 2 through 10\n    n: int\n    suit: Suit\n\n@dataclass(frozen=True)\nclass Jack:\n    suit: Suit\n\n@dataclass(frozen=True)\nclass Queen:\n    suit: Suit\n\n@dataclass(frozen=True)\nclass King:\n    suit: Suit\n\n@dataclass(frozen=True)\nclass Ace:\n    suit: Suit\n\nCard = Number | Jack | Queen | King | Ace\n\n# Number n is worth n, faces 10, an Ace 11. But each Ace may drop to 1 while the total is over 21.\ndef hand_value(hand: list[Card]) -> int:\n    return 0\n",
+ "show": "str",
+ "tests": [
+  {
+   "expr": "hand_value([Number(5, Suit.HEARTS), King(Suit.SPADES)])",
+   "expect": "15",
+   "sample": true
+  },
+  {
+   "expr": "hand_value([Ace(Suit.HEARTS), Ace(Suit.SPADES)])",
+   "expect": "12",
+   "sample": true
+  },
+  {
+   "expr": "hand_value([Ace(Suit.HEARTS), King(Suit.CLUBS)])",
+   "expect": "21"
+  },
+  {
+   "expr": "hand_value([Ace(Suit.HEARTS), Ace(Suit.SPADES), Number(9, Suit.CLUBS)])",
+   "expect": "21"
+  },
+  {
+   "expr": "hand_value([King(Suit.HEARTS), Queen(Suit.HEARTS), Ace(Suit.CLUBS)])",
+   "expect": "21"
+  },
+  {
+   "expr": "hand_value([])",
+   "expect": "0"
+  },
+  {
+   "expr": "hand_value([King(Suit.HEARTS), Queen(Suit.HEARTS), Jack(Suit.HEARTS)])",
+   "expect": "30"
+  },
+  {
+   "expr": "hand_value([Ace(Suit.HEARTS), Ace(Suit.SPADES), Ace(Suit.CLUBS), Ace(Suit.DIAMONDS)])",
+   "expect": "14"
+  },
+  {
+   "expr": "hand_value([Number(2, Suit.CLUBS), Number(3, Suit.CLUBS), Number(4, Suit.CLUBS)])",
+   "expect": "9"
+  }
+ ],
+ "hints": [
+  "Score the hand as if every Ace is 11 first, then fix it up.",
+  "Write a `points(card)` function with a `match` that has one `case` per card class: `case Number(n, _): return n`, and `case Jack() | Queen() | King(): return 10`. Sum the hand and count the Aces.",
+  "While the total is over 21 and you still have an Ace counted as 11, subtract 10 and count one fewer Ace. A `while` loop does it."
+ ],
+ "explain": "The reference scores each card with a `match` on its class (Aces as 11), sums the hand, counts the Aces with `isinstance`, then softens: while the total is over 21 and some Ace is still worth 11, it subtracts 10. Two Aces become 12, not 22 or 2."
+}

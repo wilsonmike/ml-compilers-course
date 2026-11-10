@@ -1,0 +1,50 @@
+{
+ "id": "w5-05-shape-py",
+ "lang": "python",
+ "title": "The shape after a chain of movement ops",
+ "prompt": "<p>Given a starting shape and a list of movement ops, write <code>shape_after(shape: list[int], ops: list[Op]) -> list[int]</code>, the final shape. The ops are small dataclasses. <code>Reshape(shape)</code> and <code>Expand(shape)</code> give the new shape directly, <code>Permute(order)</code> reorders axes, <code>Pad(pads)</code> adds a left and right amount per axis (<code>[l0, r0, l1, r1, ...]</code>), and <code>Reduce(m)</code> drops the first m axes. The inputs are always valid.</p>",
+ "show": "lambda v: '[' + ' '.join(map(str, v)) + ']'",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass\nclass Reshape:\n    shape: list[int]\n\n@dataclass\nclass Permute:\n    order: list[int]\n\n@dataclass\nclass Pad:\n    pads: list[int]  # left and right for each axis: [l0, r0, l1, r1, ...]\n\n@dataclass\nclass Expand:\n    shape: list[int]\n\n@dataclass\nclass Reduce:\n    m: int  # drops the first m axes\n\nOp = Reshape | Permute | Pad | Expand | Reduce\n\n\ndef shape_after(shape: list[int], ops: list[Op]) -> list[int]:\n    \"\"\"The shape after applying ops in order. The inputs are always valid.\"\"\"\n    return shape\n",
+ "tests": [
+  {
+   "expr": "shape_after([2, 3], [Permute([1, 0])])",
+   "expect": "[3 2]",
+   "sample": true
+  },
+  {
+   "expr": "shape_after([12], [Reshape([3, 4]), Pad([1, 1, 0, 2])])",
+   "expect": "[5 6]",
+   "sample": true
+  },
+  {
+   "expr": "shape_after([2, 3, 4], [Permute([2, 0, 1])])",
+   "expect": "[4 2 3]"
+  },
+  {
+   "expr": "shape_after([3, 1, 4], [Expand([3, 5, 4]), Reduce(1)])",
+   "expect": "[5 4]"
+  },
+  {
+   "expr": "shape_after([2, 3], [Reduce(2)])",
+   "expect": "[]"
+  },
+  {
+   "expr": "shape_after([6], [])",
+   "expect": "[6]"
+  },
+  {
+   "expr": "shape_after([2, 3], [Pad([0, 0, 1, 0]), Permute([1, 0]), Reshape([8])])",
+   "expect": "[8]"
+  },
+  {
+   "expr": "shape_after([4, 5], [Reshape([2, 2, 5]), Permute([1, 2, 0]), Reduce(1)])",
+   "expect": "[5 2]"
+  }
+ ],
+ "hints": [
+  "Loop over the ops and replace <code>shape</code> with the shape after each one.",
+  "A <code>match</code> with one <code>case</code> per class reads cleanly. <code>case Reshape(s) | Expand(s):</code> handles both ops that name the new shape outright. Permute picks <code>shape[p]</code> for each <code>p</code> in the order. Pad adds <code>pads[2*k]</code> and <code>pads[2*k + 1]</code> to axis k.",
+  "<code>Reduce(m)</code> drops the first m axes, which is the slice <code>shape[m:]</code>."
+ ],
+ "explain": "Movement ops never look at the data, so a shape is enough to type check a whole chain. Each op is a small function of the old shape, and applying them left to right gives the final one."
+}

@@ -20,7 +20,7 @@
 mul(x, 1)          → x                  # multiplying by one does nothing
 add(c1, c2)        → const(c1 + c2)     # both inputs known: compute it now
 mul(c, x)          → mul(x, c)          # move the constant to the right</code></pre>
-<p><code>x</code> and <code>y</code> match <em>any</em> node. Names starting with <code>c</code> (<code>c</code>, <code>c1</code>, <code>c2</code>) match only <code>const</code> nodes. <code>add(x, 0)</code> is shorthand for the .uir node <code>add %x 0</code>, and in the OCaml exercise below the same pattern is written <code>Add (x, Const 0)</code>. A rule <strong>fires</strong> on a node when the pattern matches it, and then the node is replaced by whatever the right side builds.</p>
+<p><code>x</code> and <code>y</code> match <em>any</em> node. Names starting with <code>c</code> (<code>c</code>, <code>c1</code>, <code>c2</code>) match only <code>const</code> nodes. <code>add(x, 0)</code> is shorthand for the .uir node <code>add %x 0</code>, and in the exercise below the same pattern is written <span class="only-ocaml"><code>Add (x, Const 0)</code></span><span class="only-python"><code>Add(x, Const(0))</code></span>. A rule <strong>fires</strong> on a node when the pattern matches it, and then the node is replaced by whatever the right side builds.</p>
 <p>The engine itself is tiny, and you'll write one this week:</p>
 <ol>
 <li><strong>Sources first.</strong> Visit nodes in topological order, sources before their users. By the time you look at a node, its sources have already been simplified.</li>
@@ -74,7 +74,7 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 <ul>
 <li><strong>Shared work is rewritten once.</strong> If <code>add %x 1</code> appears ten times, it's one node, simplified once.</li>
 <li><strong>"Did anything change?" is an identity check.</strong> If the rule returns the very same object, nothing happened. No deep comparison of trees.</li>
-<li><strong>Rules like <code>xor(x, x) → 0</code> are a pointer comparison.</strong> "Both sources are the same node" is just "the two sources are the same node" (OCaml's physical equality, <code>==</code>).</li>
+<li><strong>Rules like <code>xor(x, x) → 0</code> are a pointer comparison.</strong> "Both sources are the same node" is just "the two sources are the same node" (<span class="only-ocaml">OCaml's physical equality, <code>==</code></span><span class="only-python">Python's <code>is</code></span>).</li>
 </ul>
 </div>
 
@@ -91,7 +91,7 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 
 <h2>Code it: a toy rewriter</h2>
 <p class="prose">Before rewriting UOps in your own compiler, write the loop on a toy expression type. Same engine: sources first, greedy, to a fixpoint.</p>
-<div class="exercise" data-ex="w1-03-toy-simplify">
+<div class="exercise" data-ex="w1-03-toy-simplify" data-ex-py="w1-03-toy-simplify-py">
 <h3>A toy rewriter</h3>
 <p>Write <code>simplify e</code>. Simplify both children first, then apply these rules to the node, and keep re-applying them to the result until none fires. Integers are i32: fold with 32-bit wraparound.</p>
 <pre><code>Add (Const a, Const b)        → Const (a + b)

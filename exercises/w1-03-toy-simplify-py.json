@@ -1,0 +1,66 @@
+{
+ "id": "w1-03-toy-simplify-py",
+ "lang": "python",
+ "title": "A toy rewriter",
+ "prompt": "<p>Write <code>simplify(e)</code>. Simplify both children first, then apply these rules to the node, and keep re-applying them to the result until none fires. Integers are i32: fold with 32-bit wraparound.</p><ul><li><code>Add(Const(a), Const(b))</code> becomes <code>Const(a + b)</code></li><li><code>Mul(Const(a), Const(b))</code> becomes <code>Const(a * b)</code></li><li><code>Add(Const(c), x)</code> becomes <code>Add(x, Const(c))</code> (x not a Const)</li><li><code>Mul(Const(c), x)</code> becomes <code>Mul(x, Const(c))</code> (x not a Const)</li><li><code>Add(x, Const(0))</code> becomes <code>x</code></li><li><code>Mul(x, Const(1))</code> becomes <code>x</code></li><li><code>Mul(x, Const(0))</code> becomes <code>Const(0)</code></li><li><code>Add(Add(x, Const(a)), Const(b))</code> becomes <code>Add(x, Const(a + b))</code></li><li><code>Mul(Mul(x, Const(a)), Const(b))</code> becomes <code>Mul(x, Const(a * b))</code></li></ul><p>Leave everything else alone. <code>Add(Const(1), Add(Const(2), Var('y')))</code> becomes <code>(y + 3)</code>, which takes three rules in a row. A <code>match</code> statement with class patterns, like <code>case Add(Const(a), Const(b)):</code>, reads almost exactly like this list.</p>",
+ "show": "lambda e: to_string(simplify(e))",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Const:\n    n: int\n\n\n@dataclass(frozen=True)\nclass Var:\n    name: str\n\n\n@dataclass(frozen=True)\nclass Add:\n    a: \"E\"\n    b: \"E\"\n\n\n@dataclass(frozen=True)\nclass Mul:\n    a: \"E\"\n    b: \"E\"\n\n\nE = Const | Var | Add | Mul\n\n\ndef to_string(e: E) -> str:\n    \"\"\"Used to print test results. Don't change it.\"\"\"\n    match e:\n        case Const(n):\n            return str(n)\n        case Var(s):\n            return s\n        case Add(a, b):\n            return f\"({to_string(a)} + {to_string(b)})\"\n        case Mul(a, b):\n            return f\"({to_string(a)} * {to_string(b)})\"\n\n\n# Write a wrap32 helper here if you need it.\n\n\ndef simplify(e: E) -> E:\n    \"\"\"Simplify sources first (children before their parent),\n    then re-apply the rules to each result until none fire.\"\"\"\n    return e\n",
+ "tests": [
+  {
+   "expr": "Add(Const(2), Const(3))",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "Add(Var('x'), Const(0))",
+   "expect": "x",
+   "sample": true
+  },
+  {
+   "expr": "Mul(Const(4), Var('x'))",
+   "expect": "(x * 4)"
+  },
+  {
+   "expr": "Add(Add(Var('x'), Const(3)), Const(4))",
+   "expect": "(x + 7)"
+  },
+  {
+   "expr": "Add(Const(1), Add(Const(2), Var('y')))",
+   "expect": "(y + 3)"
+  },
+  {
+   "expr": "Mul(Const(65536), Const(65536))",
+   "expect": "0"
+  },
+  {
+   "expr": "Add(Const(2147483647), Const(1))",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "Mul(Add(Var('x'), Const(0)), Const(1))",
+   "expect": "x"
+  },
+  {
+   "expr": "Mul(Const(0), Add(Var('a'), Var('b')))",
+   "expect": "0"
+  },
+  {
+   "expr": "Add(Add(Var('x'), Const(3)), Const(-3))",
+   "expect": "x"
+  },
+  {
+   "expr": "Mul(Mul(Var('z'), Const(3)), Const(5))",
+   "expect": "(z * 15)"
+  },
+  {
+   "expr": "Add(Mul(Var('x'), Const(2)), Mul(Var('x'), Const(2)))",
+   "expect": "((x * 2) + (x * 2))"
+  }
+ ],
+ "hints": [
+  "Write `rule(e)` that tries every rule once on a single node and returns the new node if one fired, or `None` if none did. Keep it separate from the walk over the tree.",
+  "Simplify both children first, rebuild the node, then call `rule` in a loop until it returns `None`. That's sources first plus a fixpoint.",
+  "Python ints never overflow, so fold with a wrap: `(x + 2**31) % 2**32 - 2**31`. Put the both-Const cases before the swap cases, so the swap only fires when the right side is not a Const."
+ ],
+ "explain": "`rule` returns a rewrite or `None`, so the loop runs until no rule fires, and `simplify` runs it after simplifying the children: sources first, greedy, to a fixpoint. Folding wraps to 32 bits because Python ints would otherwise grow past i32. Because both-constant nodes fold before the swap rule is tried, moving a constant to the right can never ping-pong forever."
+}

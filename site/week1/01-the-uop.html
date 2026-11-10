@@ -69,12 +69,13 @@
   <div class="trap"><span class="label">Structure, not meaning</span><p>Hash consing is structural. <code>add 2 3</code> and <code>add 3 2</code> are different nodes, even though they're equal as numbers, because the src tuple is in a different order. Making them meet is the job of rewrite rules (lesson 3), which can put the operands of order-independent ops like <code>add</code> (commutative ops) into one fixed (canonical) order.</p></div>
 
   <h3>Code it: a hash-consing table</h3>
-  <p class="prose">Build the cache yourself, on a toy node type in OCaml. The key is the op plus the <em>ids</em> of the sources, which is exactly why sources being unique already makes the lookup cheap.</p>
-  <div class="exercise" data-ex="w1-01-hashcons">
+  <p class="prose">Build the cache yourself, on a toy node type in your language. The key is the op plus the <em>ids</em> of the sources, which is exactly why sources being unique already makes the lookup cheap.</p>
+  <div class="exercise" data-ex="w1-01-hashcons" data-ex-py="w1-01-hashcons-py">
     <h3>Hash cons a toy node</h3>
-    <p>Write <code>create ()</code>. It returns a <code>make</code> function with its own private table. <code>make op src</code> must return the <strong>same</strong> node (physically, <code>==</code>) when it has already built a node with that op and those exact source nodes. Otherwise it builds a new node whose <code>id</code> is the next number: 0, 1, 2, and so on.</p>
-    <p>Two different <code>create ()</code> calls must not share a table. Source order matters: <code>make "add" [x; y]</code> and <code>make "add" [y; x]</code> are different nodes.</p>
-    <p class="muted">The shape: <code>let create () = let tbl = Hashtbl.create 16 in let next = ref 0 in fun op src -&gt; ...</code>. The table lives inside each <code>create ()</code> call, and the function it returns can see it. Key the <code>Hashtbl</code> on <code>(op, list of source ids)</code>.</p>
+    <p>Write <code>create ()</code>. It returns a <code>make</code> function with its own private table. <code>make op src</code> must return the <strong>same</strong> node (the same object: <span class="only-ocaml"><code>==</code></span><span class="only-python"><code>is</code></span>) when it has already built a node with that op and those exact source nodes. Otherwise it builds a new node whose <code>id</code> is the next number: 0, 1, 2, and so on.</p>
+    <p>Two different <code>create ()</code> calls must not share a table. Source order matters: an <code>"add"</code> of <code>x</code> then <code>y</code> and an <code>"add"</code> of <code>y</code> then <code>x</code> are different nodes.</p>
+    <p class="muted only-ocaml">The shape: <code>let create () = let tbl = Hashtbl.create 16 in let next = ref 0 in fun op src -&gt; ...</code>. The table lives inside each <code>create ()</code> call, and the function it returns can see it. Key the <code>Hashtbl</code> on <code>(op, list of source ids)</code>.</p>
+    <p class="muted only-python">The shape: inside <code>create()</code>, make a dict and a counter, then define <code>make</code> and return it. Each <code>create()</code> call gets its own dict, and the <code>make</code> it returns can see it. Key the dict on <code>(op, tuple of source ids)</code>, and compare nodes with <code>is</code>, not <code>==</code>.</p>
   </div>
 
   <h2>The doubling DAG</h2>
@@ -97,10 +98,10 @@
     <p>An evaluator that recurses on sources without remembering results visits <code>%x0</code> 2³⁰⁰ times. One that caches each node's value visits each node once, so 301 steps. The spec requires this case to run in milliseconds, so "I'll add memoization later" isn't an option.</p>
   </div>
 
-  <div class="exercise small" data-ex="w1-01-dag-size">
+  <div class="exercise small" data-ex="w1-01-dag-size" data-ex-py="w1-01-dag-size-py">
     <h3>Count distinct nodes</h3>
     <p>Write <code>dag_size t</code>: the number of physically distinct nodes reachable from <code>t</code>. A node reached twice counts once. <code>dag_size (dbl 3)</code> is 4, and <code>dag_size (dbl 60)</code> has to finish, so walking the tree is out.</p>
-    <p class="muted">Remember what you've visited. <code>List.memq</code> tests membership with <code>==</code>.</p>
+    <p class="muted">Remember what you've visited. <span class="only-ocaml"><code>List.memq</code> tests membership with <code>==</code>.</span><span class="only-python">A set of <code>id(node)</code> values tests membership by identity.</span></p>
   </div>
 
   <div class="exercise small" data-ex="w1-01-pow8">
@@ -195,7 +196,7 @@
     <div class="why"><p><code>stack</code> adds a new leading axis with one entry per source. <code>index</code> pops it back off: <code>index (stack 1 2 3) 2</code> is <code>3</code>.</p></div>
   </div>
 
-  <nav class="pager"><a href="../week0/06-ocaml.html">← OCaml for this course</a><a href="02-uir-and-interpreting.html">The .uir format and interpreting →</a></nav>
+  <nav class="pager"><a href="../week0/07-python.html">← Python for this course</a><a href="02-uir-and-interpreting.html">The .uir format and interpreting →</a></nav>
 </main>
 <script src="../assets/course.js"></script>
 <script>

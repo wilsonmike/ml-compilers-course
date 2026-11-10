@@ -1,0 +1,55 @@
+{
+ "id": "w2-04-emit-py",
+ "lang": "python",
+ "title": "Emit straight-line C",
+ "prompt": "<p>Four small dataclasses stand in for your graph: <code>Lit(n)</code>, <code>Var(name)</code>, <code>Add(a, b)</code> and <code>Mul(a, b)</code>. Write <code>emit(e)</code>, returning a tuple <code>(lines, result)</code>: the C lines as a <code>list[str]</code> and the expression for the result.</p><ul><li><code>Lit(n)</code> prints inline as <code>n</code>, except <code>-2147483648</code>, which prints as <code>(-2147483647 - 1)</code>. <code>Var(s)</code> prints inline as <code>s</code>.</li><li><code>Add(a, b)</code> and <code>Mul(a, b)</code>: emit <code>a</code>, then <code>b</code>, then one line <code>int32_t vK = (int32_t)((uint32_t)A + (uint32_t)B);</code> (<code>*</code> for <code>Mul</code>), where <code>K</code> is the number of lines emitted before it. The result is <code>vK</code>.</li><li>A node that is the same object (<code>is</code>) as one you've already emitted reuses its name and adds no line. Two separately built nodes that are equal with <code>==</code> are still different nodes here.</li></ul>",
+ "show": "lambda r: ' | '.join(r[0]) + ' => ' + r[1]",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Lit:\n    n: int\n\n\n@dataclass(frozen=True)\nclass Var:\n    name: str\n\n\n@dataclass(frozen=True)\nclass Add:\n    a: \"E\"\n    b: \"E\"\n\n\n@dataclass(frozen=True)\nclass Mul:\n    a: \"E\"\n    b: \"E\"\n\n\nE = Lit | Var | Add | Mul\n\n\ndef emit(e: E) -> tuple[list[str], str]:\n    \"\"\"Return (lines, result).\n    - Lit(n) is written inline as n, except -2147483648 which is \"(-2147483647 - 1)\".\n    - Var(s) is written inline as s.\n    - Add(a, b) / Mul(a, b): emit a, then b, then ONE line\n        int32_t vK = (int32_t)((uint32_t)A + (uint32_t)B);      (* for Mul)\n      where K is the number of lines emitted before it, and the result is \"vK\".\n    - A node that is the same object (is) as one already emitted reuses its name: no new line.\"\"\"\n    return ([], \"TODO\")\n",
+ "tests": [
+  {
+   "expr": "emit(Lit(5))",
+   "expect": "=> 5",
+   "sample": true
+  },
+  {
+   "expr": "emit(Add(Var('a'), Lit(1)))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); => v0",
+   "sample": true
+  },
+  {
+   "expr": "(x := Add(Var('a'), Lit(1)), emit(Mul(x, x)))[-1]",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v1 = (int32_t)((uint32_t)v0 * (uint32_t)v0); => v1",
+   "sample": true
+  },
+  {
+   "expr": "emit(Add(Mul(Var('a'), Var('b')), Mul(Var('c'), Lit(2))))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a * (uint32_t)b); | int32_t v1 = (int32_t)((uint32_t)c * (uint32_t)2); | int32_t v2 = (int32_t)((uint32_t)v0 + (uint32_t)v1); => v2"
+  },
+  {
+   "expr": "emit(Add(Var('x'), Lit(-2147483648)))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)x + (uint32_t)(-2147483647 - 1)); => v0"
+  },
+  {
+   "expr": "emit(Mul(Var('x'), Lit(-3)))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)x * (uint32_t)-3); => v0"
+  },
+  {
+   "expr": "(dbl := lambda n, e: e if n == 0 else (lambda d: Add(d, d))(dbl(n - 1, e)), emit(dbl(3, Var('x'))))[-1]",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)x + (uint32_t)x); | int32_t v1 = (int32_t)((uint32_t)v0 + (uint32_t)v0); | int32_t v2 = (int32_t)((uint32_t)v1 + (uint32_t)v1); => v2"
+  },
+  {
+   "expr": "emit(Mul(Add(Var('a'), Lit(1)), Add(Var('a'), Lit(1))))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v1 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v2 = (int32_t)((uint32_t)v0 * (uint32_t)v1); => v2"
+  },
+  {
+   "expr": "(dbl := lambda n, e: e if n == 0 else (lambda d: Add(d, d))(dbl(n - 1, e)), r := emit(dbl(25, Var('x'))), ([str(len(r[0]))], r[1]))[-1]",
+   "expect": "25 => v24"
+  }
+ ],
+ "hints": [
+  "Recurse: an `Add` needs the C text of both sources before it can write its own line. `Lit` and `Var` produce text but no line. Keep a list of lines, and `len(lines)` is `K`.",
+  "For sharing, keep a dict from `id(node)` to the name you gave it. Don't key the dict on the node itself. These are frozen dataclasses, so the dict would compare by value and merge two separately built equal trees.",
+  "Check the memo before recursing into the sources, not after. Otherwise `dbl(25, ...)` still walks 2^25 paths even though it only prints 25 lines."
+ ],
+ "explain": "This is a renderer in miniature. A post-order walk (sources first, left before right) gives a valid schedule, each operation becomes one named C variable, and the memo keyed on `id(node)` makes shared nodes print once, which keeps a hash-consed DAG linear. Every i32 op goes through `uint32_t`, so wraparound is defined C, and INT_MIN is spelled `(-2147483647 - 1)` because `-2147483648` in C is unary minus applied to a literal that doesn't fit in `int`."
+}

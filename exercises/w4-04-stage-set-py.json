@@ -1,0 +1,50 @@
+{
+ "id": "w4-04-stage-set-py",
+ "lang": "python",
+ "title": "Which nodes are worth staging",
+ "prompt": "<p>A graph is a list of <code>(id, srcs)</code> tuples: node <code>id</code> reads the nodes in the list <code>srcs</code>, and a leaf has <code>srcs == []</code>. Write <code>stage_set(g: list[tuple[int, list[int]]]) -> list[int]</code>: every non-leaf id that has two or more distinct consumers, sorted ascending. A node read twice by the same consumer (like <code>mul %c %c</code>) is still one use, since rangeify builds that element once per index. That's the candidate list a materialization pass starts from. An empty result prints as an empty line.</p>",
+ "show": "lambda v: ' '.join(map(str, v))",
+ "starter": "def stage_set(g: list[tuple[int, list[int]]]) -> list[int]:\n    \"\"\"g is a list of (id, srcs): node id reads the nodes in srcs. A leaf has srcs == [].\n    Return, sorted ascending, every non-leaf id with two or more distinct consumers\n    (a node read twice by the same consumer is still one use).\"\"\"\n    return []\n",
+ "tests": [
+  {
+   "expr": "stage_set([(1, []), (2, [1]), (3, [2]), (4, [2])])",
+   "expect": "2",
+   "sample": true
+  },
+  {
+   "expr": "stage_set([(1, []), (2, [1, 1]), (3, [2])])",
+   "expect": "",
+   "sample": true
+  },
+  {
+   "expr": "stage_set([(1, []), (2, [1]), (3, [2, 2])])",
+   "expect": ""
+  },
+  {
+   "expr": "stage_set([])",
+   "expect": ""
+  },
+  {
+   "expr": "stage_set([(1, []), (2, [1]), (3, [1]), (4, [2, 3]), (5, [2, 3])])",
+   "expect": "2 3"
+  },
+  {
+   "expr": "stage_set([(9, []), (8, [9]), (7, [8]), (6, [8]), (5, [7, 6])])",
+   "expect": "8"
+  },
+  {
+   "expr": "stage_set([(1, []), (2, [1]), (3, [2]), (4, [3])])",
+   "expect": ""
+  },
+  {
+   "expr": "stage_set([(1, []), (2, [1]), (3, [2, 2]), (4, [2])])",
+   "expect": "2"
+  }
+ ],
+ "hints": [
+  "First count each node's consumers: for every <code>(id, srcs)</code>, <code>id</code> consumes each node in <code>srcs</code>. Loop over <code>set(srcs)</code> so a consumer that reads a node twice counts once.",
+  "<code>collections.Counter</code> does the counting. Then keep the ids that have at least 2 distinct consumers and a non-empty <code>srcs</code> of their own (leaves like buffer loads aren't worth staging).",
+  "<code>sorted(...)</code> gives ascending order. A <code>Counter</code> returns 0 for a missing key, so nodes nobody reads need no special case."
+ ],
+ "explain": "Counting uses is the first question a materialization pass asks: a value with one consumer can always be fused into it, and a value with two consumers is the candidate for staging. A consumer that reads a node twice (like <code>mul c c</code>) is one use, because hash consing makes rangeify build that element once per index. Leaves are excluded because there is nothing to recompute."
+}

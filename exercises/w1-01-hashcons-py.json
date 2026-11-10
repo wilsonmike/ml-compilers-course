@@ -1,0 +1,54 @@
+{
+ "id": "w1-01-hashcons-py",
+ "lang": "python",
+ "title": "Hash cons a toy node",
+ "prompt": "<p>Write <code>create()</code>. It returns a <code>make</code> function with its own private table. <code>make(op, src)</code> must return the <strong>same</strong> node object (<code>is</code>) when it has already built a node with that op and those exact source nodes. Otherwise it builds a new <code>Node</code> whose <code>id</code> is the next number: 0, 1, 2, and so on.</p><p>Two different <code>create()</code> calls must not share a table. Source order matters: <code>make('add', [x, y])</code> and <code>make('add', [y, x])</code> are different nodes.</p><p>Put a <code>dict</code> inside <code>create</code> and define <code>make</code> after it. The inner function can see the dict. Key it on <code>(op, tuple of source ids)</code>.</p>",
+ "show": "str",
+ "starter": "from dataclasses import dataclass\nfrom typing import Callable\n\n\n# A toy node. Don't change it. eq=False makes == and hash() compare identity, like OCaml's ==.\n@dataclass(eq=False)\nclass Node:\n    id: int\n    op: str\n    src: list[\"Node\"]\n\n\ndef create() -> Callable[[str, list[Node]], Node]:\n    \"\"\"Return a fresh make function with its own table.\n    make(op, src) returns the SAME node (is) when called again with the same op\n    and the same source nodes, and otherwise a new node with the next id: 0, 1, 2, ...\"\"\"\n\n    def make(op: str, src: list[Node]) -> Node:\n        return Node(0, op, src)\n\n    return make\n",
+ "tests": [
+  {
+   "expr": "(mk := create(), a := mk('x', []), b := mk('x', []), a is b)[-1]",
+   "expect": "True",
+   "sample": true
+  },
+  {
+   "expr": "(mk := create(), a := mk('x', []), b := mk('y', []), f'{a.id} {b.id}')[-1]",
+   "expect": "0 1",
+   "sample": true
+  },
+  {
+   "expr": "(mk := create(), x := mk('x', []), mk('add', [x, x]) is mk('add', [x, x]))[-1]",
+   "expect": "True"
+  },
+  {
+   "expr": "(mk := create(), x := mk('x', []), mk('add', [x, x]), mk('add', [x, x]), mk('z', []).id)[-1]",
+   "expect": "2"
+  },
+  {
+   "expr": "(mk := create(), x := mk('x', []), y := mk('y', []), mk('add', [x, y]) is mk('add', [y, x]))[-1]",
+   "expect": "False"
+  },
+  {
+   "expr": "(m1 := create(), m2 := create(), m1('a', []), m2('b', []).id)[-1]",
+   "expect": "0"
+  },
+  {
+   "expr": "(mk := create(), x := mk('x', []), mk('neg', [x]) is mk('neg', [x, x]))[-1]",
+   "expect": "False"
+  },
+  {
+   "expr": "(mk := create(), a := mk('add', [mk('x', []), mk('x', [])]), b := mk('add', [mk('x', []), mk('x', [])]), a is b and a.id == 1)[-1]",
+   "expect": "True"
+  },
+  {
+   "expr": "(mk := create(), last := mk('c', []), [last := mk('s', [last]) for _ in range(1000)], mk('s', [mk('c', [])]).id)[-1]",
+   "expect": "1"
+  }
+ ],
+ "hints": [
+  "Make the dict on the first line of `create`, then `def make` below it. Each call to `create` runs that line again, so each `make` gets its own dict.",
+  "Key on `(op, tuple(n.id for n in src))`. The sources are already hash consed, so equal sources have equal ids. A list can't be a dict key, but a tuple can.",
+  "On a hit, return the stored node itself, not a copy, so `is` holds. Only hand out an id when you build a new node. `len(table)` works as the counter, or keep a variable and declare it `nonlocal`."
+ ],
+ "explain": "Each `create()` call makes its own dict, and the `make` it returns closes over it, so two tables never share ids. The key `(op, source ids)` is enough because the sources were hash consed first: equal sources already have equal ids. Returning the stored object on a hit is what makes `make` give back the very same node."
+}

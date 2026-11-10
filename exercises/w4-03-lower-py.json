@@ -1,0 +1,42 @@
+{
+ "id": "w4-03-lower-py",
+ "lang": "python",
+ "title": "The element at index i",
+ "prompt": "<p>On a toy type of vector expressions (<code>Vec(buf)</code>, <code>Bcast(value)</code>, <code>Add(a, b)</code>, <code>Mul(a, b)</code>), write <code>at(e: VExp, i: str) -> SExp</code>: the scalar expression for element <code>i</code> of <code>e</code>, built from <code>Load(buf, idx)</code>, <code>Const(value)</code>, <code>SAdd</code> and <code>SMul</code>. The printer <code>show</code> is given.</p>",
+ "show": "show",
+ "starter": "from dataclasses import dataclass\n\n\n# Vector expressions.\n@dataclass(frozen=True)\nclass Vec:\n    buf: str  # a whole buffer, read as a vector\n\n@dataclass(frozen=True)\nclass Bcast:\n    value: float  # expand: the same scalar at every index\n\n@dataclass(frozen=True)\nclass Add:\n    a: \"VExp\"\n    b: \"VExp\"\n\n@dataclass(frozen=True)\nclass Mul:\n    a: \"VExp\"\n    b: \"VExp\"\n\nVExp = Vec | Bcast | Add | Mul\n\n\n# Scalar expressions.\n@dataclass(frozen=True)\nclass Load:\n    buf: str  # buf[idx]\n    idx: str\n\n@dataclass(frozen=True)\nclass Const:\n    value: float\n\n@dataclass(frozen=True)\nclass SAdd:\n    a: \"SExp\"\n    b: \"SExp\"\n\n@dataclass(frozen=True)\nclass SMul:\n    a: \"SExp\"\n    b: \"SExp\"\n\nSExp = Load | Const | SAdd | SMul\n\n\ndef show(s: SExp) -> str:\n    match s:\n        case Load(b, i):\n            return f\"{b}[{i}]\"\n        case Const(c):\n            return f\"{c:g}\"\n        case SAdd(a, b):\n            return f\"({show(a)} + {show(b)})\"\n        case SMul(a, b):\n            return f\"({show(a)} * {show(b)})\"\n\n\ndef at(e: VExp, i: str) -> SExp:\n    \"\"\"The element of vector expression e at index variable i. This is rangeify on a toy type.\"\"\"\n    match e:\n        case Vec(b):\n            return Load(b, i)\n        case _:\n            return Const(0.0)\n",
+ "tests": [
+  {
+   "expr": "at(Vec('x'), 'i')",
+   "expect": "x[i]",
+   "sample": true
+  },
+  {
+   "expr": "at(Add(Vec('x'), Bcast(1.0)), 'i')",
+   "expect": "(x[i] + 1)",
+   "sample": true
+  },
+  {
+   "expr": "at(Mul(Vec('x'), Vec('y')), 'r0')",
+   "expect": "(x[r0] * y[r0])"
+  },
+  {
+   "expr": "at(Bcast(2.5), 'k')",
+   "expect": "2.5"
+  },
+  {
+   "expr": "at(Add(Mul(Vec('a'), Bcast(2.0)), Vec('b')), 'i')",
+   "expect": "((a[i] * 2) + b[i])"
+  },
+  {
+   "expr": "at(Mul(Add(Vec('x'), Vec('x')), Add(Bcast(0.5), Vec('y'))), 'j')",
+   "expect": "((x[j] + x[j]) * (0.5 + y[j]))"
+  }
+ ],
+ "hints": [
+  "Each class has one rule. What is the element at <code>i</code> of a broadcast scalar?",
+  "<code>Bcast(c)</code> is <code>Const(c)</code> at every index. <code>Add(a, b)</code> at <code>i</code> is <code>SAdd(at(a, i), at(b, i))</code>, and <code>Mul</code> is the same with <code>SMul</code>.",
+  "Add one <code>case</code> per class to the <code>match</code>, and pass the same index variable down to both children: elementwise means index <code>i</code> of the result only needs index <code>i</code> of the operands."
+ ],
+ "explain": "Rangeify asks every value for its element at an index. An elementwise op at <code>i</code> needs only its operands at <code>i</code>, a buffer read becomes a scalar load at <code>i</code>, and a broadcast ignores the index. The result has no shapes left, so it can sit inside a <code>for</code> loop over <code>i</code>."
+}

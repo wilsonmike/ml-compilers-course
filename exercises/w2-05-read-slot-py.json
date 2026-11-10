@@ -1,0 +1,58 @@
+{
+ "id": "w2-05-read-slot-py",
+ "lang": "python",
+ "title": "Read a buffer back from the harness",
+ "prompt": "<p>The compiled program prints one line per f32 element: the slot number, a space, and the element's 32 bits as 8 hex digits, like <code>0 3f800000</code>. Write <code>read_slot(out, k)</code>, returning slot <code>k</code>'s values as a <code>list[float]</code> in output order. Lines may end in <code>\\r\\n</code>, blank lines can appear, and a slot that never appears gives <code>[]</code>.</p><p>The tests print each value with <code>repr</code>, which round-trips a Python float exactly.</p>",
+ "show": "lambda l: ' '.join(map(repr, l))",
+ "starter": "import struct\n\n\ndef read_slot(out: str, k: int) -> list[float]:\n    \"\"\"The compiled program prints one line per f32 element: the slot, a space, and\n    the 32 bits as 8 hex digits, e.g. \"0 3f800000\". Return the values for slot k,\n    in order. Lines may end in \\\\r\\\\n, and blank lines can appear.\"\"\"\n    return []\n",
+ "tests": [
+  {
+   "expr": "read_slot('0 3f800000\\n0 40000000\\n', 0)",
+   "expect": "1.0 2.0",
+   "sample": true
+  },
+  {
+   "expr": "read_slot('0 3f800000\\n1 bf800000\\n0 00000000\\n', 1)",
+   "expect": "-1.0",
+   "sample": true
+  },
+  {
+   "expr": "read_slot('0 80000000\\n', 0)",
+   "expect": "-0.0"
+  },
+  {
+   "expr": "read_slot('0 7fc00000\\n', 0)",
+   "expect": "nan"
+  },
+  {
+   "expr": "read_slot('2 7f800000\\n', 2)",
+   "expect": "inf"
+  },
+  {
+   "expr": "read_slot('0 00000001\\n', 0)",
+   "expect": "1.401298464324817e-45"
+  },
+  {
+   "expr": "read_slot('0 3f800000\\n', 5)",
+   "expect": ""
+  },
+  {
+   "expr": "read_slot('0 3f800000\\r\\n0 40400000\\r\\n', 0)",
+   "expect": "1.0 3.0"
+  },
+  {
+   "expr": "read_slot('\\n0 3f800000\\n\\n', 0)",
+   "expect": "1.0"
+  },
+  {
+   "expr": "read_slot('0 c0490fdb\\n', 0)",
+   "expect": "-3.1415927410125732"
+  }
+ ],
+ "hints": [
+  "`out.splitlines()` splits on `\\n` and `\\r\\n` alike. `line.split()` with no argument splits on any whitespace and gives `[]` for a blank line.",
+  "Don't use `float.fromhex`: it reads `3f800000` as the number 1065353216.0. You want the bits. `bytes.fromhex(bits)` gives 4 bytes, and `struct.unpack('>f', data)[0]` reads them as a big-endian f32.",
+  "Never go through a decimal string. The point is to never round anything, so -0.0, NaN and subnormals come back bit for bit."
+ ],
+ "explain": "Printing f32 values as raw bits and rebuilding them with `struct` makes the round trip exact: -0.0, NaN, infinities and subnormals all survive, which decimal output with a limited number of digits can't promise. `splitlines` and `split` handle CRLF and blank lines, so the same parser works on every platform."
+}

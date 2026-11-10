@@ -16,11 +16,12 @@ const CC = (() => {
   const NAV = [
     { title: 'Start here', items: [['index.html', 'Overview']] },
     { title: 'Resources', items: [['resources/index.html', 'All resources'], ['resources/debugging.html', 'Debugging your compiler'],
-      ['resources/review.html', 'Quiz review'], ['resources/glossary.html', 'Glossary']] },
+      ['resources/review.html', 'Quiz review'], ['resources/glossary.html', 'Glossary'], ['resources/languages.html', 'Python and OCaml, deeper']] },
     { title: 'Week 0 · Prerequisites', items: [
       ['week0/01-c-and-pointers.html', 'C and pointers', '0.1'], ['week0/02-memory-and-caches.html', 'Memory and caches', '0.2'],
       ['week0/03-compilers-and-irs.html', 'Compilers and IRs', '0.3'], ['week0/04-tensors-and-shapes.html', 'Tensors and shapes', '0.4'],
-      ['week0/05-matmul.html', 'Matrix multiply', '0.5'], ['week0/06-ocaml.html', 'OCaml crash course', '0.6']] },
+      ['week0/05-matmul.html', 'Matrix multiply', '0.5'], ['week0/06-ocaml.html', 'OCaml crash course', '0.6'],
+      ['week0/07-python.html', 'Python for this course', '0.7']] },
     { title: 'Week 1 · UOps and rewrites', items: [
       ['week1/01-the-uop.html', 'The UOp', '1.1'], ['week1/02-uir-and-interpreting.html', '.uir and interpreting', '1.2'],
       ['week1/03-rewrites-and-folding.html', 'Rewrites and folding', '1.3'], ['week1/04-symbolic.html', 'Symbolic simplification', '1.4'],
@@ -58,6 +59,16 @@ const CC = (() => {
   // ---- theme ----
   const theme = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   const savedTheme = store.get('cc-theme'); if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+  // ---- language track: the language you write your compiler in. Exercises with a Python version (data-ex-py) and
+  // text marked .only-python / .only-ocaml follow it. Python is the default.
+  const TRACKS = [['python', 'Python'], ['ocaml', 'OCaml']];
+  const track = () => (store.get('cc-track') === 'ocaml' ? 'ocaml' : 'python');
+  document.documentElement.dataset.track = track();
+  function trackSelect(cls) {
+    const s = h('select', { class: cls, 'aria-label': 'Language you write your compiler in', onchange: () => { store.set('cc-track', s.value); location.reload(); } },
+      TRACKS.map(([v, t]) => h('option', { value: v, text: t })));
+    s.value = track(); return s;
+  }
   const TOUCH = matchMedia('(pointer: coarse)').matches || /[?&]touch=1/.test(location.search);
   if (TOUCH) document.documentElement.classList.add('touch');
 
@@ -97,7 +108,7 @@ const CC = (() => {
     const side = h('aside', { class: 'side' },
       h('a', { class: 'brand', href: root + 'index.html' }, h('span', { class: 'mark', 'aria-hidden': 'true' }), 'ML compilers, from zero'),
       h('div', { class: 'search' }, search), nav,
-      h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Editor keys', km)));
+      h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect('sel')), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Editor keys', km)));
     const pill = h('span', { class: 'runner', title: 'Start it with: python tools/serve.py' }, h('span', { class: 'dot' }), 'Runner off');
     runner().then(r => { if (r) { pill.classList.add('on'); pill.lastChild.textContent = 'Runner on'; pill.title = 'Exercises run on your machine via tools/serve.py'; } });
     const crumbs = h('div', { class: 'crumbs' }, cur ? [h('a', { href: root + 'index.html', text: 'Course' }),
@@ -281,7 +292,7 @@ const CC = (() => {
     ['codemirror.css', 'dialog.css'].forEach(f => document.head.append(h('link', { rel: 'stylesheet', href: base + f })));
     const js = f => new Promise((ok, no) => document.head.append(h('script', { src: base + f, onload: ok, onerror: () => no(new Error(f)) })));
     return cmP = js('codemirror.js')
-      .then(() => Promise.all(['searchcursor.js', 'dialog.js', 'matchbrackets.js', 'closebrackets.js', 'comment.js', 'active-line.js', 'mllike.js', 'clike.js'].map(js)))
+      .then(() => Promise.all(['searchcursor.js', 'dialog.js', 'matchbrackets.js', 'closebrackets.js', 'comment.js', 'active-line.js', 'mllike.js', 'clike.js', 'python.js'].map(js)))
       .then(() => Promise.all(['vim.js', 'emacs.js', 'sublime.js'].map(js)))
       .then(() => { window.CodeMirror.defineMode('uir', () => ({ token(s) {
         if (s.match(/#.*/)) return 'comment';
@@ -292,12 +303,14 @@ const CC = (() => {
         if (s.match(/[a-z_]+/)) return 'keyword';
         s.next(); return null; }, lineComment: '#' })); return window.CodeMirror; });
   }
-  const MODE = { ocaml: 'text/x-ocaml', c: 'text/x-csrc', uir: 'uir' }, LANG = { ocaml: 'OCaml', c: 'C', uir: '.uir' };
+  const MODE = { ocaml: 'text/x-ocaml', c: 'text/x-csrc', uir: 'uir', python: 'text/x-python' }, LANG = { ocaml: 'OCaml', c: 'C', uir: '.uir', python: 'Python' };
 
   async function exercises() {
     const els = [...document.querySelectorAll('.exercise[data-ex]')];
     if (!els.length) return;
-    const ids = els.map(e => e.dataset.ex), page = here(), pageKey = page && 'cc-prog:' + page[1][0];
+    // each exercise in the reader's language: a Python version where the lesson has one
+    const pick = e => (track() === 'python' && e.dataset.exPy) || e.dataset.ex;
+    const ids = els.map(pick), page = here(), pageKey = page && 'cc-prog:' + page[1][0];
     const record = () => { if (!pageKey) return; const s = ids.filter(i => store.get('cc-solved:' + i)).length, t = ids.length;
       store.set(pageKey, JSON.stringify({ s, t }));
       const a = document.querySelector('.side a.on'); if (!a || !s) return;   // keep the sidebar count live, once something is solved
@@ -306,7 +319,7 @@ const CC = (() => {
     record();
     const r = await runner();
     for (const el of els) {
-      const id = el.dataset.ex, prompt = h('div', { class: 'ex-prompt' }, ...el.childNodes);
+      const id = pick(el), prompt = h('div', { class: 'ex-prompt' }, ...el.childNodes);
       const work = h('div', { class: 'ex-work' });
       el.replaceChildren(prompt, work);
       el.classList.add(el.classList.contains('small') ? 'stack' : 'bleed');
@@ -319,6 +332,8 @@ const CC = (() => {
         h('p', {}, 'Get the course on your computer (', h('a', { href: REPO + '#taking-the-course', text: 'how' }), '), then start the runner from its folder.'),
         h('pre', {}, h('code', { text: 'python tools/serve.py' })), h('p', {}, 'Then open ', h('code', { text: 'http://127.0.0.1:4111' }), ' and the editor appears here.'));
       if (!ex) { work.append(offline()); continue; }
+      // A language version can carry its own prompt (the page's prompt is written for the original language)
+      if (ex.prompt) { const body = h('div'); body.innerHTML = ex.prompt; prompt.replaceChildren(h('h3', { text: ex.title }), ...body.childNodes); }
       const solved = h('span', { class: 'pill solved', text: 'Solved', hidden: store.get('cc-solved:' + id) ? null : '' });
       prompt.prepend(h('div', { class: 'ex-tag' }, h('span', { class: 'pill', text: LANG[ex.lang] }), h('span', { class: 'pill', text: `${ex.ntests} tests` }),
         ex.max_ops != null ? h('span', { class: 'pill', text: `At most ${ex.max_ops} op${ex.max_ops === 1 ? '' : 's'}` }) : null, solved));
@@ -385,7 +400,7 @@ const CC = (() => {
     h('a', { href: REPO + '#taking-the-course', text: 'how' }), ') and start ', h('code', { text: 'python tools/serve.py' }), '.');
   // A line diff of your code against the answer. Comments are left out, lines are compared without their spacing, and
   // blank lines are skipped, so a starter's comments or formatting alone never show as a difference.
-  const COMMENTS = { ocaml: [/\(\*[\s\S]*?\*\)/g], c: [/\/\*[\s\S]*?\*\//g, /\/\/.*$/gm], uir: [/#.*$/gm] };
+  const COMMENTS = { ocaml: [/\(\*[\s\S]*?\*\)/g], c: [/\/\*[\s\S]*?\*\//g, /\/\/.*$/gm], uir: [/#.*$/gm], python: [/("""|''')[\s\S]*?/g, /#.*$/gm] };
   function diffView(mine, answer, lang) {
     const strip = s => (COMMENTS[lang] || []).reduce((t, re) => t.replace(re, ''), s);
     const prep = s => strip(s).replace(/\r/g, '').split('\n').filter(l => l.trim()).map(l => ({ text: l.replace(/\s+$/, ''), key: l.trim().replace(/\s+/g, ' ') }));
@@ -443,6 +458,7 @@ const CC = (() => {
   const KEYS = {
     c: ['{', '}', '(', ')', '[', ']', ';', '=', '+', '-', '*', '/', '<', '>', '&', '|', '!', '%', '"', "'", '#'],
     ocaml: ['(', ')', '[', ']', '->', '|', '_', ';', ':', '=', '<', '>', '+', '-', '*', '"', "'", '::', 'let', 'in', 'match', 'with', 'fun'],
+    python: ['(', ')', '[', ']', ':', '=', '_', ',', '+', '-', '*', '/', '%', '<', '>', '"', "'", 'def', 'return', 'if', 'else', 'for', 'in', 'None'],
     uir: ['%', '=', '#', '[', ']', '-', '.', 'add', 'mul', 'cmplt', 'where', 'param', 'dtype=i32', 'dtype=f32'],
   };
   function keybar(cm, lang, run, runLabel = 'Run') {

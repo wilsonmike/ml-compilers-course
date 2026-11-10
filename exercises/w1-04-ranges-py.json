@@ -1,0 +1,63 @@
+{
+ "id": "w1-04-ranges-py",
+ "lang": "python",
+ "title": "Interval arithmetic for i32",
+ "prompt": "<p>Bounds analysis needs two operations on ranges. Write <code>add_range(a, b)</code> and <code>mul_range(a, b)</code>: the tightest <code>Range(lo, hi)</code> that contains every <code>x + y</code> (or <code>x * y</code>) with <code>x</code> in <code>a</code> and <code>y</code> in <code>b</code>.</p><p>The catch is wraparound. If any value in the result could fall outside the i32 range, the real i32 operation might wrap, so you know nothing: return <code>FULL</code>.</p><ul><li>Do the math in Python's <code>int</code>, which never overflows, then check against <code>INT_MIN</code> and <code>INT_MAX</code>.</li><li>For <code>mul</code>, the smallest and largest products can come from any pair of ends: <code>[-3, 2] * [-5, 4]</code> is <code>[-12, 15]</code>.</li></ul>",
+ "show": "lambda r: f'[{r.lo}, {r.hi}]'",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Range:\n    lo: int\n    hi: int\n\n\nINT_MIN = -(2**31)\nINT_MAX = 2**31 - 1\nFULL = Range(INT_MIN, INT_MAX)\n\n\ndef add_range(a: Range, b: Range) -> Range:\n    \"\"\"[a.lo, a.hi] + [b.lo, b.hi]. If either end could leave the i32 range, the sum may wrap: return FULL.\"\"\"\n    return FULL\n\n\ndef mul_range(a: Range, b: Range) -> Range:\n    \"\"\"Same for multiplication. Watch the signs: the extremes can come from any pair of ends.\"\"\"\n    return FULL\n",
+ "tests": [
+  {
+   "expr": "add_range(Range(0, 7), Range(1, 1))",
+   "expect": "[1, 8]",
+   "sample": true
+  },
+  {
+   "expr": "add_range(Range(-3, 2), Range(10, 20))",
+   "expect": "[7, 22]",
+   "sample": true
+  },
+  {
+   "expr": "add_range(Range(0, 2147483647), Range(1, 1))",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "add_range(Range(-2147483648, 0), Range(-1, 0))",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "add_range(Range(-2147483648, -1), Range(1, 2147483647))",
+   "expect": "[-2147483647, 2147483646]"
+  },
+  {
+   "expr": "mul_range(Range(-3, 2), Range(-5, 4))",
+   "expect": "[-12, 15]",
+   "sample": true
+  },
+  {
+   "expr": "mul_range(Range(0, 1), Range(2, 2))",
+   "expect": "[0, 2]"
+  },
+  {
+   "expr": "mul_range(Range(65536, 65536), Range(32768, 32768))",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "mul_range(Range(-65536, 65536), Range(-32767, 32768))",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "mul_range(Range(-2147483648, 2147483647), Range(-2147483648, 2147483647))",
+   "expect": "[-2147483648, 2147483647]"
+  },
+  {
+   "expr": "mul_range(Range(-1, -1), Range(-2147483648, -2147483648))",
+   "expect": "[-2147483648, 2147483647]"
+  }
+ ],
+ "hints": [
+  "Python ints are exact at any size, so compute the result interval directly. Every sum and product of i32 ends comes out right, even `INT_MIN * INT_MIN`. Only then ask whether it fits.",
+  "For add, the new low is `a.lo + b.lo` and the new high is `a.hi + b.hi`. For mul, the extremes can come from any of the four products of the ends, so take `min` and `max` of all four.",
+  "If the low end is below `INT_MIN` or the high end is above `INT_MAX`, return `FULL`. Write one small helper that does this check and use it for both."
+ ],
+ "explain": "Python's ints hold every sum and product of two i32 ends exactly, so the computed interval is the true one and the only question is whether it fits. A helper returns `FULL` whenever an end leaves the i32 range. For multiplication it takes the min and max of all four end products, because negative ends can swap which product is largest."
+}

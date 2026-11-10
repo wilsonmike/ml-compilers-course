@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Python and OCaml, Deeper</title>
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Python and OCaml, deeper</h1>
+  <p class="lede">The lessons teach enough of your language to build each week's compiler. This page is the next layer: the idioms and design patterns that make that compiler easier to write, the traps each language sets for this course in particular, and where to read more.</p>
+  <p>This page follows your track. The sidebar's Language picker switches between the Python and OCaml parts, so switch it to read the other side. You're reading the <span class="only-python">Python</span><span class="only-ocaml">OCaml</span> version.</p>
+  <p>The sketches show a technique on a small piece. None of them is a week's solution, and several stop at <code>...</code> on purpose where the lab begins. For the basics, see <a href="../week0/06-ocaml.html">0.6 OCaml crash course</a> and <a href="../week0/07-python.html">0.7 Python for this course</a>.</p>
+
+  <h2>How to choose</h2>
+  <p>Both languages can pass every test. Pick the one you'd rather think in for five weeks.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th></th><th>Python</th><th>OCaml</th></tr></thead>
+    <tbody>
+      <tr><td>getting started</td><td>familiar to most people, nothing to install past Python 3.10</td><td>a steeper start: opam, dune, and a type checker that says no often</td></tr>
+      <tr><td>matching on IR</td><td><code>match</code> with class patterns works, but nothing checks you covered every case</td><td>variants and exhaustive <code>match</code>, so a forgotten op is a compiler warning</td></tr>
+      <tr><td>i32 and f32</td><td>ints never overflow and floats are doubles, so you wrap and round by hand on every op</td><td><code>Int32</code> wraps like C, but floats are still doubles and need rounding to f32</td></tr>
+      <tr><td>speed</td><td>slower, though fast enough for every test if you memoize</td><td>compiled to native code, rarely the bottleneck</td></tr>
+      <tr><td>reading real compilers</td><td>tinygrad itself is Python, so its source reads like your own</td><td>a long line of compilers are written in ML-family languages, including OCaml's own</td></tr>
+    </tbody>
+  </table></div>
+  <p>The honest summary: Python is the easier start and lets you read tinygrad directly, but you have to remember 32-bit wraparound and f32 rounding yourself, everywhere. OCaml's types catch a whole class of rewrite bugs before you run anything, at the price of a slower first week.</p>
+
+  <h2>Week 1: UOps, interpreting, rewrites</h2>
+
+  <div class="only-python">
+    <h3>Ops as an enum</h3>
+    <p>An <code>Enum</code> gives each op one object, so a typo is an <code>AttributeError</code> instead of a string that silently never matches. The parser can look ops up by name.</p>
+    <pre><code>from enum import Enum, auto
+
+class Op(Enum):
+  CONST = auto()
+  PARAM = auto()
+  ADD = auto()
+  MUL = auto()
+  # ...
+
+Op["cmplt".upper()]   # Op.CMPLT, or a KeyError for an unknown op</code></pre>
+
+    <h3>Hash consing: a frozen dataclass and a dict</h3>
+    <p>Make the node immutable with <code>frozen=True</code>, and keep one table from a key to the node already built for it. Pass <code>eq=False</code> too. Then <code>==</code> and <code>hash</code> use identity, which is exactly right once nodes are shared, and constant time.</p>
+    <pre><code>from dataclasses import dataclass
+
+@dataclass(frozen=True, eq=False)
+class UOp:
+  op: Op
+  dtype: str
+  src: tuple["UOp", ...]
+  arg: object
+
+_table: dict[tuple, UOp] = {}
+
+def uop(op, dtype, src=(), arg=None) -&gt; UOp:
+  key = (op, dtype, src, arg_key(arg))
+  ...   # return the node stored under key, or build one and store it</code></pre>
+    <div class="trap"><span class="label">Two Python traps in that key</span>
+      <ul>
+        <li><strong>The default <code>eq=True</code> hashes the whole subtree.</strong> A frozen dataclass with generated equality hashes every field, recursively, on every lookup, and caches nothing. On a 300-level shared DAG that's exponential. With <code>eq=False</code> the <code>src</code> tuple hashes its children by identity.</li>
+        <li><strong>Python thinks <code>0.0 == -0.0</code> and <code>True == 1</code>.</strong> They also hash the same, so a dict merges <code>const -0.0</code> into <code>const 0.0</code>. That's a wrong answer, not just lost sharing. Build the key from the type and, for floats, the bits (that's the <code>arg_key</code> above), the way tinygrad keys on <code>type(arg)</code> as well as <code>arg</code>.</li>
+      </ul>
+    </div>
+
+    <h3>Rewrite rules with <code>match</code></h3>
+    <p>Python 3.10's <code>match</code> reads like the rule it implements. Keyword patterns work on any dataclass, and nested patterns match a whole subtree at once. Return <code>None</code> when no rule fires, so the engine knows to stop.</p>
+    <pre><code>def rule(u: UOp) -&gt; UOp | None:
+  match u:
+    case UOp(op=Op.ADD, dtype="i32", src=(x, UOp(op=Op.CONST, arg=0))):
+      return x                       # add(x, 0) -&gt; x, for i32 only
+    case UOp(op=Op.MUL, dtype="i32", src=(x, UOp(op=Op.CONST, arg=1))):
+      return x
+  return None</code></pre>
+    <div class="trap"><span class="label">A literal pattern compares with <code>==</code></span>
+      <p><code>arg=0</code> also matches <code>0.0</code>, <code>-0.0</code>, and <code>False</code>. Without <code>dtype="i32"</code> the first rule would turn the f32 <code>add(x, 0.0)</code> into <code>x</code>, which is wrong when x is <code>-0.0</code>. Put the dtype in every pattern, and remember that cases run top to bottom, so order specific rules first.</p>
+    </div>
+
+    <h3>32-bit integers and f32 floats, by hand</h3>
+    <p>Python ints never overflow and Python floats are doubles. Neither matches the course's types, so give every arithmetic op one small helper and never use bare <code>+</code> on a value.</p>
+    <ul>
+      <li><strong>i32.</strong> After each op, keep the low 32 bits (mask with <code>0xFFFFFFFF</code>) and read the top bit as a sign. <code>ctypes.c_int32(n).value</code> does the same and makes a good reference for a test.</li>
+      <li><strong>Division.</strong> <code>//</code> floors and <code>%</code> takes the divisor's sign, and <code>int(a / b)</code> goes through a double. Build truncating division from the quotient of the absolute values.</li>
+      <li><strong>f32.</strong> Round a double to f32 by packing and unpacking it: <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>. Do it after every op and on every literal, not once at the end.</li>
+    </ul>
+
+    <h3>Memoize per call, and know what <code>functools.cache</code> does</h3>
+    <p><code>functools.cache</code> on an evaluator is one global table that lives forever. That's fine for a pure property of a node, like its dtype or shape. It's wrong for values that depend on a <code>call</code>'s arguments: the same body called with 3 and then with 4 returns the first answer twice. Use a plain dict created at the start of each call for those.</p>
+
+    <h3>An explicit worklist instead of deep recursion</h3>
+    <p>Python stops at about 1000 nested calls (<code>sys.getrecursionlimit()</code>), and a long chain of ops is deeper than that. Raising the limit works until the C stack overflows and the process dies with no message. Walk the graph with your own stack instead. The trick for "sources before the node" is to push each node twice:</p>
+    <pre><code>stack, done = [(root, False)], set()
+while stack:
+  u, expanded = stack.pop()
+  if u in done: continue
+  if expanded:
+    ...                      # every source of u is finished: handle u here
+    done.add(u)
+  else:
+    stack.append((u, True))
+    stack.extend((s, False) for s in u.src)</code></pre>
+
+    <h3>Exit codes</h3>
+    <p>An uncaught Python exception prints a traceback and exits 1, which the grader reads as "an assert failed". Catch errors at the top of <code>main</code>, print a line starting <code>invalid:</code>, and <code>sys.exit(2)</code>. Catch <code>RecursionError</code> there too, so a deep graph fails loudly instead of looking like a failed assert.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>Variants for ops, a record for the node</h3>
+    <p>One variant constructor per op, and a record holding the shared fields. Give each node a unique <code>id</code> when it's built. Tables keyed by that int are cheaper and safer than tables keyed by the node itself.</p>
+    <pre><code>type op = Const | Param | Add | Mul | Cmplt | Where (* ... *)
+type dtype = I32 | F32 | Bool
+type arg = No_arg | Int of int32 | Float of float | Slot of int
+
+type uop = { id : int; op : op; dtype : dtype; src : uop list; arg : arg }</code></pre>
+
+    <h3>Hash consing with <code>Hashtbl.Make</code></h3>
+    <p>The generic <code>Hashtbl</code> uses structural equality, which walks whole subtrees and slows down on deep DAGs. Key the table on the sources' ids instead, with a module that says how to compare and hash keys.</p>
+    <pre><code>module Key = struct
+  type t = op * dtype * int list * arg_key (* src ids, and arg with floats as bits *)
+  let equal = ( = )                        (* cheap now: no subtrees inside *)
+  let hash = Hashtbl.hash
+end
+module Table = Hashtbl.Make (Key)
+
+let table : uop Table.t = Table.create 1024
+let make op dtype src arg = ...            (* find, or build with a fresh id and add *)</code></pre>
+    <div class="trap"><span class="label">Floats inside a key</span>
+      <p>Structural equality says <code>0.0 = -0.0</code>, so <code>const -0.0</code> would come back as <code>const 0.0</code>, a wrong answer. And <code>nan = nan</code> is false, so a NaN constant never finds itself. Store float args by their bits in the key (<code>Int32.bits_of_float</code> for an f32), and compare those.</p>
+    </div>
+
+    <h3>Exhaustive matches as a safety net</h3>
+    <p>OCaml warns (warning 8) when a <code>match</code> misses a constructor. Each week adds ops, and every pass that forgot one lights up at compile time. Two habits keep the net working:</p>
+    <ul>
+      <li>Avoid a catch-all <code>| _ -&gt;</code> in passes that must handle every op. List the ops that need nothing, so the next new op still warns.</li>
+      <li>Turn the warning into an error in your <code>dune</code> file: <code>(flags (:standard -w +8 -warn-error +8))</code>.</li>
+    </ul>
+    <p>A rewrite rule is then one match arm, and <code>when</code> guards keep the conditions next to the pattern:</p>
+    <pre><code>let rule u =
+  match u.op, u.dtype, u.src with
+  | Add, I32, [ x; { op = Const; arg = Int 0l; _ } ] -&gt; Some x
+  | Mul, I32, [ x; { op = Const; arg = Int 1l; _ } ] -&gt; Some x
+  | _ -&gt; None   (* fine here: most nodes have no rule *)</code></pre>
+
+    <h3><code>Int32</code> and f32 rounding</h3>
+    <p>OCaml's <code>int</code> is 63 bits, so it never wraps where i32 does. <code>Int32.add</code>, <code>Int32.mul</code>, and <code>Int32.shift_left</code> wrap like C. <code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, and <code>Int32.div Int32.min_int (-1l)</code> gives <code>min_int</code> instead of trapping, which is what the spec wants. Division by zero raises <code>Division_by_zero</code>, so catch it and report it. Floats are doubles, so round each f32 result with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
+
+    <h3>Memoize per call</h3>
+    <p>Create the value table inside the function that evaluates one <code>call</code>, not at the top level of a module. A top-level <code>Hashtbl</code> is global, and the same body called with different arguments would return the first answer twice. Local tables keyed by node id are cheap to make.</p>
+
+    <h3>Exit codes</h3>
+    <p>An uncaught exception exits 2 with <code>Fatal error: exception ...</code>, which looks right but has no <code>invalid:</code> line. Wrap <code>main</code> in a <code>try ... with</code> that prints the reason and calls <code>exit 2</code>. While debugging, <code>OCAMLRUNPARAM=b</code> prints a backtrace for any exception that escapes.</p>
+  </div>
+
+  <h2>Week 2: memory, bounds, and rendering C</h2>
+
+  <div class="only-python">
+    <h3>An f-string emitter</h3>
+    <p>Collect C lines in a list and join them at the end. Name each value once, in a dict from node to C name, so a shared node is computed once in the C too.</p>
+    <pre><code>lines: list[str] = []
+names: dict[UOp, str] = {}           # identity keys, thanks to eq=False
+
+def emit(u: UOp) -&gt; None:
+  a, b = (names[s] for s in u.src)
+  names[u] = f"v{len(names)}"
+  lines.append(f"  int32_t {names[u]} = {a} ... {b};")   # the wrap-safe form is yours to write</code></pre>
+    <p>Two f-string details bite in C. Literal braces must be doubled (<code>f"void kernel(...) {{"</code>), and a quote inside the braces needs the other quote style before Python 3.12.</p>
+
+    <h3>Exact float literals with <code>float.hex</code></h3>
+    <p><code>str(x)</code> does round-trip, but formats like <code>f"{x:f}"</code> and <code>%g</code> drop digits, and a decimal literal is something you have to argue is exact. <code>x.hex()</code> prints the bits as a C99 hex float, exact by construction: <code>0.1</code> rounded to f32 prints <code>0x1.99999a0000000p-4</code>, and C reads it back with an <code>f</code> suffix to the same float. It doesn't cover everything, though: <code>float("inf").hex()</code> is <code>inf</code>, which C doesn't accept, so infinities and NaN need their own spelling.</p>
+
+    <h3>Bounds with unbounded ints</h3>
+    <p>Here Python's big ints help. Represent an interval as a pair of plain ints and compute <code>lo</code> and <code>hi</code> exactly, with no overflow along the way. Only at the end ask whether the result fits the buffer, or i32. In a 32-bit language you'd have to reason about the bounds' own overflow.</p>
+
+    <h3>The runtime: <code>subprocess</code>, <code>tempfile</code>, <code>struct</code></h3>
+    <ul>
+      <li><code>tempfile.TemporaryDirectory()</code> in a <code>with</code> block gives a fresh folder and deletes it afterward, even on an error.</li>
+      <li><code>subprocess.run([cc, "-O2", src, "-o", exe], capture_output=True, text=True, timeout=10)</code> takes a list, so paths with spaces need no quoting, and <code>timeout</code> saves you from a kernel that hangs. Check <code>returncode</code> and show <code>stderr</code>.</li>
+      <li>Read a float back by its bits, never by parsing a decimal: <code>int(h, 16)</code>, then <code>struct.pack("&lt;I", n)</code> and <code>struct.unpack("&lt;f", ...)</code>. <code>str.split()</code> with no argument also strips the <code>\r</code> of Windows line endings.</li>
+    </ul>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>Rendering with <code>Buffer</code> and <code>Printf</code></h3>
+    <p>Append C to a <code>Buffer.t</code> with <code>Printf.bprintf</code>, and keep a table from node id to C name so a shared node is computed once. <code>Buffer</code> grows in amortized constant time, unlike repeated <code>^</code>, which copies the whole string each time.</p>
+    <pre><code>let b = Buffer.create 4096
+let name = Hashtbl.create 64                 (* node id -&gt; "v12" *)
+
+let emit u =
+  let v = Printf.sprintf "v%d" (Hashtbl.length name) in
+  Hashtbl.replace name u.id v;
+  Printf.bprintf b "  int32_t %s = ...;\n" v   (* the wrap-safe form is yours to write *)</code></pre>
+
+    <h3>Exact float literals with <code>%h</code></h3>
+    <p><code>Printf.sprintf "%h" x</code> prints a hex float that C reads back exactly: <code>3.0</code> prints <code>0x1.8p+1</code>. Add an <code>f</code> suffix for f32. <code>%h</code> prints <code>infinity</code> and <code>nan</code> for the special values, which C doesn't accept, so those need their own spelling. Never use <code>%f</code> or <code>%g</code> for a literal: they drop digits.</p>
+
+    <h3>Modules to organize passes</h3>
+    <p>By week 2 your compiler has a parser, a checker, a simplifier, a bounds analysis, and a renderer. Give each its own file (each file is a module), and write an <code>.mli</code> for it so the rest of the compiler sees only what it should. When two passes share a shape, a module type says so:</p>
+    <pre><code>module type PASS = sig
+  val name : string
+  val run : uop -&gt; uop
+end
+
+module Debug (P : PASS) : PASS = struct     (* a functor: wraps any pass *)
+  let name = P.name
+  let run u = let u' = P.run u in (* print u' as .uir here *) u'
+end</code></pre>
+    <p>A functor like <code>Debug</code> gives every pass the "print the IR after each pass" flag from the <a href="debugging.html">debugging guide</a> for free.</p>
+
+    <h3>The runtime</h3>
+    <p>Lesson 2.5 covers <code>Filename.quote_command</code>, <code>Sys.command</code>, and reading bits back with <code>Int32.of_string ("0x" ^ h)</code>. Use <code>Fun.protect ~finally</code> to delete temporary files, and the <code>unix</code> library when you need a timeout.</p>
+  </div>
+
+  <h2>Week 3: loops and placement</h2>
+
+  <div class="only-python">
+    <h3>Sets of ranges, computed once</h3>
+    <p>Placement asks, for each node, which loops it depends on. That's a set, and <code>frozenset</code> is hashable and cheap to union. Compute it bottom up with the worklist from week 1 and store it in a dict keyed by node, or with <code>functools.cache</code>, since it's a pure property of the node.</p>
+    <h3>Bucketing nodes by loop</h3>
+    <p><code>collections.defaultdict(list)</code> keyed by a loop gives the body of each loop in visit order, which is already the order sources must come first. Emit with an indentation depth you pass down, as <code>"  " * depth + line</code>, rather than fixing whitespace afterward.</p>
+    <h3>Testing a matmul by hand</h3>
+    <p>Before you trust your C, compute the expected matrix in plain Python with f32 rounding after each multiply and add, in the same k order as your loop. Nested list comprehensions and <code>zip</code> make the reference short enough to read at a glance.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>Sets of ranges with <code>Set.Make</code></h3>
+    <p><code>module IS = Set.Make (Int)</code> gives an immutable set of range ids with <code>union</code> and <code>subset</code>. Compute each node's set once, bottom up, in a table keyed by node id. Immutable sets can be shared between nodes without copying.</p>
+    <h3>Records for the loop tree</h3>
+    <p>A small record such as <code>{ range : uop; mutable body : item list }</code> per loop is easier to emit than a flat list with depth numbers. Build it, then render it with one recursive function that takes the indentation as an argument. Loop nests are only as deep as the program's ranges, so recursion is safe here.</p>
+    <h3>Labelled arguments for loop bounds</h3>
+    <p>Functions that take a start, a stop, and a stride are easy to call in the wrong order. Labelled arguments (<code>~lo ~hi</code>) make the call site say which is which, and the type checker rejects a swap.</p>
+  </div>
+
+  <h2>Week 4: vectors, reduce, rangeify</h2>
+
+  <div class="only-python">
+    <h3>Shapes as tuples</h3>
+    <p>Use tuples for shapes, never lists: they're hashable, so a shape can sit in a hash-consing key, and a list there fails loudly. <code>math.prod(shape)</code> is the element count, and <code>math.prod(())</code> is 1, which is right for a scalar.</p>
+    <h3>Row-major order for free</h3>
+    <p><code>itertools.product(*(range(d) for d in shape))</code> yields every index tuple in row-major order, last axis fastest. That's the order the spec uses for reduce, so an interpreter for vector values can loop over it directly.</p>
+    <h3>A left fold that starts from the first element</h3>
+    <p><code>functools.reduce(f, xs)</code> with no initial value starts from the first element and folds left, which is the spec's order. Passing <code>0</code> as an initial value changes the answer for <code>-0.0</code> and for <code>max</code>. Remember to round to f32 inside <code>f</code>.</p>
+    <h3>Counting uses</h3>
+    <p>Materialization starts from how many times each value is used. <code>collections.Counter(s for u in nodes for s in u.src)</code> counts them in one line.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>Arrays for vector values</h3>
+    <p>Hold a vector value as a flat <code>float array</code> or <code>int32 array</code> with its shape beside it. <code>Array.init</code>, <code>Array.map2</code>, and <code>Array.fold_left</code> cover most elementwise work. A float array is stored unboxed, so it's compact and fast.</p>
+    <h3>Folding from the first element</h3>
+    <p><code>Array.fold_left</code> always takes an initial value. To fold from the first element as the spec requires, start from <code>a.(0)</code> and fold over the rest, rather than starting from <code>0.0</code>. Round to f32 inside the step function.</p>
+    <h3>A variant for each decision</h3>
+    <p>Rangeify decides, per value, whether to recompute it or store it. Write that decision as a variant (<code>type place = Fuse | Stage</code>, say) in a table keyed by node id. Every later match on it is checked for both cases.</p>
+  </div>
+
+  <h2>Week 5: movement ops at any rank</h2>
+
+  <div class="only-python">
+    <h3>Strides and unraveling</h3>
+    <p>Row-major strides are suffix products of the shape. <code>itertools.accumulate</code> over the reversed shape with <code>operator.mul</code> builds them, and <code>divmod</code> unravels a flat index one axis at a time. Write both as small functions and test them against <code>itertools.product</code> on random shapes.</p>
+    <h3>Index expressions are UOps</h3>
+    <p>When you rangeify a movement op, build the new index with the same smart constructor you use everywhere else, not as a string or a Python int. Then hash consing shares it and your week 1 simplifier cleans it up, which keeps the rendered C small.</p>
+    <h3>Property tests for permutations</h3>
+    <p>Permute and its inverse should cancel, and reshape there and back should be the identity. These are perfect for a property test: generate a random shape and order, and check the round trip. <code>random.sample(range(r), r)</code> gives a random order.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>Shapes as int lists or arrays</h3>
+    <p>Pick one representation and stick to it. Lists pattern-match nicely (<code>| [] -&gt;</code> for a scalar), and arrays index in constant time. <code>List.nth</code> is linear, so a hot loop over an axis wants an array.</p>
+    <h3>A small Shape module</h3>
+    <p>Collect <code>numel</code>, <code>strides</code>, <code>unravel</code>, and <code>permute</code> in one module with an <code>.mli</code>. Each is a few lines, and having them in one place makes it easy to test them against each other.</p>
+    <h3>Index expressions are uops</h3>
+    <p>Build the new index of a rangeified movement op with your smart constructors, so hash consing shares it and your week 1 simplifier cleans it up. If you added a new op this week, the exhaustive-match warnings point at every pass that needs it.</p>
+  </div>
+
+  <h2>Profiling and testing</h2>
+
+  <div class="only-python">
+    <h3>Profiling</h3>
+    <p><code>python -m cProfile -s cumulative main.py run big.uir</code> prints where time goes by function. <code>py-spy record -o profile.svg -- python main.py run big.uir</code> samples a running program with almost no slowdown and draws a flame graph. The usual finding in this course is a missing memo, a recursive <code>__hash__</code>, or an O(n) list lookup inside a loop.</p>
+    <h3>Testing</h3>
+    <p>With pytest, any function named <code>test_*</code> in a file named <code>test_*.py</code> is a test, and a plain <code>assert</code> reports both sides when it fails. Use it for small facts about your helpers, and keep using <code>tools/test.py</code> for the compiler as a whole. Hypothesis generates inputs for you and shrinks a failure to the smallest one. It's a natural fit for i32 helpers:</p>
+    <pre><code>from hypothesis import given, strategies as st
+import ctypes
+
+i32 = st.integers(-2**31, 2**31 - 1)
+
+@given(i32, i32)
+def test_add_wraps(a, b):
+  assert add_i32(a, b) == ctypes.c_int32(a + b).value</code></pre>
+    <p>The same idea checks a rewrite rule: evaluate the program before and after on random arguments and assert the values agree. That's what the grader's simplify tests do.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>Testing</h3>
+    <p>A <code>test</code> stanza in a <code>dune</code> file builds a test executable, and <code>dune test</code> runs every one in the project.</p>
+    <pre><code>; test/dune
+(test
+ (name test_compiler)
+ (libraries mycompiler alcotest))</code></pre>
+    <p>Alcotest gives you named test cases and readable failures. ppx_expect works differently: you print something and the expected output sits in the source next to it. When the output changes, <code>dune test</code> shows a diff and <code>dune promote</code> accepts it. That suits printed .uir and rendered C well.</p>
+    <pre><code>let%expect_test "fold add" =
+  print_string (to_uir (simplify (parse "...")));
+  [%expect {| %out = const 3 |}]</code></pre>
+    <p>For random inputs, QCheck generates them and shrinks a failure to the smallest case. Keep using <code>tools/test.py</code> for the compiler as a whole.</p>
+    <h3>Profiling</h3>
+    <p>On Linux, <code>perf record --call-graph dwarf ./_build/default/bin/main.exe run big.uir</code> then <code>perf report</code> works on native OCaml code directly. The landmarks library instruments chosen functions and reports time per function on any platform. The usual finding is a structural <code>=</code> or <code>compare</code> on a whole subtree, or a <code>List.nth</code> inside a loop.</p>
+  </div>
+
+  <h2>Going further</h2>
+
+  <div class="only-python">
+    <ul>
+      <li><a href="https://github.com/tinygrad/tinygrad/blob/master/tinygrad/uop/ops.py">tinygrad's <code>uop/ops.py</code></a>. The real UOp: a dataclass with <code>eq=False</code>, a hash-consing cache keyed on <code>(op, src, arg, type(arg))</code>, and <code>UPat</code> and <code>PatternMatcher</code> for rewrite rules. Read it after week 1 and compare with yours.</li>
+      <li><a href="https://docs.tinygrad.org/">tinygrad documentation</a>. The overview of how the pieces in that file fit into a full ML framework.</li>
+      <li><a href="https://peps.python.org/pep-0636/">PEP 636: Structural Pattern Matching tutorial</a>. The friendliest walk through <code>match</code>, including class patterns and guards.</li>
+      <li><a href="https://docs.python.org/3/reference/compound_stmts.html#the-match-statement">The match statement reference</a>. The exact rules, such as why a literal pattern uses <code>==</code>.</li>
+      <li><a href="https://docs.python.org/3/library/dataclasses.html">dataclasses</a>. What <code>frozen</code>, <code>eq</code>, and <code>slots</code> generate, and how they interact with <code>__hash__</code>.</li>
+      <li><a href="https://docs.python.org/3/library/struct.html">struct</a>. Format codes and byte order for reading and writing f32 bits.</li>
+      <li><a href="https://docs.python.org/3/library/stdtypes.html#float.hex">float.hex and float.fromhex</a>. The exact hex float format your renderer prints.</li>
+      <li><a href="https://docs.python.org/3/tutorial/floatingpoint.html">Floating-Point Arithmetic: Issues and Limitations</a>. Short, and it explains why Python's floats are doubles and what <code>repr</code> promises.</li>
+      <li><a href="https://docs.python.org/3/library/functools.html">functools</a>. <code>cache</code>, <code>reduce</code>, and <code>singledispatch</code>, each useful somewhere in a compiler.</li>
+      <li><a href="https://docs.python.org/3/howto/enum.html">Enum HOWTO</a>. Beyond <code>auto()</code>: members with values, and iterating over all ops.</li>
+      <li><a href="https://docs.python.org/3/library/subprocess.html">subprocess</a>. Running clang and your kernel, with timeouts and captured output.</li>
+      <li><a href="https://craftinginterpreters.com/">Crafting Interpreters</a> (Robert Nystrom). A free book on scanners, parsers, and tree-walking interpreters, written in a style that maps well onto Python.</li>
+      <li><em>Fluent Python</em> (Luciano Ramalho, 2nd edition). The book on how Python's data model works: hashing, equality, dataclasses, and pattern matching.</li>
+    </ul>
+  </div>
+
+  <div class="only-ocaml">
+    <ul>
+      <li><a href="https://dev.realworldocaml.org/">Real World OCaml</a>. A free book that goes well past the crash course. The chapters on <a href="https://dev.realworldocaml.org/variants.html">variants</a>, <a href="https://dev.realworldocaml.org/functors.html">functors</a>, <a href="https://dev.realworldocaml.org/maps-and-hashtables.html">maps and hash tables</a>, and <a href="https://dev.realworldocaml.org/testing.html">testing</a> line up with this course.</li>
+      <li><a href="https://cs3110.github.io/textbook/">OCaml Programming: Correct + Efficient + Beautiful</a> (Cornell CS 3110). A full course textbook with videos. Its chapters on modules and on interpreters are the best preparation for weeks 1 and 2.</li>
+      <li><a href="https://ocaml.org/manual/latest/">The OCaml manual</a>. The language reference, including <a href="https://ocaml.org/manual/latest/patterns.html">patterns</a>, the exact matching rules behind your rewrites.</li>
+      <li>The standard library pages for <a href="https://ocaml.org/manual/latest/api/Int32.html">Int32</a>, <a href="https://ocaml.org/manual/latest/api/Hashtbl.html">Hashtbl</a> (and <a href="https://ocaml.org/manual/latest/api/Hashtbl.Make.html">Hashtbl.Make</a>), and <a href="https://ocaml.org/manual/latest/api/Printf.html">Printf</a>. The three modules you'll use most, with every function's edge cases.</li>
+      <li><a href="https://ocaml.org/docs/functors">ocaml.org: Functors</a> and <a href="https://ocaml.org/docs/hash-tables">Hash Tables</a>. Short tutorials on the two features behind hash consing with a custom key.</li>
+      <li><a href="https://dune.readthedocs.io/en/stable/tests.html">dune: writing and running tests</a>. Test stanzas, inline tests, and expect tests.</li>
+      <li><a href="https://ocaml.org/docs/profiling">ocaml.org: Profiling</a> and <a href="https://ocaml.org/docs/debugging">Debugging</a>. perf on native code, backtraces, and tracing.</li>
+      <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a>. Python, not OCaml, but it's the design this course follows. Reading its UOp and pattern matcher shows the same ideas in another language.</li>
+    </ul>
+    <p>Tools mentioned above: <a href="https://github.com/mirage/alcotest">Alcotest</a>, <a href="https://github.com/janestreet/ppx_expect">ppx_expect</a>, <a href="https://github.com/c-cube/qcheck">QCheck</a>, and <a href="https://github.com/LexiFi/landmarks">landmarks</a>.</p>
+  </div>
+  <div class="only-python">
+    <p>Tools mentioned above: <a href="https://docs.pytest.org/">pytest</a>, <a href="https://hypothesis.readthedocs.io/">Hypothesis</a>, <a href="https://github.com/benfred/py-spy">py-spy</a>, and <a href="https://docs.python.org/3/library/profile.html">cProfile</a>.</p>
+  </div>
+</main>
+</body>
+</html>
