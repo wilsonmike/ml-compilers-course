@@ -44,7 +44,10 @@ const CC = (() => {
   ];
   const ROOT = () => document.body.dataset.root || './';
   // the nav entry for this page: the longest matching path wins, so resources/index.html isn't mistaken for index.html
-  const here = () => { const p = location.pathname.replace(/\\/g, '/');
+  // Hosts like Cloudflare Pages serve /week1/01-the-uop.html as /week1/01-the-uop, and /site/index.html as /site/,
+  // so put the file name back before matching.
+  const here = () => { let p = location.pathname.replace(/\\/g, '/');
+    if (p.endsWith('/')) p += 'index.html'; else if (!/\.[a-z0-9]+$/i.test(p.split('/').pop())) p += '.html';
     const hits = NAV.flatMap(g => g.items.map(i => [g, i])).filter(([, i]) => p.endsWith('/' + i[0]) || (i[0] === 'index.html' && /\/site\/?$/.test(p)));
     return hits.sort((a, b) => b[1][0].length - a[1][0].length)[0]; };
 
