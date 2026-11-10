@@ -325,24 +325,28 @@ const CC = (() => {
       let cm = null;
       const stuck = stuckPanel(id, ex, () => cm, solved);
       if (stuck) prompt.append(stuck);
-      if (!r) { work.append(offline()); continue; }
-      const edDiv = h('div', { class: 'ex-editor' }), out = h('div', { class: 'ex-out' }, h('span', { class: 'hint', text: 'Run checks the examples. Submit runs every test.' }));
-      const mode = h('span'), keys = h('span', { text: 'Ctrl+Enter run · Ctrl+Shift+Enter submit' });
+      // With the runner (on your computer): Run and Submit grade the code. Without it (the hosted site, a phone): the
+      // same editor, and Compare with answer diffs your code against the reference answer. Nothing runs anywhere.
+      const edDiv = h('div', { class: 'ex-editor' });
+      const out = h('div', { class: 'ex-out' }, h('span', { class: 'hint', text: r ? 'Run checks the examples. Submit runs every test.'
+        : 'Write your answer, then compare it with the reference answer. Running the tests needs the course on your computer.' }));
+      const mode = h('span'), keys = h('span', { text: r ? 'Ctrl+Enter run · Ctrl+Shift+Enter submit' : 'Ctrl+Enter compare' });
       const runB = h('button', { class: 'btn', type: 'button', text: 'Run' }), subB = h('button', { class: 'btn primary', type: 'button', text: 'Submit' });
+      const cmpB = h('button', { class: 'btn primary', type: 'button', text: 'Compare with answer' });
       const resetB = h('button', { class: 'btn', type: 'button', text: 'Reset', title: 'Back to the starter code' });
-      work.append(h('div', { class: 'ex-bar' }, h('span', { class: 'lang', text: LANG[ex.lang] }), keymapSelect('sel'), resetB, runB, subB),
+      work.append(h('div', { class: 'ex-bar' }, h('span', { class: 'lang', text: LANG[ex.lang] }), keymapSelect('sel'), resetB, ...(r ? [runB, subB] : [cmpB])),
         edDiv, h('div', { class: 'ex-status' }, mode, keys), out);
       let CM;
       try { CM = await loadCM(); } catch (e) { edDiv.append(h('div', { class: 'ex-offline', text: 'Editor failed to load: ' + e.message })); continue; }
       const draftKey = 'cc-code:' + id;
-      const go = submit => run(submit);
+      const go = submit => r ? run(submit) : compare();
       cm = CM(edDiv, { value: store.get(draftKey) ?? ex.starter, mode: MODE[ex.lang], keyMap: keymap(), lineNumbers: true, indentUnit: 2, tabSize: 2,
         matchBrackets: true, autoCloseBrackets: true, styleActiveLine: !TOUCH, viewportMargin: Infinity, showCursorWhenSelecting: true,
         spellcheck: false, autocorrect: false, autocapitalize: false, lineWrapping: TOUCH, screenReaderLabel: 'Code editor',
         extraKeys: { 'Ctrl-Enter': () => go(false), 'Cmd-Enter': () => go(false), 'Shift-Ctrl-Enter': () => go(true), 'Shift-Cmd-Enter': () => go(true),
           Tab: c => c.somethingSelected() ? c.indentSelection('add') : c.replaceSelection('  ') } });
       editors.add(cm);
-      edDiv.after(keybar(cm, ex.lang, () => go(false)));
+      edDiv.after(keybar(cm, ex.lang, () => go(false), r ? 'Run' : 'Compare'));
       const paintMode = () => (mode.textContent = keymap() === 'vim' ? '-- NORMAL --' : KEYMAPS.find(k => k[0] === keymap())[1] + ' keys');
       cm.on('vim-mode-change', e => (mode.textContent = '-- ' + (e.subMode ? e.subMode : e.mode).toUpperCase() + ' --'));
       cm.getWrapperElement().addEventListener('cc-keymap', paintMode); paintMode();
@@ -359,7 +363,47 @@ const CC = (() => {
         if (submit && res.ok && res.passed === res.total) { store.set('cc-solved:' + id, '1'); solved.hidden = false; record(); }
       }
       runB.onclick = () => run(false); subB.onclick = () => run(true);
+      // Compare shows the answer's code, so the first time it asks once, as Show answer does.
+      let warned = !!store.get('cc-peek:' + id);
+      function compare() {
+        const ans = ex.answer && ex.answer.code;
+        if (!ans) { out.replaceChildren(h('span', { class: 'hint', text: 'This exercise has no reference answer to compare with.' })); return; }
+        if (!warned) { warned = true; cmpB.textContent = 'Compare anyway';
+          out.replaceChildren(h('span', { class: 'hint', text: 'Comparing shows lines of the answer. Try a hint first if you want to keep the puzzle.' })); return; }
+        cmpB.textContent = 'Compare again'; store.set('cc-peek:' + id, '1');
+        out.replaceChildren(...diffView(cm.getValue(), ans, ex.lang), offlineNote());
+      }
+      cmpB.onclick = compare;
     }
+  }
+  // The one line under a compare result: where real checking happens.
+  const offlineNote = () => h('p', { class: 'ex-note' }, 'To run the tests, get the course on your computer (',
+    h('a', { href: ROOT() + '../index.html#get-started', text: 'how' }), ') and start ', h('code', { text: 'python tools/serve.py' }), '.');
+  // A line diff of your code against the answer. Comments are left out, lines are compared without their spacing, and
+  // blank lines are skipped, so a starter's comments or formatting alone never show as a difference.
+  const COMMENTS = { ocaml: [/\(\*[\s\S]*?\*\)/g], c: [/\/\*[\s\S]*?\*\//g, /\/\/.*$/gm], uir: [/#.*$/gm] };
+  function diffView(mine, answer, lang) {
+    const strip = s => (COMMENTS[lang] || []).reduce((t, re) => t.replace(re, ''), s);
+    const prep = s => strip(s).replace(/\r/g, '').split('\n').filter(l => l.trim()).map(l => ({ text: l.replace(/\s+$/, ''), key: l.trim().replace(/\s+/g, ' ') }));
+    const a = prep(mine), b = prep(answer), n = a.length, m = b.length;
+    const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = a[i].key === b[j].key ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    const rows = []; let i = 0, j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && a[i].key === b[j].key) { rows.push(['same', b[j].text]); i++; j++; }
+      else if (i < n && (j >= m || L[i + 1][j] >= L[i][j + 1])) { rows.push(['del', a[i].text]); i++; }   // yours first, as diffs read
+      else { rows.push(['add', b[j].text]); j++; }
+    }
+    const changed = rows.filter(x => x[0] !== 'same').length;
+    if (!changed) return [h('p', { class: 'verdict ok', text: 'Your code matches the answer line for line.' })];
+    const mark = { same: ' ', add: '+', del: '−' };
+    return [
+      h('p', { class: 'ex-diff-head' }, h('strong', { text: `${changed} line${changed === 1 ? '' : 's'} differ.` }),
+        ' ', h('span', { class: 'muted', text: '− only in yours, + only in the answer. Comments are left out.' })),
+      h('div', { class: 'ex-diff', role: 'group', 'aria-label': 'Your code compared with the answer' },
+        rows.map(([t, text]) => h('div', { class: 'd-' + t }, h('span', { class: 'm', 'aria-label': t === 'add' ? 'only in the answer' : t === 'del' ? 'only in yours' : null, text: mark[t] }), text || ' '))),
+      h('p', { class: 'ex-note', text: 'Different is not wrong. Many correct answers look nothing like this one, and the tests are the real check.' }),
+    ];
   }
   // "Stuck?": hints one at a time, then the reference answer with a short why. Progress is remembered per exercise.
   function stuckPanel(id, ex, getCm, solvedPill) {
@@ -397,14 +441,14 @@ const CC = (() => {
     ocaml: ['(', ')', '[', ']', '->', '|', '_', ';', ':', '=', '<', '>', '+', '-', '*', '"', "'", '::', 'let', 'in', 'match', 'with', 'fun'],
     uir: ['%', '=', '#', '[', ']', '-', '.', 'add', 'mul', 'cmplt', 'where', 'param', 'dtype=i32', 'dtype=f32'],
   };
-  function keybar(cm, lang, run) {
+  function keybar(cm, lang, run, runLabel = 'Run') {
     const act = (label, f, wide) => h('button', { type: 'button', class: wide ? 'wide' : null, 'aria-label': label, text: label,
       onpointerdown: e => e.preventDefault(),            // keep focus in the editor so the keyboard stays up
       onclick: () => { f(); cm.focus(); } });
     const ins = t => act(t, () => cm.replaceSelection(/^[a-z]/.test(t) && t.length > 2 && !t.includes('=') ? t + ' ' : t), t.length > 2);
     return h('div', { class: 'ex-keys', role: 'toolbar', 'aria-label': 'Insert symbols' },
       act('Tab', () => cm.replaceSelection('  '), true), act('←', () => cm.execCommand('goCharLeft')), act('→', () => cm.execCommand('goCharRight')),
-      ...KEYS[lang].map(ins), act('Undo', () => cm.undo(), true), act('Run', run, true));
+      ...KEYS[lang].map(ins), act('Undo', () => cm.undo(), true), act(runLabel, run, true));
   }
 
   function render(res, submit) {
