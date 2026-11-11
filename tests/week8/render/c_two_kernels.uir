@@ -1,0 +1,27 @@
+# cuda
+# two kernels in a row: the second reads what the first wrote
+%x = buffer 8 dtype=i32 slot=0 data=[1 2 3 4 5 6 7 8]
+%o = buffer 8 dtype=i32 slot=1
+%b = range 2 axis=global
+%t = range 4 axis=local
+%m = mul %b 4
+%i = add %m %t
+%xv = shrink %x %i shape=[]
+%xe = load %xv
+%y = mul %xe 3
+%ov = shrink %o %i shape=[]
+%s = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%o1 = after %o %eb
+%c = range 2 axis=global
+%u = range 4 axis=local
+%m2 = mul %c 4
+%j = add %m2 %u
+%ov2 = shrink %o1 %j shape=[]
+%cur = load %ov2
+%z = add %cur 1
+%s2 = store %ov2 %z
+%eu = end %s2 %u
+%ec = end %eu %c
+%o2 = after %o1 %ec

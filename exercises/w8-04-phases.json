@@ -1,0 +1,33 @@
+{
+  "id": "w8-04-phases",
+  "lang": "ocaml",
+  "title": "Fuse phases into one thread body",
+  "show": "(fun l -> String.concat \" | \" l)",
+  "starter": "(* phases: the C statements of each local loop; names: the variable each one uses.\n   The CUDA body: each phase as { int32_t name = threadIdx.x; ...statements } then __syncthreads(); *)\nlet fuse_phases (phases : string list list) (names : string list) : string list =\n  List.concat (List.map2 (fun stmts n ->\n    [Printf.sprintf \"for (int32_t %s = 0; %s < blockDim.x; %s++) {\" n n n] @ List.map (fun s -> \"  \" ^ s) stmts @ [\"}\"]) phases names)\n",
+  "hints": [
+    "The starter writes each phase as a loop over threads, which is the CPU's view. On a GPU every thread already exists: `t` is just `threadIdx.x`.",
+    "Wrap each phase in braces so its variable names don't clash with the next phase's.",
+    "End every phase with `__syncthreads();`, including the last: a phase inside a loop runs again, and the next round's first phase must not start before everyone finished."
+  ],
+  "explain": "This is the step that turns the .uir block into CUDA. On the CPU, a phase is a loop over thread indices. On the GPU, every thread runs the whole body and reads its own index from `threadIdx.x`, so the loop disappears, and the barrier takes its place: no thread starts phase 2 until all have finished phase 1. The reference also ends the last phase with a barrier, which matters when the phases sit inside a loop.",
+  "tests": [
+    {
+      "expr": "fuse_phases [[\"sh[t] = x[t];\"]] [\"t\"]",
+      "expect": "{ |   int32_t t = threadIdx.x; |   sh[t] = x[t]; | } | __syncthreads();",
+      "sample": true
+    },
+    {
+      "expr": "fuse_phases [[\"sh[t] = x[t];\"]; [\"o[u] = sh[3 - u];\"]] [\"t\"; \"u\"]",
+      "expect": "{ |   int32_t t = threadIdx.x; |   sh[t] = x[t]; | } | __syncthreads(); | { |   int32_t u = threadIdx.x; |   o[u] = sh[3 - u]; | } | __syncthreads();",
+      "sample": true
+    },
+    {
+      "expr": "fuse_phases [] []",
+      "expect": ""
+    },
+    {
+      "expr": "fuse_phases [[\"a = 1;\"; \"b = 2;\"]; []; [\"c = 3;\"]] [\"r1\"; \"r2\"; \"r3\"]",
+      "expect": "{ |   int32_t r1 = threadIdx.x; |   a = 1; |   b = 2; | } | __syncthreads(); | { |   int32_t r2 = threadIdx.x; | } | __syncthreads(); | { |   int32_t r3 = threadIdx.x; |   c = 3; | } | __syncthreads();"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+# expect: invalid
+# reading sh[t + 1] in the same phase that writes sh: thread t + 1 may not have written it yet
+%x = buffer 8 dtype=i32 slot=0 data=[1 2 3 4 5 6 7 8]
+%sh = alloc 5 dtype=i32
+%o = buffer 8 dtype=i32 slot=1
+%b = range 2 axis=global
+%mb = mul %b 4
+%t = range 4 axis=local
+%i = add %mb %t
+%xv = shrink %x %i shape=[]
+%xe = load %xv
+%sv = shrink %sh %t shape=[]
+%s = store %sv %xe
+%sh1 = after %sh %s
+%n = add %t 1
+%nv = shrink %sh1 %n shape=[]
+%ne = load %nv
+%ov = shrink %o %i shape=[]
+%s2 = store %ov %ne
+%et = end %s %s2 %t
+%eb = end %et %b
+%o1 = after %o %eb

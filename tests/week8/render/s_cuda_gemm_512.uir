@@ -1,0 +1,79 @@
+# cuda speed: 0.5
+# time: 120
+# a 512x512 GEMM on the GPU: at least half the reference kernel's speed. Without a GPU it only has to build.
+%A = buffer 262144 dtype=f32 slot=0 url=data/a512.f32 sha256=28af7514de4c35fe0ded48e7d00c972a20e1fd49da413058c1f1964eb5ddabaa
+%B = buffer 262144 dtype=f32 slot=1 url=data/b512.f32 sha256=07e477f721ba5ecc8aa18a307e1ca1ebfa32ff5c644e4b54befc1d9c866a88b2
+%C = buffer 262144 dtype=f32 slot=2
+%As = alloc 256 dtype=f32
+%Bs = alloc 256 dtype=f32
+%acc = alloc 256 dtype=f32
+%g = range 1024 axis=global
+%by = div %g 32
+%bx = mod %g 32
+%kt = range 32
+# phase 1: thread t loads A[by*T + ty][kt*T + tx] and B[kt*T + ty][bx*T + tx] into shared memory
+%t1 = range 256 axis=local
+%ty1 = div %t1 16
+%tx1 = mod %t1 16
+%ar0 = mul %by 16
+%ar = add %ar0 %ty1
+%arN = mul %ar 512
+%ac0 = mul %kt 16
+%ac = add %ac0 %tx1
+%ao = add %arN %ac
+%av = shrink %A %ao shape=[]
+%ae = load %av
+%br0 = mul %kt 16
+%br = add %br0 %ty1
+%brN = mul %br 512
+%bc0 = mul %bx 16
+%bc = add %bc0 %tx1
+%bo = add %brN %bc
+%bv = shrink %B %bo shape=[]
+%be = load %bv
+%asv = shrink %As %t1 shape=[]
+%sa = store %asv %ae
+%bsv = shrink %Bs %t1 shape=[]
+%sb = store %bsv %be
+%e1 = end %sa %sb %t1
+%As1 = after %As %e1
+%Bs1 = after %Bs %e1
+# phase 2: thread t adds As[ty][kk] * Bs[kk][tx] for kk = 0 .. T-1, into its own accumulator
+%t2 = range 256 axis=local
+%kk = range 16
+%ty2 = div %t2 16
+%tx2 = mod %t2 16
+%aso0 = mul %ty2 16
+%aso = add %aso0 %kk
+%asr = shrink %As1 %aso shape=[]
+%a = load %asr
+%bso0 = mul %kk 16
+%bso = add %bso0 %tx2
+%bsr = shrink %Bs1 %bso shape=[]
+%b = load %bsr
+%cv = shrink %acc %t2 shape=[]
+%cur = load %cv
+%p = mul %a %b
+%sum = add %cur %p
+%st = store %cv %sum
+%ekk = end %st %kk
+%e2 = end %ekk %t2
+%ekt = end %e1 %e2 %kt
+%acc2 = after %acc %ekt
+# phase 3: thread t writes C[(by*T + ty)*N + bx*T + tx]
+%t3 = range 256 axis=local
+%ty3 = div %t3 16
+%tx3 = mod %t3 16
+%rv = shrink %acc2 %t3 shape=[]
+%res = load %rv
+%o1 = mul %by 8192
+%o2 = mul %bx 16
+%o3 = mul %ty3 512
+%o4 = add %o1 %o2
+%o5 = add %o3 %tx3
+%oo = add %o4 %o5
+%ov = shrink %C %oo shape=[]
+%sc = store %ov %res
+%e3 = end %sc %t3
+%eg = end %ekt %e3 %g
+%C1 = after %C %eg

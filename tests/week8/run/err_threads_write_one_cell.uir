@@ -1,0 +1,21 @@
+# expect: invalid
+# every thread of the block writes sh[0]: a race
+%o = buffer 8 dtype=i32 slot=0
+%sh = alloc 1 dtype=i32
+%b = range 2 axis=global
+%t = range 4 axis=local
+%v = shrink %sh 0 shape=[]
+%bt = add %b %t
+%s = store %v %bt
+%et = end %s %t
+%sh1 = after %sh %et
+%u = range 4 axis=local
+%rv = shrink %sh1 0 shape=[]
+%r = load %rv
+%mb = mul %b 4
+%j = add %mb %u
+%ov2 = shrink %o %j shape=[]
+%s2 = store %ov2 %r
+%eu = end %s2 %u
+%eb = end %et %eu %b
+%o1 = after %o %eb

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 8 Lab</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU, and...">
+<link rel="canonical" href="https://sharpterminal.com/site/week8/06-lab">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 8 Lab">
+<meta property="og:description" content="Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU, and writes CUDA with render-cuda. You&#x27;re done...">
+<meta property="og:url" content="https://sharpterminal.com/site/week8/06-lab">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 8 · Lesson 6</p>
+<h1>The week 8 lab</h1>
+<p class="lede">Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU, and writes CUDA with <code>render-cuda</code>. You're done when every week 8 test passes, in the emulator or on a GPU, weeks 1 to 7 still pass, and you've written 10 tests of your own.</p>
+
+<div class="prose">
+<h2>The command-line contract</h2>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>week 8 changes</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe run FILE</code></td><td><code>axis=global</code> and <code>axis=local</code> run as plain loops, except that a block's shared memory starts at zero for every value of the global index. New static errors (exit 2): a local bound that isn't a literal from 1 to 1024, a local loop outside a global loop or inside another local loop, local loops of different sizes in one global loop, another parallel loop inside a global loop, a store outside a local loop, and an offset that breaks the mixed-radix rule.</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>A global loop renders like a week 7 thread loop, with its shared memory declared in the outlined function. Local loops are plain loops.</td></tr>
+<tr><td><code>your.exe render-cuda FILE</code></td><td>New. Prints CUDA: a <code>__global__</code> function per global loop, <code>__shared__</code> arrays zeroed by the threads, each phase as a block on <code>threadIdx.x</code> followed by <code>__syncthreads()</code>, and a host <code>kernel</code> that calls <code>UIR_LAUNCH</code>. Exits 2 if the program isn't in kernel form.</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>How the tests are graded</h2>
+<ul>
+<li><b>Run tests</b> check the rules and the shared-memory semantics. Every <code>err_</code> test breaks exactly one rule. <code>digits_just_apart</code> and <code>err_digits_exactly_touch</code> differ by one in a coefficient.</li>
+<li><b>Render tests</b> (<code>r_</code>) compare your C's buffers with the interpreter, bit for bit, as in week 7.</li>
+<li><b>CUDA tests</b> (<code>c_</code>, header <code># cuda</code>) run your <code>render-cuda</code> output on a GPU or in the emulator and compare every buffer with the interpreter, bit for bit. Four <code>c_err_</code> tests (header <code># cuda: invalid</code>) are valid programs that aren't in kernel form, and <code>render-cuda</code> must exit 2.</li>
+<li><b>The speed test</b> <code>s_cuda_gemm_512</code> runs your CUDA and the reference's for the same 512×512 tiled GEMM on the GPU, three times each, alternating, timed with CUDA events. It needs the reference's bits and at least half its speed. Without a GPU it only checks that your CUDA builds.</li>
+</ul>
+
+<h2>Running the suite</h2>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 8                     # nvcc if it's on PATH, else the emulator
+python tools/test.py --compiler "C:/path/to/your.exe" --week 8 --cuda-docker nvidia/cuda:12.6.3-devel-ubuntu22.04
+python tools/test.py --compiler "C:/path/to/your.exe" --week 8 -k c_reverse -v     # one group, with details
+python _reference/uirc.py render-cuda tests/week8/render/c_reverse_shared.uir     # the reference's CUDA, to compare</code></pre>
+<p>Then run weeks 1 to 7 again, one <code>--week</code> at a time. The speed test reads <code>data/a512.f32</code> and <code>data/b512.f32</code> next to it, 1 MB each. Lesson 8.5 covers where to get a GPU, and you don't need one until the last step.</p>
+
+<h2>Write your 10 tests</h2>
+<p>Ten tests in <code>path/to/your-repo/tests/week8/</code>, checked with <code>python tools/test.py --check-tests path/to/your-repo/tests/week8</code>. Good targets: an offset with <code>div</code> and <code>mod</code> digits that just fits, and one where a coefficient is one too small. A vector store whose size pushes it into a neighbor's slot. A later phase reading another thread's slot, and the same read in the same phase. Shared memory read before any phase writes it. A CUDA test with two kernels where the second reads what the first wrote.</p>
+</div>
+
+<h2>A build order that works</h2>
+<ol class="build">
+<li><h3>Parse the new axes</h3><p>Accept <code>global</code> and <code>local</code>, check local bounds, and run both as plain loops.</p><p class="check">Checkpoint: weeks 1 to 7 pass, and the week 8 run tests that expect a result pass, except <code>block_shared_starts_at_zero</code>.</p></li>
+<li><h3>Shared memory</h3><p>An alloc whose every load and store is inside one global loop is shared. Re-zero it for each value of the global index in <code>run</code>, exactly like week 7's private allocs.</p><p class="check">Checkpoint: <code>block_shared_starts_at_zero</code> and <code>plain_loop_alloc_carries_over</code> both pass.</p></li>
+<li><h3>Shape rules</h3><p>Where local loops may be, one block size per kernel, no other parallel loops inside, no stores outside local loops.</p><p class="check">Checkpoint: <code>err_local_*</code>, <code>err_thread_in_global</code> and <code>err_store_outside_local</code> exit 2.</p></li>
+<li><h3>The mixed-radix rule</h3><p>Split each offset into terms, find the digits and their largest values, sort, and compare. Do it per phase with the local index, then per kernel with the global index, skipping shared memory. Check the parallel index is there, and that every access to a buffer is the same expression.</p><p class="check">Checkpoint: every run test passes.</p></li>
+<li><h3>Render for the CPU</h3><p>Treat a global loop as a thread loop and its shared allocs as private ones. Your week 7 outlining does the rest.</p><p class="check">Checkpoint: the <code>r_</code> tests pass.</p></li>
+<li><h3>render-cuda</h3><p>Start from your C emitter. Emit one <code>__global__</code> function per top-level global loop with its free buffers as parameters, then the shared arrays and their zeroing, then each phase. Add <code>__device__</code> to your helpers and emit the host <code>kernel</code>.</p><p class="check">Checkpoint: every <code>c_</code> test passes in the emulator.</p></li>
+<li><h3>On a GPU</h3><p>Run the suite with <code>nvcc</code> or <code>--cuda-docker</code>. If a test passes in the emulator and fails on the GPU, or the other way around, look for a missing barrier or unzeroed shared memory first.</p><p class="check">Checkpoint: everything passes on the GPU, including <code>s_cuda_gemm_512</code>.</p></li>
+</ol>
+
+<h2>Checklist</h2>
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="parse"><span><code>axis=global</code> and <code>axis=local</code> parse, and local bounds are literals from 1 to 1024</span></label></li>
+<li><label><input type="checkbox" data-k="shared"><span>Shared memory starts at zero in every block, in <code>run</code>, <code>render</code> and <code>render-cuda</code></span></label></li>
+<li><label><input type="checkbox" data-k="shape"><span>The shape rules: local loops in global loops, one block size, stores only in local loops</span></label></li>
+<li><label><input type="checkbox" data-k="radix"><span>The mixed-radix rule, per phase and per kernel, with one offset expression per buffer</span></label></li>
+<li><label><input type="checkbox" data-k="render"><span>Global loops render for the CPU through <code>uir_parallel_for</code></span></label></li>
+<li><label><input type="checkbox" data-k="cuda"><span><code>render-cuda</code> passes every <code>c_</code> test in the emulator</span></label></li>
+<li><label><input type="checkbox" data-k="gpu"><span>Everything passes on a real GPU, including the speed test (optional without a GPU)</span></label></li>
+<li><label><input type="checkbox" data-k="old"><span>Weeks 1 to 7 still pass everything</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 week 8 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+
+<div class="key">
+<span class="label">The AI policy, still</span>
+<p>An AI assistant may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why does my reverse pass in the emulator but fail on the GPU?" is a fine question. "Write my render-cuda" is not.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your <code>render-cuda</code> launches every kernel with 1 thread per block, and each thread loops over the whole local range. Which tests fail?</p>
+<div class="opts">
+<button data-k="a">All the CUDA tests: the bits are wrong</button>
+<button data-k="b">None</button>
+<button data-k="c">The speed test: the bits are still right, but each block uses one thread out of hundreds</button>
+</div>
+<p class="hint">Do the bits change if one thread does every iteration in order?</p>
+<div class="why"><p>One thread running the phases in order is exactly the plain loops, so every bit matches. Only the speed test sees it, and that's why there is one. This is one of the bugs planted in the reference to prove the suite catches it.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>c_reverse_shared</code> passes on your GPU but <code>c_reverse_shared_1024</code> fails. What's the likely bug?</p>
+<div class="opts">
+<button data-k="a">A missing barrier between phases: two warps can hide it, 32 warps don't</button>
+<button data-k="b">The block is too big for the GPU</button>
+<button data-k="c">A rounding difference</button>
+</div>
+<p class="hint">Lesson 8.3, "A missing barrier".</p>
+<div class="why"><p>The two tests differ only in block size, 64 threads against 1024. A block of 1024 has 32 warps that run at different times, so a phase can start reading before another warp has finished writing.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Without a GPU, can you finish the week?</p>
+<div class="opts">
+<button data-k="a">No: the CUDA tests need a GPU</button>
+<button data-k="b">Yes: every test's bits are checked in the emulator, and only the speed measurement needs a GPU</button>
+<button data-k="c">Only the run tests count</button>
+</div>
+<p class="hint">Lesson 8.5.</p>
+<div class="why"><p>The emulator checks correctness completely. The speed test builds your CUDA, and timing it is the one thing worth renting a GPU for, which lesson 8.5 shows how to do for about a dollar.</p></div>
+</div>
+
+<nav class="pager">
+<a href="05-getting-a-gpu.html">← Lesson 5: Getting a GPU</a>
+<a href="../index.html">Course home →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // per-viewer convenience only: remember ticked boxes; works without storage
+  const KEY = 'cc-week8-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

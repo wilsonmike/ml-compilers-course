@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 8 Test Guide</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A test failed and you don&#x27;t know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the week 8...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/tests-week8">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 8 Test Guide">
+<meta property="og:description" content="A test failed and you don&#x27;t know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the week 8 spec.">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/tests-week8">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .guide td:first-child { white-space: nowrap; }
+  .guide td { font-size: 0.9375rem; }
+  .filter { width: 100%; max-width: 28rem; font: 1rem var(--sans); padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); color: var(--ink); margin: 0 0 var(--s4); }
+</style>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 8 test guide</h1>
+  <p class="lede">A test failed and you don't know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the <a href="../../spec/uir-week8.md">week 8 spec</a>.</p>
+  <div class="note"><span class="label">How to use this</span>
+    <p>Run <code>python tools/test.py --compiler PATH --week 8 -v</code>, copy the failing test's name, and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
+  </div>
+  <input class="filter" type="search" placeholder="Filter by test name, kind, or words" aria-label="Filter tests" oninput="for (const r of document.querySelectorAll('.guide tbody tr')) r.hidden = !r.textContent.toLowerCase().includes(this.value.toLowerCase())">
+  <div class="tablewrap">
+  <table class="guide">
+    <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
+    <tbody>
+    <tr><td><code>render/c_block_shared_fresh</code></td><td>cuda</td><td>shared memory starts at zero in every block, so the kernel must zero it</td><td>render private allocs shared</td></tr>
+    <tr><td><code>render/c_err_alloc_in_two_kernels</code></td><td>cuda: invalid</td><td>an alloc used by two global loops isn&#x27;t any one block&#x27;s shared memory, so it has nowhere to live on the GPU</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_err_kernel_uses_outer_loop</code></td><td>cuda: invalid</td><td>a global loop inside a plain loop uses the plain loop&#x27;s index, which only the CPU knows</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_err_thread_loop</code></td><td>cuda: invalid</td><td>a week 7 thread loop runs on CPU threads: render-cuda wants global and local loops</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_err_work_outside_kernel</code></td><td>cuda: invalid</td><td>a load at the top level would run on the CPU: render-cuda needs every bit of work inside a kernel</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_gemm_row_strips</code></td><td>cuda</td><td>a GEMM with one block per strip of rows, looping over column tiles inside</td><td>render private allocs shared</td></tr>
+    <tr><td><code>render/c_gemm_tile_per_block</code></td><td>cuda</td><td>the textbook GEMM: a block per 4x4 tile of C, shared A and B tiles, one accumulator per thread</td><td>render private allocs shared</td></tr>
+    <tr><td><code>render/c_reverse_shared</code></td><td>cuda</td><td>two phases through shared memory: without __syncthreads between them, threads read before others write</td><td>cuda no barrier between phases<br>render private allocs shared</td></tr>
+    <tr><td><code>render/c_reverse_shared_1024</code></td><td>cuda</td><td>the reversal with 1024-thread blocks: on a real GPU, 32 warps make a missing __syncthreads show</td><td>cuda no barrier between phases</td></tr>
+    <tr><td><code>render/c_scale</code></td><td>cuda</td><td>one thread per element: blockIdx and threadIdx</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_shared_dirty_then_fresh</code></td><td>cuda</td><td>kernel 1 fills shared memory with 7s. Kernel 2 must still see its own shared memory start at zero, so the kernel has to zero it</td><td>cuda shared memory not zeroed</td></tr>
+    <tr><td><code>render/c_tiles_2d_layout</code></td><td>cuda</td><td>a 2D grid of blocks, written through div and mod</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_two_kernels</code></td><td>cuda</td><td>two kernels in a row: the second reads what the first wrote</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_zero_blocks</code></td><td>cuda</td><td>a grid of zero blocks: nothing runs, nothing breaks</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_gemm_tile_per_block_cpu</code></td><td>render</td><td>the same GPU program rendered for the CPU: global as threads, local as loops</td><td>render private allocs shared</td></tr>
+    <tr><td><code>render/r_reverse_shared_cpu</code></td><td>render</td><td>phases on the CPU are just consecutive loops</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/s_cuda_gemm_512</code></td><td>cuda, speed 0.5</td><td>a 512x512 GEMM on the GPU: at least half the reference kernel&#x27;s speed. Without a GPU it only has to build.</td><td>cuda local loops run in one thread<br>cuda no barrier between phases<br>cuda shared memory not zeroed<br>render private allocs shared</td></tr>
+    <tr><td><code>run/block_shared_starts_at_zero</code></td><td>run: pass</td><td>shared memory used only in one global loop starts at zero in every block: o = b + t</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/digits_just_apart</code></td><td>run: pass</td><td>o[3b + t] with t up to 2 is fine: 3 is more than 2</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_block_layouts_differ</code></td><td>run: invalid</td><td>one buffer written with two different block layouts</td><td>block layouts may differ</td></tr>
+    <tr><td><code>run/err_blocks_write_one_place</code></td><td>run: invalid</td><td>the block index is missing from the offset: every block writes o[t]</td><td>parallel index may be missing</td></tr>
+    <tr><td><code>run/err_coefficient_not_literal</code></td><td>run: invalid</td><td>block offsets use literal coefficients</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_digits_exactly_touch</code></td><td>run: invalid</td><td>o[2b + t] with t up to 2: block 1 thread 0 and block 0 thread 2 both write o[2]. The coefficient 2 must be more than 2, not equal.</td><td>digits may touch</td></tr>
+    <tr><td><code>run/err_local_nested</code></td><td>run: invalid</td><td>a local loop inside another local loop</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_local_not_literal</code></td><td>run: invalid</td><td>the block size is a literal</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_local_outside_global</code></td><td>run: invalid</td><td>a local loop runs inside a block, so it needs a global loop around it</td><td>local outside global allowed</td></tr>
+    <tr><td><code>run/err_local_sizes_differ</code></td><td>run: invalid</td><td>all local loops in one kernel are the same block: one size</td><td>block sizes may differ</td></tr>
+    <tr><td><code>run/err_local_too_big</code></td><td>run: invalid</td><td>a block has at most 1024 threads</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_same_phase_neighbor</code></td><td>run: invalid</td><td>reading sh[t + 1] in the same phase that writes sh: thread t + 1 may not have written it yet</td><td>phase loads unchecked</td></tr>
+    <tr><td><code>run/err_store_outside_local</code></td><td>run: invalid</td><td>a store in a block but outside any local loop would run on every thread of the block</td><td>store outside local allowed</td></tr>
+    <tr><td><code>run/err_thread_in_global</code></td><td>run: invalid</td><td>CPU threads inside a GPU block</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_threads_write_one_cell</code></td><td>run: invalid</td><td>every thread of the block writes sh[0]: a race</td><td>parallel index may be missing</td></tr>
+    <tr><td><code>run/err_tiles_2d_overlap</code></td><td>run: invalid</td><td>by*4 + bx*2 + ty*2 + tx: bx and ty share a coefficient, so blocks overlap</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/global_local_same_result</code></td><td>run: pass</td><td>two blocks of four threads compute exactly what plain loops do</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/global_local_wrong_value</code></td><td>run: assert_fail</td><td>and a wrong value still fails</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/later_phase_reads_anywhere</code></td><td>run: pass</td><td>a later phase may read any shared element an earlier phase wrote: reverse each block of 4</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/local_bound_1024</code></td><td>run: pass</td><td>1024 threads is allowed</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/plain_loop_alloc_carries_over</code></td><td>run: pass</td><td>the same program as plain loops carries the alloc from b = 0 into b = 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/tiles_2d_layout</code></td><td>run: pass</td><td>a 4x4 matrix as 2x2 blocks of 2x2 threads: by*8 + bx*2 + ty*4 + tx, a unique mixed-radix number</td><td><span class=muted>none recorded</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</main>
+</body>
+</html>

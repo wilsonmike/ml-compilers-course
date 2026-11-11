@@ -1,0 +1,54 @@
+{
+  "id": "w8-02-unique-py",
+  "lang": "python",
+  "title": "Can two threads collide?",
+  "prompt": "<p>An offset is a sum of digits: <code>(coefficient, largest value)</code> pairs, one per index. Write <code>unique(digits)</code>: true when, sorted by coefficient from largest to smallest, every coefficient is greater than the most the smaller digits can add up to (the sum of <code>coefficient · largest value</code> over them). A digit whose largest value is 0 never matters. Then every combination of index values gives a different offset.</p>",
+  "show": "lambda v: 'yes' if v else 'no'",
+  "starter": "def unique(digits: list[tuple[int, int]]) -> bool:\n    \"\"\"digits: (coefficient, largest value). True when the offset is a unique mixed-radix number.\"\"\"\n    return all(c > 0 for c, _ in digits)\n",
+  "tests": [
+    {
+      "expr": "unique([(4, 3), (1, 3)])",
+      "sample": true,
+      "expect": "yes"
+    },
+    {
+      "expr": "unique([(2, 1), (1, 2)])",
+      "sample": true,
+      "expect": "no"
+    },
+    {
+      "expr": "unique([(3, 1), (1, 2)])",
+      "expect": "yes"
+    },
+    {
+      "expr": "unique([(1, 3), (4, 3)])",
+      "expect": "yes"
+    },
+    {
+      "expr": "unique([(512, 31), (16, 31), (32, 15), (1, 15)])",
+      "expect": "no"
+    },
+    {
+      "expr": "unique([(8192, 31), (512, 15), (16, 31), (1, 15)])",
+      "expect": "yes"
+    },
+    {
+      "expr": "unique([(2, 1), (2, 1)])",
+      "expect": "no"
+    },
+    {
+      "expr": "unique([(5, 0), (5, 0), (1, 4)])",
+      "expect": "yes"
+    },
+    {
+      "expr": "unique([])",
+      "expect": "yes"
+    }
+  ],
+  "hints": [
+    "Sort by coefficient, largest first. The order the digits come in doesn't matter.",
+    "For each digit, add up <code>c · m</code> over every digit after it. Its own coefficient must be strictly greater.",
+    "Skip digits whose largest value is 0: they're always 0, so they can't make two offsets differ or collide."
+  ],
+  "explain": "This is how a mixed-radix number works: in decimal, 10 is more than 9 (the most the ones digit can add), so 23 and 14 can't collide. The sample <code>(2, 1), (1, 2)</code> fails: <code>2·1 + 1·0</code> and <code>2·0 + 1·2</code> are both 2, so block 1 thread 0 and block 0 thread 2 write the same element. The last big one is the GEMM's output offset per block and thread, and it passes: 8192 is more than 512·15 + 16·31 + 15 = 8191. The first big one fails: 512 is less than 32·15 + 16·31 + 15."
+}

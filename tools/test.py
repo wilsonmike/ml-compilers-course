@@ -22,6 +22,9 @@ def headers(text):
   h = dict(re.findall(r"^#\s*(expect|simplify|time|max_bytes|speed):\s*(.+?)\s*$", text, re.M))
   if 'simplify' in h: h['max_ops'] = int(re.search(r"max_ops=(\d+)", h['simplify']).group(1))
   if re.search(r"^#\s*render\s*$", text, re.M): h['render'] = True
+  if re.search(r"^#\s*cuda\s*$", text, re.M): h['cuda'] = True       # week 8: render-cuda, checked on a GPU or the emulator
+  if (m := re.search(r"^#\s*cuda speed:\s*([0-9.]+)\s*$", text, re.M)): h['cuda'] = True; h['cuda_speed'] = float(m.group(1))
+  if re.search(r"^#\s*cuda:\s*invalid\s*$", text, re.M): h['cuda'] = True; h['cuda_invalid'] = True   # render-cuda must exit 2
   if 'speed' in h: h['render'] = True
   if (m := re.search(r"^#\s*render check:\s*slot\s+(\d+)\s*>=\s*(-?[0-9.]+)\s*$", text, re.M)):   # week 6: a threshold, not bits
     h['render'] = True; h['check'] = (int(m.group(1)), float(m.group(2)))
@@ -281,6 +284,171 @@ def grade_speed(out, names, speed, limit):
       return f"too slow: your kernel took {best['mine'] * 1e3:.1f} ms, the target is at most {best['ref'] / speed * 1e3:.1f} ms (the reference took {best['ref'] * 1e3:.1f} ms)"
   return None
 
+# ---- week 8: render-cuda. Real CUDA when it's there (local nvcc, or Docker with --cuda-docker), else an emulator ----
+CXX = next((shutil.which(c) for c in ('clang++', 'g++') if shutil.which(c)), None)
+NVCC = shutil.which('nvcc')
+CUDA_DOCKER = os.environ.get('UIR_CUDA_DOCKER', '')    # e.g. nvidia/cuda:12.6.3-devel-ubuntu22.04, set by --cuda-docker
+EMULATOR = r"""// The grader's CUDA emulator: compiles your .cu as C++. Blocks run one after another; the threads of a block
+// are real threads, so a missing __syncthreads() shows up as a race, not as luck.
+#include <pthread.h>
+#include <functional>
+#include <vector>
+#define __global__
+#define __device__
+#define __shared__ static
+#define __restrict__
+struct uir_dim { int x; };
+static thread_local uir_dim threadIdx, blockIdx;
+static uir_dim blockDim;
+static pthread_mutex_t uir_m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t uir_c = PTHREAD_COND_INITIALIZER;
+static int uir_waiting, uir_gen;
+static void __syncthreads() {
+  pthread_mutex_lock(&uir_m);
+  int g = uir_gen;
+  if (++uir_waiting == blockDim.x) { uir_waiting = 0; uir_gen++; pthread_cond_broadcast(&uir_c); }
+  else while (g == uir_gen) pthread_cond_wait(&uir_c, &uir_m);
+  pthread_mutex_unlock(&uir_m);
+}
+struct uir_job { int b, t; std::function<void()> *f; };
+static void *uir_thread(void *p) { uir_job *j = (uir_job *)p; blockIdx.x = j->b; threadIdx.x = j->t; (*j->f)(); return 0; }
+static void uir_launch(int grid, int block, std::function<void()> f) {
+  blockDim.x = block;
+  std::vector<pthread_t> th(block); std::vector<uir_job> jobs(block);
+  for (int b = 0; b < grid; b++) {
+    for (int t = 0; t < block; t++) { jobs[t] = uir_job{b, t, &f}; pthread_create(&th[t], 0, uir_thread, &jobs[t]); }
+    for (int t = 0; t < block; t++) pthread_join(th[t], 0);
+  }
+}
+#define UIR_LAUNCH(k, g, b, ...) uir_launch((g), (b), [&] { k(__VA_ARGS__); })
+"""
+CUDA_PRELUDE = "#define UIR_LAUNCH(k, g, b, ...) do { if ((g) > 0) k<<<(g), (b)>>>(__VA_ARGS__); } while (0)\n"
+
+def local_blobs(h, names, d):
+  """Copy url= data files next to the harness and open them by name, so the build also works inside a container."""
+  for b in O.all_nodes(names):
+    if b.op == 'buffer' and isinstance(b.arg[3], O.Blob):
+      path = b.arg[3].path; local = f"data_{b.arg[1]}.bin"
+      shutil.copyfile(path, os.path.join(d, local)); h = h.replace(path.replace(chr(92), '/'), local)
+  return h
+
+def cuda_timed_harness(names):
+  """Real CUDA only: copy in, one warm-up launch, then time one launch with CUDA events. Prints 'kernel SECONDS'."""
+  h = cuda_harness(names, False)
+  outs = O.final_versions(names)
+  bufs = {u.arg[1]: u for u in O.all_nodes(names) if u.op == 'buffer'}
+  call = next(l for l in h.split('\n') if l.strip().startswith('kernel('))
+  dev = ''.join(f"  {CT[bufs[k].dtype]} *d{k}; cudaMalloc((void **)&d{k}, sizeof b{k}); cudaMemcpy(d{k}, b{k}, sizeof b{k}, cudaMemcpyHostToDevice);\n" for k in outs)
+  args = ', '.join(f"d{k}" for k in outs)
+  timed = (f"  kernel({args}); cudaDeviceSynchronize();   /* warm up */\n"
+           "  cudaEvent_t e0, e1; cudaEventCreate(&e0); cudaEventCreate(&e1); cudaEventRecord(e0);\n"
+           f"  kernel({args}); cudaEventRecord(e1); cudaEventSynchronize(e1);\n"
+           '  float ms_; cudaEventElapsedTime(&ms_, e0, e1); fprintf(stderr, "kernel %.9f\\n", ms_ / 1000.0);\n')
+  return '#include <cuda_runtime.h>\n' + h.replace(call + '\n', dev + timed)
+
+def cuda_speed(out, names, speed):
+  """# cuda speed: X. Real CUDA only: your kernel against the reference's, best of 3, interleaved."""
+  ref = O.render_c(names, 'cuda')
+  with tempfile.TemporaryDirectory() as d:
+    for tag, src in (('mine', out), ('ref', ref)):
+      open(os.path.join(d, f'{tag}.cu'), 'w', encoding='utf-8').write(src)
+    open(os.path.join(d, 'main.cu'), 'w', encoding='utf-8').write(local_blobs(cuda_timed_harness(names), names, d))
+    open(os.path.join(d, 'prelude.h'), 'w', encoding='utf-8').write(CUDA_PRELUDE)
+    nv = "nvcc -O2 -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h"
+    script = (f"{nv} mine.cu main.cu -o mine && {nv} ref.cu main.cu -o ref && "
+              "for i in 1 2 3; do ./mine 2>&1 >/dev/null | sed 's/^/mine /'; ./ref 2>&1 >/dev/null | sed 's/^/ref /'; done")
+    cmd = (['docker', 'run', '--rm', '--gpus', 'all', '-v', f"{d}:/w", '-w', '/w', '--entrypoint', 'sh', CUDA_DOCKER, '-c', script]
+           if CUDA_DOCKER and not NVCC else ['sh', '-c', script])
+    r = subprocess.run(cmd, capture_output=True, timeout=600, cwd=d)
+    if r.returncode != 0: return "timing build failed:\n" + indent((r.stderr or r.stdout).decode('utf-8', 'replace'))
+    best = {}
+    for tag, t in re.findall(r"^(mine|ref) kernel ([0-9.e-]+)", r.stdout.decode(), re.M): best[tag] = min(best.get(tag, 1e9), float(t))
+    if set(best) != {'mine', 'ref'}: return "couldn't read the kernel times"
+    if best['mine'] > best['ref'] / speed:
+      return f"too slow on the GPU: {best['mine'] * 1e3:.2f} ms, the target is at most {best['ref'] / speed * 1e3:.2f} ms (the reference took {best['ref'] * 1e3:.2f} ms)"
+  return None
+
+def cuda_harness(names, real, timed=False):
+  """main(): fill the buffers, call your host kernel() with pointers it can use, print every buffer."""
+  outs = O.final_versions(names)
+  bufs = {u.arg[1]: u for u in O.all_nodes(names) if u.op == 'buffer'}
+  h = harness(names, timed=timed)
+  sig = 'void kernel(' + (', '.join(f"{CT[bufs[k].dtype]} *b{k}" for k in outs) or 'void') + ');'
+  h = h.replace(next(l for l in h.split('\n') if l.startswith('void kernel(')), sig)
+  if not real: return h
+  # real CUDA: copy each buffer to the device and back around the call
+  call = next(l for l in h.split('\n') if l.strip().startswith('kernel('))
+  dev = ''.join(f"  {CT[bufs[k].dtype]} *d{k}; cudaMalloc((void **)&d{k}, sizeof b{k}); cudaMemcpy(d{k}, b{k}, sizeof b{k}, cudaMemcpyHostToDevice);\n" for k in outs)
+  back = ''.join(f"  cudaMemcpy(b{k}, d{k}, sizeof b{k}, cudaMemcpyDeviceToHost);\n" for k in outs)
+  dcall = '  kernel(' + ', '.join(f"d{k}" for k in outs) + '); cudaDeviceSynchronize();\n'
+  return '#include <cuda_runtime.h>\n' + h.replace(call + '\n', dev + dcall + back)
+
+def reference_buffers(names):
+  """The reference compiler's C kernel, built and run: {slot: (dtype, values)} for every printed buffer."""
+  outs = O.final_versions(names)
+  with tempfile.TemporaryDirectory() as d:
+    exe = build_timed(d, 'ref', O.render_c(names), names)
+    if not os.path.exists(exe): return "grader error: the reference kernel " + exe
+    r = subprocess.run([exe], capture_output=True, timeout=300)
+  got = {}
+  for line in r.stdout.decode().split('\n'):
+    if line.strip(): slot, v = line.split(); got.setdefault(int(slot), []).append(v)
+  return {k: (outs[k].dtype, tuple(struct.unpack('<f', struct.pack('<I', int(v, 16)))[0] if outs[k].dtype == 'f32' else int(v) for v in vs)) for k, vs in got.items()}
+
+def grade_cuda(cmd, text, base=None, h=None):
+  rc, out, err = call(cmd, 'render-cuda', text, base)
+  if h and h.get('cuda_invalid'):                 # not in kernel form: run and render take it, render-cuda must refuse
+    return None if rc == 2 else f"render-cuda should exit 2 (the program isn't in kernel form), but exited {rc}"
+  if rc != 0: return f"render-cuda exited {rc}\n    stderr: {err.strip()[:300]}"
+  names = O.parse(text, base)[0]
+  real = bool(NVCC or CUDA_DOCKER)
+  if h and h.get('cuda_speed') and not real:     # no GPU: just make sure it builds (the small cuda tests check the bits)
+    if not CXX: return "no C++ compiler (clang++ or g++) for the CUDA emulator, and no nvcc"
+    with tempfile.TemporaryDirectory() as d:
+      open(os.path.join(d, 'kernel.cu'), 'w', encoding='utf-8').write(out); open(os.path.join(d, 'prelude.h'), 'w', encoding='utf-8').write(EMULATOR)
+      c = subprocess.run([CXX, '-std=c++14', '-fsyntax-only', '-x', 'c++', '-include', os.path.join(d, 'prelude.h'), os.path.join(d, 'kernel.cu')], capture_output=True, timeout=120)
+      return None if c.returncode == 0 else "your CUDA doesn't compile (as C++, in the emulator):\n" + indent(c.stderr.decode('utf-8', 'replace').replace(d + os.sep, ''))
+  if h and h.get('cuda_speed'): want = reference_buffers(names)        # too big to interpret: the reference's C gives the bits
+  else:
+    outs_ = O.final_versions(names)
+    skip = {k for k, v in outs_.items() if v.op == 'buffer' and isinstance(v.arg[3], O.Blob)}   # unchanged input files aren't printed
+    want = {k: v for k, v in O.final_buffers(names).items() if k not in skip}
+  if isinstance(want, str): return want
+  real = bool(NVCC or CUDA_DOCKER)
+  if not real and not CXX: return "no C++ compiler (clang++ or g++) for the CUDA emulator, and no nvcc"
+  with tempfile.TemporaryDirectory() as d:
+    open(os.path.join(d, 'kernel.cu'), 'w', encoding='utf-8').write(out)
+    open(os.path.join(d, 'main.cu'), 'w', encoding='utf-8').write(local_blobs(cuda_harness(names, real), names, d))
+    open(os.path.join(d, 'prelude.h'), 'w', encoding='utf-8').write(CUDA_PRELUDE if real else EMULATOR)
+    if real:
+      build = "nvcc -O2 -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h kernel.cu main.cu -o a.out"
+      run_cmd = (['docker', 'run', '--rm', '--gpus', 'all', '-v', f"{d}:/w", '-w', '/w', '--entrypoint', 'sh', CUDA_DOCKER, '-c', build + ' && ./a.out']
+                 if CUDA_DOCKER and not NVCC else ['sh', '-c', build + ' && ./a.out'])
+      try: r = subprocess.run(run_cmd, capture_output=True, timeout=300, cwd=d)
+      except subprocess.TimeoutExpired: return "CUDA build and run took over 300 s"
+      if r.returncode != 0: return "your CUDA failed to build or run:\n" + indent((r.stderr or r.stdout).decode('utf-8', 'replace'))
+    else:
+      exe = os.path.join(d, 'a.exe' if os.name == 'nt' else 'a.out')
+      c = subprocess.run([CXX, '-std=c++14', '-O1', '-x', 'c++', '-include', os.path.join(d, 'prelude.h'), os.path.join(d, 'kernel.cu'), os.path.join(d, 'main.cu'), '-o', exe, '-lpthread'],
+                         capture_output=True, timeout=120)
+      if c.returncode != 0: return "your CUDA doesn't compile (as C++, in the emulator):\n" + indent(c.stderr.decode('utf-8', 'replace').replace(d + os.sep, ''))
+      try: r = subprocess.run([exe], capture_output=True, timeout=TIMEOUT * 3)
+      except subprocess.TimeoutExpired: return "the emulated kernel didn't finish: a thread waiting at a __syncthreads() the others never reach?"
+      if r.returncode != 0: return f"the emulated kernel crashed (exit {r.returncode})"
+    got = {}
+    for line in r.stdout.decode().split('\n'):
+      if re.fullmatch(r"[0-9]+ -?[0-9a-f]+", line.strip()): slot, v = line.split(); got.setdefault(int(slot), []).append(v)
+  for slot, (dt, data) in want.items():
+    g = got.get(slot, [])
+    if len(g) != len(data): return f"buffer {slot}: read {len(g)} values, expected {len(data)}"
+    for i, (x, y) in enumerate(zip(data, g)):
+      if dt == 'f32':
+        gb = struct.pack('<I', int(y, 16)); ok = (math.isnan(x) and math.isnan(struct.unpack('<f', gb)[0])) or O.fbits(x) == gb
+      else: ok = int(y) == int(x)
+      if not ok: return f"buffer {slot}[{i}]: expected {x!r}, your kernel left {y}" + ("" if real else " (in the emulator)")
+  if h and h.get('cuda_speed') and real: return cuda_speed(out, names, h['cuda_speed'])   # without a GPU: bits only
+  return None
+
 def show(args): return ', '.join(f"param {i} = {a.arg if a.op == 'const' else [s.arg for s in a.src]!r}" for i, a in enumerate(args))
 def indent(s): return '\n'.join('      ' + l for l in s.strip().splitlines()[:40])
 def rel(f): return os.path.relpath(f, ROOT).replace('\\', '/')
@@ -292,6 +460,7 @@ def files(week, k):
 def grade(cmd, f):
   try:
     text = O.read_text(f); h = headers(text); base = os.path.dirname(f)
+    if h.get('cuda'): return grade_cuda(cmd, text, base, h)
     if h.get('render'): return grade_render(cmd, text, base, h)
     return grade_simplify(cmd, text, h['max_ops']) if 'max_ops' in h else grade_run(cmd, text, base)
   except Exception as e:                            # one broken case fails that case, never the whole run
@@ -310,7 +479,8 @@ def check_tests(fs):
   for f in fs:
     try:
       text = O.read_text(f); h = headers(text)
-      if h.get('render'): r = grade_render(ORACLE, text, os.path.dirname(f), h)
+      if h.get('cuda'): r = grade_cuda(ORACLE, text, os.path.dirname(f), h)
+      elif h.get('render'): r = grade_render(ORACLE, text, os.path.dirname(f), h)
       elif 'max_ops' in h:
         try: O.parse(text)[0]['out']; r = grade_simplify(ORACLE, text, h['max_ops'])
         except (O.UIRError, KeyError) as e: r = f"simplify test must parse and define %out: {e}"
@@ -328,10 +498,13 @@ def main():
   ap.add_argument('--compiler'); ap.add_argument('--week', type=int, default=1)
   ap.add_argument('-k', default=''); ap.add_argument('-v', action='store_true')
   ap.add_argument('--skip', default='', help='leave out tests whose path contains this (e.g. mnist)')
+  ap.add_argument('--cuda-docker', default='', help='run CUDA tests in this Docker image with --gpus all (e.g. nvidia/cuda:12.6.3-devel-ubuntu22.04)')
   ap.add_argument('--jobs', type=int, default=os.cpu_count() or 4, help='parallel tests (use 1 if your compiler shares a lock, e.g. dune exec)')
   ap.add_argument('--check-tests'); ap.add_argument('--self-check', action='store_true')
   a = ap.parse_args()
   sys.setrecursionlimit(100000); threading.stack_size(64 * 1024 * 1024)   # oracle evaluation of nested calls recurses
+  global CUDA_DOCKER
+  if a.cuda_docker: CUDA_DOCKER = a.cuda_docker
   if a.check_tests:
     fs = sorted(glob.glob(os.path.join(a.check_tests, '**', '*.uir'), recursive=True))
     if not fs: sys.exit(f"no .uir files in {a.check_tests}")

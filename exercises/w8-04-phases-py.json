@@ -1,0 +1,34 @@
+{
+  "id": "w8-04-phases-py",
+  "lang": "python",
+  "title": "Fuse phases into one thread body",
+  "prompt": "<p>In .uir a block's phases are consecutive local loops. In CUDA there's one thread body, and each thread runs every phase in turn, with a barrier between them. Write <code>fuse_phases(phases, names)</code>: for each phase, a line <code>{</code>, a line <code>  int32_t NAME = threadIdx.x;</code>, the phase's statements indented by two spaces, a line <code>}</code>, then a line <code>__syncthreads();</code>.</p>",
+  "show": "lambda v: ' | '.join(v)",
+  "starter": "def fuse_phases(phases: list[list[str]], names: list[str]) -> list[str]:\n    \"\"\"phases[k]: the C statements of local loop k, which uses the variable names[k].\n    Return the CUDA kernel body: each phase as { int32_t name = threadIdx.x; ...statements } then __syncthreads();\"\"\"\n    out = []\n    for stmts, n in zip(phases, names):\n        out.append(f\"for (int32_t {n} = 0; {n} < blockDim.x; {n}++) {{\")\n        out += [\"  \" + s for s in stmts]\n        out.append(\"}\")\n    return out\n",
+  "tests": [
+    {
+      "expr": "fuse_phases([['sh[t] = x[t];']], ['t'])",
+      "sample": true,
+      "expect": "{ |   int32_t t = threadIdx.x; |   sh[t] = x[t]; | } | __syncthreads();"
+    },
+    {
+      "expr": "fuse_phases([['sh[t] = x[t];'], ['o[u] = sh[3 - u];']], ['t', 'u'])",
+      "sample": true,
+      "expect": "{ |   int32_t t = threadIdx.x; |   sh[t] = x[t]; | } | __syncthreads(); | { |   int32_t u = threadIdx.x; |   o[u] = sh[3 - u]; | } | __syncthreads();"
+    },
+    {
+      "expr": "fuse_phases([], [])",
+      "expect": ""
+    },
+    {
+      "expr": "fuse_phases([['a = 1;', 'b = 2;'], [], ['c = 3;']], ['r1', 'r2', 'r3'])",
+      "expect": "{ |   int32_t r1 = threadIdx.x; |   a = 1; |   b = 2; | } | __syncthreads(); | { |   int32_t r2 = threadIdx.x; | } | __syncthreads(); | { |   int32_t r3 = threadIdx.x; |   c = 3; | } | __syncthreads();"
+    }
+  ],
+  "hints": [
+    "The starter writes each phase as a loop over threads, which is the CPU's view. On a GPU every thread already exists: <code>t</code> is just <code>threadIdx.x</code>.",
+    "Wrap each phase in braces so its variable names don't clash with the next phase's.",
+    "End every phase with <code>__syncthreads();</code>, including the last: a phase inside a loop runs again, and the next round's first phase must not start before everyone finished."
+  ],
+  "explain": "This is the step that turns the .uir block into CUDA. On the CPU, a phase is a loop over thread indices. On the GPU, every thread runs the whole body and reads its own index from <code>threadIdx.x</code>, so the loop disappears, and the barrier takes its place: no thread starts phase 2 until all have finished phase 1. The reference also ends the last phase with a barrier, which matters when the phases sit inside a loop."
+}

@@ -121,6 +121,7 @@ def build(op, src, attrs):
     ax = attrs.get('axis', 'loop')                # week 7: how the loop runs. loop keeps the week 3 node unchanged
     need(ax in AXES, "axis is loop, upcast or thread")
     if ax == 'upcast': need(src[0].op == 'const' and 1 <= src[0].arg <= 32, "an upcast range's bound is a literal from 1 to 32")
+    if ax == 'local': need(src[0].op == 'const' and 1 <= src[0].arg <= 1024, "a local range's bound is a literal from 1 to 1024 (the block size)")
     return UOp('range', src, ('range', attrs['_name']) + (() if ax == 'loop' else (ax,)), 'i32', ())
   if op == 'end':
     need(n >= 2 and src[-1].op == 'range', "end EFFECT... RANGE")
@@ -892,8 +893,13 @@ def execute(block, roots_need=None):
   go(block)
   return vals, mem
 
-AXES = ('loop', 'upcast', 'thread')
+AXES = ('loop', 'upcast', 'thread', 'global', 'local')
+PAR = ('thread', 'global')                      # iterations that may run at once, each with private allocs
 def axis_of(r): return r.arg[2] if len(r.arg) > 2 else 'loop'
+
+def iter_loops(body):
+  for it in body:
+    if isinstance(it, tuple): yield it; yield from iter_loops(it[3])
 
 def loop_nodes(body):
   # every node inside a linearized loop body, nested loops included
@@ -910,7 +916,7 @@ def thread_privates(block):
   def walk(items, th):
     for it in items:
       if isinstance(it, tuple):
-        t = it[2] if axis_of(it[2]) == 'thread' else th
+        t = it[2] if axis_of(it[2]) in PAR else th
         if t is not None and t is it[2]: loops[id(t)] = it
         walk(it[3], t)
       elif it.op in ('load', 'store'):
@@ -951,14 +957,94 @@ def check_thread_access(r, v, what):
   need(lo >= 0 and hi + size <= S, f"can't prove each iteration stays in its own slice: e in [{lo}, {hi}], {size} element(s), stride {S}")
   return S
 
+def radix_layout(par, v, inner, where, what):
+  """Week 8: an access is safe across the parallel ranges in `par` when its flat offset is a unique mixed-radix
+  number. Write it as a sum of digits, each a loop index (or its div or mod by a literal) times a literal
+  coefficient. Digits from `par` and `inner` (loops inside, which vary within one thread) count; anything else is
+  the same for every thread and is ignored. Sorted by coefficient, each must exceed the most all the smaller
+  digits can add up to. Then no two threads or blocks ever touch the same element. Returns the parallel digits."""
+  def need(c, m):
+    if not c: raise UIRError(f"{where}: {what} {m}")
+  ts = offset_terms(v); size = v.shape[0] if v.shape else 1
+  def scaled(x):
+    if x.op == 'mul' and x.src[1].op == 'const': return x.src[0], x.src[1].arg
+    if x.op == 'mul' and x.src[0].op == 'const': return x.src[1], x.src[0].arg
+    return x, 1
+  def top(r): return max(bounds(r, {})[1], 0)
+  digits, sig = [], []
+  for x in ts:
+    if not (opens(x) & (par | inner)): continue        # the same for every thread
+    base, c = scaled(x)
+    rng = base if base.op == 'range' else base.src[0] if base.op in ('div', 'mod') and base.src[0].op == 'range' and base.src[1].op == 'const' and base.src[1].arg > 0 else None
+    if rng is None or rng not in (par | inner):
+      need(not (opens(x) & par), "must be a sum of literal multiples of the thread and block indices (or their div or mod by a literal)")
+      lo, hi = bounds(x, {}); digits.append((1, hi - lo)); continue
+    need(c > 0, "needs positive coefficients")
+    n = top(rng)
+    mx = n if base.op == 'range' else n // base.src[1].arg if base.op == 'div' else min(base.src[1].arg - 1, n)
+    digits.append((c, mx))
+    if rng in par: sig.append((id(rng), base.op, base.src[1].arg if base.op != 'range' else 0, c))
+  if size > 1: digits.append((1, size - 1))
+  need(all(any(s_[0] == id(r) for s_ in sig) or top(r) == 0 for r in par), "must depend on every parallel index, or all of them write the same place")
+  digits.sort(key=lambda d: -d[0])
+  for k, (c, mx) in enumerate(digits):
+    if mx == 0: continue
+    rest = sum(c2 * m2 for c2, m2 in digits[k + 1:])
+    need(c > rest, f"can't be shown to keep threads apart: a digit with coefficient {c} must be more than {rest}, the most the smaller ones add up to")
+  # the caller requires one layout per buffer: the same offset terms (hash consed, so the same nodes) and size.
+  # Equal digits are not enough: sh[t] and sh[t + 1] have the same digits, and thread t would read t + 1's slot.
+  return (tuple(sorted(id(x) for x in ts)), size)
+
+def check_parallel_accesses(par, body, where):
+  nodes = loop_nodes(body); inner = {x[2] for x in iter_loops(body)} - par
+  written = {id(storage_of(n.src[0])) for n in nodes if n.op == 'store'}
+  layout = {}
+  return nodes, inner, written, layout
+
+def check_local(r, body):
+  # inside one local loop (one phase), the threads of a block run at the same time
+  nodes, inner, written, layout = check_parallel_accesses({r}, body, f"local loop %{r.arg[1]}")
+  for n in nodes:
+    if n.op not in ('load', 'store'): continue
+    sid = id(storage_of(n.src[0]))
+    if n.op == 'load' and sid not in written: continue
+    f = radix_layout({r}, n.src[0], inner, f"local loop %{r.arg[1]}", 'a store' if n.op == 'store' else 'a load of memory it writes')
+    if layout.setdefault(sid, f) != f: raise UIRError(f"local loop %{r.arg[1]}: every access to one buffer must be at the same offset (the same expression)")
+
+def check_global_body(g, body, private):
+  nodes, inner, written, layout = check_parallel_accesses({g}, body, f"global loop %{g.arg[1]}")
+  for n in nodes:
+    if n.op not in ('load', 'store'): continue
+    sid = id(storage_of(n.src[0]))
+    if sid in private or (n.op == 'load' and sid not in written): continue   # block shared memory, or read-only
+    f = radix_layout({g}, n.src[0], inner, f"global loop %{g.arg[1]}", 'a store' if n.op == 'store' else 'a load of memory it writes')
+    if layout.setdefault(sid, f) != f: raise UIRError(f"global loop %{g.arg[1]}: every access to one buffer must be at the same offset (the same expression)")
+  sizes = set()
+  def walk(items, in_local):
+    for it in items:
+      if isinstance(it, tuple):
+        _, e, r, b = it; ax = axis_of(r)
+        if ax in PAR: raise UIRError(f"{ax} loop %{r.arg[1]} is inside global loop %{g.arg[1]}")
+        if ax == 'local':
+          if in_local: raise UIRError(f"local loop %{r.arg[1]} is inside another local loop")
+          sizes.add(r.src[0].arg); check_local(r, b)
+        walk(b, in_local or ax == 'local')
+      elif it.op == 'store' and not in_local: raise UIRError(f"global loop %{g.arg[1]}: a store outside a local loop would run on every thread of the block")
+  walk(body, False)
+  if len(sizes) > 1: raise UIRError(f"global loop %{g.arg[1]}: its local loops have different sizes {sorted(sizes)}: one block size per kernel")
+
 def check_axes(block):
   privates = thread_privates(block)
   def walk(items, inside):
     for it in items:
       if not isinstance(it, tuple): continue
       _, e, r, body = it
-      if axis_of(r) == 'thread':
-        if inside: raise UIRError(f"thread loop %{r.arg[1]} is inside another thread loop")
+      if axis_of(r) == 'local' and not inside: raise UIRError(f"local loop %{r.arg[1]} is not inside a global loop")
+      if axis_of(r) in PAR:
+        if inside: raise UIRError(f"{axis_of(r)} loop %{r.arg[1]} is inside another parallel loop")
+        if axis_of(r) == 'global':
+          check_global_body(r, body, {id(a) for a in privates.get(id(r), [])})
+          walk(body, True); continue                 # the week 7 thread checks below are for thread loops
         priv = {id(a) for a in privates.get(id(r), [])}
         nodes = loop_nodes(body)
         written = {id(storage_of(n.src[0])) for n in nodes if n.op == 'store'}
@@ -969,7 +1055,7 @@ def check_axes(block):
           if sid in priv or (n.op == 'load' and sid not in written): continue   # private, or read-only here
           S = check_thread_access(r, n.src[0], 'a store' if n.op == 'store' else 'a load of memory it writes')
           if stride.setdefault(sid, S) != S: raise UIRError(f"thread loop %{r.arg[1]}: every access to one buffer must use the same stride")
-      walk(body, inside or axis_of(r) == 'thread')
+      walk(body, inside or axis_of(r) in PAR)
   walk(block, False)
 
 def final_versions(names):
@@ -1259,7 +1345,8 @@ def rangeify(nodes):
     el_memo[k] = out; return out
   return [low(n) for n in nodes]
 
-def render_c(names):
+def render_c(names, target='c'):
+  cuda = target == 'cuda'
   outs = final_versions(names)
   roots, uni = program(names, list(outs.values()))
   if needs_loops(names):                         # week 4: shapes become loops; week 2 programs stay loopless
@@ -1272,7 +1359,7 @@ def render_c(names):
   ctype = {}                                     # C type of every name, for a thread body's captured variables
   for (slot, v), r in zip(outs.items(), roots): ptr[id(storage_of(r))] = f"b{slot}"; ctype[f"b{slot}"] = CT[v.dtype] + ' *'
   privates = thread_privates(block); private_ids = {id(a) for v in privates.values() for a in v}
-  counter = [0]
+  counter = [0]; in_kernel = [False]
   def ex(u): return c_lit(u.arg, u.dtype) if u.op == 'const' else name[id(u)]
   def view(u):
     if u.op != 'shrink': return ptr[id(storage_of(u))], '0'
@@ -1281,6 +1368,9 @@ def render_c(names):
   def alloc_line(u, pad):
     i = counter[0]; counter[0] += 1
     ptr[id(u)] = f"a{i}"; ctype[f"a{i}"] = CT[u.dtype] + ' *'
+    if cuda:                                     # block shared memory: not zeroed by CUDA, so the threads zero it
+      return (f"{pad}__shared__ {CT[u.dtype]} a{i}[{u.arg[1]}];\n{pad}for (int32_t z_ = threadIdx.x; z_ < {u.arg[1]}; z_ += blockDim.x) a{i}[z_] = 0;\n"
+              f"{pad}__syncthreads();")
     return f"{pad}{CT[u.dtype]} a{i}[{u.arg[1]}] = {{0}};"
   def emit(items, depth):
     pad = '  ' * depth
@@ -1291,7 +1381,28 @@ def render_c(names):
           for t in range(r.src[0].arg): name[id(r)] = str(t); emit(body, depth)
           continue
         rv = f"r{counter[0]}"; counter[0] += 1; name[id(r)] = rv; ctype[rv] = 'int32_t'
-        if ax == 'thread':                       # outline the body; uir_parallel_for runs it once per value of r
+        if cuda and ax == 'global':              # a kernel: one block per value of r, launched by the host function
+          if in_kernel[0]: raise UIRError("render-cuda: a global loop must be at the top level")
+          fn = f"k{len(fns)}"; start = len(lines)
+          bs = next((x[2].src[0].arg for x in iter_loops(body) if axis_of(x[2]) == 'local'), 1)
+          for a in privates.get(id(r), ()): lines.append(alloc_line(a, '  '))
+          in_kernel[0] = True; emit(body, 1); in_kernel[0] = False
+          inner = lines[start:]; del lines[start:]
+          text = '\n'.join(inner)
+          declared = set(re.findall(r"\b(?:float|int32_t|bool) ([va][0-9]+)\b", text)) | set(re.findall(r"(?:for \(|^\s*)int32_t (r[0-9]+)", text, re.M)) | {rv}
+          used = sorted(set(re.findall(r"\b([vrab][0-9]+)\b", text)) - declared, key=lambda x: (x[0], int(x[1:])))
+          bad = [c for c in used if c[0] != 'b']
+          if bad: raise UIRError(f"render-cuda: kernel %{r.arg[1]} uses values computed outside it ({', '.join(bad)}): a kernel may only use buffers, literals and its own ranges")
+          params = ', '.join(f"{ctype[c][:-2]} *__restrict__ {c}" for c in used) or 'void'
+          fns.append(f"__global__ void {fn}({params}) {{\n  int32_t {rv} = blockIdx.x;\n" + text + "\n}\n")
+          lines.append(f"{pad}UIR_LAUNCH({fn}, {ex(r.src[0])}, {bs}{''.join(', ' + c for c in used)});")
+          continue
+        if cuda and ax == 'local':               # one phase: every thread of the block runs the body once, then all wait
+          lines.append(f"{pad}{{"); lines.append(f"{pad}  int32_t {rv} = threadIdx.x;")
+          emit(body, depth + 1); lines.append(f"{pad}}}"); lines.append(f"{pad}__syncthreads();")
+          continue
+        if cuda and ax == 'thread': raise UIRError("render-cuda: thread loops are CPU threads, use a global loop")
+        if ax in PAR:                            # outline the body; uir_parallel_for runs it once per value of r
           fn = f"thread{len(fns)}"; start = len(lines)
           for a in privates.get(id(r), ()): lines.append(alloc_line(a, '  '))
           emit(body, 1)
@@ -1308,8 +1419,12 @@ def render_c(names):
         emit(body, depth + 1); lines.append(f"{pad}}}"); continue
       u = it; op = u.op
       if op == 'alloc':
-        if id(u) not in private_ids: lines.append(alloc_line(u, pad))
+        if id(u) not in private_ids:
+          if cuda: raise UIRError("render-cuda: an alloc used outside a single global loop has nowhere to live on the GPU")
+          lines.append(alloc_line(u, pad))
         continue
+      if cuda and not in_kernel[0] and op not in ('const', 'after', 'shrink', 'buffer', 'end', 'range', 'assert'):
+        raise UIRError(f"render-cuda: {op} outside a global loop: every bit of work must be inside a kernel")
       i = counter[0]; counter[0] += 1
       v, t = f"v{i}", CT.get(u.dtype)
       if op in ('const', 'after', 'shrink', 'buffer', 'end', 'range', 'assert'): continue
@@ -1345,6 +1460,11 @@ def render_c(names):
       else: raise UIRError(f"render: can't render {op} here")
       lines.append(f"{pad}{t} {v} = {e};"); name[id(u)] = v; ctype[v] = t
   emit(block, 1)
+  if cuda:                                       # kernels, then the host function that launches them in order
+    params = ', '.join(f"{CT[v.dtype]} *b{slot}" for slot, v in outs.items()) or 'void'
+    return ("#include <stdint.h>\n#include <string.h>\n#include <math.h>\n\n" + C_HELPERS.replace('static inline', 'static __device__ inline') +
+            ''.join('\n' + f for f in fns) + f"\nvoid kernel({params}) {{   /* device pointers; UIR_LAUNCH comes from the harness */\n" +
+            ''.join(f"{l}\n" for l in lines) + "}\n")
   params = ', '.join(f"{CT[v.dtype]} *restrict b{slot}" for slot, v in outs.items()) or 'void'   # buffers never alias
   par = "void uir_parallel_for(int32_t n, void (*body)(int32_t, void *), void *ctx);   /* the harness provides it */\n" if fns else ''
   return ("#include <stdint.h>\n#include <stdbool.h>\n#include <string.h>\n#include <math.h>\n\n" + C_HELPERS + par +
@@ -1358,12 +1478,13 @@ def read_text(path):
   return b.decode('utf-8-sig')
 
 def main(argv):
-  if len(argv) != 3 or argv[1] not in ('run', 'simplify', 'render'):
-    print("usage: uirc.py run|simplify|render FILE", file=sys.stderr); return 2
+  if len(argv) != 3 or argv[1] not in ('run', 'simplify', 'render', 'render-cuda'):
+    print("usage: uirc.py run|simplify|render|render-cuda FILE", file=sys.stderr); return 2
   try:
     text, base = read_text(argv[2]), os.path.dirname(os.path.abspath(argv[2]))
     if argv[1] == 'run': run(text, base); return 0
     if argv[1] == 'render': sys.stdout.write(render_c(parse(text, base)[0])); return 0
+    if argv[1] == 'render-cuda': sys.stdout.write(render_c(parse(text, base)[0], 'cuda')); return 0
     names, _ = parse(text, base)
     if 'out' not in names: raise UIRError("simplify needs %out")
     sys.stdout.write(render(simplify(names['out']))); return 0

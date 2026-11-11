@@ -30,7 +30,11 @@ def describe(path):
     elif l.startswith('simplify:'): kind = 'simplify, ' + l.split(':', 1)[1].strip()
     elif l == 'render': kind = 'render'
     elif l.startswith('render check:'): kind = 'render, ' + l.split(':', 1)[1].strip()
-  why = next((l for l in lines if not re.match(r'(expect|simplify|render check|time|max_bytes):|render$', l)), '')
+    elif l.startswith('speed:'): kind = 'render, speed ' + l.split(':', 1)[1].strip()
+    elif l == 'cuda': kind = 'cuda'
+    elif l == 'cuda: invalid': kind = 'cuda: invalid'
+    elif l.startswith('cuda speed:'): kind = 'cuda, speed ' + l.split(':', 1)[1].strip()
+  why = next((l for l in lines if not re.match(r'(expect|simplify|render check|time|max_bytes|speed|cuda speed):|render$|cuda$|cuda: invalid$', l)), '')
   return kind, why
 
 def page(week, rows):

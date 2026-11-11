@@ -1,4 +1,4 @@
-# SPOILERS. Proves the week 1 to 7 suites have teeth: each mutant plants one plausible student bug in the
+# SPOILERS. Proves the week 1 to 8 suites have teeth: each mutant plants one plausible student bug in the
 # reference compiler, and the suite must catch (kill) every one. A few minutes for all of them.
 #   python _reference/mutants.py               every mutant, stopping at the first test that catches it
 #   python _reference/mutants.py w6 grad       only mutants whose names contain 'w6' or 'grad'
@@ -8,7 +8,7 @@ import os, re, sys, json, glob, threading, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 SRC = open(os.path.join(HERE, 'uirc.py'), encoding='utf-8').read()
-WEEKS = (1, 2, 3, 4, 5, 6, 7)
+WEEKS = (1, 2, 3, 4, 5, 6, 7, 8)
 
 # (name, [(old, new), ...]) -- every old must occur exactly once in uirc.py
 M = [
@@ -251,13 +251,25 @@ M = [
   ("w7 upcast rendered as a plain loop", [("        if ax == 'upcast':                       # unroll: one copy of the body per value, with r a literal", "        if False:")]),
   ("w7 upcast unrolls one copy short", [("          for t in range(r.src[0].arg): name[id(r)] = str(t); emit(body, depth)", "          for t in range(r.src[0].arg - 1): name[id(r)] = str(t); emit(body, depth)")]),
   ("w7 private allocs never reset", [("          for a in privates.get(id(r), ()): mem[id(a)] = [ZERO[a.dtype]] * a.arg[1]\n", "")]),
-  ("w7 render private allocs shared", [("        if id(u) not in private_ids: lines.append(alloc_line(u, pad))", "        lines.append(alloc_line(u, pad))"),
-                                       ("          for a in privates.get(id(r), ()): lines.append(alloc_line(a, '  '))\n", "")]),
+  ("w7 render private allocs shared", [("        if id(u) not in private_ids:\n          if cuda:", "        if True:\n          if cuda:"),
+                                       ("          for a in privates.get(id(r), ()): lines.append(alloc_line(a, '  '))\n          emit(body, 1)", "          emit(body, 1)")]),
   ("w7 thread slice ignores the access size", [("  need(lo >= 0 and hi + size <= S,", "  need(lo >= 0 and hi < S,")]),
   ("w7 thread loads unchecked", [("          if sid in priv or (n.op == 'load' and sid not in written): continue", "          if sid in priv or n.op == 'load': continue")]),
-  ("w7 nested thread loops allowed", [("        if inside: raise UIRError(f\"thread loop %{r.arg[1]} is inside another thread loop\")\n", "")]),
+  ("w7 nested thread loops allowed", [("        if inside: raise UIRError(f\"{axis_of(r)} loop %{r.arg[1]} is inside another parallel loop\")\n", "")]),
   ("w7 mixed strides allowed", [("          if stride.setdefault(sid, S) != S: raise UIRError", "          if False: raise UIRError")]),
   ("w7 upcast bound unchecked", [("    if ax == 'upcast': need(src[0].op == 'const' and 1 <= src[0].arg <= 32,", "    if ax == 'upcast': need(True,")]),
+  # ---------------- week 8: GPUs ----------------
+  ("w8 cuda no barrier between phases", [("          emit(body, depth + 1); lines.append(f\"{pad}}}\"); lines.append(f\"{pad}__syncthreads();\")", "          emit(body, depth + 1); lines.append(f\"{pad}}}\")")]),
+  ("w8 cuda shared memory not zeroed", [("\\n{pad}for (int32_t z_ = threadIdx.x; z_ < {u.arg[1]}; z_ += blockDim.x) a{i}[z_] = 0;\\n\"", "\\n\"")]),
+  ("w8 cuda local loops run in one thread", [("          bs = next((x[2].src[0].arg for x in iter_loops(body) if axis_of(x[2]) == 'local'), 1)", "          bs = 1"),
+                                            ("          lines.append(f\"{pad}{{\"); lines.append(f\"{pad}  int32_t {rv} = threadIdx.x;\")", "          lines.append(f\"{pad}for (int32_t {rv} = 0; {rv} < {ex(r.src[0])}; {rv}++) {{\")")]),
+  ("w8 digits may touch", [("    need(c > rest, f\"can't be shown to keep threads apart:", "    need(c >= rest, f\"can't be shown to keep threads apart:")]),
+  ("w8 parallel index may be missing", [("  need(all(any(s_[0] == id(r) for s_ in sig) or top(r) == 0 for r in par),", "  need(True,")]),
+  ("w8 phase loads unchecked", [("    if n.op == 'load' and sid not in written: continue\n    f = radix_layout({r}", "    if n.op == 'load': continue\n    f = radix_layout({r}")]),
+  ("w8 store outside local allowed", [("      elif it.op == 'store' and not in_local: raise UIRError", "      elif False: raise UIRError")]),
+  ("w8 block sizes may differ", [("  if len(sizes) > 1: raise UIRError", "  if False: raise UIRError")]),
+  ("w8 local outside global allowed", [("      if axis_of(r) == 'local' and not inside: raise UIRError", "      if False: raise UIRError")]),
+  ("w8 block layouts may differ", [("    if layout.setdefault(sid, f) != f: raise UIRError(f\"global loop", "    if False: raise UIRError(f\"global loop")]),
 ]
 
 # Generated mutants: every validation in the reference, switched off one at a time. A `need(cond, msg)` becomes

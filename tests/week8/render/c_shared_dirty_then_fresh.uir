@@ -1,0 +1,34 @@
+# cuda
+# kernel 1 fills shared memory with 7s. Kernel 2 must still see its own shared memory start at zero, so the kernel has to zero it
+%o = buffer 512 dtype=i32 slot=0
+%p = buffer 512 dtype=i32 slot=1
+%sa = alloc 256 dtype=i32
+%sb = alloc 256 dtype=i32
+%b = range 2 axis=global
+%mb = mul %b 256
+%t = range 256 axis=local
+%av = shrink %sa %t shape=[]
+%sev = add %b 7
+%s1 = store %av %sev
+%e1 = end %s1 %t
+%sa1 = after %sa %e1
+%u = range 256 axis=local
+%rv = shrink %sa1 %u shape=[]
+%r = load %rv
+%j = add %mb %u
+%ov = shrink %o %j shape=[]
+%s2 = store %ov %r
+%e2 = end %s2 %u
+%eb = end %e1 %e2 %b
+%o1 = after %o %eb
+%c = range 2 axis=global
+%mc = mul %c 256
+%w = range 256 axis=local
+%bv = shrink %sb %w shape=[]
+%cur = load %bv
+%k = add %mc %w
+%pv = shrink %p %k shape=[]
+%s3 = store %pv %cur
+%e3 = end %s3 %w
+%ec = end %e3 %c
+%p1 = after %p %ec

@@ -1,0 +1,16 @@
+%x = buffer 64 dtype=f32 slot=0
+%o = buffer 64 dtype=f32 slot=1
+# o = 3x + 1 for 64 elements, as 4 blocks of 16 threads.
+%b = range 4 axis=global
+%t = range 16 axis=local
+%m = mul %b 16
+%i = add %m %t
+%xv = shrink %x %i shape=[]
+%xe = load %xv
+%y = mul %xe 3.0
+%z = add %y 1.0
+%ov = shrink %o %i shape=[]
+%s = store %ov %z
+%et = end %s %t
+%eb = end %et %b
+%o1 = after %o %eb

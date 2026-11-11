@@ -1,0 +1,95 @@
+{
+  "id": "w8-03-reverse",
+  "lang": "uir",
+  "mode": "buffers",
+  "out_slot": 1,
+  "title": "Reverse through shared memory",
+  "starter": "%x = buffer 32 dtype=f32 slot=0\n%o = buffer 32 dtype=f32 slot=1\n# Reverse each block of 8 elements, through shared memory.\n%sh = alloc 8 dtype=f32\n%b = range 4 axis=global\n%m = mul %b 8\n# phase 1: thread t copies x[8b + t] into sh[t]\n%t = range 8 axis=local\n%i = add %m %t\n%xv = shrink %x %i shape=[]\n%xe = load %xv\n%sv = shrink %sh %t shape=[]\n%s1 = store %sv %xe\n%e1 = end %s1 %t\n%sh1 = after %sh %e1\n# phase 2: thread u writes o[8b + u]: it should read the element at the mirror position, sh[7 - u]\n%u = range 8 axis=local\n%ru = add %u 0\n%rv = shrink %sh1 %ru shape=[]\n%re = load %rv\n%j = add %m %u\n%ov = shrink %o %j shape=[]\n%s2 = store %ov %re\n%e2 = end %s2 %u\n%eb = end %e1 %e2 %b\n%o1 = after %o %eb\n",
+  "tests": [
+    {
+      "data": {
+        "0": [
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          11.0,
+          12.0,
+          13.0,
+          14.0,
+          15.0,
+          16.0,
+          17.0,
+          18.0,
+          19.0,
+          20.0,
+          21.0,
+          22.0,
+          23.0,
+          24.0,
+          25.0,
+          26.0,
+          27.0,
+          28.0,
+          29.0,
+          30.0,
+          31.0
+        ]
+      },
+      "sample": true,
+      "expect": "[7.0 6.0 5.0 4.0 3.0 2.0 1.0 0.0 15.0 14.0 13.0 12.0 11.0 10.0 9.0 8.0 23.0 22.0 21.0 20.0 19.0 18.0 17.0 16.0 31.0 30.0 29.0 28.0 27.0 26.0 25.0 24.0]"
+    },
+    {
+      "data": {
+        "0": [
+          0.0,
+          7.0,
+          3.0,
+          10.0,
+          6.0,
+          2.0,
+          9.0,
+          5.0,
+          1.0,
+          8.0,
+          4.0,
+          0.0,
+          7.0,
+          3.0,
+          10.0,
+          6.0,
+          2.0,
+          9.0,
+          5.0,
+          1.0,
+          8.0,
+          4.0,
+          0.0,
+          7.0,
+          3.0,
+          10.0,
+          6.0,
+          2.0,
+          9.0,
+          5.0,
+          1.0,
+          8.0
+        ]
+      },
+      "expect": "[5.0 9.0 2.0 6.0 10.0 3.0 7.0 0.0 6.0 10.0 3.0 7.0 0.0 4.0 8.0 1.0 7.0 0.0 4.0 8.0 1.0 5.0 9.0 2.0 8.0 1.0 5.0 9.0 2.0 6.0 10.0 3.0]"
+    }
+  ],
+  "hints": [
+    "Phase 2 reads <code>sh[u]</code>, which copies the block unchanged. The mirror of position <code>u</code> in 8 is <code>7 - u</code>.",
+    "<code>%nu = mul %u -1</code>, then <code>%ru = add %nu 7</code>.",
+    "Reading another thread's slot is fine here: it was written in phase 1, and the barrier between phases makes sure every thread finished it."
+  ],
+  "explain": "The two loops are two phases of one block. In phase 2, thread <code>u</code> reads the slot thread <code>7 - u</code> wrote in phase 1. That's only safe because a phase ends with every thread waiting at a barrier, which the CUDA renderer writes as <code>__syncthreads()</code>. Reading another thread's slot in the <em>same</em> phase would be a race, and the rule rejects it."
+}

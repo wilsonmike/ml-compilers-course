@@ -50,6 +50,10 @@ const CC = (() => {
       ['week7/01-measuring.html', 'Measuring speed', '7.1'], ['week7/02-caches-and-tiling.html', 'Caches and tiling', '7.2'],
       ['week7/03-upcast.html', 'Upcast', '7.3'], ['week7/04-threads.html', 'Threads', '7.4'],
       ['week7/05-kernels.html', 'Kernels and outlining', '7.5'], ['week7/06-lab.html', 'Lab: fast kernels', '7.6']] },
+    { title: 'Week 8 · GPUs', items: [
+      ['week8/01-gpus.html', 'How a GPU runs code', '8.1'], ['week8/02-global-and-local.html', 'Global and local loops', '8.2'],
+      ['week8/03-shared-memory.html', 'Shared memory and barriers', '8.3'], ['week8/04-rendering-cuda.html', 'Rendering CUDA', '8.4'],
+      ['week8/05-getting-a-gpu.html', 'Getting a GPU', '8.5'], ['week8/06-lab.html', 'Lab: GPU kernels', '8.6']] },
   ];
   const ROOT = () => document.body.dataset.root || './';
   // The course's source, linked from the top bar of every page

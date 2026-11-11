@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Global and Local Loops</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="In .uir a kernel is still just loops. Two new axes say which loop is the grid of blocks and which is the threads of a block. The result never changes, so run...">
+<link rel="canonical" href="https://sharpterminal.com/site/week8/02-global-and-local">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Global and Local Loops">
+<meta property="og:description" content="In .uir a kernel is still just loops. Two new axes say which loop is the grid of blocks and which is the threads of a block. The result never changes, so run works as before. What&#x27;s new is a stronger...">
+<meta property="og:url" content="https://sharpterminal.com/site/week8/02-global-and-local">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .slots { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; max-width: 40rem; }
+  .slots .s { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 1.9rem; }
+  .slots .s.two { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .slots .a { font: 0.875rem var(--mono); color: var(--ink-3); text-align: center; }
+  @media (max-width: 640px) { .slots { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 8 · Lesson 2</p>
+<h1>Global and local loops</h1>
+<p class="lede">In .uir a kernel is still just loops. Two new axes say which loop is the grid of blocks and which is the threads of a block. The result never changes, so <code>run</code> works as before. What's new is a stronger rule for proving that no two threads, and no two blocks, write the same element.</p>
+
+<div class="prose">
+<h2>Two more axes</h2>
+<pre><code>%b = range 3 axis=global      # one iteration per block
+%t = range 32 axis=local      # one iteration per thread of the block
+%m = mul %b 32
+%i = add %m %t                # element 32b + t
+...
+%et = end %s %t
+%eb = end %et %b</code></pre>
+<p>A <b>global</b> loop is the grid: each iteration is a block, and blocks may run in any order, at the same time. A <b>local</b> loop is a block's threads, so its bound is the block size: a literal from 1 to 1024. Like week 7's axes, neither changes a single bit. Run as plain loops, the program means what it always did.</p>
+<p>A few rules keep the program shaped like a kernel:</p>
+<ul>
+<li>A local loop sits inside a global loop, possibly inside plain loops in its body, and never inside another local loop.</li>
+<li>Every local loop of one global loop has the same bound, because a kernel has one block size.</li>
+<li>No thread, global or local loop inside a global loop's body, other than its own local loops.</li>
+<li>Every store inside a global loop is inside a local loop. A store outside one would run once on every thread.</li>
+</ul>
+</div>
+
+<div class="exercise small" data-ex="w8-02-kernel">
+<h3>Loops into a kernel</h3>
+<p>This program computes <code>3x + 1</code> with two plain loops. Make them a grid of 4 blocks of 16 threads. Only attributes change.</p>
+</div>
+
+<div class="prose">
+<h2>Why week 7's slice rule isn't enough</h2>
+<p>Week 7's rule gave each thread-loop iteration a slice <code>r·S</code> to <code>r·S + S - 1</code>, with one parallel index. Now there are two at once, the block and the thread, and real kernels mix them up. The 512×512 GEMM in the speed test writes element</p>
+<pre><code>(16·by + ty)·512 + 16·bx + tx        by = g div 32, bx = g mod 32,  ty = t div 16, tx = t mod 16</code></pre>
+<p>Thread <code>t</code> of block <code>g</code> isn't writing one contiguous slice: block <code>g</code> owns a 16×16 square, spread across 16 rows. We need a rule that sees that.</p>
+
+<h2>The mixed-radix rule</h2>
+<p>Write the offset as a sum of terms. A term is a <b>digit</b> when it's a loop index, or that index's <code>div</code> or <code>mod</code> by a literal, times a positive literal coefficient. Every digit has a largest value: <code>n - 1</code> for a loop of <code>n</code>, <code>(n - 1) div k</code> for a <code>div</code>, and <code>k - 1</code> for a <code>mod</code> (or <code>n - 1</code>, if that's smaller). The GEMM's offset expands to four digits:</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>digit</th><th>coefficient</th><th>largest value</th><th>the most it adds</th></tr></thead>
+<tbody>
+<tr><td><code>by = g div 32</code></td><td>8192</td><td>31</td><td>253952</td></tr>
+<tr><td><code>ty = t div 16</code></td><td>512</td><td>15</td><td>7680</td></tr>
+<tr><td><code>bx = g mod 32</code></td><td>16</td><td>31</td><td>496</td></tr>
+<tr><td><code>tx = t mod 16</code></td><td>1</td><td>15</td><td>15</td></tr>
+</tbody></table></div>
+<div class="prose">
+<p>Now sort by coefficient, and check that each one is <b>greater than the most all the smaller digits can add up to</b>: 8192 is more than 7680 + 496 + 15 = 8191, 512 is more than 511, 16 is more than 15. Then the offset is a <b>mixed-radix number</b>, like a time written as hours, minutes and seconds. Two different combinations of digits always give different offsets, for the same reason 2:59 and 3:00 are different times. So no two threads, of the same block or of different blocks, ever write the same element.</p>
+<p>The rule is checked twice, on two pieces of code. Once per local loop, with <code>t</code> as the parallel index and the block fixed: do the block's threads collide? And once over the whole global loop body, with <code>g</code> as the parallel index: do the blocks collide? Loops inside the piece being checked count as digits too, since one thread runs all their iterations.</p>
+<p>Four more parts complete the rule:</p>
+<ul>
+<li>Terms that don't involve a loop of the code being checked are the same for every thread, so they're ignored: a constant, a loop outside the kernel, and for one phase also the block index and plain loops around the phase.</li>
+<li>A vector access of <code>k</code> elements is a digit too: coefficient 1, largest value <code>k - 1</code>.</li>
+<li>Coefficients are positive. <code>7 - t</code> walks backwards through memory, which is perfectly safe, but the rule doesn't try to prove it.</li>
+<li>The offset has to contain the parallel index. <code>o[0]</code> written by every block is the plainest race there is.</li>
+</ul>
+<p>It applies to every store, and every load of memory the same code also stores into. Memory that's only read can be read anywhere: the GEMM's A and B are read by many blocks at once, which is fine.</p>
+</div>
+
+<div class="fig" id="radix" data-title="Which threads write each element (block, thread)"></div>
+
+<div class="exercise small" data-ex="w8-02-unique" data-ex-py="w8-02-unique-py">
+<h3>Can two threads collide?</h3>
+<p>Write <code>unique digits</code>: true when the digits, sorted by coefficient, form a mixed-radix number.</p>
+</div>
+
+<div class="prose">
+<h2>The same expression, every time</h2>
+<p>One more rule: within the code being checked, every access to one buffer must use the <b>same offset expression</b>, the very same nodes, not just the same digits. <code>sh[t]</code> and <code>sh[t + 1]</code> have the same digits, but if thread <code>t</code> stores to <code>sh[t]</code> and loads <code>sh[t + 1]</code>, it reads its neighbor's slot while the neighbor may be writing it. Requiring the identical expression rules that out without any arithmetic. Your hash-consing from week 2 makes the check a pointer comparison.</p>
+<p>The next lesson explains why reading a neighbor's slot is fine one phase later.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Blocks <code>b</code> in 0..7, threads <code>t</code> in 0..15. Which store offset is valid?</p>
+<div class="opts">
+<button data-k="a"><code>8b + t</code></button>
+<button data-k="b"><code>16b + t</code></button>
+<button data-k="c"><code>b + t</code></button>
+</div>
+<p class="hint">The largest <code>t</code> is 15. What must the coefficient of <code>b</code> beat?</p>
+<div class="why"><p>The coefficient of <code>b</code> must be greater than <code>1·15</code>. With 8, block 0 thread 8 and block 1 thread 0 both write element 8.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Is <code>b + 4t</code> valid, with <code>b</code> in 0..3 and <code>t</code> in 0..7?</p>
+<div class="opts">
+<button data-k="a">Yes: sorted, <code>t</code> has coefficient 4, which is more than 3, the most <code>b</code> adds</button>
+<button data-k="b">No: the block's coefficient must be the largest</button>
+<button data-k="c">No: <code>t</code> must have coefficient 1</button>
+</div>
+<p class="hint">The rule sorts the digits. It doesn't care which one is the block.</p>
+<div class="why"><p>The threads of each block are spread out with stride 4 and the blocks fill the gaps between them. That's still a unique number. On a real GPU this layout is often slower, since neighboring threads write elements 4 apart (16 bytes for f32).</p></div>
+</div>
+
+<div class="quiz" data-fill="15">
+<p class="q">A local loop has 64 threads, and the offset uses <code>t div 4</code>. What is that digit's largest value?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The largest <code>t</code> is 63.</p>
+<div class="why"><p><code>63 div 4 = 15</code>. And <code>t mod 4</code> has largest value 3.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">In one local loop, thread <code>t</code> stores <code>sh[t]</code> and loads <code>sh[t + 1]</code>. Why is it rejected, when both offsets have the digit <code>t</code>?</p>
+<div class="opts">
+<button data-k="a">Because <code>t + 1</code> overflows</button>
+<button data-k="b">Because loads of shared memory aren't allowed</button>
+<button data-k="c">Every access to one buffer must be the same expression. Thread <code>t</code> would read the slot thread <code>t + 1</code> is writing</button>
+</div>
+<p class="hint">Who writes <code>sh[t + 1]</code>?</p>
+<div class="why"><p>Thread <code>t + 1</code> stores into <code>sh[t + 1]</code> in the same phase, at the same time. The load would see the old or the new value depending on timing.</p></div>
+</div>
+
+<nav class="pager">
+<a href="01-gpus.html">← Lesson 1: How a GPU runs code</a>
+<a href="03-shared-memory.html">Lesson 3: Shared memory and barriers →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const show = offs => {
+    const who = Array.from({ length: 16 }, () => []);
+    for (let b = 0; b < 4; b++) for (let t = 0; t < 4; t++) { const o = offs(b, t); if (o >= 0 && o < 16) who[o].push(b + '' + t); }
+    return h('div', { class: 'slots' }, who.map((w, k) => h('div', {}, [h('div', { class: 's' + (w.length > 1 ? ' two' : ''), text: w.join(' ') }), h('div', { class: 'a', text: k })])));
+  };
+  const steps = [
+    { caption: '<code>4b + t</code>, with 4 blocks of 4 threads. Each cell shows block and thread, so <code>21</code> is block 2, thread 1. 4 is more than 3, the most <code>t</code> adds: every element is written once.', draw: () => show((b, t) => 4 * b + t) },
+    { caption: '<code>b + 4t</code>: the digits swapped. Still unique, since 4 is more than 3. Each block\'s threads are spread out and the blocks interleave.', draw: () => show((b, t) => b + 4 * t) },
+    { caption: '<code>3b + t</code>: 3 isn\'t more than 3. Dark cells are written by two threads of different blocks, a race. Elements 12 to 15 are never written.', draw: () => show((b, t) => 3 * b + t) },
+    { caption: '<code>2b + 2t</code>: equal coefficients. Many threads collide and odd elements are never written.', draw: () => show((b, t) => 2 * b + 2 * t) },
+  ];
+  CC.stepper(document.getElementById('radix'), steps, (s, body) => body.append(s.draw()));
+});
+</script>
+</body>
+</html>

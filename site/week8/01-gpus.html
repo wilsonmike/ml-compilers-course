@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How a GPU Runs Code</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A desktop CPU has a few dozen hardware threads, each fast on its own. A GPU has thousands of simpler ones, and it&#x27;s fast only when all of them have work. This...">
+<link rel="canonical" href="https://sharpterminal.com/site/week8/01-gpus">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="How a GPU Runs Code">
+<meta property="og:description" content="A desktop CPU has a few dozen hardware threads, each fast on its own. A GPU has thousands of simpler ones, and it&#x27;s fast only when all of them have work. This lesson is the model you need to write...">
+<meta property="og:url" content="https://sharpterminal.com/site/week8/01-gpus">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .grid8 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s3); max-width: 40rem; }
+  .grid8 .blk { border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s2); background: var(--panel); }
+  .grid8 .blk .lab { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: 4px; }
+  .grid8 .ths { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+  .grid8 .th { font: 0.875rem var(--mono); text-align: center; padding: 4px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+  .grid8 .th.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  @media (max-width: 640px) { .grid8 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 8 · Lesson 1</p>
+<h1>How a GPU runs code</h1>
+<p class="lede">A desktop CPU has a few dozen hardware threads, each fast on its own. A GPU has thousands of simpler ones, and it's fast only when all of them have work. This lesson is the model you need to write kernels for it: blocks, threads, and the memories they share.</p>
+
+<div class="prose">
+<h2>Many threads, grouped into blocks</h2>
+<p>A GPU program, a <b>kernel</b>, is one function that every thread runs. Threads come in <b>blocks</b> of up to 1024, and a launch starts a <b>grid</b> of blocks. Each thread knows two numbers: its block, <code>blockIdx.x</code>, and its position inside the block, <code>threadIdx.x</code>. Those numbers are how it picks its share of the work. A kernel that doubles 96 floats as 3 blocks of 32 threads has thread <code>t</code> of block <code>b</code> handle element <code>32b + t</code>.</p>
+<p>The hardware runs blocks on <b>streaming multiprocessors</b> (SMs). The RTX 4060 Ti this course was tested on has 34 of them. A block stays on one SM from start to finish, and the SM runs its threads 32 at a time, in groups called <b>warps</b>. Blocks run in whatever order the hardware likes, many at once, and a block can never wait for another block.</p>
+</div>
+
+<div class="fig" id="grid" data-title="Which element each thread handles"></div>
+
+<div class="prose">
+<h2>Three kinds of memory</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>memory</th><th>who sees it</th><th>size and speed</th><th>in .uir</th></tr></thead>
+<tbody>
+<tr><td><b>global</b></td><td>every thread of every block, and the host copies data in and out</td><td>gigabytes, hundreds of cycles away</td><td>buffers</td></tr>
+<tr><td><b>shared</b></td><td>the threads of one block</td><td>tens of kilobytes per block, almost as fast as registers</td><td>an alloc used inside one global loop</td></tr>
+<tr><td><b>registers</b></td><td>one thread</td><td>a few hundred bytes per thread, the fastest</td><td>values (the syllabus calls this ALU)</td></tr>
+</tbody></table></div>
+<p>Shared memory is what makes a GPU kernel fast. A block loads a tile of its inputs from global memory once, into shared memory, and then all its threads read the tile many times. That's week 7's tiling again, with the tile shared by a block of threads instead of kept by one.</p>
+
+<h2>Waiting for each other</h2>
+<p>The threads of a block can wait for each other with a <b>barrier</b>, <code>__syncthreads()</code>: no thread passes it until every thread of the block has reached it. That's how a block loads a tile and then uses it. Every thread writes its part, the barrier makes sure all parts are written, and then every thread may read any of them. Blocks have no such barrier, so two blocks must never depend on each other.</p>
+
+<h2>Why the bits still match</h2>
+<p>The grader compares your GPU's results with the interpreter, bit for bit, as it has every week. Each thread computes its outputs with the same operations in the same order as the CPU. Only two GPU habits would change bits, and the build rules out both: fused multiply-add, turned off with <code>-fmad=false</code>, and faster but less exact division, which <code>-prec-div=true</code> (already the default) keeps off. A real CUDA library wouldn't do that, and it would run a bit faster.</p>
+
+<h2>How fast?</h2>
+<p>The 4060 Ti does about 22 trillion float operations a second at its peak, and moves 288 GB a second from its global memory. Compare a CPU core: tens of billions. The catch is that all those threads need work and data at once. On a 512×512 GEMM, the tests measured:</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>kernel (512×512 GEMM, RTX 4060 Ti)</th><th>time</th><th>speed</th></tr></thead>
+<tbody>
+<tr><td>one thread per output, straight from global memory</td><td>0.34 ms</td><td>0.8 TFLOP/s</td></tr>
+<tr><td>a block per row strip, a shared accumulator</td><td>0.39 ms</td><td>0.7 TFLOP/s</td></tr>
+<tr><td>a 16×16 tile per block, loaded into shared memory</td><td>0.17 ms</td><td>1.6 TFLOP/s</td></tr>
+</tbody></table></div>
+<div class="prose">
+<p>The row-strip kernel is slower than the naive one even though it uses shared memory: each of its 512 blocks has only a few threads, so the SMs have too few warps to keep busy while they wait for memory. The tiled kernel is the one the speed test uses as its reference. All three are far from 22 TFLOP/s. Getting closer takes the tricks of later weeks and of libraries like cuBLAS, and none of them can keep these exact bits.</p>
+<p>You don't need a GPU for this week. Lesson 8.5 shows the free and cheap ways to get one, and the grader has an emulator that runs your CUDA on the CPU.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="69">
+<p class="q">A kernel runs as blocks of 32 threads, and thread <code>t</code> of block <code>b</code> handles element <code>32b + t</code>. Which element does thread 5 of block 2 handle?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Block 2 starts at element 64.</p>
+<div class="why"><p><code>32·2 + 5 = 69</code>. Blocks 0 and 1 cover elements 0 to 63.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Which threads can read a block's shared memory?</p>
+<div class="opts">
+<button data-k="a">Every thread of every block</button>
+<button data-k="b">Only the threads of that block</button>
+<button data-k="c">Only the thread that wrote it</button>
+</div>
+<p class="hint">Shared memory lives on the SM running the block.</p>
+<div class="why"><p>Each block gets its own copy of shared memory, on its SM, for as long as it runs. Other blocks can't see it. Data that must go from one block to another goes through global memory, in a later kernel.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Block 3 needs a value block 7 computes, in the same kernel. What's the problem?</p>
+<div class="opts">
+<button data-k="a">None: blocks run in order</button>
+<button data-k="b">It works if block 3 calls <code>__syncthreads()</code></button>
+<button data-k="c">Blocks may run in any order, and there's no barrier between blocks, so block 3 may run before block 7</button>
+</div>
+<p class="hint">What does <code>__syncthreads()</code> wait for?</p>
+<div class="why"><p>A barrier waits for the threads of one block. Nothing in a kernel waits for another block, so block 7's results are only safe to read in a later kernel.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Why does the course build CUDA with <code>-fmad=false</code>?</p>
+<div class="opts">
+<button data-k="a">A fused multiply-add rounds once instead of twice, so the bits would differ from the interpreter's</button>
+<button data-k="b">Fused multiply-add is slower</button>
+<button data-k="c">Old GPUs don't have it</button>
+</div>
+<p class="hint">How many roundings does <code>a·b + c</code> have?</p>
+<div class="why"><p><code>a·b + c</code> as two operations rounds the product, then the sum. A fused one rounds only at the end. That's more accurate, but different, and the grader wants the interpreter's exact bits.</p></div>
+</div>
+
+<nav class="pager">
+<a href="../week7/06-lab.html">← Week 7 lab</a>
+<a href="02-global-and-local.html">Lesson 2: Global and local loops →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const draw = pick => h('div', { class: 'grid8' }, [0, 1, 2, 3].map(b => h('div', { class: 'blk' }, [
+    h('div', { class: 'lab', text: 'block ' + b }),
+    h('div', { class: 'ths' }, [0, 1, 2, 3].map(t => h('div', { class: 'th' + (pick(b, t) ? ' on' : ''), text: 4 * b + t })))])));
+  const steps = [
+    { caption: 'A grid of 4 blocks of 4 threads. Each cell is one thread and shows the element it handles, <code>4b + t</code>.', draw: () => draw(() => false) },
+    { caption: 'Thread 1 of every block: <code>threadIdx.x</code> is 1 in all four. The block number tells them apart.', draw: () => draw((b, t) => t === 1) },
+    { caption: 'Block 2: its threads run on one SM and share its shared memory. Other blocks may run before it, after it, or at the same time.', draw: () => draw(b => b === 2) },
+  ];
+  CC.stepper(document.getElementById('grid'), steps, (s, body) => body.append(s.draw()));
+});
+</script>
+</body>
+</html>

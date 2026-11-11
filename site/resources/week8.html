@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 8 Study Guide</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Week 8 writes kernels the way a GPU runs them: a grid of blocks, each a group of threads with its own shared memory and a barrier. Two loop axes describe that...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/week8">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 8 Study Guide">
+<meta property="og:description" content="Week 8 writes kernels the way a GPU runs them: a grid of blocks, each a group of threads with its own shared memory and a barrier. Two loop axes describe that, a stronger rule keeps threads and...">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/week8">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 8 study guide</h1>
+  <p class="lede">Week 8 writes kernels the way a GPU runs them: a grid of blocks, each a group of threads with its own shared memory and a barrier. Two loop axes describe that, a stronger rule keeps threads and blocks from colliding, and <code>render-cuda</code> writes the CUDA. No GPU is needed: the grader's emulator checks every bit. This page recaps the week, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week8/01-gpus.html">8.1 How a GPU runs code</a></h3>
+  <p>A kernel is one function every thread runs. Threads come in blocks of up to 1024, a launch starts a grid of blocks, and each thread finds its work from <code>blockIdx.x</code> and <code>threadIdx.x</code>. Blocks run in any order and never wait for each other. Memory is global (everyone), shared (one block) or registers (one thread). <code>-fmad=false</code> and <code>-prec-div=true</code> keep the bits identical to the CPU's.</p>
+  <h3><a href="../week8/02-global-and-local.html">8.2 Global and local loops</a></h3>
+  <p><code>axis=global</code> is the grid, <code>axis=local</code> a block's threads, with a literal bound from 1 to 1024. Neither changes a result. Offsets that are stored, or loaded where the same code stores, must be mixed-radix numbers: digits are loop indices (or their <code>div</code> or <code>mod</code> by a literal) times positive literals, and sorted by coefficient each must beat the most the smaller digits add up to. The offset contains the parallel index, and every access to a buffer is the same expression.</p>
+  <h3><a href="../week8/03-shared-memory.html">8.3 Shared memory and barriers</a></h3>
+  <p>Consecutive local loops are phases, with a barrier between them. The rule is checked per phase, so a later phase may read any shared slot an earlier one wrote. An alloc used only in one global loop is shared memory, zeroed for each block. A missing barrier can pass by luck in a block of one or two warps, so the suite also uses blocks of 1024.</p>
+  <h3><a href="../week8/04-rendering-cuda.html">8.4 Rendering CUDA</a></h3>
+  <p>Each top-level global loop is a <code>__global__</code> function. Shared allocs are <code>__shared__</code> arrays, cleared by the threads. Each phase is a block on <code>threadIdx.x</code> followed by <code>__syncthreads()</code>. A host <code>kernel</code> launches the kernels in order with <code>UIR_LAUNCH</code>, which the grader defines for real CUDA or for the emulator. For the CPU, a global loop renders like a thread loop.</p>
+  <h3><a href="../week8/05-getting-a-gpu.html">8.5 Getting a GPU</a></h3>
+  <p>The emulator grades everything but speed. With an NVIDIA GPU: <code>nvcc</code> on Linux, or <code>--cuda-docker</code> on Windows. Otherwise Colab, Kaggle, or a rented machine on Vast.ai or RunPod for well under a dollar an hour. Bring no secrets to a rented machine, and stop it when you're done.</p>
+  <h3><a href="../week8/06-lab.html">8.6 Lab</a></h3>
+  <p>The suite has 39 tests: run tests for the rules, <code>r_</code> tests for the CPU render, <code>c_</code> tests for CUDA (four of them must be refused), and one GPU speed test that needs half the reference's speed. Weeks 1 to 7 must stay green.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>.uir</th><th>run</th><th>render (CPU)</th><th>render-cuda</th></tr></thead>
+    <tbody>
+      <tr><td><code>axis=global</code></td><td>a loop. Shared allocs zeroed each iteration</td><td>outlined, run by <code>uir_parallel_for</code></td><td>a <code>__global__</code> function, <code>blockIdx.x</code></td></tr>
+      <tr><td><code>axis=local</code></td><td>a loop</td><td>a loop</td><td><code>{ int32_t t = threadIdx.x; ... }</code> then <code>__syncthreads();</code></td></tr>
+      <tr><td>alloc used in one global loop</td><td>fresh zeros per block</td><td>declared in the outlined function</td><td><code>__shared__</code>, cleared by the threads, then a barrier</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>digit</th><th>largest value</th></tr></thead>
+    <tbody>
+      <tr><td><code>c · i</code>, <code>i</code> a loop of <code>n</code></td><td><code>n - 1</code></td></tr>
+      <tr><td><code>c · (i div k)</code></td><td><code>(n - 1) div k</code></td></tr>
+      <tr><td><code>c · (i mod k)</code></td><td><code>k - 1</code> (or <code>n - 1</code> if smaller)</td></tr>
+      <tr><td>a vector access of <code>k</code> elements</td><td>coefficient 1, largest value <code>k - 1</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Mistakes people make</h2>
+  <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week8.html">week 8 test guide</a> lists every test with the bugs known to fail it.</p>
+  <ol>
+    <li><strong>No barrier between phases.</strong> Caught by <code>c_reverse_shared</code>, <code>c_reverse_shared_1024</code> and the speed test.</li>
+    <li><strong>Not clearing shared memory.</strong> On a GPU it holds an earlier block's leftovers. Caught by <code>c_shared_dirty_then_fresh</code>.</li>
+    <li><strong>Running a phase on one thread.</strong> The bits stay right, but the GPU sits idle. Caught by <code>s_cuda_gemm_512</code> on a GPU.</li>
+    <li><strong>Letting digits touch.</strong> A coefficient equal to the most the smaller digits add is a collision. Caught by <code>err_digits_exactly_touch</code>.</li>
+    <li><strong>Forgetting the parallel index.</strong> Every block writing <code>o[t]</code>. Caught by <code>err_blocks_write_one_place</code> and <code>err_threads_write_one_cell</code>.</li>
+    <li><strong>Checking only stores in a phase.</strong> Caught by <code>err_same_phase_neighbor</code>.</li>
+    <li><strong>Missing a shape rule.</strong> A store outside a local loop, a local loop outside a global one, two block sizes, or two layouts for one buffer. Caught by <code>err_store_outside_local</code>, <code>err_local_outside_global</code>, <code>err_local_sizes_differ</code> and <code>err_block_layouts_differ</code>.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order, and don't move on until the check passes.</p>
+  <ol>
+    <li><strong>Axes as plain loops.</strong> Parse <code>global</code> and <code>local</code>, check local bounds, then ignore them. The run tests that expect a result pass, except <code>block_shared_starts_at_zero</code>.</li>
+    <li><strong>Shared memory in run.</strong> Done when this program's buffer is <code>0 1 2 1 2 3</code> (and <code>0 1 2 1 3 5</code> without the axes):
+<pre><code>%o = buffer 6 dtype=i32 slot=0
+%sh = alloc 3 dtype=i32
+%b = range 2 axis=global
+%t = range 3 axis=local
+%sv = shrink %sh %t shape=[]
+%cur = load %sv
+%bt = add %b %t
+%n = add %cur %bt
+%s = store %sv %n
+%e1 = end %s %t
+%sh1 = after %sh %e1
+%u = range 3 axis=local
+%rv = shrink %sh1 %u shape=[]
+%r = load %rv
+%m = mul %b 3
+%j = add %m %u
+%ov = shrink %o %j shape=[]
+%s2 = store %ov %r
+%e2 = end %s2 %u
+%eb = end %e1 %e2 %b
+%o1 = after %o %eb</code></pre></li>
+    <li><strong>The rules.</strong> Shape rules first, then the mixed-radix rule per phase and per kernel. Done when every run test passes.</li>
+    <li><strong>The CPU render.</strong> Reuse your thread-loop outlining. Done when the <code>r_</code> tests pass.</li>
+    <li><strong>render-cuda.</strong> Done when every <code>c_</code> test passes in the emulator, then on a GPU with the speed test.</li>
+  </ol>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-answer="c">
+    <p class="q">Blocks <code>b</code> in 0..1, threads <code>t</code> in 0..7. Which store offset is valid?</p>
+    <div class="opts"><button data-k="a"><code>4b + t</code></button><button data-k="b"><code>7b + t</code></button><button data-k="c"><code>8b + t</code></button></div>
+    <p class="hint">What's the most <code>t</code> adds?</p>
+    <div class="why"><code>t</code> adds up to 7, so the coefficient of <code>b</code> must be more than 7.</div>
+  </div>
+  <div class="quiz" data-answer="a">
+    <p class="q">Phase 2 reads a shared slot that another thread wrote in phase 1. Is that a race?</p>
+    <div class="opts"><button data-k="a">No: the barrier between phases makes sure it was written</button><button data-k="b">Yes, always</button><button data-k="c">Only on a real GPU</button></div>
+    <p class="hint">What separates two phases?</p>
+    <div class="why">Every thread finishes phase 1 before any starts phase 2. In CUDA that's <code>__syncthreads()</code>.</div>
+  </div>
+  <div class="quiz" data-fill="0|zero|zeros|all zeros">
+    <p class="q">An alloc is used only inside a global loop. What does it hold when block 5 starts?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Shared memory, in .uir.</p>
+    <div class="why">All zeros, like at the start of every block.</div>
+  </div>
+</main>
+</body>
+</html>

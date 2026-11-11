@@ -1,0 +1,29 @@
+# expect: pass
+# a later phase may read any shared element an earlier phase wrote: reverse each block of 4
+%x = buffer 8 dtype=i32 slot=0 data=[1 2 3 4 5 6 7 8]
+%o = buffer 8 dtype=i32 slot=1
+%sh = alloc 4 dtype=i32
+%b = range 2 axis=global
+%m = mul %b 4
+%t = range 4 axis=local
+%i = add %m %t
+%xv = shrink %x %i shape=[]
+%xe = load %xv
+%sv = shrink %sh %t shape=[]
+%s1 = store %sv %xe
+%e1 = end %s1 %t
+%sh1 = after %sh %e1
+%u = range 4 axis=local
+%nu = mul %u -1
+%ru = add %nu 3
+%rv = shrink %sh1 %ru shape=[]
+%re = load %rv
+%j = add %m %u
+%ov = shrink %o %j shape=[]
+%s2 = store %ov %re
+%e2 = end %s2 %u
+%eb = end %e1 %e2 %b
+%o1 = after %o %eb
+%l = load %o1
+%w = stack 4 3 2 1 8 7 6 5
+%t9 = assert %l %w

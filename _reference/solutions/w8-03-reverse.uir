@@ -1,0 +1,27 @@
+%x = buffer 32 dtype=f32 slot=0
+%o = buffer 32 dtype=f32 slot=1
+# Reverse each block of 8 elements, through shared memory.
+%sh = alloc 8 dtype=f32
+%b = range 4 axis=global
+%m = mul %b 8
+# phase 1: thread t copies x[8b + t] into sh[t]
+%t = range 8 axis=local
+%i = add %m %t
+%xv = shrink %x %i shape=[]
+%xe = load %xv
+%sv = shrink %sh %t shape=[]
+%s1 = store %sv %xe
+%e1 = end %s1 %t
+%sh1 = after %sh %e1
+# phase 2: thread u writes o[8b + u]
+%u = range 8 axis=local
+%nu = mul %u -1
+%ru = add %nu 7
+%rv = shrink %sh1 %ru shape=[]
+%re = load %rv
+%j = add %m %u
+%ov = shrink %o %j shape=[]
+%s2 = store %ov %re
+%e2 = end %s2 %u
+%eb = end %e1 %e2 %b
+%o1 = after %o %eb

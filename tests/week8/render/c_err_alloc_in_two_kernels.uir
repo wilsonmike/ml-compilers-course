@@ -1,0 +1,24 @@
+# cuda: invalid
+# an alloc used by two global loops isn't any one block's shared memory, so it has nowhere to live on the GPU
+%o = buffer 8 dtype=i32 slot=0
+%sh = alloc 8 dtype=i32
+%b = range 2 axis=global
+%t = range 4 axis=local
+%mb = mul %b 4
+%ib = add %mb %t
+%sv = shrink %sh %ib shape=[]
+%s1 = store %sv %t
+%e1 = end %s1 %t
+%eb = end %e1 %b
+%sh1 = after %sh %eb
+%c = range 2 axis=global
+%u = range 4 axis=local
+%m = mul %c 4
+%j = add %m %u
+%rv = shrink %sh1 %j shape=[]
+%r = load %rv
+%ov = shrink %o %j shape=[]
+%s2 = store %ov %r
+%e2 = end %s2 %u
+%ec = end %e2 %c
+%o1 = after %o %ec

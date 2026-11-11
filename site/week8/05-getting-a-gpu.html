@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting a GPU</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="You can do all of week 8 without a GPU: the grader&#x27;s emulator runs your CUDA on the CPU and checks every bit. A real NVIDIA GPU adds one thing, the speed test...">
+<link rel="canonical" href="https://sharpterminal.com/site/week8/05-getting-a-gpu">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Getting a GPU">
+<meta property="og:description" content="You can do all of week 8 without a GPU: the grader&#x27;s emulator runs your CUDA on the CPU and checks every bit. A real NVIDIA GPU adds one thing, the speed test. This lesson lists the ways to get one...">
+<meta property="og:url" content="https://sharpterminal.com/site/week8/05-getting-a-gpu">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 8 · Lesson 5</p>
+<h1>Getting a GPU, or not needing one</h1>
+<p class="lede">You can do all of week 8 without a GPU: the grader's emulator runs your CUDA on the CPU and checks every bit. A real NVIDIA GPU adds one thing, the speed test. This lesson lists the ways to get one, from free to about a dollar for the whole week, and how to connect.</p>
+
+<div class="prose">
+<h2>The paths</h2>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>path</th><th>cost</th><th>what it grades</th><th>you need</th></tr></thead>
+<tbody>
+<tr><td>no GPU: the emulator</td><td>free</td><td>every test's bits. The speed test only checks that your CUDA builds</td><td><code>clang++</code> or <code>g++</code></td></tr>
+<tr><td>your own NVIDIA GPU, Linux</td><td>free</td><td>everything</td><td>the NVIDIA driver and the CUDA toolkit (<code>nvcc</code>)</td></tr>
+<tr><td>your own NVIDIA GPU, Windows</td><td>free</td><td>everything</td><td>the NVIDIA driver and Docker Desktop</td></tr>
+<tr><td>a free notebook: Colab or Kaggle</td><td>free, with limits</td><td>everything, if <code>nvcc</code> is there</td><td>a Google or Kaggle account</td></tr>
+<tr><td>a rented GPU: Vast.ai or RunPod</td><td>about $0.15 to $0.70 an hour</td><td>everything</td><td>an account with a few dollars of credit, and SSH</td></tr>
+</tbody></table></div>
+<div class="prose">
+<p>A Mac has no NVIDIA GPU, so on a Mac use the emulator, a notebook, or a rented machine. A good plan for anyone: build the whole week against the emulator, then spend an hour on a real GPU at the end for the speed test.</p>
+
+<h2>No GPU: the emulator</h2>
+<p>With no <code>nvcc</code> on your PATH and no <code>--cuda-docker</code>, the grader uses its emulator automatically. Nothing to set up beyond the C++ compiler you likely have already (<code>clang++ --version</code> or <code>g++ --version</code>). It compiles your CUDA as C++, runs blocks one after another, and runs each block's threads as real threads with a real barrier. Wrong bits, missing barriers and unzeroed shared memory all fail there just as on a GPU. Only speed can't be measured, since a CPU running 1024 threads per block is nothing like a GPU.</p>
+
+<h2>Your own NVIDIA GPU</h2>
+<p><b>On Linux</b>, install the NVIDIA driver and the CUDA toolkit (from NVIDIA's site, or <code>sudo apt install nvidia-cuda-toolkit</code> on Ubuntu, which is older but fine for this course). Then <code>nvidia-smi</code> should list your GPU and <code>nvcc --version</code> should work. The grader finds <code>nvcc</code> on its own.</p>
+<p><b>On Windows</b>, building CUDA natively needs Visual Studio's compiler. Docker is simpler, and it's how this course was tested. With a recent NVIDIA driver and Docker Desktop (WSL 2 backend), check that containers can see the GPU:</p>
+<pre><code>docker run --rm --gpus all nvidia/cuda:12.6.3-base-ubuntu22.04 nvidia-smi</code></pre>
+<p>If that prints your GPU, pass a CUDA image with the compiler in it to the grader. Your own compiler still runs on Windows. Only the CUDA build and run happen in the container:</p>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 8 --cuda-docker nvidia/cuda:12.6.3-devel-ubuntu22.04</code></pre>
+<p>The <code>-devel</code> image takes about 11 GB of disk, a one-time download. Setting the environment variable <code>UIR_CUDA_DOCKER</code> to the image name does the same as the flag.</p>
+
+<h2>Free notebooks</h2>
+<p><b>Google Colab</b> gives free GPU time, usually on an NVIDIA T4. Choose Runtime, then Change runtime type, then a GPU. Free GPUs aren't guaranteed, and sessions end when idle. <b>Kaggle</b> notebooks give about 30 GPU hours a week. Turn on the GPU accelerator and internet access in the notebook's settings, which asks you to verify a phone number once.</p>
+<p>In both, a line starting with <code>!</code> runs in a shell. Check for the compiler first:</p>
+<pre><code>!nvidia-smi
+!nvcc --version
+!git clone https://github.com/wilsonmike/ml-compilers-course</code></pre>
+<p>Then upload your compiler's source, build it there, and run the grader. A Python implementation runs as is. An OCaml one needs <code>opam</code> installed in the notebook, which takes a while every session, so for OCaml a rented machine is less hassle.</p>
+
+<h2>Renting a GPU</h2>
+<p>Marketplaces rent you a whole machine with a GPU by the hour, with a root shell over SSH. As of November 2026, an RTX 3090 or 4090 cost roughly $0.15 to $0.40 an hour on <b>Vast.ai</b>, where independent hosts list their machines, and about $0.35 to $0.70 on <b>RunPod</b>, depending on whether you pick its community or its secure cloud. Prices change weekly, so check before you start. This week needs an hour or two, so a dollar or so.</p>
+<p>The steps are the same on both:</p>
+<ol>
+<li><b>Make an SSH key</b> on your machine, if you don't have one: <code>ssh-keygen -t ed25519</code>. Accept the defaults. The <i>public</i> half is <code>~/.ssh/id_ed25519.pub</code>.</li>
+<li><b>Make an account and add credit</b>: a small amount, with automatic top-up off. That caps what a forgotten machine can cost.</li>
+<li><b>Add your public key</b> in the account's SSH keys settings. Paste the contents of the <code>.pub</code> file, never the private one.</li>
+<li><b>Start a machine</b> with any recent NVIDIA GPU, and an image that has <code>nvcc</code>: a CUDA <code>-devel</code> image such as <code>nvidia/cuda:12.6.3-devel-ubuntu22.04</code>, or the provider's PyTorch template.</li>
+<li><b>Connect</b> with the SSH command the provider shows. On RunPod, pick a pod with a public IP and TCP port 22 exposed, since its default proxied SSH doesn't support <code>scp</code> or VS Code. The command looks like <code>ssh -p 41234 root@203.0.113.7</code>. Run <code>nvidia-smi</code> and <code>nvcc --version</code> to check.</li>
+<li><b>Copy your work in</b>: <code>git clone</code> the course (first <code>apt update &amp;&amp; apt install -y git</code> if the image lacks it), and copy your compiler from your machine with <code>scp -P 41234 -r my-compiler root@203.0.113.7:~/</code>. Install Python or OCaml as in week 0 (<code>apt install -y python3</code>, or <code>apt install -y opam</code>).</li>
+<li><b>Run the grader</b> as on your own machine. It finds <code>nvcc</code> by itself.</li>
+<li><b>Stop or destroy the machine</b> when you're done. A running machine bills by the hour whether you use it or not. A stopped one usually still bills a little for its disk. Destroy it when the week is over.</li>
+</ol>
+<p>To edit on the rented machine as if it were local, VS Code's Remote-SSH extension works well. Add the machine to <code>~/.ssh/config</code>:</p>
+<pre><code>Host gpu
+  HostName 203.0.113.7
+  Port 41234
+  User root
+  ForwardAgent no</code></pre>
+<p>Then <code>ssh gpu</code> connects, and in VS Code "Remote-SSH: Connect to Host" lists <code>gpu</code>. Before connecting to a machine you don't own, turn off two VS Code settings that are on by default, <code>remote.SSH.enableAgentForwarding</code> and <code>git.terminalAuthenticationEnabled</code>. Otherwise anyone with root there can use your SSH key and your Git login while you're connected.</p>
+
+<div class="key">
+<span class="label">A rented machine is someone else's computer</span>
+<p>On a marketplace, the host can see what's on their machine. Bring only what the course needs: the course repo and your compiler. Never copy your private SSH key, a GitHub token, a password or an API key there. Clone public repos over HTTPS, copy your own code in with <code>scp</code>, and copy results back the same way.</p>
+</div>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">You have no GPU. What does the week 8 suite check?</p>
+<div class="opts">
+<button data-k="a">Only the run tests</button>
+<button data-k="b">Every test's bits, in the emulator. The speed test only checks that your CUDA builds</button>
+<button data-k="c">Nothing: CUDA tests are skipped</button>
+</div>
+<p class="hint">Read "No GPU: the emulator" again.</p>
+<div class="why"><p>The emulator runs the same CUDA file with real threads and a real barrier, so it checks correctness fully. Timing needs the real hardware.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">On Windows with an NVIDIA GPU, what does <code>--cuda-docker</code> run inside the container?</p>
+<div class="opts">
+<button data-k="a">Your whole compiler</button>
+<button data-k="b">The whole test suite</button>
+<button data-k="c">Only the build of your CUDA with <code>nvcc</code>, and running it on the GPU</button>
+</div>
+<p class="hint">Where does your compiler run?</p>
+<div class="why"><p>Your compiler runs on Windows and writes the CUDA. The grader then builds and runs it in the CUDA image, with <code>--gpus all</code> giving the container your GPU.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Which file do you paste into a GPU provider's SSH key settings?</p>
+<div class="opts">
+<button data-k="a"><code>~/.ssh/id_ed25519.pub</code>, the public key</button>
+<button data-k="b"><code>~/.ssh/id_ed25519</code>, the private key</button>
+<button data-k="c">Both</button>
+</div>
+<p class="hint">Which one is safe to give away?</p>
+<div class="why"><p>The public key lets the machine recognize you. The private key proves you're you, and it never leaves your computer.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">You're done for the day on a rented machine. What stops the bill?</p>
+<div class="opts">
+<button data-k="a">Closing the SSH session</button>
+<button data-k="b">Stopping the machine, and destroying it when you no longer need its disk</button>
+<button data-k="c">Nothing, it stops when idle</button>
+</div>
+<p class="hint">A machine bills while it runs.</p>
+<div class="why"><p>Disconnecting leaves it running and billing. Stopping ends the hourly GPU charge, though most providers still charge a little for a stopped machine's disk.</p></div>
+</div>
+
+<nav class="pager">
+<a href="04-rendering-cuda.html">← Lesson 4: Rendering CUDA</a>
+<a href="06-lab.html">Lesson 6: Lab →</a>
+</nav>
+</main>
+</body>
+</html>
