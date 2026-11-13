@@ -69,6 +69,7 @@
 
 <div class="prose">
 <h2>Running the suite</h2>
+<p>Stuck on a failing test? The <a href="../resources/tests-week1.html">week 1 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week1.html">week 1 study guide</a> has a cheat sheet and a step-by-step way out.</p>
 <p>Two tools, two jobs. <code>python tools/serve.py</code> serves these lessons and grades the in-lesson exercises like the one above. <code>tools/test.py</code> grades <em>your compiler</em> against the week's suite. Run these from the root of the course repo:</p>
 <pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 1
 python tools/test.py --compiler "C:/path/to/your.exe" --week 1 -k div     # only tests whose name contains "div"
@@ -92,10 +93,11 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1 --jobs 1   # one 
 </div>
 
 <h2>A build order that works</h2>
+<p class="prose">Start small. Your first goal is the two simplest tests: <code>tests/week1/run/basic_add.uir</code> should exit 0 and <code>fail_basic.uir</code> should exit 1. After that, run the whole suite after every step below. Most tests fail at first, and that's expected: each checkpoint says which ones should pass by then.</p>
 <ol class="build">
-<li><h3>Set up your repo</h3><p>Make a new folder outside the course repo, then <code>git init</code> inside it. <span class="only-ocaml">Run <code>dune init project mlc</code> there (lesson 0.6 shows dune).</span><span class="only-python">Add the <code>mlc</code> package and the wrapper script from lesson 0.7.</span> Copy <code>templates/AGENTS.md</code> from the course repo into your repo's root: it tells an AI assistant to explain and ask questions but never write your compiler code.</p><p class="check only-ocaml">Checkpoint: <code>dune build</code> succeeds and <code>_build/default/bin/main.exe</code> runs.</p><p class="check only-python">Checkpoint: running the wrapper from the course repo's folder prints your usage message and exits 2.</p></li>
+<li><h3>Set up your repo</h3><p>Make a new folder outside the course repo, then <code>git init</code> inside it. <span class="only-ocaml">Run <code>dune init project mlc</code> there (<a href="../week0/06-ocaml.html">lesson 0.6</a> shows dune).</span><span class="only-python">Add the <code>mlc</code> package and the wrapper script from <a href="../week0/07-python.html">lesson 0.7</a>.</span> Copy <code>templates/AGENTS.md</code> from the course repo into your repo's root: it tells an AI assistant to explain and ask questions but never write your compiler code.</p><p class="check only-ocaml">Checkpoint: <code>dune build</code> succeeds and <code>_build/default/bin/main.exe</code> runs.</p><p class="check only-python">Checkpoint: running the wrapper from the course repo's folder prints your usage message and exits 2.</p></li>
 <li><h3>Parse and print</h3><p>Turn every line into (name, op, operands, attributes). Print each statement back in .uir form and check it matches the input line, ignoring spacing and comments.</p><p class="check">Checkpoint: every file in <code>tests/week1/run/</code> parses or is rejected with exit 2, and none crash.</p></li>
-<li><h3>The hash-consed UOp</h3><p>One table keyed on (op, src, arg), with dtype and shape as part of the key. Sources are already unique, so compare them by identity. <span class="only-ocaml">In OCaml, <code>==</code> is physical equality and <code>=</code> is structural.</span><span class="only-python">In Python, <code>is</code> is identity, and <code>==</code> on a dataclass compares every field. Key float constants by their bits, so <code>0.0</code> and <code>-0.0</code> stay apart.</span> Know which one you're using.</p><p class="check">Checkpoint: building <code>add x 1</code> twice returns the same physical node.</p></li>
+<li><h3>The hash-consed UOp</h3><p>One table keyed on (op, src, arg), with dtype and shape as part of the key. Sources are already unique, so compare them by identity. <span class="only-ocaml">In OCaml, <code>==</code> is physical equality and <code>=</code> is structural. Generic <code>Hashtbl</code> and <code>compare</code> treat <code>0.0</code> and <code>-0.0</code> as equal, so key float constants by <code>Int32.bits_of_float</code> to keep them apart.</span><span class="only-python">In Python, <code>is</code> is identity, and <code>==</code> on a dataclass compares every field. Key float constants by their bits, so <code>0.0</code> and <code>-0.0</code> stay apart.</span> Know which one you're using.</p><p class="check">Checkpoint: building <code>add x 1</code> twice returns the same physical node.</p></li>
 <li><h3>Types</h3><p>dtype and shape for every op, following the table in the spec. No implicit conversions.</p><p class="check">Checkpoint: all <code>expect: invalid</code> type-error tests exit 2.</p></li>
 <li><h3>Interpreter</h3><p>Evaluate the asserts in file order, with each node computed once. Look these up for your language: how to do 32-bit wrapping arithmetic <span class="only-ocaml">(OCaml's native <code>int</code> is 63 bits)</span><span class="only-python">(Python ints never overflow)</span>, and how to round a double to binary32 <span class="only-ocaml">(OCaml floats are doubles, so see <code>Int32.bits_of_float</code>)</span><span class="only-python">(Python floats are doubles, so see <code>struct</code> in lesson 0.7)</span>.<span class="only-python"> A deep chain of nodes will hit Python's recursion limit, so walk it with your own stack or raise the limit.</span></p><p class="check">Checkpoint: the arithmetic tests pass, and the deep shared-DAG test finishes in milliseconds.</p></li>
 <li><h3>call and param</h3><p>Evaluate a body with an environment (a map from slot number to value for the current call). Keep the memo per call. Bodies are closed.</p><p class="check">Checkpoint: the nested-call tests pass, including the ones that reuse slot 0.</p></li>
@@ -122,7 +124,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1 --jobs 1   # one 
 
 <div class="key">
 <span class="label">The AI policy</span>
-<p>This course was built with AI. Your compiler should not be. In your repo (<code>my-ml-compiler</code>), the <code>AGENTS.md</code> says an AI assistant may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. That's in the spirit of the original course's "slop management" theme. The point is the understanding, and you only get it by typing it yourself.</p>
+<p>Your compiler is yours to write. In your repo (<code>my-ml-compiler</code>), the <code>AGENTS.md</code> says an AI assistant may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. That's in the spirit of the original course's "slop management" theme. The point is the understanding, and you only get it by typing it yourself.</p>
 <p>The reference compiler lives in <code>_reference/</code> in the course repo. The test runner uses it as the oracle, and running it is fine. <strong>Never open it.</strong> <span class="only-ocaml">It's written in Python, not OCaml, so a stray glance hands you less, but it would still spoil the puzzles.</span><span class="only-python">It's written in Python, like your compiler, so even a stray glance would hand you answers and spoil the puzzles.</span></p>
 </div>
 
@@ -176,7 +178,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1 --jobs 1   # one 
 
 <nav class="pager">
 <a href="05-call-and-param.html">← Lesson 5: call and param</a>
-<a href="../index.html">Back to the course →</a>
+<a href="../week2/01-buffers-and-views.html">Week 2: Buffers and views →</a>
 </nav>
 </main>
 

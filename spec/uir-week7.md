@@ -36,6 +36,8 @@ same memory unless both only read it. The rules, checked statically (exit 2 when
     `mul r S` / `mul S r` with `S` a positive literal;
   * `e` is the sum of the other terms, none of which depends on `r`, and `0 <= e` and `e + size <= S` must be
     provable from bounds (week 1), where `size` is the number of elements accessed (1, or k for a `[k]` view).
+    Bound each term on its own and add the results: `e`'s lowest value is the sum of the terms' lowest values, its
+    highest the sum of their highest. (`e` is not one node in the program, so there's no single node to bound.)
 
   So iteration `r` only touches elements `r*S` to `r*S + S - 1`. Every access to one buffer in the loop uses the
   same `S`. Write offsets in this expanded form: `(ib*4 + i)*N + j` must be written as `ib*(4N) + i*N + j`.

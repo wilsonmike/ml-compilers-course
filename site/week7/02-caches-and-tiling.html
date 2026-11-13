@@ -64,13 +64,15 @@
 <p>Each output <code>C[i][j]</code> is still its own sum over <code>k</code> in the same order: <code>A[i][0]·B[0][j]</code> first, then <code>+ A[i][1]·B[1][j]</code>, and so on. Tiling only changes which outputs are worked on side by side. The order of the adds inside any one sum is untouched, so every result is bit for bit the same as the plain loops'. Reordering <code>k</code> itself, say summing in blocks, would change the bits, and the spec doesn't allow it.</p>
 
 <h2>A tiled GEMM in .uir</h2>
-<p>The week 7 tests write the tile out explicitly. Ranges <code>ib</code> and <code>jb</code> pick the tile, <code>ki</code> and <code>kj</code> (4 and 8) index inside it, and a 32-element alloc holds the tile's sums:</p>
+<p>The week 7 tests write the tile out explicitly. Ranges <code>ib</code> and <code>jb</code> pick the tile, and three pairs of ranges (4 and 8) index inside it, one pair per step: <code>ri</code>, <code>rj</code> for the first product, <code>ki</code>, <code>kj</code> for the sums, and <code>wi</code>, <code>wj</code> for writing the tile out. A 32-element alloc holds the tile's sums:</p>
 </div>
 
 <pre><code>%acc = alloc 32 dtype=f32
 %ib  = range 192            # tile row: rows 4ib .. 4ib+3
 %jb  = range 96             # tile column: columns 8jb .. 8jb+7
 # start each sum from its first product, A[i][0]·B[0][j]
+%ri  = range 4
+%rj  = range 8
 ...
 # then for k = 1 .. 767: for each (ki, kj) in the tile, acc[ki*8 + kj] += A[i][k]·B[k][j]
 %k0  = range 767
@@ -78,9 +80,13 @@
 %ki  = range 4
 %kj  = range 8
 ...
-# finally write the tile to C</code></pre>
+# finally write the tile to C
+%wi  = range 4
+%wj  = range 8
+...</code></pre>
 
 <div class="prose">
+<p>The lines left out are the index arithmetic, loads and stores. The warm-up in <a href="06-lab.html">lesson 7.6</a> starts from the whole program, on an 8×5 by 5×16 GEMM with the same 4×8 tile.</p>
 <p>Each tile's sums start from the tile's own first product, not from zero, for two reasons. First, it's the same order <code>reduce</code> folds in, so the result equals the <code>matmul</code> sugar's bit for bit. Second, it's a placement rule from week 3: a store that doesn't depend on <code>jb</code> runs outside the <code>jb</code> loop. A reset to <code>0.0</code> would run once for the whole program instead of once per tile. The first product depends on the tile's indices, so it lands inside the loop where it belongs.</p>
 <p>On its own, writing a tile as loops already helps a little. The big win comes in lesson 7.3, when the loops inside the tile are unrolled and the 32 sums become registers.</p>
 </div>

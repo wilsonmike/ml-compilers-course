@@ -44,10 +44,12 @@
 <tr><td><code>shrink</code></td><td>the operand at <code>(i0 + o0, ...)</code></td></tr>
 <tr><td><code>expand</code></td><td>the operand with every size-1 axis read at 0</td></tr>
 <tr><td><code>stack</code></td><td>item <code>i0</code> at the rest of the index: a chain of <code>where</code>s on <code>i0</code>, or a plain C array index when the items are scalars</td></tr>
+<tr><td><code>index x j0 ...</code></td><td>the operand at <code>(j0, ..., i0, ...)</code>: the <code>j</code>s become its leading coordinates. On a <code>stack</code> of vectors that coordinate goes through the <code>where</code> chain, so with two items a runtime <code>j</code> renders as <code>(j &lt; 1 ? a0 : a1)</code>. The oracle renders a constant <code>j</code> the same way, with a constant condition like <code>(1 &lt; 1)</code> that constant folding (lesson 1.3) could remove</td></tr>
 <tr><td><code>reduce pop=m</code></td><td>one accumulator loop over all <code>m</code> leading axes together: a flat counter <code>t</code>, unflattened into the m indices with div and mod</td></tr>
 </tbody></table></div>
 <div class="prose">
 <p>Eventually every question reaches a <code>load</code> of a rank-1 buffer, which answers with a scalar load at <code>offset + i</code>. Everything above it was index arithmetic.</p>
+<p>Here is one question followed all the way down. <code>%m = reshape %v shape=[2 3]</code> on a 6-element <code>%v</code>, then <code>%t = permute %m order=[1 0]</code>, shape <code>(3, 2)</code>. Ask <code>%t</code> for element <code>(2, 1)</code>. The permute swaps the tuple and asks <code>%m</code> for <code>(1, 2)</code>. The reshape flattens that in <code>[2 3]</code>, <code>f = 1·3 + 2 = 5</code>, then unflattens 5 in <code>%v</code>'s shape <code>(6,)</code>, which leaves 5. So the transpose's <code>(2, 1)</code> is a load of element 5.</p>
 
 <h2>Pad: a clamp and a mask</h2>
 <p>Here is the oracle's C for <code>pad %x pads=[1 2]</code> on a 3-element <code>x</code>, stored into a 6-element buffer:</p>
@@ -100,7 +102,14 @@ for (int32_t r11 = 0; r11 &lt; 6; r11++) {          /* output element: (m, n) = 
     float v27 = a4[0];
     int32_t v28 = (int32_t)((uint32_t)r26 + (uint32_t)1);
     int32_t v29 = (v28 % 2);
-    ...
+    int32_t v30 = (int32_t)((uint32_t)v29 * (uint32_t)2);
+    int32_t v31 = (int32_t)((uint32_t)v30 + (uint32_t)v14);
+    int32_t v32 = (v31 % 4);
+    float v34 = b0[v32];
+    int32_t v35 = (int32_t)((uint32_t)v29 * (uint32_t)3);
+    int32_t v36 = (int32_t)((uint32_t)v35 + (uint32_t)v18);
+    int32_t v37 = (v36 % 6);
+    float v39 = b1[v37];
     float v40 = (v34 * v39);
     float v41 = (v27 + v40);
     a4[0] = v41;
@@ -109,15 +118,47 @@ for (int32_t r11 = 0; r11 &lt; 6; r11++) {          /* output element: (m, n) = 
   b2[r11] = v45;
 }</code></pre>
 <div class="prose">
+<p>Inside the k loop, <code>v28 = r26 + 1</code> is k, and <code>v29 = v28 % 2</code> is its coordinate on the k axis of size 2. A's flat index is <code>k·2 + m</code> (<code>v31</code>, reusing <code>v14 = m</code> from the outer loop), and B's is <code>k·3 + n</code> (<code>v36</code>, reusing <code>v18 = n</code>). The two loads are multiplied and added into the accumulator.</p>
 <p>The <code>[K M N]</code> cube from lesson 5.4 is gone. Every element of it was a multiply of two loads, and rangeify only ever asked for the elements the reduce needed, one k at a time.</p>
 
 <h2>Cleaning up the index math</h2>
 <p>Look at <code>v15 = (v14 % 4)</code>. <code>v14</code> is <code>(r11 / 3) % 2</code>, which is always 0 or 1, so the <code>% 4</code> does nothing. The same goes for <code>v19 = (v18 % 6)</code>. These come from composing an unflatten with the next flatten, and week 1 already gave you the tool to remove them: bounds analysis (lesson 1.4) proves <code>v14</code> is in <code>[0, 1]</code>, and the rule <code>mod(x, c) → x</code> when <code>0 ≤ x &lt; c</code> deletes the op. Constant folding (lesson 1.3) handles any arithmetic on constants that's left. The output is correct either way. Cleaner index math is smaller, and from week 6 it's faster.</p>
 </div>
 
+<div class="prose">
+<h2>Reduce over two axes</h2>
+<p>Here is <code>reduce op=add pop=2</code> on a <code>(2, 2, 3)</code> value (a 12-element buffer, reshaped), stored into a 3-element buffer. The two popped axes make 4 combinations per output. The accumulator is seeded with the first, element <code>(0, 0, n)</code>, and one loop folds in the other 3 in row-major order:</p>
+</div>
+<pre><code>float a3[1] = {0};
+for (int32_t r9 = 0; r9 &lt; 3; r9++) {
+  int32_t v11 = (r9 % 12);
+  float v13 = b0[v11];
+  a3[0] = v13;
+  for (int32_t r17 = 0; r17 &lt; 3; r17++) {
+    float v18 = a3[0];
+    int32_t v19 = (int32_t)((uint32_t)r17 + (uint32_t)1);
+    int32_t v20 = (v19 / 2);
+    int32_t v21 = (v20 % 2);
+    int32_t v22 = (int32_t)((uint32_t)v21 * (uint32_t)2);
+    int32_t v23 = (v19 % 2);
+    int32_t v24 = (int32_t)((uint32_t)v22 + (uint32_t)v23);
+    int32_t v25 = (int32_t)((uint32_t)v24 * (uint32_t)3);
+    int32_t v26 = (int32_t)((uint32_t)v25 + (uint32_t)r9);
+    int32_t v27 = (v26 % 12);
+    float v29 = b0[v27];
+    float v30 = (v18 + v29);
+    a3[0] = v30;
+  }
+  float v34 = a3[0];
+  b1[r9] = v34;
+}</code></pre>
+<div class="prose">
+<p>The flat counter <code>t = r17 + 1</code> (<code>v19</code>) is unflattened in shape <code>[2 2]</code>: <code>v21 = (t div 2) mod 2</code> on axis 0 and <code>v23 = t mod 2</code> on axis 1. Then <code>v26 = (i0·2 + i1)·3 + n</code> flattens the full index in <code>(2, 2, 3)</code>. For output <code>n = 0</code> with the buffer holding <code>0..11</code>: the seed is element 0, then <code>t = 1, 2, 3</code> unflatten to <code>(0, 1)</code>, <code>(1, 0)</code> and <code>(1, 1)</code> and read elements 3, 6 and 9, for a sum of 18.</p>
+</div>
+
 <div class="exercise small" data-ex="w5-05-shape" data-ex-py="w5-05-shape-py">
 <h3>The shape after a chain of movement ops</h3>
-<p>Given a starting shape and a list of movement ops, compute the final shape. <code>Reshape</code> and <code>Expand</code> give the new shape directly, <code>Permute</code> reorders axes, <code>Pad</code> adds a left and right amount per axis, and <code>Reduce m</code> drops the first m axes. The inputs are always valid.</p>
+<p>Given a starting shape and a list of movement ops, compute the final shape. <code>Reshape</code> and <code>Expand</code> give the new shape directly, <code>Permute</code> reorders axes, <code>Pad</code> adds a left and right amount per axis, and <code class="only-ocaml">Reduce m</code><code class="only-python">Reduce(m)</code> drops the first m axes. The inputs are always valid.</p>
 </div>
 
 <h2>Check yourself</h2>

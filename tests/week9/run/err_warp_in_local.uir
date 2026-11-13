@@ -1,0 +1,20 @@
+# expect: invalid
+# a warp loop inside a local loop: phases don't nest
+%A = buffer 8192 dtype=i8 slot=0
+%B = buffer 256 dtype=i8 slot=1
+%C = buffer 8192 dtype=i32 slot=2
+%g = range 1 axis=global
+%t = range 32 axis=local
+%w = range 1 axis=warp
+%gg = mul %g 8192
+%tt = mul %t 256
+%ww = mul %w 256
+%tw = add %tt %ww
+%o = add %gg %tw
+%c = shrink %C %o shape=[]
+%a = shrink %A %o shape=[]
+%m = mma %c %a %B lda=16 ldb=16 ldc=16
+%ew = end %m %w
+%et = end %ew %t
+%eg = end %et %g
+%C1 = after %C %eg

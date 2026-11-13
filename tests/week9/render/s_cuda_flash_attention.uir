@@ -1,0 +1,476 @@
+# cuda speed: 0.8
+# time: 180
+# flash attention, 16 heads of 1024 queries, head size 32: at least 0.8 of the reference's speed. Each thread's
+# query row, sums and running max must live in registers: in shared memory it runs at about 0.6
+%Q = buffer 524288 dtype=f32 slot=0
+%K = buffer 524288 dtype=f32 slot=1
+%V = buffer 524288 dtype=f32 slot=2
+%O = buffer 524288 dtype=f32 slot=3
+# fill Q, K and V in kernels of their own, so the test needs no data files
+%v1 = range 2048 axis=global
+%v2 = range 256 axis=local
+%v3 = mul %v1 256
+%v4 = add %v3 %v2
+%v5 = mul %v4 37
+%v6 = add %v5 11
+%v7 = mod %v6 101
+%v8 = add %v7 -50
+%v9 = cast %v8 dtype=f32
+%v10 = mul %v9 0.02
+%v11 = shrink %Q %v4 shape=[]
+%v12 = store %v11 %v10
+%v13 = end %v12 %v2
+%v14 = end %v13 %v1
+%v15 = after %Q %v14
+%v16 = range 2048 axis=global
+%v17 = range 256 axis=local
+%v18 = mul %v16 256
+%v19 = add %v18 %v17
+%v20 = mul %v19 53
+%v21 = add %v20 5
+%v22 = mod %v21 97
+%v23 = add %v22 -48
+%v24 = cast %v23 dtype=f32
+%v25 = mul %v24 0.02
+%v26 = shrink %K %v19 shape=[]
+%v27 = store %v26 %v25
+%v28 = end %v27 %v17
+%v29 = end %v28 %v16
+%v30 = after %K %v29
+%v31 = range 2048 axis=global
+%v32 = range 256 axis=local
+%v33 = mul %v31 256
+%v34 = add %v33 %v32
+%v35 = mul %v34 29
+%v36 = add %v35 3
+%v37 = mod %v36 89
+%v38 = add %v37 -44
+%v39 = cast %v38 dtype=f32
+%v40 = mul %v39 0.02
+%v41 = shrink %V %v34 shape=[]
+%v42 = store %v41 %v40
+%v43 = end %v42 %v32
+%v44 = end %v43 %v31
+%v45 = after %V %v44
+%qr = alloc 2048 dtype=f32
+%acc = alloc 2048 dtype=f32
+%mx = alloc 64 dtype=f32
+%l = alloc 64 dtype=f32
+%Ks = alloc 2048 dtype=f32
+%Vs = alloc 2048 dtype=f32
+%g = range 256 axis=global
+%h = div %g 16
+# phase 0: thread t loads query row g*BQ + t, and starts its running max at -inf (its running sum starts at 0)
+%t0 = range 64 axis=local
+%d0 = range 32 axis=upcast
+%v46 = mul %t0 32
+%v47 = add %v46 %d0
+%v48 = shrink %qr %v47 shape=[]
+%v49 = mul %g 2048
+%v50 = mul %t0 32
+%v51 = add %v49 %v50
+%v52 = add %v51 %d0
+%v53 = shrink %v15 %v52 shape=[]
+%v54 = load %v53
+%v55 = store %v48 %v54
+%v56 = end %v55 %d0
+%v57 = shrink %mx %t0 shape=[]
+%v58 = store %v57 -inf
+%e0 = end %v56 %v58 %t0
+%v59 = after %qr %e0
+%v60 = after %mx %e0
+%kt = range 16
+# phase 1: copy key and value rows kt*BK .. kt*BK + BK-1 into shared memory
+%t1 = range 64 axis=local
+%p = range 32 axis=upcast
+%v61 = mul %p 64
+%v62 = add %v61 %t1
+%v63 = mul %h 32768
+%v64 = mul %kt 2048
+%v65 = add %v63 %v64
+%v66 = add %v65 %v62
+%v67 = shrink %Ks %v62 shape=[]
+%v68 = shrink %v30 %v66 shape=[]
+%v69 = load %v68
+%v70 = store %v67 %v69
+%v71 = shrink %Vs %v62 shape=[]
+%v72 = shrink %v45 %v66 shape=[]
+%v73 = load %v72
+%v74 = store %v71 %v73
+%v75 = end %v70 %v74 %p
+%e1 = end %v75 %t1
+%v76 = after %Ks %e1
+%v77 = after %Vs %e1
+# phase 2: thread t folds keys j = 0 .. BK-1 into its row, one at a time
+%t2 = range 64 axis=local
+%j = range 64
+%v78 = mul %t2 32
+%v79 = shrink %v59 %v78 shape=[]
+%v80 = load %v79
+%v81 = mul %j 32
+%v82 = shrink %v76 %v81 shape=[]
+%v83 = load %v82
+%v84 = mul %v80 %v83
+%v85 = mul %t2 32
+%v86 = add %v85 1
+%v87 = shrink %v59 %v86 shape=[]
+%v88 = load %v87
+%v89 = mul %j 32
+%v90 = add %v89 1
+%v91 = shrink %v76 %v90 shape=[]
+%v92 = load %v91
+%v93 = mul %v88 %v92
+%v94 = add %v84 %v93
+%v95 = mul %t2 32
+%v96 = add %v95 2
+%v97 = shrink %v59 %v96 shape=[]
+%v98 = load %v97
+%v99 = mul %j 32
+%v100 = add %v99 2
+%v101 = shrink %v76 %v100 shape=[]
+%v102 = load %v101
+%v103 = mul %v98 %v102
+%v104 = add %v94 %v103
+%v105 = mul %t2 32
+%v106 = add %v105 3
+%v107 = shrink %v59 %v106 shape=[]
+%v108 = load %v107
+%v109 = mul %j 32
+%v110 = add %v109 3
+%v111 = shrink %v76 %v110 shape=[]
+%v112 = load %v111
+%v113 = mul %v108 %v112
+%v114 = add %v104 %v113
+%v115 = mul %t2 32
+%v116 = add %v115 4
+%v117 = shrink %v59 %v116 shape=[]
+%v118 = load %v117
+%v119 = mul %j 32
+%v120 = add %v119 4
+%v121 = shrink %v76 %v120 shape=[]
+%v122 = load %v121
+%v123 = mul %v118 %v122
+%v124 = add %v114 %v123
+%v125 = mul %t2 32
+%v126 = add %v125 5
+%v127 = shrink %v59 %v126 shape=[]
+%v128 = load %v127
+%v129 = mul %j 32
+%v130 = add %v129 5
+%v131 = shrink %v76 %v130 shape=[]
+%v132 = load %v131
+%v133 = mul %v128 %v132
+%v134 = add %v124 %v133
+%v135 = mul %t2 32
+%v136 = add %v135 6
+%v137 = shrink %v59 %v136 shape=[]
+%v138 = load %v137
+%v139 = mul %j 32
+%v140 = add %v139 6
+%v141 = shrink %v76 %v140 shape=[]
+%v142 = load %v141
+%v143 = mul %v138 %v142
+%v144 = add %v134 %v143
+%v145 = mul %t2 32
+%v146 = add %v145 7
+%v147 = shrink %v59 %v146 shape=[]
+%v148 = load %v147
+%v149 = mul %j 32
+%v150 = add %v149 7
+%v151 = shrink %v76 %v150 shape=[]
+%v152 = load %v151
+%v153 = mul %v148 %v152
+%v154 = add %v144 %v153
+%v155 = mul %t2 32
+%v156 = add %v155 8
+%v157 = shrink %v59 %v156 shape=[]
+%v158 = load %v157
+%v159 = mul %j 32
+%v160 = add %v159 8
+%v161 = shrink %v76 %v160 shape=[]
+%v162 = load %v161
+%v163 = mul %v158 %v162
+%v164 = add %v154 %v163
+%v165 = mul %t2 32
+%v166 = add %v165 9
+%v167 = shrink %v59 %v166 shape=[]
+%v168 = load %v167
+%v169 = mul %j 32
+%v170 = add %v169 9
+%v171 = shrink %v76 %v170 shape=[]
+%v172 = load %v171
+%v173 = mul %v168 %v172
+%v174 = add %v164 %v173
+%v175 = mul %t2 32
+%v176 = add %v175 10
+%v177 = shrink %v59 %v176 shape=[]
+%v178 = load %v177
+%v179 = mul %j 32
+%v180 = add %v179 10
+%v181 = shrink %v76 %v180 shape=[]
+%v182 = load %v181
+%v183 = mul %v178 %v182
+%v184 = add %v174 %v183
+%v185 = mul %t2 32
+%v186 = add %v185 11
+%v187 = shrink %v59 %v186 shape=[]
+%v188 = load %v187
+%v189 = mul %j 32
+%v190 = add %v189 11
+%v191 = shrink %v76 %v190 shape=[]
+%v192 = load %v191
+%v193 = mul %v188 %v192
+%v194 = add %v184 %v193
+%v195 = mul %t2 32
+%v196 = add %v195 12
+%v197 = shrink %v59 %v196 shape=[]
+%v198 = load %v197
+%v199 = mul %j 32
+%v200 = add %v199 12
+%v201 = shrink %v76 %v200 shape=[]
+%v202 = load %v201
+%v203 = mul %v198 %v202
+%v204 = add %v194 %v203
+%v205 = mul %t2 32
+%v206 = add %v205 13
+%v207 = shrink %v59 %v206 shape=[]
+%v208 = load %v207
+%v209 = mul %j 32
+%v210 = add %v209 13
+%v211 = shrink %v76 %v210 shape=[]
+%v212 = load %v211
+%v213 = mul %v208 %v212
+%v214 = add %v204 %v213
+%v215 = mul %t2 32
+%v216 = add %v215 14
+%v217 = shrink %v59 %v216 shape=[]
+%v218 = load %v217
+%v219 = mul %j 32
+%v220 = add %v219 14
+%v221 = shrink %v76 %v220 shape=[]
+%v222 = load %v221
+%v223 = mul %v218 %v222
+%v224 = add %v214 %v223
+%v225 = mul %t2 32
+%v226 = add %v225 15
+%v227 = shrink %v59 %v226 shape=[]
+%v228 = load %v227
+%v229 = mul %j 32
+%v230 = add %v229 15
+%v231 = shrink %v76 %v230 shape=[]
+%v232 = load %v231
+%v233 = mul %v228 %v232
+%v234 = add %v224 %v233
+%v235 = mul %t2 32
+%v236 = add %v235 16
+%v237 = shrink %v59 %v236 shape=[]
+%v238 = load %v237
+%v239 = mul %j 32
+%v240 = add %v239 16
+%v241 = shrink %v76 %v240 shape=[]
+%v242 = load %v241
+%v243 = mul %v238 %v242
+%v244 = add %v234 %v243
+%v245 = mul %t2 32
+%v246 = add %v245 17
+%v247 = shrink %v59 %v246 shape=[]
+%v248 = load %v247
+%v249 = mul %j 32
+%v250 = add %v249 17
+%v251 = shrink %v76 %v250 shape=[]
+%v252 = load %v251
+%v253 = mul %v248 %v252
+%v254 = add %v244 %v253
+%v255 = mul %t2 32
+%v256 = add %v255 18
+%v257 = shrink %v59 %v256 shape=[]
+%v258 = load %v257
+%v259 = mul %j 32
+%v260 = add %v259 18
+%v261 = shrink %v76 %v260 shape=[]
+%v262 = load %v261
+%v263 = mul %v258 %v262
+%v264 = add %v254 %v263
+%v265 = mul %t2 32
+%v266 = add %v265 19
+%v267 = shrink %v59 %v266 shape=[]
+%v268 = load %v267
+%v269 = mul %j 32
+%v270 = add %v269 19
+%v271 = shrink %v76 %v270 shape=[]
+%v272 = load %v271
+%v273 = mul %v268 %v272
+%v274 = add %v264 %v273
+%v275 = mul %t2 32
+%v276 = add %v275 20
+%v277 = shrink %v59 %v276 shape=[]
+%v278 = load %v277
+%v279 = mul %j 32
+%v280 = add %v279 20
+%v281 = shrink %v76 %v280 shape=[]
+%v282 = load %v281
+%v283 = mul %v278 %v282
+%v284 = add %v274 %v283
+%v285 = mul %t2 32
+%v286 = add %v285 21
+%v287 = shrink %v59 %v286 shape=[]
+%v288 = load %v287
+%v289 = mul %j 32
+%v290 = add %v289 21
+%v291 = shrink %v76 %v290 shape=[]
+%v292 = load %v291
+%v293 = mul %v288 %v292
+%v294 = add %v284 %v293
+%v295 = mul %t2 32
+%v296 = add %v295 22
+%v297 = shrink %v59 %v296 shape=[]
+%v298 = load %v297
+%v299 = mul %j 32
+%v300 = add %v299 22
+%v301 = shrink %v76 %v300 shape=[]
+%v302 = load %v301
+%v303 = mul %v298 %v302
+%v304 = add %v294 %v303
+%v305 = mul %t2 32
+%v306 = add %v305 23
+%v307 = shrink %v59 %v306 shape=[]
+%v308 = load %v307
+%v309 = mul %j 32
+%v310 = add %v309 23
+%v311 = shrink %v76 %v310 shape=[]
+%v312 = load %v311
+%v313 = mul %v308 %v312
+%v314 = add %v304 %v313
+%v315 = mul %t2 32
+%v316 = add %v315 24
+%v317 = shrink %v59 %v316 shape=[]
+%v318 = load %v317
+%v319 = mul %j 32
+%v320 = add %v319 24
+%v321 = shrink %v76 %v320 shape=[]
+%v322 = load %v321
+%v323 = mul %v318 %v322
+%v324 = add %v314 %v323
+%v325 = mul %t2 32
+%v326 = add %v325 25
+%v327 = shrink %v59 %v326 shape=[]
+%v328 = load %v327
+%v329 = mul %j 32
+%v330 = add %v329 25
+%v331 = shrink %v76 %v330 shape=[]
+%v332 = load %v331
+%v333 = mul %v328 %v332
+%v334 = add %v324 %v333
+%v335 = mul %t2 32
+%v336 = add %v335 26
+%v337 = shrink %v59 %v336 shape=[]
+%v338 = load %v337
+%v339 = mul %j 32
+%v340 = add %v339 26
+%v341 = shrink %v76 %v340 shape=[]
+%v342 = load %v341
+%v343 = mul %v338 %v342
+%v344 = add %v334 %v343
+%v345 = mul %t2 32
+%v346 = add %v345 27
+%v347 = shrink %v59 %v346 shape=[]
+%v348 = load %v347
+%v349 = mul %j 32
+%v350 = add %v349 27
+%v351 = shrink %v76 %v350 shape=[]
+%v352 = load %v351
+%v353 = mul %v348 %v352
+%v354 = add %v344 %v353
+%v355 = mul %t2 32
+%v356 = add %v355 28
+%v357 = shrink %v59 %v356 shape=[]
+%v358 = load %v357
+%v359 = mul %j 32
+%v360 = add %v359 28
+%v361 = shrink %v76 %v360 shape=[]
+%v362 = load %v361
+%v363 = mul %v358 %v362
+%v364 = add %v354 %v363
+%v365 = mul %t2 32
+%v366 = add %v365 29
+%v367 = shrink %v59 %v366 shape=[]
+%v368 = load %v367
+%v369 = mul %j 32
+%v370 = add %v369 29
+%v371 = shrink %v76 %v370 shape=[]
+%v372 = load %v371
+%v373 = mul %v368 %v372
+%v374 = add %v364 %v373
+%v375 = mul %t2 32
+%v376 = add %v375 30
+%v377 = shrink %v59 %v376 shape=[]
+%v378 = load %v377
+%v379 = mul %j 32
+%v380 = add %v379 30
+%v381 = shrink %v76 %v380 shape=[]
+%v382 = load %v381
+%v383 = mul %v378 %v382
+%v384 = add %v374 %v383
+%v385 = mul %t2 32
+%v386 = add %v385 31
+%v387 = shrink %v59 %v386 shape=[]
+%v388 = load %v387
+%v389 = mul %j 32
+%v390 = add %v389 31
+%v391 = shrink %v76 %v390 shape=[]
+%v392 = load %v391
+%v393 = mul %v388 %v392
+%v394 = add %v384 %v393
+%s = mul %v394 0.1767766922712326
+%v395 = shrink %v60 %t2 shape=[]
+%v396 = shrink %l %t2 shape=[]
+%v397 = load %v395
+%v398 = load %v396
+%mnew = max %v397 %s
+%v399 = sub %v397 %mnew
+%corr = exp %v399
+%v400 = sub %s %mnew
+%pj = exp %v400
+%v401 = mul %v398 %corr
+%v402 = add %v401 %pj
+%v403 = store %v395 %mnew
+%v404 = store %v396 %v402
+%d2 = range 32 axis=upcast
+%v405 = mul %t2 32
+%v406 = add %v405 %d2
+%v407 = shrink %acc %v406 shape=[]
+%v408 = mul %j 32
+%v409 = add %v408 %d2
+%v410 = shrink %v77 %v409 shape=[]
+%v411 = load %v410
+%v412 = load %v407
+%v413 = mul %v412 %corr
+%v414 = mul %pj %v411
+%v415 = add %v413 %v414
+%v416 = store %v407 %v415
+%v417 = end %v416 %d2
+%v418 = end %v403 %v404 %v417 %j
+%v419 = end %v418 %t2
+%ekt = end %e1 %v419 %kt
+%v420 = after %acc %ekt
+%v421 = after %l %ekt
+# phase 3: O[row] = acc / l
+%t3 = range 64 axis=local
+%d3 = range 32 axis=upcast
+%v422 = shrink %v421 %t3 shape=[]
+%v423 = load %v422
+%v424 = mul %t3 32
+%v425 = add %v424 %d3
+%v426 = shrink %v420 %v425 shape=[]
+%v427 = load %v426
+%v428 = mul %g 2048
+%v429 = mul %t3 32
+%v430 = add %v428 %v429
+%v431 = add %v430 %d3
+%v432 = shrink %O %v431 shape=[]
+%v433 = fdiv %v427 %v423
+%v434 = store %v432 %v433
+%v435 = end %v434 %d3
+%v436 = end %v435 %t3
+%v437 = end %e0 %ekt %v436 %g
+%O1 = after %O %v437

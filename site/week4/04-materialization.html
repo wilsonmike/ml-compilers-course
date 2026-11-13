@@ -43,10 +43,10 @@
 
 <div class="fig" id="steps" data-title="two loops ask the same value"></div>
 
-<h2>Recompute: fusion</h2>
+<h2>Recompute or materialize</h2>
 <div class="prose">
-<p><code>%q = stage %d</code> is the same value as <code>%d</code>, but it tells rangeify to compute every element once into a temp buffer. Without <code>stage</code>, the spec lets your compiler choose either way, and the oracle always recomputes. Recomputing means rangeify answers each question by computing the element where it's needed. The square is <strong>fused</strong> into both loops. No temp memory, no extra pass, but the multiply happens twice per element.</p>
-<p>Put <code>%q = stage %d</code> in front of both uses, and rangeify does something different: it fills a temp buffer with every element of <code>%d</code> in a loop of its own, then answers both questions with a load from that buffer. The value is <strong>materialized</strong>. One multiply per element, but a write and two reads of a 4-element temp.</p>
+<p>The spec lets your compiler answer the two questions either way, and by default the oracle recomputes. Recomputing means rangeify answers each question by computing the element where it's needed. The square is <strong>fused</strong> into both loops. No temp memory, no extra pass, but the multiply happens twice per element.</p>
+<p><code>%q = stage %d</code> is the same value as <code>%d</code>, but it tells rangeify to compute every element once into a temp buffer. Put it in front of both uses, and rangeify fills a temp buffer with every element of <code>%d</code> in a loop of its own, then answers both questions with a load from that buffer. The value is <strong>materialized</strong>. One multiply per element, but a write and two reads of a 4-element temp.</p>
 </div>
 
 <div class="fig bleed" data-title="the oracle's C for the same program, with and without stage">
@@ -131,6 +131,11 @@ for (int32_t r34 = 0; r34 &lt; 4; r34++) {
 <div class="trap">
 <span class="label"><code>stage</code> wraps a value, not a name</span>
 <p><code>%q = stage %d</code> is a new value. Uses of <code>%q</code> read the temp, and uses of <code>%d</code> still recompute. Stage only the store's use and leave the reduce reading <code>%d</code>, and the oracle's C squares in the fill loop and again in the reduce loop: three loops, and the reduce saved nothing. To share, every use has to go through the staged value.</p>
+</div>
+
+<div class="trap">
+<span class="label">Storing into the memory you read</span>
+<p>A program may store a value back into the buffer it was loaded from. The test <code>r_inplace_scale_by_sum</code> multiplies <code>x</code> by its own sum and stores the result into <code>x</code>. The value is defined by the old contents, but a fused store loop overwrites memory while it still reads it. Here that happens to be safe, since iteration <code>i</code> reads only <code>x[i]</code>. In week 5's <code>r_inplace_transpose</code> it isn't: a later iteration would read an element an earlier one already overwrote. So the oracle never fuses such a store. When any <code>load</code> in the stored value's graph reads the memory the store writes (the same buffer or alloc, through any view or <code>after</code>), it stages the value: one loop fills a temp, and a second loop copies the temp in.</p>
 </div>
 
 <div class="exercise" data-ex="w4-04-variance">

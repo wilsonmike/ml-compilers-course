@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flash Attention</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Attention is the core of every transformer, and its obvious implementation writes a table of scores that grows with the square of the sequence length. Flash...">
+<link rel="canonical" href="https://sharpterminal.com/site/week9/05-flash-attention">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Flash Attention">
+<meta property="og:description" content="Attention is the core of every transformer, and its obvious implementation writes a table of scores that grows with the square of the sequence length. Flash attention never writes it. It streams keys...">
+<meta property="og:url" content="https://sharpterminal.com/site/week9/05-flash-attention">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .os { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; max-width: 30rem; }
+  .os .s { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 1.9rem; }
+  .os .s.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .os .s.done { color: var(--ink-3); }
+  .state { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s2); }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 9 · Lesson 5</p>
+<h1>Flash attention</h1>
+<p class="lede">Attention is the core of every transformer, and its obvious implementation writes a table of scores that grows with the square of the sequence length. Flash attention never writes it. It streams keys through shared memory and keeps a running softmax in each thread's registers. This lesson derives the trick and walks through the kernel in the tests.</p>
+
+<div class="prose">
+<h2>Attention</h2>
+<p>A head of attention has three <code>S×D</code> matrices: queries <code>Q</code>, keys <code>K</code> and values <code>V</code>, one row per token. For query row <code>i</code>:</p>
+<pre><code>s_j = (q_i · k_j) / sqrt(D)          for every key j: a score
+p_j = exp(s_j - m) / l               m = the largest s_j, l = the sum of exp(s_j - m): softmax
+o_i = sum over j of p_j · v_j        the output row</code></pre>
+<p>Subtracting the largest score <code>m</code> changes nothing mathematically and keeps <code>exp</code> from overflowing. A model runs many heads at once: the speed test uses 16.</p>
+
+<h2>The obvious way, and its cost</h2>
+<p>The obvious kernel computes every score into an <code>S×S</code> matrix in global memory, then a softmax pass over each row, then a product with <code>V</code>. At 1,024 tokens one head's scores are 4 MB. They're written, read for the max, read for the sum, read again to normalize into another 4 MB, and read for the product. At 8,192 tokens one head's scores are 256 MB. The arithmetic is cheap next to all that traffic. Measured on the 4060 Ti, 4 heads of 1,024 tokens with <code>D = 32</code>:</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>kernel (4 heads, 1,024 tokens, D = 32)</th><th>time</th></tr></thead>
+<tbody>
+<tr><td>three kernels through an S×S score matrix in global memory</td><td>2.97 ms</td></tr>
+<tr><td>flash attention: one kernel, nothing S×S stored</td><td>0.33 ms</td></tr>
+</tbody></table></div>
+<div class="prose">
+<p>Our three-kernel version is simple in other ways too: its softmax pass gives each row to one thread. A tuned version would close some of the gap, but not the traffic, which grows with <code>S²</code>.</p>
+
+<h2>Softmax in one pass</h2>
+<p>The trouble is the softmax: it needs the largest score before it can add anything up, and the largest isn't known until every score has been seen. The fix is to keep a running max <code>m</code> and a running sum <code>l</code>, relative to the max so far, and correct the sum when the max changes. When a new score <code>s</code> arrives:</p>
+<pre><code>m_new = max(m, s)
+c     = exp(m - m_new)              the correction: 1 if the max didn't change
+l     = l · c + exp(s - m_new)
+m     = m_new</code></pre>
+<p>Every term already in <code>l</code> was <code>exp(s_old - m)</code>. Multiplying by <code>exp(m - m_new)</code> turns it into <code>exp(s_old - m_new)</code>, as if the new max had been known all along. Start with <code>m = -inf</code> and <code>l = 0</code>: <code>exp(-inf)</code> is 0, so the first score needs no special case.</p>
+<p>The output row works the same way. Keep a running <code>acc</code>, the sum of <code>exp(s_j - m)·v_j</code>, and rescale it by the same <code>c</code>. At the end, <code>o_i = acc / l</code>.</p>
+<p>Here it is on two keys with <code>D = 2</code>. Say their scores come out 1 and 2, with <code>v_1 = [1, 0]</code> and <code>v_2 = [0, 1]</code>. Start from <code>m = -inf</code>, <code>l = 0</code>, <code>acc = [0, 0]</code>:</p>
+<pre><code>key 1, s = 1:  m_new = 1, c = exp(-inf) = 0
+               l = 0·0 + exp(0) = 1
+               acc = [0, 0]·0 + 1·[1, 0] = [1, 0]
+key 2, s = 2:  m_new = 2, c = exp(1 - 2) = 0.368
+               l = 1·0.368 + exp(0) = 1.368
+               acc = [1, 0]·0.368 + 1·[0, 1] = [0.368, 1]
+end:           o = [0.368, 1] / 1.368 = [0.269, 0.731]</code></pre>
+<p>That's exactly the softmax of <code>[1, 2]</code>, <code>[0.269, 0.731]</code>, weighting the two value rows. Key 1's terms were computed against a max of 1 and fixed up by <code>c</code> once the max became 2.</p>
+</div>
+
+<div class="fig" id="online" data-title="Folding the scores 1, 3, 2, 5 into a running softmax"></div>
+
+<div class="exercise small" data-ex="w9-05-online" data-ex-py="w9-05-online-py">
+<h3>Softmax in one pass</h3>
+<p>The starter forgets to rescale when the max goes up.</p>
+</div>
+
+<div class="prose">
+<h2>The kernel in the tests</h2>
+<p><code>s_cuda_flash_attention</code> gives each block 64 query rows of one head, one row per thread, and tiles of 64 keys. Its small version, <code>c_flash_attention</code>, uses 32 of each:</p>
+<ul>
+<li>Phase 0: thread <code>t</code> loads its query row into <code>qr[t·D + d]</code>, and sets its running max <code>mx[t]</code> to <code>-inf</code>. Its running sum <code>l[t]</code> starts at 0, as every alloc does.</li>
+<li>Then a loop over tiles of keys. Phase 1 copies the tile's keys and values into shared memory. Phase 2 has each thread fold the tile's keys into its row, one at a time, with the update above.</li>
+<li>Phase 3: <code>O[row] = acc / l</code>.</li>
+</ul>
+<p>Tiling the keys is what saves global memory traffic. Each tile of keys and values is read from global memory once per block, then used from shared memory by all 64 of the block's query rows, so the block reads K and V once instead of 64 times. This kernel rescales after every key. The FlashAttention paper rescales once per tile: it computes a whole tile's scores, takes their max, and corrects <code>l</code> and <code>acc</code> once.</p>
+<p>Here's phase 2's update in .uir, from <code>c_flash_attention</code> (head size 8), after the scaled dot product <code>%s</code>:</p>
+<pre><code>%mnew = max %v112 %s                # %v112 = mx[t]
+%v114 = sub %v112 %mnew
+%corr = exp %v114
+%v115 = sub %s %mnew
+%pj = exp %v115
+%v116 = mul %v113 %corr             # %v113 = l[t]
+%v117 = add %v116 %pj
+%v118 = store %v110 %mnew           # mx[t] = mnew
+%v119 = store %v111 %v117           # l[t] = l * corr + pj
+%d2 = range 8 axis=upcast           # then acc[t*8 + d] = acc[t*8 + d] * corr + pj * V[j][d]</code></pre>
+<p>Everything a thread keeps across keys, <code>qr</code>, <code>acc</code>, <code>mx</code> and <code>l</code>, is at <code>t·S + e</code>: per-thread memory, so registers, with <code>e</code> a literal from the upcast loops. In <code>s_cuda_flash_attention</code>, with <code>D = 32</code>, that's 66 floats a thread. In shared memory instead, the same kernel takes 1.39 ms for 16 heads, against 0.82 ms in registers, and <code>s_cuda_flash_attention</code> asks for at least 0.8 of the reference's speed.</p>
+
+<h2>Same math, different bits</h2>
+<p>Flash attention computes the same softmax as the three-kernel version, but not the same bits: it rescales its sums as it goes, so it rounds at different points. That's fine in .uir, where a program means exactly its own operations. The tests check the flash program's bits against the interpreter running the flash program.</p>
+<p>The bits do cost speed. .uir's <code>exp</code> is defined by a fixed, fully specified recipe (week 6): a range reduction, a polynomial and some bit tricks, dozens of operations, and the kernel calls it twice per key. Real kernels use the GPU's fast, approximate exponential instead, and do the two matrix products on tensor cores in 16-bit floats. Neither gives bits a grader can check.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="64">
+<p class="q">How many MB is one head's <code>S×S</code> score matrix of f32 at 4,096 tokens? (1 MB = 2<sup>20</sup> bytes.)</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint"><code>4096 · 4096 · 4</code> bytes.</p>
+<div class="why"><p><code>4096² · 4 = 2<sup>26</sup></code> bytes, 64 MB, per head, before the softmax writes another. Flash attention stores none of it.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The running max is 2 and the running sum is 3. The next score is 4. What happens to the sum before <code>exp(4 - 4)</code> is added?</p>
+<div class="opts">
+<button data-k="a">Nothing: the old terms stay as they are</button>
+<button data-k="b">It's multiplied by <code>exp(2 - 4)</code>, so its terms are relative to the new max</button>
+<button data-k="c">It's reset to 0</button>
+</div>
+<p class="hint">The old terms are <code>exp(s - 2)</code>. What should they be?</p>
+<div class="why"><p>They should be <code>exp(s - 4)</code>, and <code>exp(s - 2)·exp(2 - 4) = exp(s - 4)</code>. The new sum is <code>3·exp(-2) + 1</code>, about 1.41.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Does flash attention give the same bits as the three-kernel version?</p>
+<div class="opts">
+<button data-k="a">Yes: it's the same math</button>
+<button data-k="b">Only on a GPU</button>
+<button data-k="c">No: it rounds at different points, so it's a different program with its own exact result</button>
+</div>
+<p class="hint">Is float addition associative?</p>
+<div class="why"><p>Rescaling as you go changes which roundings happen. Both are softmax to within rounding, but bit for bit they differ, and each test checks a program against itself.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">In <code>s_cuda_flash_attention</code> (head size 32), why does the flash kernel keep <code>acc</code> at <code>acc[t·32 + d]</code> with <code>d</code> an upcast loop?</p>
+<div class="opts">
+<button data-k="a">So <code>acc</code> is per-thread memory with literal offsets: registers, not shared memory</button>
+<button data-k="b">Upcast loops are required inside local loops</button>
+<button data-k="c">So other threads can read it</button>
+</div>
+<p class="hint">Lesson 9.1.</p>
+<div class="why"><p><code>t·32 + d</code> keeps every thread in its own 32 elements, and the upcast makes each <code>d</code> a literal, so the CUDA compiler can put all 32 in registers. That's the difference between 1.39 and 0.82 ms.</p></div>
+</div>
+
+<nav class="pager">
+<a href="04-convolutions.html">← Lesson 4: Convolutions</a>
+<a href="06-lab.html">Lesson 6: The week 9 lab →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const sc = [1, 3, 2, 5];
+  const f = x => (x === -Infinity ? '-inf' : x.toFixed(4));
+  const states = [{ m: -Infinity, l: 0 }];
+  for (const s of sc) {
+    const { m, l } = states[states.length - 1]; const mn = Math.max(m, s);
+    states.push({ m: mn, l: l * Math.exp(m - mn) + Math.exp(s - mn), c: Math.exp(m - mn) });
+  }
+  const draw = k => h('div', {}, [
+    h('div', { class: 'os' }, sc.map((s, j) => h('div', { class: 's' + (j === k - 1 ? ' on' : j < k - 1 ? ' done' : ''), text: String(s) }))),
+    h('div', { class: 'state', text: `m = ${f(states[k].m)}   l = ${f(states[k].l)}` + (k ? `   correction = ${f(states[k].c)}` : '') })]);
+  const steps = [
+    { caption: 'Start: no scores seen. <code>m = -inf</code>, <code>l = 0</code>.', k: 0 },
+    { caption: 'Score 1: the max becomes 1. The correction <code>exp(-inf - 1)</code> is 0, and <code>l = exp(1 - 1) = 1</code>.', k: 1 },
+    { caption: 'Score 3: a new max. The old sum is rescaled by <code>exp(1 - 3)</code>, then <code>exp(0)</code> is added.', k: 2 },
+    { caption: 'Score 2: below the max, so the correction is 1 and <code>exp(2 - 3)</code> is added.', k: 3 },
+    { caption: 'Score 5: a new max again. <code>l</code> ends at 1.2034, which is <code>exp(-4) + exp(-2) + exp(-3) + exp(0)</code>, the two-pass answer.', k: 4 },
+  ];
+  CC.stepper(document.getElementById('online'), steps, (s, body) => body.append(draw(s.k)));
+});
+</script>
+</body>
+</html>

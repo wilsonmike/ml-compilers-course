@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fast GEMMs</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A GEMM is the kernel every ML compiler is judged by, and the fast ones all follow one plan: move each value as few times as possible through each level of...">
+<link rel="canonical" href="https://sharpterminal.com/site/week9/02-fast-gemm">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Fast GEMMs">
+<meta property="og:description" content="A GEMM is the kernel every ML compiler is judged by, and the fast ones all follow one plan: move each value as few times as possible through each level of memory. This lesson is that plan as numbers...">
+<meta property="og:url" content="https://sharpterminal.com/site/week9/02-fast-gemm">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .mem { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; max-width: 40rem; }
+  .mem .s { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 1.9rem; }
+  .mem .s.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .mem .s.seg { border-color: var(--ink-3); }
+  .tally { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s2); }
+  @media (max-width: 640px) { .mem { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+</style>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 9 · Lesson 2</p>
+<h1>Fast GEMMs</h1>
+<p class="lede">A GEMM is the kernel every ML compiler is judged by, and the fast ones all follow one plan: move each value as few times as possible through each level of memory. This lesson is that plan as numbers you can check, and the handful of GPU details that decide how close a kernel gets to the hardware's peak.</p>
+
+<div class="prose">
+<h2>A ladder of memories</h2>
+<p>A multiply-add needs its two inputs in registers. They start in global memory. On the way they can stop in two places: the L2 cache, which the whole GPU shares (32 MB on the 4060 Ti), and a block's shared memory. Each step up the ladder is faster and smaller:</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>level</th><th>size on the RTX 4060 Ti</th><th>what decides how often a value is read from it</th></tr></thead>
+<tbody>
+<tr><td>global memory (DRAM)</td><td>8 or 16 GB, 288 GB/s</td><td>how much the L2 cache catches</td></tr>
+<tr><td>L2 cache</td><td>32 MB for the whole GPU</td><td>the block tile: how many outputs a block makes from one tile of A and B</td></tr>
+<tr><td>shared memory</td><td>up to 100 KB per SM, 48 KB per block unless asked for more</td><td>the thread tile: how many outputs a thread makes from what it loads</td></tr>
+<tr><td>registers</td><td>65,536 per SM, at most 255 per thread</td><td>nothing: a register costs nothing beyond its instruction</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>Reuse, as a number</h2>
+<p>Take a block tile of <code>BM×BN</code> outputs. For each slice of <code>k</code> it loads a <code>BM×BK</code> tile of A and a <code>BK×BN</code> tile of B, and does <code>BM·BN·BK</code> multiply-adds with them. So it does <code>BM·BN / (BM + BN)</code> multiply-adds for every value it loads. The same count works one level down, for a thread's <code>TM×TN</code> tile reading shared memory.</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>tile</th><th>multiply-adds per value loaded</th><th>used in</th></tr></thead>
+<tbody>
+<tr><td>16×16 per block</td><td>8</td><td>week 8's kernel, from global memory</td></tr>
+<tr><td>64×64 per block</td><td>32</td><td>this week's kernel, from global memory</td></tr>
+<tr><td>1×1 per thread</td><td>0.5</td><td>week 8's kernel, from shared memory</td></tr>
+<tr><td>4×4 per thread</td><td>2</td><td>this week's kernel, from shared memory</td></tr>
+<tr><td>8×8 per thread</td><td>4</td><td>a typical fast library kernel</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>The roofline</h2>
+<p>A kernel can't be faster than its arithmetic alone, or than its memory traffic alone. That bound is called the <b>roofline</b>: time is at least the larger of the two. A 768×768 GEMM is 2·768³, about 0.9 billion float operations, which takes at least 41 µs at 22 TFLOP/s. Reading A and B once is 4.7 MB, at least 16 µs at 288 GB/s. So this GEMM is limited by arithmetic, if the kernel reads each value only a few times.</p>
+<p>Week 8's 16×16 tiles read A and B 48 times over, 226 MB in all. Straight from global memory that alone would take 0.8 ms, longer than the kernel's measured 0.51 ms. It's faster because A and B fit in the L2 cache, so most of those reads never reach global memory. With 64×64 tiles the traffic drops to 57 MB. Big tiles matter even when the L2 catches everything: L2 has a bandwidth limit of its own, and every load is an instruction the SM has to issue.</p>
+
+<h2>Coalescing</h2>
+<p>A warp's 32 loads go to memory together. When neighboring threads read neighboring addresses, the hardware combines them into a few wide transactions of 32 bytes each. When they read addresses far apart, every thread costs its own transaction, most of whose bytes are thrown away.</p>
+</div>
+
+<div class="fig" id="coalesce" data-title="Eight threads reading memory, in segments of 4 floats"></div>
+
+<div class="prose">
+<p>That's why the copy phase of the register-tiled GEMM picks its element as <code>q·256 + t</code>, where <code>q</code> from 0 to 3 counts the copies each of the 256 threads makes, and maps it to row <code>q·16 + t / 16</code>, column <code>t mod 16</code>: 16 neighboring threads read 16 neighboring floats of one row of A. Had thread <code>t</code> copied row <code>t</code> instead, a warp would touch 32 different rows.</p>
+
+<h2>Occupancy</h2>
+<p>A load from global memory takes hundreds of cycles. An SM hides that by keeping many warps on hand and running whichever is ready. How many it can hold depends on what each block uses. An SM has 65,536 registers: at 64 registers a thread, that's 1,024 threads, four blocks of 256. A thread that uses 128 registers halves it. Bigger thread tiles mean more reuse and more registers, so fewer warps to hide latency with. Fast kernels balance the two, and tuning that balance is most of what libraries like cuBLAS do.</p>
+
+<h2>What else fast kernels do</h2>
+<ul>
+<li><b>Vector loads</b>: one <code>float4</code> load moves 16 bytes in one instruction instead of four.</li>
+<li><b>Double buffering</b>: load the next tile into a second shared buffer while computing on this one, so the arithmetic never waits.</li>
+<li><b>No bank conflicts</b>: shared memory has 32 banks, and two threads of a warp reading different addresses in one bank take turns. Padding a tile's rows by one element usually fixes it.</li>
+<li><b>Tensor cores</b>: the next lesson.</li>
+</ul>
+<p>None of these changes a bit of the result, so a .uir compiler may do all of them. The speed tests only ask for a fraction of the reference's speed. Beating it is a fine challenge.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="32">
+<p class="q">A block makes a 64×64 tile of C. How many multiply-adds does it do for each value it loads from global memory?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint"><code>BM·BN / (BM + BN)</code>.</p>
+<div class="why"><p><code>64·64 / 128 = 32</code>. Each value of A's tile is used by all 64 columns of the block's tile, and each value of B's by all 64 rows.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Thread <code>t</code> of a warp loads <code>A[t·768]</code>, the first element of row <code>t</code>. What's wrong?</p>
+<div class="opts">
+<button data-k="a">Nothing: each thread loads one float</button>
+<button data-k="b">The 32 addresses are far apart, so the warp needs 32 transactions instead of 4</button>
+<button data-k="c">It reads out of bounds</button>
+</div>
+<p class="hint">Which addresses do neighboring threads read?</p>
+<div class="why"><p>32 neighboring floats are 128 bytes, four 32-byte transactions. 32 floats in 32 different rows are 32 transactions, each mostly wasted. Read along rows across the threads of a warp.</p></div>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">A kernel uses blocks of 256 threads and 128 registers per thread. An SM has 65,536 registers. At most how many of its blocks fit on one SM, by registers alone?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Registers per block first.</p>
+<div class="why"><p>A block needs <code>256·128 = 32,768</code> registers, so two fit in 65,536. At 64 registers a thread, four would.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Week 8's GEMM reads 226 MB of tiles, which would take 0.8 ms from global memory at 288 GB/s, but it runs in 0.51 ms. How?</p>
+<div class="opts">
+<button data-k="a">A and B, 4.7 MB together, fit in the 32 MB L2 cache, so most tile reads come from L2</button>
+<button data-k="b">The timer is wrong</button>
+<button data-k="c">The GPU compresses the data</button>
+</div>
+<p class="hint">The ladder has a step between global memory and shared memory.</p>
+<div class="why"><p>The first block to read a tile brings it into L2, and later blocks reading the same tile find it there. For matrices too big for L2, the block tile size decides the traffic to global memory directly.</p></div>
+</div>
+
+<nav class="pager">
+<a href="01-registers.html">← Lesson 1: Registers and register tiles</a>
+<a href="03-tensor-cores.html">Lesson 3: Tensor cores →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const draw = (reads, label) => {
+    const segs = new Set(reads.map(a => Math.floor(a / 4)));
+    return h('div', {}, [
+      h('div', { class: 'mem' }, Array.from({ length: 32 }, (_, a) => {
+        const k = reads.indexOf(a);
+        return h('div', { class: 's' + (k >= 0 ? ' on' : segs.has(Math.floor(a / 4)) ? ' seg' : ''), text: k >= 0 ? 't' + k : '' });
+      })),
+      h('div', { class: 'tally', text: label + ': ' + segs.size + ' segment' + (segs.size === 1 ? '' : 's') + ' of 4 floats' })]);
+  };
+  const steps = [
+    { caption: 'Memory as 32 floats, moved in segments of 4 (32 bytes on a real GPU, 8 floats). Eight threads each want one float.', draw: () => draw([], 'nothing read yet') },
+    { caption: 'Thread <code>t</code> reads float <code>t</code>: neighbors read neighbors, so 8 floats come in 2 segments, and every byte moved is used.', draw: () => draw([0, 1, 2, 3, 4, 5, 6, 7], 'coalesced') },
+    { caption: 'Thread <code>t</code> reads float <code>4t</code>, a column of a matrix 4 wide: 8 segments for 8 floats, and three quarters of every segment wasted.', draw: () => draw([0, 4, 8, 12, 16, 20, 24, 28], 'strided') },
+  ];
+  CC.stepper(document.getElementById('coalesce'), steps, (s, body) => body.append(s.draw()));
+});
+</script>
+</body>
+</html>

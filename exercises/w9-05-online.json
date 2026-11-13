@@ -1,0 +1,41 @@
+{
+  "id": "w9-05-online",
+  "lang": "ocaml",
+  "title": "Softmax in one pass",
+  "show": "(fun (m, l) -> Printf.sprintf \"%.4f %.4f\" m l)",
+  "starter": "(* the running max m and sum l of exp(s - m), in one pass over the scores *)\nlet online (scores : float list) : float * float =\n  List.fold_left (fun (m, l) s ->\n    let m = Float.max m s in\n    (m, l +. exp (s -. m))) (neg_infinity, 0.0) scores\n",
+  "hints": [
+    "Keep the old max before updating it: `let m' = Float.max m s`.",
+    "Rescale the old sum by `exp (m -. m')`, then add `exp (s -. m')`.",
+    "At the start `m` is `neg_infinity` and `l` is 0, and `exp neg_infinity` is 0, so the first score needs no special case."
+  ],
+  "explain": "When a bigger score arrives, every term already in `l` was computed against the old max. Multiplying by `exp(m_old - m_new)` converts them all at once: `exp(s - m_old) * exp(m_old - m_new) = exp(s - m_new)`. So one pass gives the same `(m, l)` as computing the max first and the sum second, up to rounding. That's what lets flash attention stream keys through shared memory and never store a whole row of scores. The starter forgets the rescale, so it's only right while the max never changes, as in `[3, 2, 1]`.",
+  "tests": [
+    {
+      "expr": "online [3.0; 2.0; 1.0]",
+      "expect": "3.0000 1.5032",
+      "sample": true
+    },
+    {
+      "expr": "online [1.0; 2.0; 3.0]",
+      "expect": "3.0000 1.5032",
+      "sample": true
+    },
+    {
+      "expr": "online [0.5]",
+      "expect": "0.5000 1.0000"
+    },
+    {
+      "expr": "online [2.0; 2.0]",
+      "expect": "2.0000 2.0000"
+    },
+    {
+      "expr": "online [-1.0; 4.0; 0.0; 5.0]",
+      "expect": "5.0000 1.3771"
+    },
+    {
+      "expr": "online [10.0; -10.0; 20.0]",
+      "expect": "20.0000 1.0000"
+    }
+  ]
+}

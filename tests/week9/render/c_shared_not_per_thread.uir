@@ -1,0 +1,44 @@
+# cuda
+# looks per-thread in the first phase, but the second reads thread t+1's slice: keep it in shared memory
+%x = buffer 16 dtype=i32 slot=0 data=[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16]
+%o = buffer 16 dtype=i32 slot=1
+%acc = alloc 16 dtype=i32
+%g = range 2 axis=global
+%t = range 4 axis=local
+%e = range 2 axis=upcast
+%v1 = mul %g 8
+%v2 = mul %t 2
+%v3 = add %v1 %v2
+%v4 = add %v3 %e
+%v5 = mul %t 4
+%v6 = add %v5 %e
+%v7 = shrink %acc %v6 shape=[]
+%v8 = load %v7
+%v9 = shrink %x %v4 shape=[]
+%v10 = load %v9
+%v11 = add %v8 %v10
+%v12 = store %v7 %v11
+%v13 = end %v12 %e
+%e1 = end %v13 %t
+%v14 = after %acc %e1
+%t2 = range 4 axis=local
+%f = range 2 axis=upcast
+%v15 = add %t2 1
+%v16 = mod %v15 4
+%v17 = mul %v16 4
+%v18 = add %v17 %f
+%v19 = shrink %v14 %v18 shape=[]
+%v20 = load %v19
+%v21 = mul %g 8
+%v22 = mul %t2 2
+%v23 = add %v21 %v22
+%v24 = add %v23 %f
+%v25 = shrink %o %v24 shape=[]
+%v26 = store %v25 %v20
+%v27 = end %v26 %f
+%v28 = end %v27 %t2
+%v29 = end %e1 %v28 %g
+%o1 = after %o %v29
+%v30 = load %o1
+%v31 = stack 3 4 5 6 7 8 1 2 11 12 13 14 15 16 9 10
+%ok = assert %v30 %v31

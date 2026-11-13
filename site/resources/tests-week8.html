@@ -30,7 +30,7 @@
     <p>Run <code>python tools/test.py --compiler PATH --week 8 -v</code>, copy the failing test's name, and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
   </div>
   <input class="filter" type="search" placeholder="Filter by test name, kind, or words" aria-label="Filter tests" oninput="for (const r of document.querySelectorAll('.guide tbody tr')) r.hidden = !r.textContent.toLowerCase().includes(this.value.toLowerCase())">
-  <div class="tablewrap">
+  <div class="tablewrap bleed">
   <table class="guide">
     <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
     <tbody>
@@ -57,11 +57,13 @@
     <tr><td><code>run/err_blocks_write_one_place</code></td><td>run: invalid</td><td>the block index is missing from the offset: every block writes o[t]</td><td>parallel index may be missing</td></tr>
     <tr><td><code>run/err_coefficient_not_literal</code></td><td>run: invalid</td><td>block offsets use literal coefficients</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/err_digits_exactly_touch</code></td><td>run: invalid</td><td>o[2b + t] with t up to 2: block 1 thread 0 and block 0 thread 2 both write o[2]. The coefficient 2 must be more than 2, not equal.</td><td>digits may touch</td></tr>
+    <tr><td><code>run/err_div_only_race</code></td><td>run: invalid</td><td>4 threads write o[2b + (t div 2)]: threads 0 and 1 share a slot, so do 2 and 3</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/err_local_nested</code></td><td>run: invalid</td><td>a local loop inside another local loop</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/err_local_not_literal</code></td><td>run: invalid</td><td>the block size is a literal</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/err_local_outside_global</code></td><td>run: invalid</td><td>a local loop runs inside a block, so it needs a global loop around it</td><td>local outside global allowed</td></tr>
     <tr><td><code>run/err_local_sizes_differ</code></td><td>run: invalid</td><td>all local loops in one kernel are the same block: one size</td><td>block sizes may differ</td></tr>
     <tr><td><code>run/err_local_too_big</code></td><td>run: invalid</td><td>a block has at most 1024 threads</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mod_only_race</code></td><td>run: invalid</td><td>8 threads write o[4b + (t mod 4)]: the digits pass the coefficient check, but threads 0 and 4 share a slot</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/err_same_phase_neighbor</code></td><td>run: invalid</td><td>reading sh[t + 1] in the same phase that writes sh: thread t + 1 may not have written it yet</td><td>phase loads unchecked</td></tr>
     <tr><td><code>run/err_store_outside_local</code></td><td>run: invalid</td><td>a store in a block but outside any local loop would run on every thread of the block</td><td>store outside local allowed</td></tr>
     <tr><td><code>run/err_thread_in_global</code></td><td>run: invalid</td><td>CPU threads inside a GPU block</td><td><span class=muted>none recorded</span></td></tr>
@@ -71,6 +73,7 @@
     <tr><td><code>run/global_local_wrong_value</code></td><td>run: assert_fail</td><td>and a wrong value still fails</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/later_phase_reads_anywhere</code></td><td>run: pass</td><td>a later phase may read any shared element an earlier phase wrote: reverse each block of 4</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/local_bound_1024</code></td><td>run: pass</td><td>1024 threads is allowed</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_wider_than_range</code></td><td>run: pass</td><td>t mod 8 with t in 0..3 is just t, so it pins the thread down on its own</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/plain_loop_alloc_carries_over</code></td><td>run: pass</td><td>the same program as plain loops carries the alloc from b = 0 into b = 1</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/tiles_2d_layout</code></td><td>run: pass</td><td>a 4x4 matrix as 2x2 blocks of 2x2 threads: by*8 + bx*2 + ty*4 + tx, a unique mixed-radix number</td><td><span class=muted>none recorded</span></td></tr>
     </tbody>

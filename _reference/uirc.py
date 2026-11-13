@@ -47,7 +47,7 @@ class UOp:
       return u
   def __repr__(self): return f"UOp({self.op}, {self.dtype}{list(self.shape)}, arg={self.arg!r}, nsrc={len(self.src)})"
 
-EFFECT = {'store', 'end'}
+EFFECT = {'store', 'end', 'mma'}
 _OPEN = {}
 def opens(u):
   # the ranges u depends on that no end has closed yet (week 3). Memoized forever: nodes are immortal.
@@ -67,8 +67,22 @@ def opens(u):
 
 def stores_under(e):
   # the stores an effect runs, looking through ends
-  if e.op == 'store': return [e]
+  if e.op in ('store', 'mma'): return [e]
   return [st for x in e.src[:-1] for st in stores_under(x)]
+
+TILE = 16
+def accesses(n):
+  if n.op == 'load': return [(n.src[0], False, None)]
+  if n.op == 'store': return [(n.src[0], True, None)]
+  if n.op == 'mma': return [(n.src[0], True, n.arg[2]), (n.src[1], False, n.arg[0]), (n.src[2], False, n.arg[1])]
+  return []
+def extent(v, ld):
+  return (TILE - 1) * ld + TILE if ld else (v.shape[0] if v.shape else 1)
+def multiple_of(x, k):
+  if x.op == 'const': return x.arg % k == 0
+  if x.op == 'add': return multiple_of(x.src[0], k) and multiple_of(x.src[1], k)
+  if x.op == 'mul': return multiple_of(x.src[0], k) or multiple_of(x.src[1], k)
+  return False
 
 def const(v, dtype): return UOp('const', (), f32(float(v)) if dtype == 'f32' else v, dtype, ())
 
@@ -100,7 +114,7 @@ def build(op, src, attrs):
   def need(cond, msg):
     if not cond: raise UIRError(f"{op}: {msg}")
   for s in src: need(s.dtype != 'void' or (op in ('after', 'end') and s.op in EFFECT), "void operand")
-  if op not in ('shrink', 'load', 'store', 'after'): need(not any(is_mem(s) for s in src), "memory can't be an operand here (load it first)")
+  if op not in ('shrink', 'load', 'store', 'after', 'mma'): need(not any(is_mem(s) for s in src), "memory can't be an operand here (load it first)")
   n = len(src)
   if op in SUGAR:                               # week 6: rewritten into core ops
     return desugar(op, src, need)
@@ -119,9 +133,10 @@ def build(op, src, attrs):
     need(n == 1 and src[0].dtype == 'i32' and src[0].shape == (), "range N, N an i32 scalar")
     need(not opens(src[0]), "a range's bound can't depend on another range")
     ax = attrs.get('axis', 'loop')                # week 7: how the loop runs. loop keeps the week 3 node unchanged
-    need(ax in AXES, "axis is loop, upcast or thread")
+    need(ax in AXES, "axis is loop, upcast, thread, global, local or warp")
     if ax == 'upcast': need(src[0].op == 'const' and 1 <= src[0].arg <= 32, "an upcast range's bound is a literal from 1 to 32")
     if ax == 'local': need(src[0].op == 'const' and 1 <= src[0].arg <= 1024, "a local range's bound is a literal from 1 to 1024 (the block size)")
+    if ax == 'warp': need(src[0].op == 'const' and 1 <= src[0].arg <= 32, "a warp range's bound is a literal from 1 to 32 (warps per block)")
     return UOp('range', src, ('range', attrs['_name']) + (() if ax == 'loop' else (ax,)), 'i32', ())
   if op == 'end':
     need(n >= 2 and src[-1].op == 'range', "end EFFECT... RANGE")
@@ -183,6 +198,21 @@ def build(op, src, attrs):
     lo, hi = bounds(src[1], {})
     need(lo >= 0 and hi + k <= plen, f"can't prove the view is in bounds: offset in [{lo}, {hi}], {k} element(s), parent has {plen}")
     return UOp('shrink', src, None, src[0].dtype, shape)
+  if op == 'mma':
+    need(n == 3 and all(is_mem(s) for s in src), "mma C A B: three memory operands")
+    need((src[0].dtype, src[1].dtype, src[2].dtype) == ('i32', 'i8', 'i8'), "C is i32 memory, A and B are i8 memory")
+    need(all(s.op in STORAGE or not s.shape for s in src), "each operand is memory or a scalar view (shape=[]) where its tile starts")
+    lds = []
+    for k in ('lda', 'ldb', 'ldc'):
+      need(re.fullmatch(r"[0-9]+", attrs.get(k, ''), re.A) is not None, "mma needs lda=, ldb= and ldc=, literal row strides")
+      need(int(attrs[k]) >= TILE and int(attrs[k]) % TILE == 0, f"{k} must be a multiple of 16")
+      lds.append(int(attrs[k]))
+    for v, ld, nm in zip(src, (lds[2], lds[0], lds[1]), 'CAB'):
+      ts = offset_terms(v); lo = sum(bounds(t, {})[0] for t in ts); hi = sum(bounds(t, {})[1] for t in ts)
+      size = storage_of(v).arg[1] if storage_of(v).op == 'alloc' else storage_of(v).arg[2]
+      need(lo >= 0 and hi + extent(v, ld) <= size, f"can't prove the {nm} tile is in bounds: offset in [{lo}, {hi}], the tile reaches {extent(v, ld)} elements further, the memory has {size}")
+      need(all(multiple_of(t, 32 if nm != 'C' else 8) for t in ts), f"the {nm} tile's offset must be a provable multiple of {32 if nm != 'C' else 8} (32 bytes, the tensor cores' alignment)")
+    return UOp('mma', src, tuple(lds), 'void', ())
   if op == 'load':
     need(n == 1 and is_mem(src[0]), "load MEM")
     return UOp('load', src, None, src[0].dtype, src[0].shape)
@@ -193,7 +223,7 @@ def build(op, src, attrs):
   if op == 'after':
     need(n == 2 and src[0].op in STORAGE and src[1].op in EFFECT, "after MEM EFFECT, MEM a whole buffer version (not a view)")
     sts = stores_under(src[1])
-    if src[1].op == 'store': need(version_of(src[1].src[0]) is src[0], "the store must write into the version after names")
+    if src[1].op in ('store', 'mma'): need(version_of(src[1].src[0]) is src[0], "the store must write into the version after names")
     else:
       need(any(storage_of(st.src[0]) is storage_of(src[0]) for st in sts), "the loop must store into the memory after names")
       # and into the version after names: each such store writes into that version, or into a version built inside
@@ -228,7 +258,8 @@ def build(op, src, attrs):
     need(all(j.dtype == 'i32' and j.shape == () for j in src[1:]), "indices are i32 scalars")
     return UOp('index', src, None, src[0].dtype, src[0].shape[n - 1:])
   if op == 'cast':
-    need(n == 1 and attrs.get('dtype') in ('bool', 'i32', 'f32'), "cast a dtype=D")
+    need(n == 1 and attrs.get('dtype') in ('bool', 'i32', 'f32', 'i8'), "cast a dtype=D")
+    need(attrs['dtype'] != 'i8' or src[0].dtype in ('i32', 'i8'), "cast to i8 takes an i32 (it keeps the low 8 bits)")
     return UOp('cast', src, None, attrs['dtype'], src[0].shape)
   if op == 'recip':
     need(n == 1 and src[0].dtype == 'f32', "f32 only")
@@ -249,6 +280,7 @@ def build(op, src, attrs):
 
 def do_cast(v, frm, to):
   if frm == to: return v
+  if to == 'i8': return (v + 128) % 256 - 128
   if to == 'bool': return v != 0
   if frm == 'bool': return int(v) if to == 'i32' else float(v)
   if to == 'f32': return f32(float(v))
@@ -363,7 +395,7 @@ def evaluate(root, env):
     memo[id(u)] = r
   return memo[id(root)]
 
-ZERO = {'bool': False, 'i32': 0, 'f32': 0.0}
+ZERO = {'bool': False, 'i32': 0, 'f32': 0.0, 'i8': 0}
 
 def equal(a, b):
   if isinstance(a, tuple): return len(a) == len(b) and all(equal(x, y) for x, y in zip(a, b))
@@ -582,7 +614,7 @@ def grad(y, x):
 # buffers with url= and sha256=: the contents come from a file, checked by hash
 CACHE_DIR = os.environ.get('UIR_CACHE') or os.path.join(os.path.expanduser('~'), '.cache', 'uir')
 URL_RE = re.compile(r"https://[!-~]+|[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*", re.A)
-SIZE = {'f32': 4, 'i32': 4, 'bool': 1}
+SIZE = {'f32': 4, 'i32': 4, 'bool': 1, 'i8': 1}
 
 class Blob:
   """A buffer's contents from url=. Equal blobs hash cons; values are decoded only when run needs them."""
@@ -595,7 +627,7 @@ class Blob:
   def __iter__(self):
     b = open(self.path, 'rb').read()
     if self.dtype == 'bool': return iter([x == 1 for x in b])
-    return iter(struct.unpack(f"<{self.n}{'f' if self.dtype == 'f32' else 'i'}", b))
+    return iter(struct.unpack(f"<{self.n}{dict(f32='f', i8='b').get(self.dtype, 'i')}", b))
 
 def fetch(url, base):
   if url.startswith('https://'):
@@ -628,7 +660,7 @@ def blob(url, sha, dt, n, base):
 INT_RE = re.compile(r"-?[0-9]+", re.A)
 FLOAT_RE = re.compile(r"-?(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|-?[0-9]+[eE][-+]?[0-9]+", re.A)
 NAME_RE = re.compile(r"%([A-Za-z0-9_]+)[ \t]*=[ \t]*([a-z_][a-z0-9_]*)(.*)", re.A)
-ATTRS = {'range': {'axis'}, 'const': {'dtype'}, 'param': {'dtype', 'shape'}, 'cast': {'dtype'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data', 'url', 'sha256'}, 'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
+ATTRS = {'mma': {'lda', 'ldb', 'ldc'}, 'range': {'axis'}, 'const': {'dtype'}, 'param': {'dtype', 'shape'}, 'cast': {'dtype'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data', 'url', 'sha256'}, 'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
 TOK = re.compile(r"[A-Za-z_]+=\[[^\]]*\]|[^ \t]+")
 
 def literal(t):
@@ -679,7 +711,8 @@ def parse(text, base=None):
           attrs[k] = v
         elif attrs: raise UIRError("operands come before attributes")
         else: src.append(t)
-      if 'dtype' in attrs and attrs['dtype'] not in ('bool', 'i32', 'f32'): raise UIRError(f"bad dtype {attrs['dtype']}")
+      if 'dtype' in attrs and attrs['dtype'] not in ('bool', 'i32', 'f32', 'i8'): raise UIRError(f"bad dtype {attrs['dtype']}")
+      if attrs.get('dtype') == 'i8' and op not in ('buffer', 'alloc', 'cast'): raise UIRError("i8 is for memory: buffers, allocs and casts")
       if op in ('buffer', 'alloc'):
         if len(src) != 1 or not re.fullmatch(r"[0-9]+", src[0], re.A) or int(src[0]) < 1: raise UIRError(f"{op} N: a size N >= 1")
         n, dt = int(src[0]), attrs.get('dtype')
@@ -697,7 +730,8 @@ def parse(text, base=None):
             vals = []
             for t in toks:
               c = literal(t)
-              if c is None or c.dtype != dt: raise UIRError(f"data value {t} isn't a {dt} literal")
+              if dt == 'i8' and c is not None and c.dtype == 'i32' and -128 <= c.arg <= 127: c = const(c.arg, 'i8')
+              if c is None or c.dtype != dt: raise UIRError(f"data value {t} isn't a{'n' if dt == 'i8' else ''} {dt} literal")
               vals.append(c.arg)
             data = tuple(vals)
           else: data = (ZERO[dt],) * n
@@ -743,7 +777,7 @@ def check_memory(names):
   if len(slots) != len(set(slots)): raise UIRError("two buffers share a slot")
   stores_into, sequenced, closed = {}, set(), {}
   for u in nodes:
-    if u.op == 'store': stores_into.setdefault(id(version_of(u.src[0])), []).append(u)
+    if u.op in ('store', 'mma'): stores_into.setdefault(id(version_of(u.src[0])), []).append(u)
     if u.op == 'after': sequenced.update(id(st) for st in stores_under(u.src[1]))
     if u.op == 'end':
       r = u.src[-1]
@@ -751,11 +785,11 @@ def check_memory(names):
   for v, ss in stores_into.items():
     if len(ss) > 1: raise UIRError("two stores into the same buffer version are unordered")
   for u in nodes:
-    if u.op in ('store', 'after'):
+    if u.op in ('store', 'mma', 'after'):
       for r in opens(u):
         if id(r) not in closed: raise UIRError(f"range %{r.arg[1]} is never closed by an end")
   for u in nodes:
-    if u.op == 'store' and id(u) not in sequenced: raise UIRError("a store that no after sequences has no effect")
+    if u.op in ('store', 'mma') and id(u) not in sequenced: raise UIRError(f"{'a store' if u.op == 'store' else 'an mma'} that no after sequences has no effect")
   for slot, v in final_versions(names).items():
     if opens(v): raise UIRError(f"buffer slot {slot}: its stores' loops are never closed")
   top = [u for u in nodes if not opens(u) and u.op != 'range']
@@ -797,7 +831,7 @@ def linearize(roots, universe=()):
   cons, stores_of = {}, {}
   for n in allnodes:
     for z in (n.src[1:] if n.op == 'call' else n.src): cons.setdefault(id(z), []).append(n)
-    if n.op == 'store': stores_of.setdefault(id(version_of(n.src[0])), []).append(n)
+    if n.op in ('store', 'mma'): stores_of.setdefault(id(version_of(n.src[0])), []).append(n)
   def common(ps):
     p = ps[0]
     for q in ps[1:]:
@@ -815,9 +849,11 @@ def linearize(roots, universe=()):
   loads_of = {}
   for n in nodes:
     if n.op == 'load': loads_of.setdefault(id(version_of(n.src[0])), []).append(n)
+    if n.op == 'mma':
+      for v in n.src[1:]: loads_of.setdefault(id(version_of(v)), []).append(n)
   def deps(n):
     d = list(n.src[1:] if n.op == 'call' else n.src)
-    if n.op == 'store': d += [l for l in loads_of.get(id(version_of(n.src[0])), []) if l is not n]
+    if n.op in ('store', 'mma'): d += [l for l in loads_of.get(id(version_of(n.src[0])), []) if l is not n]
     return d
   def build_block(P):
     def rep_(z):                                 # z as seen from block P: itself, the loop holding it, or outside
@@ -883,6 +919,13 @@ def execute(block, roots_need=None):
         if u.src[0].shape: mem[sid][off:off + len(x)] = list(x)
         else: mem[sid][off] = x
         continue
+      if op == 'mma':
+        (cs, co), (as_, ao), (bs, bo) = (view(x) for x in u.src); lda, ldb, ldc = u.arg
+        C, A_, B_ = mem[cs], mem[as_], mem[bs]
+        for i in range(TILE):
+          for j in range(TILE):
+            C[co + i * ldc + j] = wrap(C[co + i * ldc + j] + sum(A_[ao + i * lda + k] * B_[bo + k * ldb + j] for k in range(TILE)))
+        continue
       v = [val(x) for x in u.src]
       if op == 'stack': vals[id(u)] = tuple(v)
       elif op == 'index': vals[id(u)] = index_value(v)
@@ -893,7 +936,8 @@ def execute(block, roots_need=None):
   go(block)
   return vals, mem
 
-AXES = ('loop', 'upcast', 'thread', 'global', 'local')
+AXES = ('loop', 'upcast', 'thread', 'global', 'local', 'warp')
+PHASE = ('local', 'warp')
 PAR = ('thread', 'global')                      # iterations that may run at once, each with private allocs
 def axis_of(r): return r.arg[2] if len(r.arg) > 2 else 'loop'
 
@@ -919,9 +963,10 @@ def thread_privates(block):
         t = it[2] if axis_of(it[2]) in PAR else th
         if t is not None and t is it[2]: loops[id(t)] = it
         walk(it[3], t)
-      elif it.op in ('load', 'store'):
-        a = storage_of(it.src[0])
-        if a.op == 'alloc': where.setdefault(id(a), [a, set()])[1].add(id(th) if th is not None else None)
+      else:
+        for v, _, _ in accesses(it):
+          a = storage_of(v)
+          if a.op == 'alloc': where.setdefault(id(a), [a, set()])[1].add(id(th) if th is not None else None)
   walk(block, None)
   out = {k: [] for k in loops}
   for a, ths in where.values():
@@ -936,12 +981,12 @@ def offset_terms(v):
   while v.op == 'shrink': flat(v.src[1]); v = v.src[0]
   return terms
 
-def check_thread_access(r, v, what):
+def check_thread_access(r, v, what, ld=None):
   """Iteration r of a thread loop may only touch its own slice: offset r*S + e, with e independent of r and
   0 <= e, e + size <= S. Returns S."""
   def need(c, m):
     if not c: raise UIRError(f"thread loop %{r.arg[1]}: {what} {m}")
-  ts = offset_terms(v); size = v.shape[0] if v.shape else 1
+  ts = offset_terms(v); size = extent(v, ld)
   mine = [t for t in ts if r in opens(t)]
   need(len(mine) == 1, "must be at an offset r * S + e, with r the thread range")
   t = mine[0]
@@ -957,7 +1002,7 @@ def check_thread_access(r, v, what):
   need(lo >= 0 and hi + size <= S, f"can't prove each iteration stays in its own slice: e in [{lo}, {hi}], {size} element(s), stride {S}")
   return S
 
-def radix_layout(par, v, inner, where, what):
+def radix_layout(par, v, inner, where, what, ld=None):
   """Week 8: an access is safe across the parallel ranges in `par` when its flat offset is a unique mixed-radix
   number. Write it as a sum of digits, each a loop index (or its div or mod by a literal) times a literal
   coefficient. Digits from `par` and `inner` (loops inside, which vary within one thread) count; anything else is
@@ -965,7 +1010,7 @@ def radix_layout(par, v, inner, where, what):
   digits can add up to. Then no two threads or blocks ever touch the same element. Returns the parallel digits."""
   def need(c, m):
     if not c: raise UIRError(f"{where}: {what} {m}")
-  ts = offset_terms(v); size = v.shape[0] if v.shape else 1
+  ts = offset_terms(v); size = 1 if ld else extent(v, None)
   def scaled(x):
     if x.op == 'mul' and x.src[1].op == 'const': return x.src[0], x.src[1].arg
     if x.op == 'mul' and x.src[0].op == 'const': return x.src[1], x.src[0].arg
@@ -985,7 +1030,11 @@ def radix_layout(par, v, inner, where, what):
     digits.append((c, mx))
     if rng in par: sig.append((id(rng), base.op, base.src[1].arg if base.op != 'range' else 0, c))
   if size > 1: digits.append((1, size - 1))
-  need(all(any(s_[0] == id(r) for s_ in sig) or top(r) == 0 for r in par), "must depend on every parallel index, or all of them write the same place")
+  if ld: digits += [(ld, TILE - 1), (1, TILE - 1)]
+  def exact(r):
+    ds = {(op, k) for i, op, k, _ in sig if i == id(r)}
+    return ('range', 0) in ds or ('div', 1) in ds or any(op == 'mod' and (k > top(r) or ('div', k) in ds) for op, k in ds)
+  need(all(top(r) == 0 or exact(r) for r in par), "must pin down every parallel index: the index itself, or its div and mod by the same literal. Otherwise two threads or blocks write the same place")
   digits.sort(key=lambda d: -d[0])
   for k, (c, mx) in enumerate(digits):
     if mx == 0: continue
@@ -993,45 +1042,40 @@ def radix_layout(par, v, inner, where, what):
     need(c > rest, f"can't be shown to keep threads apart: a digit with coefficient {c} must be more than {rest}, the most the smaller ones add up to")
   # the caller requires one layout per buffer: the same offset terms (hash consed, so the same nodes) and size.
   # Equal digits are not enough: sh[t] and sh[t + 1] have the same digits, and thread t would read t + 1's slot.
-  return (tuple(sorted(id(x) for x in ts)), size)
+  return (tuple(sorted(id(x) for x in ts)), size, ld)
 
-def check_parallel_accesses(par, body, where):
+def check_accesses(par, body, where, skip=()):
+  """Every store (and mma), and every load of memory the same code writes, keeps the parallel iterations in `par`
+  apart (radix_layout), and each piece of memory is accessed at one offset expression."""
   nodes = loop_nodes(body); inner = {x[2] for x in iter_loops(body)} - par
-  written = {id(storage_of(n.src[0])) for n in nodes if n.op == 'store'}
+  acc = [(v, w, ld, n) for n in nodes for v, w, ld in accesses(n)]
+  written = {id(storage_of(v)) for v, w, _, _ in acc if w}
   layout = {}
-  return nodes, inner, written, layout
-
-def check_local(r, body):
-  # inside one local loop (one phase), the threads of a block run at the same time
-  nodes, inner, written, layout = check_parallel_accesses({r}, body, f"local loop %{r.arg[1]}")
-  for n in nodes:
-    if n.op not in ('load', 'store'): continue
-    sid = id(storage_of(n.src[0]))
-    if n.op == 'load' and sid not in written: continue
-    f = radix_layout({r}, n.src[0], inner, f"local loop %{r.arg[1]}", 'a store' if n.op == 'store' else 'a load of memory it writes')
-    if layout.setdefault(sid, f) != f: raise UIRError(f"local loop %{r.arg[1]}: every access to one buffer must be at the same offset (the same expression)")
+  for v, w, ld, n in acc:
+    sid = id(storage_of(v))
+    if sid in skip or (not w and sid not in written): continue
+    f = radix_layout(par, v, inner, where, ('an mma' if n.op == 'mma' else 'a store') if w else 'a load of memory it writes', ld)
+    if layout.setdefault(sid, f) != f: raise UIRError(f"{where}: every access to one buffer must be at the same offset (the same expression)")
 
 def check_global_body(g, body, private):
-  nodes, inner, written, layout = check_parallel_accesses({g}, body, f"global loop %{g.arg[1]}")
-  for n in nodes:
-    if n.op not in ('load', 'store'): continue
-    sid = id(storage_of(n.src[0]))
-    if sid in private or (n.op == 'load' and sid not in written): continue   # block shared memory, or read-only
-    f = radix_layout({g}, n.src[0], inner, f"global loop %{g.arg[1]}", 'a store' if n.op == 'store' else 'a load of memory it writes')
-    if layout.setdefault(sid, f) != f: raise UIRError(f"global loop %{g.arg[1]}: every access to one buffer must be at the same offset (the same expression)")
+  check_accesses({g}, body, f"global loop %{g.arg[1]}", private)
   sizes = set()
-  def walk(items, in_local):
+  def walk(items, phase):
     for it in items:
       if isinstance(it, tuple):
         _, e, r, b = it; ax = axis_of(r)
         if ax in PAR: raise UIRError(f"{ax} loop %{r.arg[1]} is inside global loop %{g.arg[1]}")
-        if ax == 'local':
-          if in_local: raise UIRError(f"local loop %{r.arg[1]} is inside another local loop")
-          sizes.add(r.src[0].arg); check_local(r, b)
-        walk(b, in_local or ax == 'local')
-      elif it.op == 'store' and not in_local: raise UIRError(f"global loop %{g.arg[1]}: a store outside a local loop would run on every thread of the block")
-  walk(body, False)
-  if len(sizes) > 1: raise UIRError(f"global loop %{g.arg[1]}: its local loops have different sizes {sorted(sizes)}: one block size per kernel")
+        if ax in PHASE:
+          if phase: raise UIRError(f"{ax} loop %{r.arg[1]} is inside a {phase} loop")
+          sizes.add(r.src[0].arg * (32 if ax == 'warp' else 1))
+          check_accesses({r}, b, f"{ax} loop %{r.arg[1]}")
+        walk(b, phase or (ax if ax in PHASE else None))
+      elif it.op == 'store' and phase != 'local':
+        raise UIRError(f"global loop %{g.arg[1]}: a store outside a local loop would run on every thread of the {'warp' if phase else 'block'}")
+      elif it.op == 'mma' and phase != 'warp':
+        raise UIRError(f"global loop %{g.arg[1]}: an mma must be inside a warp loop (a warp of 32 threads runs it together)")
+  walk(body, None)
+  if len(sizes) > 1: raise UIRError(f"global loop %{g.arg[1]}: its local and warp loops give different block sizes {sorted(sizes)} (a warp loop of n is 32n threads): one block size per kernel")
 
 def check_axes(block):
   privates = thread_privates(block)
@@ -1039,24 +1083,42 @@ def check_axes(block):
     for it in items:
       if not isinstance(it, tuple): continue
       _, e, r, body = it
-      if axis_of(r) == 'local' and not inside: raise UIRError(f"local loop %{r.arg[1]} is not inside a global loop")
+      if axis_of(r) in PHASE and not inside: raise UIRError(f"{axis_of(r)} loop %{r.arg[1]} is not inside a global loop")
       if axis_of(r) in PAR:
         if inside: raise UIRError(f"{axis_of(r)} loop %{r.arg[1]} is inside another parallel loop")
         if axis_of(r) == 'global':
           check_global_body(r, body, {id(a) for a in privates.get(id(r), [])})
           walk(body, True); continue                 # the week 7 thread checks below are for thread loops
         priv = {id(a) for a in privates.get(id(r), [])}
-        nodes = loop_nodes(body)
-        written = {id(storage_of(n.src[0])) for n in nodes if n.op == 'store'}
+        acc = [(v, w, ld) for n in loop_nodes(body) for v, w, ld in accesses(n)]
+        written = {id(storage_of(v)) for v, w, _ in acc if w}
         stride = {}
-        for n in nodes:
-          if n.op not in ('load', 'store'): continue
-          sid = id(storage_of(n.src[0]))
-          if sid in priv or (n.op == 'load' and sid not in written): continue   # private, or read-only here
-          S = check_thread_access(r, n.src[0], 'a store' if n.op == 'store' else 'a load of memory it writes')
+        for v, w, ld in acc:
+          sid = id(storage_of(v))
+          if sid in priv or (not w and sid not in written): continue
+          S = check_thread_access(r, v, ('an mma' if ld else 'a store') if w else 'a load of memory it writes', ld)
           if stride.setdefault(sid, S) != S: raise UIRError(f"thread loop %{r.arg[1]}: every access to one buffer must use the same stride")
       walk(body, inside or axis_of(r) in PAR)
   walk(block, False)
+
+def per_thread(body, allocs):
+  """Week 9: the block's shared allocs that only ever hold per-thread data. Every access is in a local loop, at
+  t * S + e (week 7's slice rule, with t that loop's range), one S throughout. Thread t only touches its own S
+  elements, so render-cuda keeps them in a thread's own array: registers, when every e is a literal. {id: S}"""
+  out, bad = {}, set()
+  ids = {id(a) for a in allocs}
+  def walk(items, t):
+    for it in items:
+      if isinstance(it, tuple): walk(it[3], it[2] if axis_of(it[2]) == 'local' else t); continue
+      for v, w, ld in accesses(it):
+        a = id(storage_of(v))
+        if a not in ids: continue
+        if t is None or ld: bad.add(a); continue
+        try: S = check_thread_access(t, v, 'an access')
+        except UIRError: bad.add(a); continue
+        if out.setdefault(a, S) != S: bad.add(a)
+  walk(body, None)
+  return {a: S for a, S in out.items() if a not in bad}
 
 def final_versions(names):
   # the outputs: for each buffer, the version no top-level after builds on (afters inside loops are local)
@@ -1101,7 +1163,7 @@ def run(text, base=None):
 def bounds(u, memo):
   # conservative [lo, hi] for i32 and bool (as 0/1). None means "unknown, full range".
   if id(u) in memo: return memo[id(u)]
-  full = (INT_MIN, INT_MAX) if u.dtype == 'i32' else (0, 1)
+  full = (INT_MIN, INT_MAX) if u.dtype == 'i32' else (-128, 127) if u.dtype == 'i8' else (0, 1)
   def b(s): return bounds(s, memo)
   r = full
   if u.op == 'const' and u.dtype in ('i32', 'bool'): r = (int(u.arg), int(u.arg))
@@ -1142,7 +1204,7 @@ def rewrite_one(u, bm):
   op, s, dt = u.op, u.src, u.dtype
   if op == 'call': return substitute(s[0], s[1:])
   if op == 'index' and s[0].op == 'stack' and isc(s[1]) and 0 <= s[1].arg < len(s[0].src): return s[0].src[s[1].arg]
-  if op in ALU and all(isc(x) for x in s):
+  if op in ALU and all(isc(x) for x in s) and dt != 'i8':
     try: return const(alu(op, [x.dtype for x in s], [x.arg for x in s], dt), dt)
     except UIRError: return None          # keep the error in the program
   if op in COMM and isc(s[0]) and not isc(s[1]): return UOp(op, (s[1], s[0]), None, dt, ())
@@ -1210,10 +1272,11 @@ def render(root, name='out'):
 
 # ---------------- render C (week 2) ----------------
 
-CT = {'f32': 'float', 'i32': 'int32_t', 'bool': 'bool'}
+CT = {'f32': 'float', 'i32': 'int32_t', 'bool': 'bool', 'i8': 'int8_t'}
 def c_lit(v, dt):
   if dt == 'bool': return 'true' if v else 'false'
   if dt == 'i32': return '(-2147483647 - 1)' if v == INT_MIN else str(v)
+  if dt == 'i8': return str(v)
   if math.isnan(v): return 'NAN'
   if math.isinf(v): return 'INFINITY' if v > 0 else '(-INFINITY)'
   return float.hex(v) + 'f'                          # hex floats are exact
@@ -1239,7 +1302,7 @@ static inline float bits_f32(int32_t i) { float x; memcpy(&x, &i, 4); return x; 
 def needs_loops(names):
   # week 3+ programs: hand-written ranges, or week 4 shape ops that rangeify into loops
   # a big rank-1 value (a 4096-element copy, say) must be a loop too, or the C blows past the size limit
-  return any(u.op == 'range' or u.op in SHAPE_OPS or (u.op in ALU and u.shape) or len(u.shape) >= 2
+  return any(u.op in ('range', 'mma') or u.op in SHAPE_OPS or (u.op in ALU and u.shape) or len(u.shape) >= 2
              or (len(u.shape) == 1 and u.shape[0] > 32 and u.op not in MEM) for u in all_nodes(names))
 
 def rangeify(nodes):
@@ -1345,8 +1408,9 @@ def rangeify(nodes):
     el_memo[k] = out; return out
   return [low(n) for n in nodes]
 
-def render_c(names, target='c'):
+def render_c(names, target='c', week=None):
   cuda = target == 'cuda'
+  w9 = week is None or week >= 9
   outs = final_versions(names)
   roots, uni = program(names, list(outs.values()))
   if needs_loops(names):                         # week 4: shapes become loops; week 2 programs stay loopless
@@ -1360,16 +1424,26 @@ def render_c(names, target='c'):
   for (slot, v), r in zip(outs.items(), roots): ptr[id(storage_of(r))] = f"b{slot}"; ctype[f"b{slot}"] = CT[v.dtype] + ' *'
   privates = thread_privates(block); private_ids = {id(a) for v in privates.values() for a in v}
   counter = [0]; in_kernel = [False]
+  mine = {}
+  cur = [None]
   def ex(u): return c_lit(u.arg, u.dtype) if u.op == 'const' else name[id(u)]
   def view(u):
     if u.op != 'shrink': return ptr[id(storage_of(u))], '0'
     p, o = view(u.src[0]); off = ex(u.src[1])
     return p, (off if o == '0' else f"{o} + {off}")
+  def at(u):
+    p, o = view(u)
+    S = mine.get(id(storage_of(u)))
+    if S is not None:
+      o = f"(int32_t)((uint32_t)({o}) - (uint32_t){name[id(cur[0])]} * {S}u)"
+    return p, o
   def alloc_line(u, pad):
     i = counter[0]; counter[0] += 1
     ptr[id(u)] = f"a{i}"; ctype[f"a{i}"] = CT[u.dtype] + ' *'
+    if cuda and id(u) in mine:
+      return f"{pad}{CT[u.dtype]} a{i}[{mine[id(u)]}] = {{0}};"
     if cuda:                                     # block shared memory: not zeroed by CUDA, so the threads zero it
-      return (f"{pad}__shared__ {CT[u.dtype]} a{i}[{u.arg[1]}];\n{pad}for (int32_t z_ = threadIdx.x; z_ < {u.arg[1]}; z_ += blockDim.x) a{i}[z_] = 0;\n"
+      return (f"{pad}__shared__ {'__align__(32) ' if w9 else ''}{CT[u.dtype]} a{i}[{u.arg[1]}];\n{pad}for (int32_t z_ = threadIdx.x; z_ < {u.arg[1]}; z_ += blockDim.x) a{i}[z_] = 0;\n"
               f"{pad}__syncthreads();")
     return f"{pad}{CT[u.dtype]} a{i}[{u.arg[1]}] = {{0}};"
   def emit(items, depth):
@@ -1384,12 +1458,13 @@ def render_c(names, target='c'):
         if cuda and ax == 'global':              # a kernel: one block per value of r, launched by the host function
           if in_kernel[0]: raise UIRError("render-cuda: a global loop must be at the top level")
           fn = f"k{len(fns)}"; start = len(lines)
-          bs = next((x[2].src[0].arg for x in iter_loops(body) if axis_of(x[2]) == 'local'), 1)
+          bs = next((x[2].src[0].arg * (32 if axis_of(x[2]) == 'warp' else 1) for x in iter_loops(body) if axis_of(x[2]) in PHASE), 1)
+          if w9: mine.update(per_thread(body, privates.get(id(r), ())))
           for a in privates.get(id(r), ()): lines.append(alloc_line(a, '  '))
           in_kernel[0] = True; emit(body, 1); in_kernel[0] = False
           inner = lines[start:]; del lines[start:]
           text = '\n'.join(inner)
-          declared = set(re.findall(r"\b(?:float|int32_t|bool) ([va][0-9]+)\b", text)) | set(re.findall(r"(?:for \(|^\s*)int32_t (r[0-9]+)", text, re.M)) | {rv}
+          declared = set(re.findall(r"\b(?:float|int32_t|int8_t|bool) ([va][0-9]+)\b", text)) | set(re.findall(r"(?:for \(|^\s*)int32_t (r[0-9]+)", text, re.M)) | {rv}
           used = sorted(set(re.findall(r"\b([vrab][0-9]+)\b", text)) - declared, key=lambda x: (x[0], int(x[1:])))
           bad = [c for c in used if c[0] != 'b']
           if bad: raise UIRError(f"render-cuda: kernel %{r.arg[1]} uses values computed outside it ({', '.join(bad)}): a kernel may only use buffers, literals and its own ranges")
@@ -1399,6 +1474,11 @@ def render_c(names, target='c'):
           continue
         if cuda and ax == 'local':               # one phase: every thread of the block runs the body once, then all wait
           lines.append(f"{pad}{{"); lines.append(f"{pad}  int32_t {rv} = threadIdx.x;")
+          cur[0] = r; emit(body, depth + 1); cur[0] = None
+          lines.append(f"{pad}}}"); lines.append(f"{pad}__syncthreads();")
+          continue
+        if cuda and ax == 'warp':
+          lines.append(f"{pad}{{"); lines.append(f"{pad}  int32_t {rv} = threadIdx.x / 32;")
           emit(body, depth + 1); lines.append(f"{pad}}}"); lines.append(f"{pad}__syncthreads();")
           continue
         if cuda and ax == 'thread': raise UIRError("render-cuda: thread loops are CPU threads, use a global loop")
@@ -1408,7 +1488,7 @@ def render_c(names, target='c'):
           emit(body, 1)
           inner = lines[start:]; del lines[start:]
           text = '\n'.join(inner)
-          declared = set(re.findall(r"\b(?:float|int32_t|bool) ([va][0-9]+)\b", text)) | set(re.findall(r"for \(int32_t (r[0-9]+)", text)) | {rv}
+          declared = set(re.findall(r"\b(?:float|int32_t|int8_t|bool) ([va][0-9]+)\b", text)) | set(re.findall(r"for \(int32_t (r[0-9]+)", text)) | {rv}
           used = sorted(set(re.findall(r"\b([vrab][0-9]+)\b", text)) - declared, key=lambda x: (x[0], int(x[1:])))
           fields = ' '.join(f"{ctype[c]}{'' if ctype[c].endswith('*') else ' '}{c};" for c in used) or 'int unused_;'
           unpack = ''.join(f"  {ctype[c]}{'restrict ' if ctype[c].endswith('*') else ' '}{c} = k_->{c};\n" for c in used)
@@ -1429,14 +1509,28 @@ def render_c(names, target='c'):
       v, t = f"v{i}", CT.get(u.dtype)
       if op in ('const', 'after', 'shrink', 'buffer', 'end', 'range', 'assert'): continue
       if op == 'load':
-        p, o = view(u.src[0])
+        p, o = at(u.src[0])
         if u.shape: lines.append(f"{pad}{t} {v}[{u.shape[0]}] = {{" + ', '.join(f"{p}[{o} + {j}]" for j in range(u.shape[0])) + "};")
         else: lines.append(f"{pad}{t} {v} = {p}[{o}];")
         name[id(u)] = v; ctype[v] = t + ' *' if u.shape else t; continue
       if op == 'store':
-        p, o = view(u.src[0]); x = ex(u.src[1])
+        p, o = at(u.src[0]); x = ex(u.src[1])
         if u.src[0].shape: lines.extend(f"{pad}{p}[{o} + {j}] = {x}[{j}];" for j in range(u.src[0].shape[0]))
         else: lines.append(f"{pad}{p}[{o}] = {x};")
+        continue
+      if op == 'mma':
+        (pc, oc), (pa, oa), (pb, ob) = (view(x) for x in u.src); lda, ldb, ldc = u.arg
+        if cuda:
+          lines.append(f"{pad}{{ wmma::fragment<wmma::matrix_a, 16, 16, 16, signed char, wmma::row_major> fa_; wmma::load_matrix_sync(fa_, {pa} + {oa}, {lda});")
+          lines.append(f"{pad}  wmma::fragment<wmma::matrix_b, 16, 16, 16, signed char, wmma::row_major> fb_; wmma::load_matrix_sync(fb_, {pb} + {ob}, {ldb});")
+          lines.append(f"{pad}  wmma::fragment<wmma::accumulator, 16, 16, 16, int> fc_; wmma::load_matrix_sync(fc_, {pc} + {oc}, {ldc}, wmma::mem_row_major);")
+          lines.append(f"{pad}  wmma::mma_sync(fc_, fa_, fb_, fc_); wmma::store_matrix_sync({pc} + {oc}, fc_, {ldc}, wmma::mem_row_major); __syncwarp(); }}")
+        else:
+          lines.append(f"{pad}for (int32_t i_ = 0; i_ < 16; i_++) for (int32_t j_ = 0; j_ < 16; j_++) {{")
+          lines.append(f"{pad}  uint32_t s_ = (uint32_t){pc}[{oc} + i_ * {ldc} + j_];")
+          lines.append(f"{pad}  for (int32_t k_ = 0; k_ < 16; k_++) s_ += (uint32_t)((int32_t){pa}[{oa} + i_ * {lda} + k_] * (int32_t){pb}[{ob} + k_ * {ldb} + j_]);")
+          lines.append(f"{pad}  {pc}[{oc} + i_ * {ldc} + j_] = (int32_t)s_;")
+          lines.append(f"{pad}}}")
         continue
       a = [ex(x) for x in u.src]
       if op == 'stack': lines.append(f"{pad}{t} {v}[{len(a)}] = {{{', '.join(a)}}};"); name[id(u)] = v; ctype[v] = t + ' *'; continue
@@ -1478,13 +1572,15 @@ def read_text(path):
   return b.decode('utf-8-sig')
 
 def main(argv):
+  week = next((int(a[7:]) for a in argv if re.fullmatch(r"--week=[0-9]+", a)), None)
+  argv = [a for a in argv if not re.fullmatch(r"--week=[0-9]+", a)]
   if len(argv) != 3 or argv[1] not in ('run', 'simplify', 'render', 'render-cuda'):
-    print("usage: uirc.py run|simplify|render|render-cuda FILE", file=sys.stderr); return 2
+    print("usage: uirc.py run|simplify|render|render-cuda FILE [--week=N]", file=sys.stderr); return 2
   try:
     text, base = read_text(argv[2]), os.path.dirname(os.path.abspath(argv[2]))
     if argv[1] == 'run': run(text, base); return 0
     if argv[1] == 'render': sys.stdout.write(render_c(parse(text, base)[0])); return 0
-    if argv[1] == 'render-cuda': sys.stdout.write(render_c(parse(text, base)[0], 'cuda')); return 0
+    if argv[1] == 'render-cuda': sys.stdout.write(render_c(parse(text, base)[0], 'cuda', week)); return 0
     names, _ = parse(text, base)
     if 'out' not in names: raise UIRError("simplify needs %out")
     sys.stdout.write(render(simplify(names['out']))); return 0

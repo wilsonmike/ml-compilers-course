@@ -105,6 +105,11 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 </div>
 
 <div class="trap">
+<span class="label">Don't fold the trick away</span>
+<p><code>mul %k 0</code> only helps while it is still a node. If your graph builder applies week 1's <code>mul(x, 0) → 0</code> as it builds, the running view becomes <code>shrink %b 0</code>, the same node as <code>%acc</code>, and the two loads merge back into one. Place loads on the graph exactly as written, and run any simplifier rules afterwards or not at all.</p>
+</div>
+
+<div class="trap">
 <span class="label">A use that doesn't depend on the range pins the load</span>
 <p>This loop is meant to add 1 to b[0] three times, starting from 10. It writes 11:</p>
 <pre><code>%b  = buffer 1 dtype=i32 slot=0 data=[10]
@@ -135,7 +140,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 %ej   = end %s %j
 %ei   = end %ej %i
 %out1 = after %out %ei          # the output: no open ranges</code></pre>
-<p><code>%out0</code> has <code>{i}</code> open, so it's local to one iteration of the i loop. Only an <code>after</code> with nothing open counts as the buffer's output, which is why <code>%out1</code> builds on <code>%out</code>, not on <code>%out0</code>. If the <code>after</code>'s effect is an <code>end</code>, some store inside that loop must write to the buffer the <code>after</code> names.</p>
+<p><code>%out0</code> has <code>{i}</code> open, so it's local to one iteration of the i loop. Only an <code>after</code> with nothing open counts as the buffer's output, which is why <code>%out1</code> builds on <code>%out</code>, not on <code>%out0</code>. If the <code>after</code>'s effect is an <code>end</code>, the loop must store into the exact version the <code>after</code> names, or into a version built on it inside the loop. Here the reset is inside the i loop, so <code>%out0</code> is built inside it and <code>after %out %ei</code> is right. Now move the reset outside every loop, so that its <code>after</code>, say <code>%r = after %out %z</code>, has nothing open. The loop then stores into <code>%r</code>, so the loop's <code>after</code> must build on that version: <code>after %r %ei</code>. Writing <code>after %out %ei</code> there is invalid, because the buffer's versions would fork. The oracle says "the loop must store into the version after names, not an older one".</p>
 </div>
 
 <div class="exercise small" data-ex="w3-02-max">

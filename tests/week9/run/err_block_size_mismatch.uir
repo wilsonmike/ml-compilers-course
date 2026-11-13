@@ -1,0 +1,24 @@
+# expect: invalid
+# a warp loop of 2 is 64 threads, but the local loop has 32: one block size per kernel
+%A = buffer 512 dtype=i8 slot=0
+%B = buffer 256 dtype=i8 slot=1
+%C = buffer 512 dtype=i32 slot=2
+%o = buffer 32 dtype=i32 slot=3
+%g = range 1 axis=global
+%w = range 2 axis=warp
+%gg = mul %g 512
+%ww = mul %w 256
+%wo = add %gg %ww
+%c = shrink %C %wo shape=[]
+%a = shrink %A %wo shape=[]
+%m = mma %c %a %B lda=16 ldb=16 ldc=16
+%ew = end %m %w
+%t = range 32 axis=local
+%g32 = mul %g 32
+%ot = add %g32 %t
+%ov = shrink %o %ot shape=[]
+%s = store %ov 1
+%et = end %s %t
+%eg = end %ew %et %g
+%C1 = after %C %eg
+%o1 = after %o %eg

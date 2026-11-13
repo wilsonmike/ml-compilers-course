@@ -36,7 +36,8 @@ for every axis, `o_k`'s interval must satisfy `lo ≥ 0` and `hi + s_k ≤ x.sha
 
 ## 3. Composite ops
 
-Some familiar ops aren't primitives; you build them from these. A matrix multiply `A (M×K) @ B (K×N)`:
+Some familiar ops aren't primitives; you build them from these. A matrix multiply `A (M×K) @ B (K×N)`,
+where `%A` and `%B` are loaded values (memory can't be reshaped, so load the buffers first):
 
 ```
 %a3 = reshape %A shape=[M K 1]

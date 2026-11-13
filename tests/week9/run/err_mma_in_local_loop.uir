@@ -1,0 +1,16 @@
+# expect: invalid
+# inside a kernel, mma runs in a warp loop: one warp of 32 threads does it together, not one thread
+%A = buffer 1024 dtype=i8 slot=0
+%B = buffer 256 dtype=i8 slot=1
+%C = buffer 1024 dtype=i32 slot=2
+%g = range 2 axis=global
+%t = range 2 axis=local
+%gg = mul %g 512
+%tt = mul %t 256
+%o = add %gg %tt
+%c = shrink %C %o shape=[]
+%a = shrink %A %o shape=[]
+%m = mma %c %a %B lda=16 ldb=16 ldc=16
+%et = end %m %t
+%eg = end %et %g
+%C1 = after %C %eg

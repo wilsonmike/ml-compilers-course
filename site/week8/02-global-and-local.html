@@ -56,9 +56,9 @@
 
 <div class="prose">
 <h2>Why week 7's slice rule isn't enough</h2>
-<p>Week 7's rule gave each thread-loop iteration a slice <code>r·S</code> to <code>r·S + S - 1</code>, with one parallel index. Now there are two at once, the block and the thread, and real kernels mix them up. The 512×512 GEMM in the speed test writes element</p>
+<p>Week 7's rule (<a href="../week7/04-threads.html">lesson 7.4</a>) gave each thread-loop iteration a slice <code>r·S</code> to <code>r·S + S - 1</code>, with one parallel index. Now there are two at once, the block and the thread, and real kernels mix them up. The 512×512 GEMM in the speed test writes element</p>
 <pre><code>(16·by + ty)·512 + 16·bx + tx        by = g div 32, bx = g mod 32,  ty = t div 16, tx = t mod 16</code></pre>
-<p>Thread <code>t</code> of block <code>g</code> isn't writing one contiguous slice: block <code>g</code> owns a 16×16 square, spread across 16 rows. We need a rule that sees that.</p>
+<p>The grid is one global loop of 1024 blocks, read as a 32×32 grid of tiles: <code>by</code> is a tile's row and <code>bx</code> its column. The 256 threads of a block are read as 16×16 the same way. So thread <code>t</code> of block <code>g</code> isn't writing one contiguous slice: block <code>g</code> owns a 16×16 square, spread across 16 rows. We need a rule that sees that.</p>
 
 <h2>The mixed-radix rule</h2>
 <p>Write the offset as a sum of terms. A term is a <b>digit</b> when it's a loop index, or that index's <code>div</code> or <code>mod</code> by a literal, times a positive literal coefficient. Every digit has a largest value: <code>n - 1</code> for a loop of <code>n</code>, <code>(n - 1) div k</code> for a <code>div</code>, and <code>k - 1</code> for a <code>mod</code> (or <code>n - 1</code>, if that's smaller). The GEMM's offset expands to four digits:</p>
@@ -74,12 +74,13 @@
 <div class="prose">
 <p>Now sort by coefficient, and check that each one is <b>greater than the most all the smaller digits can add up to</b>: 8192 is more than 7680 + 496 + 15 = 8191, 512 is more than 511, 16 is more than 15. Then the offset is a <b>mixed-radix number</b>, like a time written as hours, minutes and seconds. Two different combinations of digits always give different offsets, for the same reason 2:59 and 3:00 are different times. So no two threads, of the same block or of different blocks, ever write the same element.</p>
 <p>The rule is checked twice, on two pieces of code. Once per local loop, with <code>t</code> as the parallel index and the block fixed: do the block's threads collide? And once over the whole global loop body, with <code>g</code> as the parallel index: do the blocks collide? Loops inside the piece being checked count as digits too, since one thread runs all their iterations.</p>
-<p>Four more parts complete the rule:</p>
+<p>Five more parts complete the rule:</p>
 <ul>
-<li>Terms that don't involve a loop of the code being checked are the same for every thread, so they're ignored: a constant, a loop outside the kernel, and for one phase also the block index and plain loops around the phase.</li>
+<li>Terms that don't involve a loop of the code being checked are the same for every thread, so they're ignored: a constant, a loop outside the kernel, and for one phase (one local loop, lesson 8.3) also the block index and plain loops around the phase.</li>
 <li>A vector access of <code>k</code> elements is a digit too: coefficient 1, largest value <code>k - 1</code>.</li>
+<li>A term that involves an inner loop but isn't a digit, like <code>i * j</code>, counts as a digit of coefficient 1 whose largest value is its largest minus its smallest value, which your bounds analysis from <a href="../week2/03-bounds.html">lesson 2.3</a> computes. If such a term involves the parallel index, the access is invalid.</li>
 <li>Coefficients are positive. <code>7 - t</code> walks backwards through memory, which is perfectly safe, but the rule doesn't try to prove it.</li>
-<li>The offset has to contain the parallel index. <code>o[0]</code> written by every block is the plainest race there is.</li>
+<li>The offset has to pin down the parallel index: the index itself, or both its <code>div k</code> and its <code>mod k</code> by the same <code>k</code>. <code>o[0]</code> written by every block is the plainest race there is. A lone <code>t mod 4</code> is a quieter one: with 8 threads the digits pass, yet threads 0 and 4 write the same element. (A <code>mod k</code> with <code>k</code> larger than the index's largest value is the index itself, so it counts.)</li>
 </ul>
 <p>It applies to every store, and every load of memory the same code also stores into. Memory that's only read can be read anywhere: the GEMM's A and B are read by many blocks at once, which is fine.</p>
 </div>
@@ -93,7 +94,7 @@
 
 <div class="prose">
 <h2>The same expression, every time</h2>
-<p>One more rule: within the code being checked, every access to one buffer must use the <b>same offset expression</b>, the very same nodes, not just the same digits. <code>sh[t]</code> and <code>sh[t + 1]</code> have the same digits, but if thread <code>t</code> stores to <code>sh[t]</code> and loads <code>sh[t + 1]</code>, it reads its neighbor's slot while the neighbor may be writing it. Requiring the identical expression rules that out without any arithmetic. Your hash-consing from week 2 makes the check a pointer comparison.</p>
+<p>One more rule: within the code being checked, every access to one buffer must use the <b>same offset expression</b>: the same terms once the <code>add</code>s are flattened, in any order, not just the same digits. <code>t + 4*g</code> and <code>4*g + t</code> are the same expression. <code>sh[t]</code> and <code>sh[t + 1]</code> have the same digits, but if thread <code>t</code> stores to <code>sh[t]</code> and loads <code>sh[t + 1]</code>, it reads its neighbor's slot while the neighbor may be writing it. Requiring the identical expression rules that out without any arithmetic. Your hash consing from <a href="../week1/01-the-uop.html">lesson 1.1</a> makes each term a pointer, so the check compares two sorted lists of node ids.</p>
 <p>The next lesson explains why reading a neighbor's slot is fine one phase later.</p>
 </div>
 
@@ -120,6 +121,17 @@
 </div>
 <p class="hint">The rule sorts the digits. It doesn't care which one is the block.</p>
 <div class="why"><p>The threads of each block are spread out with stride 4 and the blocks fill the gaps between them. That's still a unique number. On a real GPU this layout is often slower, since neighboring threads write elements 4 apart (16 bytes for f32).</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Blocks <code>b</code> in 0..1, threads <code>t</code> in 0..7. A store goes to <code>o[8b + (t mod 4)]</code>. Is it valid?</p>
+<div class="opts">
+<button data-k="a">Yes: 8 is more than 3, the most <code>t mod 4</code> adds</button>
+<button data-k="b">No: <code>t mod 4</code> alone doesn't pin down <code>t</code>, so threads 0 and 4 write the same element</button>
+<button data-k="c">No: <code>mod</code> isn't allowed in an offset</button>
+</div>
+<p class="hint">Which threads have the same <code>t mod 4</code>?</p>
+<div class="why"><p>The coefficients pass, but the offset only sees <code>t mod 4</code>. Threads 0 and 4, 1 and 5, and so on write the same element. Adding the digit <code>t div 4</code>, as in <code>8b + 4·(t div 4) + (t mod 4)</code>, pins <code>t</code> down.</p></div>
 </div>
 
 <div class="quiz" data-fill="15">

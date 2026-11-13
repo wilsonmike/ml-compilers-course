@@ -19,7 +19,7 @@ or `assert`, and it can't appear inside a call body.
 | `shrink m off` | `shape` (required) | memory m, offset `off` (i32 scalar, any expression) | memory | A view of `m` starting `off` elements in. `shape=[k]` is k elements; `shape=[]` is a single element (rank 0). |
 | `load v` | none | a view (or a whole buffer) | ALU value, the view's dtype and shape | Reads memory. |
 | `store v x` | none | a view (or a whole buffer), a value of the same dtype and shape | void | Writes `x` into the view. |
-| `after m s` | none | memory m, a store s into m | memory, same as m | "m, once s has happened". The new version of m. |
+| `after m s` | none | memory m, a store s into m | memory, same as m | "m, once s has happened". The new version of m. `m` must be a whole version (a `buffer`, an `alloc` or an `after`), not a view. |
 
 `shrink` of a `shrink` is allowed: offsets add up. `shape=[]` views load and store scalars. `load` and `store` also accept a whole buffer, as a view of all of it.
 
@@ -44,8 +44,10 @@ These rules make the order of memory operations total, which is what "fully orde
    views). Two stores into the same version are unordered, so the program is invalid.
 2. **Every store is sequenced.** Each store must be the `s` of exactly one `after`, and that
    `after` must name the version the store writes into. A store nothing sequences is invalid.
-3. A load of version V happens before the store that creates the next version. (Values can't
-   depend on the future, so this is always possible.)
+3. A load of version V happens before the store that creates the next version. This is possible
+   unless the load's inputs (its view's offset, say) depend on a later version of the same storage.
+   Then no order works, and the program is invalid.
+   (`tests/week2/run/err_old_version_needed_late.uir` is an example.)
 
 The **outputs** of a program are the final version of every `buffer`: the version no `after`
 builds on.
@@ -76,9 +78,11 @@ void kernel(T0 *b0, T1 *b1, ...);
 with one pointer per `buffer`, in slot order. `T` is `float` for f32, `int32_t` for i32 and `bool`
 for bool. When the grader calls `kernel` on buffers holding the initial `data`, the buffers must end
 up holding exactly what the oracle says: f32 bit for bit (any NaN matches any NaN). `render` ignores
-asserts. The C must be **loopless** (no `for`, `while`, `goto` or recursion). It may call
-`<math.h>` functions and non-recursive helper functions defined in the same file (a `static inline`
-max for f32, say), and nothing else.
+asserts. The C must be **loopless** (no `for`, `while`, `do`, `goto` or recursion). It may call
+`<math.h>` functions, `memcpy` from `<string.h>` (to move a float's bits into an int and back), and
+non-recursive helper functions defined in the same file (a `static inline` max for f32, say), and nothing
+else. The file is compiled on its own, so it must `#include` what it
+uses (`<stdint.h>`, `<stdbool.h>`, `<math.h>`).
 
 The grader compiles your C with
 

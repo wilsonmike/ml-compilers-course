@@ -1,0 +1,16 @@
+# expect: pass
+# t mod 8 with t in 0..3 is just t, so it pins the thread down on its own
+%o = buffer 8 dtype=i32 slot=0
+%b = range 2 axis=global
+%t = range 4 axis=local
+%b4 = mul %b 4
+%tm = mod %t 8
+%off = add %b4 %tm
+%v = shrink %o %off shape=[]
+%s = store %v %t
+%et = end %s %t
+%eb = end %et %b
+%o1 = after %o %eb
+%l = load %o1
+%w = stack 0 1 2 3 0 1 2 3
+%a = assert %l %w

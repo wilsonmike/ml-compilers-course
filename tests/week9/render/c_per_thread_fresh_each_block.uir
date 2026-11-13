@@ -1,0 +1,42 @@
+# cuda
+# per-thread memory starts at zero in every block, in registers or not
+%x = buffer 24 dtype=i32 slot=0 data=[1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24]
+%o = buffer 24 dtype=i32 slot=1
+%acc = alloc 16 dtype=i32
+%g = range 3 axis=global
+%t = range 4 axis=local
+%e = range 2 axis=upcast
+%v1 = mul %g 8
+%v2 = mul %t 2
+%v3 = add %v1 %v2
+%v4 = add %v3 %e
+%v5 = mul %t 4
+%v6 = add %v5 %e
+%v7 = shrink %acc %v6 shape=[]
+%v8 = load %v7
+%v9 = shrink %x %v4 shape=[]
+%v10 = load %v9
+%v11 = add %v8 %v10
+%v12 = store %v7 %v11
+%v13 = end %v12 %e
+%e1 = end %v13 %t
+%v14 = after %acc %e1
+%t2 = range 4 axis=local
+%f = range 2 axis=upcast
+%v15 = mul %t2 4
+%v16 = add %v15 %f
+%v17 = shrink %v14 %v16 shape=[]
+%v18 = load %v17
+%v19 = mul %g 8
+%v20 = mul %t2 2
+%v21 = add %v19 %v20
+%v22 = add %v21 %f
+%v23 = shrink %o %v22 shape=[]
+%v24 = store %v23 %v18
+%v25 = end %v24 %f
+%v26 = end %v25 %t2
+%v27 = end %e1 %v26 %g
+%o1 = after %o %v27
+%v28 = load %o1
+%v29 = stack 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
+%ok = assert %v28 %v29

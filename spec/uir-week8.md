@@ -31,13 +31,19 @@ a phase's `local` range `t`, and for a kernel's `global` range `g`:
   flat offset as a sum of terms. A term is a **digit** when it's a loop index (the parallel index, or a loop inside
   the code being checked), or that index's `div` or `mod` by a literal, times a positive literal coefficient (`mul i 4`,
   `mul (div g 8) 64`, plain `t`). Terms that don't involve such a loop are the same for every thread and are
-  ignored. Sort the digits by coefficient: each coefficient must be **greater** than the most all the smaller
+  ignored. A term that involves an inner loop but isn't a digit (say `mul i j`) counts as a digit of coefficient 1
+  whose largest value is its largest minus its smallest value. A term that isn't a digit and involves the parallel
+  index is invalid. Sort the digits by coefficient: each coefficient must be **greater** than the most all the smaller
   digits can add up to (`coefficient · largest value`, summed). A vector access of `k` elements adds a digit of
   coefficient 1 and largest value `k - 1`. Then the offset is a mixed-radix number, unique for every combination
   of indices, so no two threads (or blocks) touch the same element.
-* The offset must contain the parallel index (unless its loop has one iteration).
-* Every access to one buffer in that code is at the **same offset expression**. Equal digits aren't enough:
-  `sh[t]` and `sh[t + 1]` have the same digits, but thread `t` would read thread `t + 1`'s slot.
+* The offset must **pin down the parallel index** (unless its loop has one iteration): it contains the index
+  itself, or both its `div k` and its `mod k` by the same literal `k`. A `mod k` alone is enough when `k` is larger
+  than the index's largest value, since then it is the index. Anything less lets two threads share a slot even
+  when the coefficients pass: with 8 threads, `o[4b + (t mod 4)]` sends threads 0 and 4 to the same element.
+* Every access to one buffer in that code is at the **same offset expression**: the same terms after flattening
+  the `add`s, in any order (`t + 4b` and `4b + t` are the same), and the same vector size. Equal digits aren't
+  enough: `sh[t]` and `sh[t + 1]` have the same digits, but thread `t` would read thread `t + 1`'s slot.
 * Memory the code only reads may be read anywhere. So a later phase may read any element of shared memory an earlier
   phase wrote. A buffer is different: the kernel check covers all of a block's phases at once, because other blocks
   run at the same time, so every access to a buffer in the kernel uses one offset expression.
@@ -47,7 +53,8 @@ The phase check covers one `local` loop with the block's other indices fixed. Th
 
 **Shared memory.** An alloc whose every load and store is inside one global loop is the block's shared memory:
 each block starts with its own copy, all zeros (`run` re-zeroes it for every value of `g`, as week 7 does for
-thread loops).
+thread loops). An alloc used in more than one global loop, or outside one, is not shared memory: `run` and `render`
+treat it like a buffer, under the same rules, and `render-cuda` exits 2 because it has nowhere to live on the GPU.
 
 ## 3. `render`
 
@@ -58,8 +65,8 @@ consecutive loops, so the barrier between them is automatic.
 ## 4. `render-cuda FILE`
 
 Prints CUDA C++. The program must be in kernel form: every computation inside a `global` loop at the top level,
-and each kernel using only buffers, literals and its own ranges (values computed outside a kernel would have to come
-from the host). Anything else exits 2 with an `invalid:` line. The output defines:
+and each kernel using only buffers, literals, its own ranges and its own shared memory (values computed outside a
+kernel would have to come from the host, and an alloc used by two kernels has no home on the GPU). Anything else exits 2 with an `invalid:` line. The output defines:
 
 * one `__global__` function per global loop, taking the buffers it uses, with `int32_t g = blockIdx.x`;
 * the block's shared memory as `__shared__` arrays, zeroed by the threads (`for (i = threadIdx.x; i < n;

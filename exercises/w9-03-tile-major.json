@@ -1,0 +1,50 @@
+{
+  "id": "w9-03-tile-major",
+  "lang": "ocaml",
+  "title": "Where does an element go, tile-major?",
+  "show": "string_of_int",
+  "starter": "(* offset of (row, col) in a matrix of cols columns stored as 16x16 tiles, tile after tile *)\nlet tile_major (row : int) (col : int) (cols : int) : int =\n  row * cols + col\n",
+  "hints": [
+    "Which tile: `row / 16` tile rows down and `col / 16` tile columns across. There are `cols / 16` tiles per row of tiles.",
+    "Each tile is 256 elements, so tile number `k` starts at `256 * k`.",
+    "Inside the tile: `(row mod 16) * 16 + col mod 16`."
+  ],
+  "explain": "Tile-major order keeps each 16×16 tile in 256 consecutive elements, so every tile starts at a multiple of 256: 256 bytes for i8, comfortably aligned for the tensor cores. The tiles themselves go in row-major order, `cols / 16` of them per row of tiles. Element `(17, 3)` of a 32×32 matrix is in tile row 1, tile column 0, so tile 2, at row 1 and column 3 inside it: `2 * 256 + 1 * 16 + 3 = 531`.",
+  "tests": [
+    {
+      "expr": "tile_major 0 0 32",
+      "expect": "0",
+      "sample": true
+    },
+    {
+      "expr": "tile_major 0 16 32",
+      "expect": "256",
+      "sample": true
+    },
+    {
+      "expr": "tile_major 17 3 32",
+      "expect": "531",
+      "sample": true
+    },
+    {
+      "expr": "tile_major 15 15 16",
+      "expect": "255"
+    },
+    {
+      "expr": "tile_major 1 0 64",
+      "expect": "16"
+    },
+    {
+      "expr": "tile_major 16 0 64",
+      "expect": "1024"
+    },
+    {
+      "expr": "tile_major 31 63 64",
+      "expect": "2047"
+    },
+    {
+      "expr": "tile_major 40 20 48",
+      "expect": "1924"
+    }
+  ]
+}

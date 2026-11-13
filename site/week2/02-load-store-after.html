@@ -43,7 +43,7 @@
 <div class="fig" id="chain" data-title="a chain of versions"></div>
 
 <div class="prose">
-<p>The rule that keeps this honest: <code>after m s</code> must name the version the store writes into. <code>after %b1 %s</code> is invalid when <code>%s</code> wrote into <code>%b</code>.</p>
+<p>The rule that keeps this honest: <code>after m s</code> must name the version the store writes into. <code>after %b1 %s</code> is invalid when <code>%s</code> wrote into <code>%b</code>. Its first operand must also be a whole version, not a view: <code>after %e %s</code> is invalid even though <code>%s</code> stored through <code>%e</code>.</p>
 <p>The <strong>outputs</strong> of a program are the final version of each buffer: the one no <code>after</code> builds on. That's what a caller sees when the kernel returns.</p>
 </div>
 
@@ -73,7 +73,7 @@
 
 <div class="prose">
 <h2>The old-version trap</h2>
-<p>Rule 3 sounds like it can never fail, because a load of V doesn't depend on the store that comes after V. It can fail, though, when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer:</p>
+<p>Rule 3 sounds like it can never fail, because a load of V doesn't depend on the store that comes after V. It can fail, though, when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer. The <code>max</code> and <code>mod</code> only keep that index provably in range, which <a href="03-bounds.html">lesson 3</a> explains, so you can ignore them for now:</p>
 <pre><code>%b  = buffer 2 dtype=i32 slot=0 data=[1 0]
 %e0 = shrink %b 0 shape=[]
 %s  = store %e0 0

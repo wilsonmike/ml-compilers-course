@@ -116,6 +116,21 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 <p class="muted">Leave everything else alone. <code>Add (Const 1, Add (Const 2, Var "y"))</code> becomes <code>(y + 3)</code>, which takes three rules in a row.</p>
 </div>
 
+<div class="prose">
+<h2>From a tree to a shared DAG</h2>
+<p>The toy works on a tree, so a shared subexpression gets simplified once per path that reaches it. On a hash-consed graph that can be exponential: a chain of 300 lines like <code>%x2 = add %x1 %x1</code> has 2<sup>300</sup> paths, and rebuilding it as a tree splits every shared node into copies. Instead, walk the graph sources first (the toposort from <a href="../week0/03-compilers-and-irs.html">lesson 0.3</a>) and keep a memo from each old node to its new node:</p>
+<pre><code>simplify root:
+  new = empty map, keyed by node identity
+  for u in toposort(root):
+    n = mk(u.op, [new[s] for s in u.src], u.arg, u.dtype, u.shape)
+    while a rule rewrites n to some r that is not n:
+      n = r
+    new[u] = n
+  if new[root] is root: return root
+  return simplify(new[root])</code></pre>
+<p><code>mk</code> is your hash-cons constructor, and the rules build their results with it too. Every node is visited once per pass, and two rebuilt nodes that come out equal are the same node again, so <code>xor(x, x) → 0</code> still sees one object on both sides.</p>
+</div>
+
 <div class="key">
 <span class="label">Key idea</span>
 <p>A simplifier is a small set of local, obviously-correct rules plus a dumb loop. All the cleverness lives in choosing rules, and every rule has to give exactly the same answer as the interpreter on every input.</p>

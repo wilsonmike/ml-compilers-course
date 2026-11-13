@@ -1,0 +1,42 @@
+{
+  "id": "w9-05-online-py",
+  "lang": "python",
+  "title": "Softmax in one pass",
+  "prompt": "<p>Fold scores into a softmax one at a time, keeping two numbers: the largest score so far, <code>m</code> (starting at minus infinity), and <code>l</code>, the sum of <code>exp(s - m)</code> over the scores so far (starting at 0). Write <code>online(scores)</code> returning <code>(m, l)</code>. When a score raises the max, the old sum was relative to the old max: rescale it.</p>",
+  "show": "lambda v: f'{v[0]:.4f} {v[1]:.4f}'",
+  "starter": "import math\n\ndef online(scores: list[float]) -> tuple[float, float]:\n    \"\"\"the running max m and sum l of exp(s - m), in one pass over the scores\"\"\"\n    m, l = -math.inf, 0.0\n    for s in scores:\n        m = max(m, s)\n        l = l + math.exp(s - m)\n    return m, l\n",
+  "tests": [
+    {
+      "expr": "online([3.0, 2.0, 1.0])",
+      "sample": true,
+      "expect": "3.0000 1.5032"
+    },
+    {
+      "expr": "online([1.0, 2.0, 3.0])",
+      "sample": true,
+      "expect": "3.0000 1.5032"
+    },
+    {
+      "expr": "online([0.5])",
+      "expect": "0.5000 1.0000"
+    },
+    {
+      "expr": "online([2.0, 2.0])",
+      "expect": "2.0000 2.0000"
+    },
+    {
+      "expr": "online([-1.0, 4.0, 0.0, 5.0])",
+      "expect": "5.0000 1.3771"
+    },
+    {
+      "expr": "online([10.0, -10.0, 20.0])",
+      "expect": "20.0000 1.0000"
+    }
+  ],
+  "hints": [
+    "Keep the old max before updating it: <code>m_new = max(m, s)</code>.",
+    "Rescale the old sum by <code>exp(m - m_new)</code>, then add <code>exp(s - m_new)</code>.",
+    "At the start <code>m</code> is minus infinity and <code>l</code> is 0, and <code>exp(-inf)</code> is 0, so the first score needs no special case."
+  ],
+  "explain": "When a bigger score arrives, every term already in <code>l</code> was computed against the old max. Multiplying by <code>exp(m_old - m_new)</code> converts them all at once: <code>exp(s - m_old)·exp(m_old - m_new) = exp(s - m_new)</code>. So one pass gives the same <code>(m, l)</code> as computing the max first and the sum second, up to rounding. That's what lets flash attention stream keys through shared memory and never store a whole row of scores. The starter forgets the rescale, so it's only right while the max never changes, as in <code>[3, 2, 1]</code>."
+}

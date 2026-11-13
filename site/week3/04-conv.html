@@ -115,18 +115,51 @@
 <p>A 2D input of H rows and W columns lives in a flat row-major buffer, so element <code>(r, c)</code> is at <code>r*W + c</code> (lesson 0.4). A valid 2D convolution with a KH by KW kernel has four loops: output row and column, kernel row and column.</p>
 <pre><code>y[oi*OW + oj] = sum over ki, kj of x[(oi + ki)*W + (oj + kj)] * w[ki*KW + kj]
 OH = H - KH + 1,  OW = W - KW + 1</code></pre>
-<p>Every offset is a sum of products of ranges and constants, so the interval analysis proves it automatically. For a 4 by 4 input and a 2 by 2 kernel, <code>oi</code> is in [0, 2] and <code>ki</code> in [0, 1], so <code>oi + ki</code> is in [0, 3], and the same goes for <code>oj + kj</code>. That puts <code>(oi + ki)*4 + (oj + kj)</code> in [0, 3*4 + 3] = [0, 15]. The oracle's C for that program hoists each index computation to the shallowest loop it can live in:</p>
+<p>Every offset is a sum of products of ranges and constants, so the interval analysis proves it automatically. For a 4 by 4 input and a 2 by 2 kernel, <code>oi</code> is in [0, 2] and <code>ki</code> in [0, 1], so <code>oi + ki</code> is in [0, 3], and the same goes for <code>oj + kj</code>. That puts <code>(oi + ki)*4 + (oj + kj)</code> in [0, 3*4 + 3] = [0, 15]. Here is that program in .uir, from <code>tests/week3/run/conv2d_valid.uir</code> without its data and assert. <code>%oy</code>, <code>%ox</code>, <code>%ky</code> and <code>%kx</code> are <code>oi</code>, <code>oj</code>, <code>ki</code> and <code>kj</code>, and the reset and the accumulation follow the 1D pattern above:</p>
+<pre><code>%X = buffer 16 dtype=f32 slot=0
+%W = buffer 4 dtype=f32 slot=1
+%Y = buffer 9 dtype=f32 slot=2
+%oy = range 3
+%ox = range 3
+%v5 = mul %oy 3
+%v6 = add %v5 %ox
+%v7 = shrink %Y %v6 shape=[]
+%v8 = store %v7 0.0
+%v9 = after %Y %v8
+%ky = range 2
+%kx = range 2
+%v12 = add %oy %ky
+%v13 = add %ox %kx
+%v14 = mul %v12 4
+%v15 = add %v14 %v13
+%v16 = shrink %X %v15 shape=[]
+%v17 = load %v16
+%v18 = mul %ky 2
+%v19 = add %v18 %kx
+%v20 = shrink %W %v19 shape=[]
+%v21 = load %v20
+%v22 = mul %v17 %v21
+%v23 = shrink %v9 %v6 shape=[]
+%v24 = load %v23
+%v25 = add %v24 %v22
+%v26 = store %v23 %v25
+%v27 = end %v26 %kx
+%v28 = end %v27 %ky
+%v29 = end %v28 %ox
+%v30 = end %v29 %oy
+%Y1 = after %Y %v30</code></pre>
+<p>The oracle's C for it hoists each index computation to the shallowest loop it can live in:</p>
 <pre><code>for (int32_t r7 = 0; r7 &lt; 3; r7++) {               // oi
   int32_t v8 = (int32_t)((uint32_t)r7 * (uint32_t)3);
   for (int32_t r9 = 0; r9 &lt; 3; r9++) {             // oj
     int32_t v10 = (int32_t)((uint32_t)v8 + (uint32_t)r9);
-    b2[v10] = 0;
+    b2[v10] = 0x0.0p+0f;
     for (int32_t r15 = 0; r15 &lt; 2; r15++) {        // ki
       int32_t v16 = (int32_t)((uint32_t)r7 + (uint32_t)r15);
       int32_t v17 = (int32_t)((uint32_t)v16 * (uint32_t)4);
       int32_t v18 = (int32_t)((uint32_t)r15 * (uint32_t)2);
       for (int32_t r19 = 0; r19 &lt; 2; r19++) {      // kj
-        int32_t v20 = b2[v10];
+        float v20 = b2[v10];
         ...</code></pre>
 <p>Lesson 5 explains where each of those lines goes and why.</p>
 </div>
@@ -174,7 +207,7 @@ OH = H - KH + 1,  OW = W - KW + 1</code></pre>
 </div>
 <p class="hint">Work out each interval. C's <code>mod</code> takes the sign of the left operand.</p>
 <p class="hint">A view of one element at offset [lo, hi] needs lo ≥ 0 and hi + 1 ≤ 6.</p>
-<div class="why"><p><code>mod j 6</code> is in [-5, 5], because <code>j</code> can be negative. <code>max j 0</code> is in [0, 6], one past the end. Only <code>mod (max j 0) 6</code> is in [0, 5]. The oracle rejects the other three. A <code>where</code> never narrows an interval.</p></div>
+<div class="why"><p><code>mod j 6</code> is in [-5, 5] by the oracle's rule, because <code>j</code> can be negative. Lesson 2.3's tighter rule gives [-1, 5]. Both are sound, and both start below 0. <code>max j 0</code> is in [0, 6], one past the end. Only <code>mod (max j 0) 6</code> is in [0, 5]. The oracle rejects the other three. A <code>where</code> never narrows an interval.</p></div>
 </div>
 
 <div class="quiz" data-answer="b">

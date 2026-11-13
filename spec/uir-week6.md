@@ -304,7 +304,8 @@ Movement ops move numbers without changing them, so how you write them doesn't c
 must match exactly is the arithmetic: the shares above and the order you add contributions up in.
 
 `detach x` is how you say "treat this as a constant". The classic use is the max subtracted for a stable
-softmax: its gradient cancels out mathematically, so detaching it saves work and changes nothing else.
+softmax: its gradient cancels out mathematically, so detaching it saves work and changes nothing in exact
+math. In f32 the cancelling terms round, so the gradient's bits can differ with and without it.
 
 ## 5. Buffers from files
 

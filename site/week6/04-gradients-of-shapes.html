@@ -66,9 +66,10 @@
 <h2>matmul needs no rule</h2>
 <p><code>matmul</code> is sugar for reshape, permute, expand, mul and reduce, and each of those has a rule. Run them backward and the textbook result appears by itself. Say A is <code>M×K</code> and B is <code>K×N</code>. For <code>C = A @ B</code> with <code>G = ∂y/∂C</code>:</p>
 <ul>
-<li>The reduce over k expands <code>G</code> back along the k axis.</li>
+<li>The reduce over k reshapes <code>G</code> (<code>M×N</code>) to <code>1×M×N</code> and expands it back along the k axis: <code>K×M×N</code>.</li>
 <li>The mul sends A's copy <code>G · B</code>, and B's copy <code>G · A</code>, elementwise on the <code>K×M×N</code> block.</li>
-<li>A's expand sums over the N axis it grew, and its permute and reshape move the result back into place.</li>
+<li>A's expand grew the N axis. Its gradient permutes N to the front (<code>N×K×M</code>), reduces it away (<code>K×M</code>) and reshapes to <code>K×M×1</code>. The permute's gradient gives <code>M×K×1</code>, and the reshape's gives <code>M×K</code>, A's shape.</li>
+<li>B's expand grew the M axis: permute (<code>M×K×N</code>), reduce (<code>K×N</code>), reshape (<code>K×1×N</code>), and the reshape's gradient gives <code>K×N</code>, B's shape.</li>
 </ul>
 <p>The result is <code>∂y/∂A = G Bᵀ</code> and <code>∂y/∂B = Aᵀ G</code>, the two matmuls every deep learning library hard-codes. Your compiler derives them.</p>
 </div>

@@ -1,0 +1,12 @@
+# expect: invalid
+# an mma directly in a global loop would run on every thread of the block
+%A = buffer 512 dtype=i8 slot=0
+%B = buffer 256 dtype=i8 slot=1
+%C = buffer 512 dtype=i32 slot=2
+%g = range 2 axis=global
+%o = mul %g 256
+%c = shrink %C %o shape=[]
+%a = shrink %A %o shape=[]
+%m = mma %c %a %B lda=16 ldb=16 ldc=16
+%eg = end %m %g
+%C1 = after %C %eg

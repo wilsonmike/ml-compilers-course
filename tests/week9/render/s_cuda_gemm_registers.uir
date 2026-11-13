@@ -1,0 +1,116 @@
+# cuda speed: 0.8
+# time: 120
+# a 768x768 f32 GEMM with 4x4 register tiles: at least 0.8 of the reference's speed. Its sums must live in
+# registers: in shared memory the same kernel runs at about 0.67
+%A = buffer 589824 dtype=f32 slot=0 url=data/a768.f32 sha256=adbdb064138354ba6817080a8d25696c5e0a8ceb9fb99caad3c3bcbe5310f1b8
+%B = buffer 589824 dtype=f32 slot=1 url=data/b768.f32 sha256=481612a2428ee8721106a9723dd605fd54cbe074d4e8b251473c27ac144a0d5b
+%C = buffer 589824 dtype=f32 slot=2
+%As = alloc 1024 dtype=f32
+%Bs = alloc 1024 dtype=f32
+%acc = alloc 4096 dtype=f32
+%g = range 144 axis=global
+%by = div %g 12
+%bx = mod %g 12
+%kt = range 48
+# phase 1: copy the 64x16 A tile and the 16x64 B tile into shared memory, 4 elements of each per thread
+%t = range 256 axis=local
+%q = range 4 axis=upcast
+%v1 = mul %by 49152
+%v2 = mul %q 12288
+%v3 = div %t 16
+%v4 = mul %v3 768
+%v5 = mul %kt 16
+%v6 = mod %t 16
+%v7 = add %v1 %v2
+%v8 = add %v7 %v4
+%v9 = add %v8 %v5
+%v10 = add %v9 %v6
+%v11 = mul %q 256
+%v12 = add %v11 %t
+%v13 = shrink %As %v12 shape=[]
+%v14 = shrink %A %v10 shape=[]
+%v15 = load %v14
+%v16 = store %v13 %v15
+%v17 = mul %kt 12288
+%v18 = mul %q 3072
+%v19 = div %t 64
+%v20 = mul %v19 768
+%v21 = mul %bx 64
+%v22 = mod %t 64
+%v23 = add %v17 %v18
+%v24 = add %v23 %v20
+%v25 = add %v24 %v21
+%v26 = add %v25 %v22
+%v27 = mul %q 256
+%v28 = add %v27 %t
+%v29 = shrink %Bs %v28 shape=[]
+%v30 = shrink %B %v26 shape=[]
+%v31 = load %v30
+%v32 = store %v29 %v31
+%v33 = end %v16 %v32 %q
+%e1 = end %v33 %t
+%v34 = after %As %e1
+%v35 = after %Bs %e1
+# phase 2: thread t = (ty, tx) adds As[ty*4 + i][kk] * Bs[kk][tx*4 + j] into its acc, for its 4x4 piece
+%t2 = range 256 axis=local
+%kk = range 16
+%i = range 4 axis=upcast
+%j = range 4 axis=upcast
+%v36 = div %t2 16
+%v37 = mod %t2 16
+%v38 = mul %v36 64
+%v39 = mul %i 16
+%v40 = add %v38 %v39
+%v41 = add %v40 %kk
+%v42 = shrink %v34 %v41 shape=[]
+%v43 = load %v42
+%v44 = mul %kk 64
+%v45 = mul %v37 4
+%v46 = add %v44 %v45
+%v47 = add %v46 %j
+%v48 = shrink %v35 %v47 shape=[]
+%v49 = load %v48
+%v50 = mul %t2 16
+%v51 = mul %i 4
+%v52 = add %v50 %v51
+%v53 = add %v52 %j
+%v54 = shrink %acc %v53 shape=[]
+%v55 = load %v54
+%v56 = mul %v43 %v49
+%v57 = add %v55 %v56
+%v58 = store %v54 %v57
+%v59 = end %v58 %j
+%v60 = end %v59 %i
+%v61 = end %v60 %kk
+%v62 = end %v61 %t2
+%ekt = end %e1 %v62 %kt
+%v63 = after %acc %ekt
+# phase 3: each thread writes its 4x4 piece of C
+%t3 = range 256 axis=local
+%i3 = range 4 axis=upcast
+%j3 = range 4 axis=upcast
+%v64 = div %t3 16
+%v65 = mod %t3 16
+%v66 = mul %t3 16
+%v67 = mul %i3 4
+%v68 = add %v66 %v67
+%v69 = add %v68 %j3
+%v70 = shrink %v63 %v69 shape=[]
+%v71 = load %v70
+%v72 = mul %by 49152
+%v73 = mul %v64 3072
+%v74 = mul %i3 768
+%v75 = mul %bx 64
+%v76 = mul %v65 4
+%v77 = add %v72 %v73
+%v78 = add %v77 %v74
+%v79 = add %v78 %v75
+%v80 = add %v79 %v76
+%v81 = add %v80 %j3
+%v82 = shrink %C %v81 shape=[]
+%v83 = store %v82 %v71
+%v84 = end %v83 %j3
+%v85 = end %v84 %i3
+%v86 = end %v85 %t3
+%v87 = end %ekt %v86 %g
+%C1 = after %C %v87

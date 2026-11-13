@@ -1,0 +1,16 @@
+# expect: pass
+# cast to i8 keeps the low 8 bits, as two's complement: 200 -> -56, -129 -> 127, 1000 -> -24
+%x = buffer 6 dtype=i32 slot=0 data=[200 -129 127 -128 255 1000]
+%y = buffer 6 dtype=i8 slot=1
+%r = range 6
+%v1 = shrink %x %r shape=[]
+%v2 = load %v1
+%v3 = shrink %y %r shape=[]
+%v4 = cast %v2 dtype=i8
+%v5 = store %v3 %v4
+%v6 = end %v5 %r
+%y1 = after %y %v6
+%v7 = load %y1
+%v8 = cast %v7 dtype=i32
+%v9 = stack -56 127 127 -128 -1 -24
+%ok = assert %v8 %v9

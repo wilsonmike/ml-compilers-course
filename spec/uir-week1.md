@@ -104,7 +104,9 @@ NaNs count as equal.
   %r     = call %outer 5    # 10
   ```
 * Every param reachable from the body must have an arg with a matching dtype and shape. Extra args
-  are allowed and ignored. This is a static (type) check.
+  are allowed. This is a static (type) check.
+* A call evaluates all of its args before the body, extra ones included. So `call %b 1 %e` with
+  `%e = div 1 0` is a runtime error (exit 2) when an assert needs it, even if `%b` has no `param 1`.
 * One slot used with two different types in the same expression is a static error, whether or
   not anything calls it.
 * A `param` evaluated outside any call is a runtime error.

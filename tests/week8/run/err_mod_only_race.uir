@@ -1,0 +1,13 @@
+# expect: invalid
+# 8 threads write o[4b + (t mod 4)]: the digits pass the coefficient check, but threads 0 and 4 share a slot
+%o = buffer 8 dtype=i32 slot=0
+%b = range 2 axis=global
+%t = range 8 axis=local
+%b4 = mul %b 4
+%tm = mod %t 4
+%off = add %b4 %tm
+%v = shrink %o %off shape=[]
+%s = store %v %t
+%et = end %s %t
+%eb = end %et %b
+%o1 = after %o %eb

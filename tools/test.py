@@ -148,7 +148,7 @@ def grade_simplify(cmd, text, max_ops):
 
 CC = next((shutil.which(c) for c in ('clang', 'gcc') if shutil.which(c)), None)
 CFLAGS = ['-std=c11', '-O2', '-ffp-contract=off', '-fsanitize=undefined', '-fsanitize-trap=undefined']
-CT = {'f32': 'float', 'i32': 'int32_t', 'bool': 'bool'}
+CT = {'f32': 'float', 'i32': 'int32_t', 'bool': 'bool', 'i8': 'int8_t'}
 
 def strip_c(src):
   # drop comments and string/char literals before looking for loops
@@ -292,11 +292,13 @@ EMULATOR = r"""// The grader's CUDA emulator: compiles your .cu as C++. Blocks r
 // are real threads, so a missing __syncthreads() shows up as a race, not as luck.
 #include <pthread.h>
 #include <functional>
+#include <type_traits>
 #include <vector>
 #define __global__
 #define __device__
 #define __shared__ static
 #define __restrict__
+#define __align__(n) __attribute__((aligned(n)))
 struct uir_dim { int x; };
 static thread_local uir_dim threadIdx, blockIdx;
 static uir_dim blockDim;
@@ -310,6 +312,50 @@ static void __syncthreads() {
   else while (g == uir_gen) pthread_cond_wait(&uir_c, &uir_m);
   pthread_mutex_unlock(&uir_m);
 }
+// week 9: a warp's 32 threads wait for each other at __syncwarp(), and wmma runs a warp's tile on the CPU.
+// Every lane computes the whole tile; lane 0 stores it, between two warp barriers.
+static pthread_mutex_t uir_wm = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t uir_wc = PTHREAD_COND_INITIALIZER;
+static int uir_wwait[32], uir_wgen[32];
+static void __syncwarp(unsigned = 0xffffffffu) {
+  int w = threadIdx.x / 32, n = blockDim.x - 32 * w; if (n > 32) n = 32;
+  pthread_mutex_lock(&uir_wm);
+  int g = uir_wgen[w];
+  if (++uir_wwait[w] == n) { uir_wwait[w] = 0; uir_wgen[w]++; pthread_cond_broadcast(&uir_wc); }
+  else while (g == uir_wgen[w]) pthread_cond_wait(&uir_wc, &uir_wm);
+  pthread_mutex_unlock(&uir_wm);
+}
+namespace wmma {
+struct matrix_a {}; struct matrix_b {}; struct accumulator {}; struct row_major {}; struct col_major {};
+enum layout_t { mem_row_major, mem_col_major };
+template <class Use, int M, int N, int K, class T, class L = void> struct fragment {
+  static_assert(M == 16 && N == 16 && K == 16, "the emulator has 16x16x16 tiles only");
+  enum { num_elements = 256 }; T x[256];
+};
+template <class Use, class T, class L> void load_matrix_sync(fragment<Use, 16, 16, 16, T, L> &f, const T *p, unsigned ld) {
+  bool col = std::is_same<L, col_major>::value;
+  for (int i = 0; i < 16; i++) for (int j = 0; j < 16; j++) f.x[i * 16 + j] = col ? p[j * ld + i] : p[i * ld + j];
+}
+template <class T> void load_matrix_sync(fragment<accumulator, 16, 16, 16, T> &f, const T *p, unsigned ld, layout_t l) {
+  for (int i = 0; i < 16; i++) for (int j = 0; j < 16; j++) f.x[i * 16 + j] = l == mem_col_major ? p[j * ld + i] : p[i * ld + j];
+}
+template <class T> void store_matrix_sync(T *p, const fragment<accumulator, 16, 16, 16, T> &f, unsigned ld, layout_t l) {
+  __syncwarp();
+  if (threadIdx.x % 32 == 0) for (int i = 0; i < 16; i++) for (int j = 0; j < 16; j++) (l == mem_col_major ? p[j * ld + i] : p[i * ld + j]) = f.x[i * 16 + j];
+  __syncwarp();
+}
+template <class F, class V> void fill_fragment(F &f, V v) { for (auto &e : f.x) e = v; }
+template <class LA, class LB> void mma_sync(fragment<accumulator, 16, 16, 16, int> &d, const fragment<matrix_a, 16, 16, 16, signed char, LA> &a,
+                                            const fragment<matrix_b, 16, 16, 16, signed char, LB> &b, const fragment<accumulator, 16, 16, 16, int> &c) {
+  int r[256];
+  for (int i = 0; i < 16; i++) for (int j = 0; j < 16; j++) {
+    unsigned s = (unsigned)c.x[i * 16 + j];
+    for (int k = 0; k < 16; k++) s += (unsigned)((int)a.x[i * 16 + k] * (int)b.x[k * 16 + j]);
+    r[i * 16 + j] = (int)s;
+  }
+  for (int e = 0; e < 256; e++) d.x[e] = r[e];
+}
+}
 struct uir_job { int b, t; std::function<void()> *f; };
 static void *uir_thread(void *p) { uir_job *j = (uir_job *)p; blockIdx.x = j->b; threadIdx.x = j->t; (*j->f)(); return 0; }
 static void uir_launch(int grid, int block, std::function<void()> f) {
@@ -322,7 +368,8 @@ static void uir_launch(int grid, int block, std::function<void()> f) {
 }
 #define UIR_LAUNCH(k, g, b, ...) uir_launch((g), (b), [&] { k(__VA_ARGS__); })
 """
-CUDA_PRELUDE = "#define UIR_LAUNCH(k, g, b, ...) do { if ((g) > 0) k<<<(g), (b)>>>(__VA_ARGS__); } while (0)\n"
+CUDA_PRELUDE = ("#include <mma.h>\nusing namespace nvcuda;   /* week 9: wmma:: for tensor cores */\n"
+                "#define UIR_LAUNCH(k, g, b, ...) do { if ((g) > 0) k<<<(g), (b)>>>(__VA_ARGS__); } while (0)\n")
 
 def local_blobs(h, names, d):
   """Copy url= data files next to the harness and open them by name, so the build also works inside a container."""
@@ -346,15 +393,15 @@ def cuda_timed_harness(names):
            '  float ms_; cudaEventElapsedTime(&ms_, e0, e1); fprintf(stderr, "kernel %.9f\\n", ms_ / 1000.0);\n')
   return '#include <cuda_runtime.h>\n' + h.replace(call + '\n', dev + timed)
 
-def cuda_speed(out, names, speed):
+def cuda_speed(out, names, speed, week=None):
   """# cuda speed: X. Real CUDA only: your kernel against the reference's, best of 3, interleaved."""
-  ref = O.render_c(names, 'cuda')
+  ref = O.render_c(names, 'cuda', week)
   with tempfile.TemporaryDirectory() as d:
     for tag, src in (('mine', out), ('ref', ref)):
       open(os.path.join(d, f'{tag}.cu'), 'w', encoding='utf-8').write(src)
     open(os.path.join(d, 'main.cu'), 'w', encoding='utf-8').write(local_blobs(cuda_timed_harness(names), names, d))
     open(os.path.join(d, 'prelude.h'), 'w', encoding='utf-8').write(CUDA_PRELUDE)
-    nv = "nvcc -O2 -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h"
+    nv = "nvcc -O2 -arch=native -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h"
     script = (f"{nv} mine.cu main.cu -o mine && {nv} ref.cu main.cu -o ref && "
               "for i in 1 2 3; do ./mine 2>&1 >/dev/null | sed 's/^/mine /'; ./ref 2>&1 >/dev/null | sed 's/^/ref /'; done")
     cmd = (['docker', 'run', '--rm', '--gpus', 'all', '-v', f"{d}:/w", '-w', '/w', '--entrypoint', 'sh', CUDA_DOCKER, '-c', script]
@@ -421,7 +468,7 @@ def grade_cuda(cmd, text, base=None, h=None):
     open(os.path.join(d, 'main.cu'), 'w', encoding='utf-8').write(local_blobs(cuda_harness(names, real), names, d))
     open(os.path.join(d, 'prelude.h'), 'w', encoding='utf-8').write(CUDA_PRELUDE if real else EMULATOR)
     if real:
-      build = "nvcc -O2 -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h kernel.cu main.cu -o a.out"
+      build = "nvcc -O2 -arch=native -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h kernel.cu main.cu -o a.out"
       run_cmd = (['docker', 'run', '--rm', '--gpus', 'all', '-v', f"{d}:/w", '-w', '/w', '--entrypoint', 'sh', CUDA_DOCKER, '-c', build + ' && ./a.out']
                  if CUDA_DOCKER and not NVCC else ['sh', '-c', build + ' && ./a.out'])
       try: r = subprocess.run(run_cmd, capture_output=True, timeout=300, cwd=d)
@@ -446,7 +493,7 @@ def grade_cuda(cmd, text, base=None, h=None):
         gb = struct.pack('<I', int(y, 16)); ok = (math.isnan(x) and math.isnan(struct.unpack('<f', gb)[0])) or O.fbits(x) == gb
       else: ok = int(y) == int(x)
       if not ok: return f"buffer {slot}[{i}]: expected {x!r}, your kernel left {y}" + ("" if real else " (in the emulator)")
-  if h and h.get('cuda_speed') and real: return cuda_speed(out, names, h['cuda_speed'])   # without a GPU: bits only
+  if h and h.get('cuda_speed') and real: return cuda_speed(out, names, h['cuda_speed'], next((int(m) for m in re.findall(r'week(\d+)', base or '')), None))   # without a GPU: bits only
   return None
 
 def show(args): return ', '.join(f"param {i} = {a.arg if a.op == 'const' else [s.arg for s in a.src]!r}" for i, a in enumerate(args))

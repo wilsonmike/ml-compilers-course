@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 9 Study Guide</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Week 9 makes GPU kernels fast without changing a bit: each thread keeps its own working set in registers, and warps hand 16×16 tile products to the tensor...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/week9">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 9 Study Guide">
+<meta property="og:description" content="Week 9 makes GPU kernels fast without changing a bit: each thread keeps its own working set in registers, and warps hand 16×16 tile products to the tensor cores. With those two, the week builds a...">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/week9">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 9 study guide</h1>
+  <p class="lede">Week 9 makes GPU kernels fast without changing a bit: each thread keeps its own working set in registers, and warps hand 16×16 tile products to the tensor cores. With those two, the week builds a GEMM, a convolution and flash attention. This page recaps the week, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week9/01-registers.html">9.1 Registers and register tiles</a></h3>
+  <p>A thread that makes a 4×4 piece of C does 16 multiply-adds for 8 loads, four times week 8's reuse. Its sums live in an alloc at <code>t·S + e</code>. When every access to an alloc is inside a local loop at that shape, one <code>S</code> throughout, it's per-thread: still shared memory in meaning, but <code>render-cuda</code> may give each thread its own array, which is registers when every <code>e</code> is a literal. A later phase reading another thread's slice keeps it shared.</p>
+  <h3><a href="../week9/02-fast-gemm.html">9.2 Fast GEMMs</a></h3>
+  <p>A <code>BM×BN</code> tile does <code>BM·BN / (BM + BN)</code> multiply-adds per value loaded, at every level of the memory ladder. The roofline: time is at least the larger of arithmetic time and memory time. Coalesced loads (neighbor threads, neighbor addresses), enough warps per SM, vector loads, double buffering and conflict-free shared memory do the rest.</p>
+  <h3><a href="../week9/03-tensor-cores.html">9.3 Tensor cores</a></h3>
+  <p>A warp-wide instruction multiplies 16×16 tiles, 4,096 multiply-adds. Float tensor cores don't round like the interpreter, so .uir uses <code>i8</code> inputs and an <code>i32</code> accumulator, which are exact. <code>mma C A B lda= ldb= ldc=</code> is an effect like a store. <code>axis=warp</code> is a phase run by whole warps. Tiles start 32-byte aligned, which tile-major storage makes easy.</p>
+  <h3><a href="../week9/04-convolutions.html">9.4 Convolutions</a></h3>
+  <p>A convolution is a GEMM of the im2col matrix (each output pixel's window, as a row) and the filters. Writing im2col out copies inputs up to 9 times, so fast kernels compute it on the fly. The test kernel stages three input rows and 8 filters in shared memory and keeps 8 sums per thread in registers. Its speed is limited elsewhere: measure before optimizing.</p>
+  <h3><a href="../week9/05-flash-attention.html">9.5 Flash attention</a></h3>
+  <p>Keep a running max <code>m</code> and sum <code>l</code>, and rescale by <code>exp(m_old - m_new)</code> when the max grows. Then attention streams keys and values through shared memory and never writes the <code>S×S</code> scores. Each thread's query row, sums and running max are per-thread memory. Flash gives the same math as the obvious version, not the same bits.</p>
+  <h3><a href="../week9/06-lab.html">9.6 Lab</a></h3>
+  <p>The suite has 53 tests: run tests for <code>i8</code>, <code>mma</code>, warp loops and their rules, <code>r_</code> tests for the CPU render, <code>c_</code> tests for CUDA, and four GPU speed tests. Weeks 1 to 8 must stay green.</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>.uir</th><th>run</th><th>render (CPU)</th><th>render-cuda</th></tr></thead>
+    <tbody>
+      <tr><td><code>dtype=i8</code></td><td>-128 to 127, cast from <code>i32</code> keeps the low 8 bits</td><td><code>int8_t</code></td><td><code>int8_t</code></td></tr>
+      <tr><td><code>mma C A B</code></td><td><code>C += A·B</code> on 16×16 tiles, wrapping</td><td>loops in <code>uint32_t</code></td><td><code>wmma</code> load, <code>mma_sync</code>, store, <code>__syncwarp()</code></td></tr>
+      <tr><td><code>axis=warp</code></td><td>a loop</td><td>a loop</td><td><code>{ int32_t w = threadIdx.x / 32; ... }</code> then <code>__syncthreads();</code></td></tr>
+      <tr><td>per-thread alloc</td><td>shared memory, zeros per block</td><td>as before</td><td><code>T a[S] = {0};</code> per thread, index <code>offset - t·S</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>rule</th><th>value</th></tr></thead>
+    <tbody>
+      <tr><td><code>lda</code>, <code>ldb</code>, <code>ldc</code></td><td>literal multiples of 16</td></tr>
+      <tr><td>A and B offsets</td><td>every term a multiple of 32</td></tr>
+      <tr><td>C offset</td><td>every term a multiple of 8</td></tr>
+      <tr><td>a tile reaches</td><td><code>15·ld + 16</code> elements past its offset</td></tr>
+      <tr><td>an mma's C tile in the race rule</td><td>two more digits: <code>ldc</code> up to 15, and 1 up to 15</td></tr>
+      <tr><td>block size</td><td>a local loop of <code>n</code> is <code>n</code> threads, a warp loop of <code>n</code> is <code>32n</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Mistakes people make</h2>
+  <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week9.html">week 9 test guide</a> lists every test with the bugs known to fail it.</p>
+  <ol>
+    <li><strong>Overwriting C instead of adding to it.</strong> Caught by <code>mma_adds_to_c</code>.</li>
+    <li><strong>Mixing up the strides, or reading B by columns.</strong> Caught by <code>mma_strides</code> and <code>mma_one_tile</code>.</li>
+    <li><strong>Saturating a cast to <code>i8</code>, or rendering it unsigned.</strong> Caught by <code>i8_cast_wraps</code> and <code>c_i8_kernel</code>.</li>
+    <li><strong>Launching a warp loop of <code>n</code> as <code>n</code> threads.</strong> Caught by the <code>c_</code> tests with warps.</li>
+    <li><strong>Putting memory read across threads in registers.</strong> Caught by <code>c_shared_not_per_thread</code>.</li>
+    <li><strong>Leaving per-thread memory in shared memory.</strong> The bits stay right. Caught by the speed tests on a GPU.</li>
+    <li><strong>Letting a store overwrite A before an mma reads it.</strong> Caught by <code>r_mma_reads_before_overwrite</code>.</li>
+    <li><strong>Missing an mma rule.</strong> Alignment, bounds, an mma outside a warp loop, or overlapping warp tiles. Caught by <code>err_mma_a_misaligned</code>, <code>err_mma_out_of_bounds</code>, <code>err_mma_in_local_loop</code> and <code>err_warp_tiles_overlap</code>.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order, and don't move on until the check passes.</p>
+  <ol>
+    <li><strong>i8.</strong> Done when this program's slot 1 is <code>-56 127 -24</code>:
+<pre><code>%x = buffer 3 dtype=i32 slot=0 data=[200 -129 1000]
+%y = buffer 3 dtype=i8 slot=1
+%r = range 3
+%xv = shrink %x %r shape=[]
+%v = load %xv
+%c = cast %v dtype=i8
+%yv = shrink %y %r shape=[]
+%s = store %yv %c
+%e = end %s %r
+%y1 = after %y %e</code></pre></li>
+    <li><strong>mma in run.</strong> Execute it, check its rules, and order it like a store into C and a load of A and B. Done when the <code>mma_*</code> and <code>err_mma_*</code> run tests pass.</li>
+    <li><strong>Warp loops.</strong> Where they may be, the block size, and the tile's digits. Done when every run test passes.</li>
+    <li><strong>The CPU render.</strong> Done when the <code>r_</code> tests pass.</li>
+    <li><strong>render-cuda.</strong> First <code>wmma</code>, then per-thread arrays. Done when every <code>c_</code> test passes in the emulator, then on a GPU with the speed tests.</li>
+  </ol>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-answer="b">
+    <p class="q">Thread <code>t</code> stores <code>acc[4t + e]</code> for <code>e</code> in 0..3 in phase 1, and phase 2 loads <code>acc[4t + 3]</code>. Is <code>acc</code> per-thread?</p>
+    <div class="opts"><button data-k="a">No: the phases use different offsets</button><button data-k="b">Yes: both stay in thread <code>t</code>'s 4 elements</button><button data-k="c">Only with one block</button></div>
+    <p class="hint">Whose slice does each access touch?</p>
+    <div class="why">Both accesses are <code>4t</code> plus something from 0 to 3, so each thread only touches its own 4 elements.</div>
+  </div>
+  <div class="quiz" data-answer="c">
+    <p class="q">An mma's A tile starts at element 48 of an <code>i8</code> buffer. Valid?</p>
+    <div class="opts"><button data-k="a">Yes: 48 is a multiple of 16</button><button data-k="b">Yes, if <code>lda</code> is 48</button><button data-k="c">No: A's offset must be a multiple of 32</button></div>
+    <p class="hint">The tensor cores load from 32-byte boundaries.</p>
+    <div class="why">48 bytes isn't a multiple of 32. Tile-major storage puts every tile at a multiple of 256.</div>
+  </div>
+  <div class="quiz" data-fill="128">
+    <p class="q">A kernel's warp loop has a bound of 4. How many threads must its local loops have?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">A warp is 32 threads.</p>
+    <div class="why"><code>4 · 32 = 128</code>: one block size per kernel.</div>
+  </div>
+
+  <h2>Go deeper</h2>
+  <ul>
+    <li><a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/">CUDA C++ Programming Guide</a>. The section on warp matrix functions documents the <code>wmma</code> fragments, loads and <code>mma_sync</code> that lesson 9.3 emits.</li>
+    <li><a href="https://siboehm.com/articles/22/CUDA-MMM">How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance</a> (Simon Boehm). Its later kernels are lesson 9.1's register tiles, measured step by step.</li>
+    <li><a href="https://arxiv.org/abs/1410.0759">cuDNN: Efficient Primitives for Deep Learning</a> (Chetlur et al., 2014). Convolution as an implicit GEMM, the method behind lesson 9.4.</li>
+    <li><a href="https://arxiv.org/abs/1805.02867">Online normalizer calculation for softmax</a> (Milakov and Gimelshein, 2018). The running max and sum of lesson 9.5.</li>
+    <li><a href="https://arxiv.org/abs/2205.14135">FlashAttention</a> (Dao et al., 2022). The tiled attention kernel, rescaling once per tile of keys.</li>
+  </ul>
+</main>
+</body>
+</html>

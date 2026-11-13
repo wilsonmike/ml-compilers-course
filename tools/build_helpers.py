@@ -65,7 +65,7 @@ def page(week, rows):
     <p>Run <code>python tools/test.py --compiler PATH --week {week} -v</code>, copy the failing test's name, and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
   </div>
   <input class="filter" type="search" placeholder="Filter by test name, kind, or words" aria-label="Filter tests" oninput="for (const r of document.querySelectorAll('.guide tbody tr')) r.hidden = !r.textContent.toLowerCase().includes(this.value.toLowerCase())">
-  <div class="tablewrap">
+  <div class="tablewrap bleed">
   <table class="guide">
     <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
     <tbody>

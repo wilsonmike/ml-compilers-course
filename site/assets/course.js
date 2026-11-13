@@ -31,8 +31,8 @@ const CC = (() => {
       ['week2/03-bounds.html', 'Proving bounds', '2.3'], ['week2/04-rendering-c.html', 'Rendering C', '2.4'],
       ['week2/05-the-runtime.html', 'The runtime', '2.5'], ['week2/06-lab.html', 'Lab: memory and C', '2.6']] },
     { title: 'Week 3 · Loops', items: [
-      ['week3/01-ranges.html', 'Ranges and end', '3.1'], ['week3/02-memory-in-loops.html', 'Memory in loops', '3.2'],
-      ['week3/03-gemm.html', 'A matmul by hand', '3.3'], ['week3/04-conv.html', 'A convolution by hand', '3.4'],
+      ['week3/01-ranges.html', 'Ranges and ends', '3.1'], ['week3/02-memory-in-loops.html', 'Memory in loops', '3.2'],
+      ['week3/03-gemm.html', 'A GEMM by hand', '3.3'], ['week3/04-conv.html', 'A convolution by hand', '3.4'],
       ['week3/05-rendering-loops.html', 'Rendering loops', '3.5'], ['week3/06-lab.html', 'Lab: loops', '3.6']] },
     { title: 'Week 4 · Rangeify', items: [
       ['week4/01-vectors.html', 'Vectors and elementwise ops', '4.1'], ['week4/02-reduce-expand.html', 'Reduce and expand', '4.2'],
@@ -54,6 +54,10 @@ const CC = (() => {
       ['week8/01-gpus.html', 'How a GPU runs code', '8.1'], ['week8/02-global-and-local.html', 'Global and local loops', '8.2'],
       ['week8/03-shared-memory.html', 'Shared memory and barriers', '8.3'], ['week8/04-rendering-cuda.html', 'Rendering CUDA', '8.4'],
       ['week8/05-getting-a-gpu.html', 'Getting a GPU', '8.5'], ['week8/06-lab.html', 'Lab: GPU kernels', '8.6']] },
+    { title: 'Week 9 · GPUs, part 2', items: [
+      ['week9/01-registers.html', 'Registers and register tiles', '9.1'], ['week9/02-fast-gemm.html', 'Fast GEMMs', '9.2'],
+      ['week9/03-tensor-cores.html', 'Tensor cores', '9.3'], ['week9/04-convolutions.html', 'Convolutions', '9.4'],
+      ['week9/05-flash-attention.html', 'Flash attention', '9.5'], ['week9/06-lab.html', 'Lab: fast GPU kernels', '9.6']] },
   ];
   const ROOT = () => document.body.dataset.root || './';
   // The course's source, linked from the top bar of every page
@@ -144,6 +148,9 @@ const CC = (() => {
     const wrap = h('div', { class: 'mainwrap' }, h('header', { class: 'topbar' }, menu, crumbs, pill, ghLink()), page);
     app.append(side, scrim, wrap);
     b.prepend(app);
+    if (main) { if (!main.id) main.id = 'main'; main.tabIndex = -1; b.prepend(h('a', { class: 'skip', href: '#' + main.id, text: 'Skip to content' })); }
+    const onLink = side.querySelector('nav a.on');
+    if (onLink && side.scrollHeight > side.clientHeight) side.scrollTop = onLink.getBoundingClientRect().top - side.getBoundingClientRect().top - side.clientHeight / 3;
     if (main) toc(main, page);
     document.querySelectorAll('[data-prog]').forEach(a => { const p = prog(a.dataset.prog);
       a.append(h('span', { class: 'p' + (p && p.s >= p.t && p.t ? ' done' : ''), text: p && p.s ? (p.s >= p.t ? 'Done' : `${p.s}/${p.t}`) : '' })); });
@@ -266,10 +273,17 @@ const CC = (() => {
     return accepted.some(a => { a = norm(a); return a === t || (tn !== null && num(a) === tn) || (flat(a) !== '' && flat(a) === flat(t)); });
   }
 
+  function quizId(pageKey, q) {
+    const text = (q.textContent || '').replace(/\s+/g, ' ').trim();
+    let x = 5381;
+    for (let i = 0; i < text.length; i++) x = ((x * 33) ^ text.charCodeAt(i)) >>> 0;
+    return `${pageKey}#${x.toString(36)}`;
+  }
+
   function quizzes(root = document) {
     const all = [...root.querySelectorAll('.quiz')]; let first = 0, done = 0;
     const page = here(); const pageKey = page ? page[1][0] : location.pathname;
-    all.forEach((q, i) => { if (!q.dataset.qid) q.dataset.qid = `${pageKey}#${i}`; });
+    all.forEach(q => { if (!q.dataset.qid) q.dataset.qid = quizId(pageKey, q); });
     // the score counts only quizzes on the reader's language track (ids above still index every quiz, so they stay stable)
     const n = all.filter(q => !q.closest(track() === 'python' ? '.only-ocaml' : '.only-python')).length;
     const tally = () => document.querySelectorAll('.score').forEach(s => (s.textContent = `${first} / ${n} first try` + (done < n ? ` · ${n - done} to go` : '')));
@@ -524,5 +538,5 @@ const CC = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); });
-  return { h, graph, parseUir, stepper, code, NAV, quizzes, store };
+  return { h, graph, parseUir, stepper, code, NAV, quizzes, quizId, store };
 })();

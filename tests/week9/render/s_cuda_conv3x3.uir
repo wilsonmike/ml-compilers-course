@@ -1,0 +1,125 @@
+# cuda speed: 0.5
+# time: 120
+# a 3x3 convolution, 32 channels in, 64 out, a 256x64 image: at least half the reference's speed
+%X = buffer 544896 dtype=f32 slot=0
+%Wt = buffer 18432 dtype=f32 slot=1
+%Y = buffer 1048576 dtype=f32 slot=2
+# fill X and Wt in kernels of their own, so the test needs no data files
+%v1 = range 8256 axis=global
+%v2 = range 66 axis=local
+%v3 = mul %v1 66
+%v4 = add %v3 %v2
+%v5 = mul %v4 37
+%v6 = add %v5 11
+%v7 = mod %v6 101
+%v8 = add %v7 -50
+%v9 = cast %v8 dtype=f32
+%v10 = mul %v9 0.01
+%v11 = shrink %X %v4 shape=[]
+%v12 = store %v11 %v10
+%v13 = end %v12 %v2
+%v14 = end %v13 %v1
+%v15 = after %X %v14
+%v16 = range 64 axis=global
+%v17 = range 288 axis=local
+%v18 = mul %v16 288
+%v19 = add %v18 %v17
+%v20 = mul %v19 53
+%v21 = add %v20 5
+%v22 = mod %v21 61
+%v23 = add %v22 -30
+%v24 = cast %v23 dtype=f32
+%v25 = mul %v24 0.02
+%v26 = shrink %Wt %v19 shape=[]
+%v27 = store %v26 %v25
+%v28 = end %v27 %v17
+%v29 = end %v28 %v16
+%v30 = after %Wt %v29
+%Xs = alloc 6336 dtype=f32
+%Ws = alloc 2304 dtype=f32
+%acc = alloc 512 dtype=f32
+%g = range 2048 axis=global
+%kb = div %g 256
+%y = mod %g 256
+# phase 1: copy input rows y .. y+2 of every channel, and the block's 8 filters, into shared memory
+%t = range 64 axis=local
+%it = range 99
+%v31 = mul %it 64
+%v32 = add %v31 %t
+%v33 = div %v32 198
+%v34 = mod %v32 198
+%v35 = mul %v33 17028
+%v36 = mul %y 66
+%v37 = add %v35 %v36
+%v38 = add %v37 %v34
+%v39 = shrink %Xs %v32 shape=[]
+%v40 = shrink %v15 %v38 shape=[]
+%v41 = load %v40
+%v42 = store %v39 %v41
+%v43 = end %v42 %it
+%it2 = range 36
+%v44 = mul %it2 64
+%v45 = add %v44 %t
+%v46 = mul %kb 2304
+%v47 = add %v46 %v45
+%v48 = shrink %v30 %v47 shape=[]
+%v49 = load %v48
+%v50 = shrink %Ws %v45 shape=[]
+%v51 = store %v50 %v49
+%v52 = end %v51 %it2
+%e1 = end %v43 %v52 %t
+%v53 = after %Xs %e1
+%v54 = after %Ws %e1
+# phase 2: thread x adds X[c][y+dy][x+dx] * W[k][c][dy][dx] into its 8 sums, k = 8 kb + o
+%t2 = range 64 axis=local
+%c = range 32
+%dy = range 3 axis=upcast
+%dx = range 3 axis=upcast
+%o = range 8 axis=upcast
+%v55 = mul %c 198
+%v56 = mul %dy 66
+%v57 = add %v55 %v56
+%v58 = add %v57 %t2
+%v59 = add %v58 %dx
+%v60 = shrink %v53 %v59 shape=[]
+%v61 = load %v60
+%v62 = mul %o 288
+%v63 = mul %c 9
+%v64 = mul %dy 3
+%v65 = add %v62 %v63
+%v66 = add %v65 %v64
+%v67 = add %v66 %dx
+%v68 = shrink %v54 %v67 shape=[]
+%v69 = load %v68
+%v70 = mul %t2 8
+%v71 = add %v70 %o
+%v72 = shrink %acc %v71 shape=[]
+%v73 = load %v72
+%v74 = mul %v61 %v69
+%v75 = add %v73 %v74
+%v76 = store %v72 %v75
+%v77 = end %v76 %o
+%v78 = end %v77 %dx
+%v79 = end %v78 %dy
+%v80 = end %v79 %c
+%v81 = end %v80 %t2
+%v82 = after %acc %v81
+# phase 3: write the 8 output pixels
+%t3 = range 64 axis=local
+%o3 = range 8 axis=upcast
+%v83 = mul %t3 8
+%v84 = add %v83 %o3
+%v85 = shrink %v82 %v84 shape=[]
+%v86 = load %v85
+%v87 = mul %kb 131072
+%v88 = mul %o3 16384
+%v89 = mul %y 64
+%v90 = add %v87 %v88
+%v91 = add %v90 %v89
+%v92 = add %v91 %t3
+%v93 = shrink %Y %v92 shape=[]
+%v94 = store %v93 %v86
+%v95 = end %v94 %o3
+%v96 = end %v95 %t3
+%v97 = end %e1 %v81 %v96 %g
+%Y1 = after %Y %v97

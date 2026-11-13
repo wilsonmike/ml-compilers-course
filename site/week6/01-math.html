@@ -75,7 +75,7 @@
 <p><code>sqrt x = 2^(log2(x) / 2)</code> is a fine first guess, but two rounded steps leave it a few <b>units in the last place</b> (ulps) off. One ulp is the gap between an f32 and the next one. One step of <b>Newton's method</b> fixes that. If <code>y</code> is close to <code>√x</code>, then <code>(y + x/y) / 2</code> is much closer, because the error roughly squares each step. Perfect squares come out exact: <code>sqrt 16.0</code> is exactly <code>4.0</code>.</p>
 
 <h2>sin: subtract turns, fold, then Taylor</h2>
-<p><code>sin</code> repeats every <code>2π</code>, so first subtract the nearest whole number of turns: <code>k = floor(x / 2π + 0.5)</code>, then <code>r = x - k · 2π</code>. 2π isn't an f32, so the spec subtracts it in two parts: 6.28125, which is exact, and a small correction. That keeps r accurate for x up to about 10,000.</p>
+<p><code>sin</code> repeats every <code>2π</code>, so first subtract the nearest whole number of turns: <code>k = floor(x / 2π + 0.5)</code>, then <code>r = x - k · 2π</code>. 2π isn't an f32, so the spec subtracts it in two parts: 6.28125, which is exact, and a small correction. Splitting the constant like this is called Cody-Waite reduction. That keeps r accurate for x up to about 10,000.</p>
 <p>Now r is in about <code>[-π, π]</code>. Since <code>sin(π - r) = sin r</code>, folding brings it to <code>[-π/2, π/2]</code>, where the Taylor series <code>r - r³/3! + r⁵/5! - ...</code> up to <code>r^13</code> is accurate. For a huge x, f32 can't even say which turn x is on, so the result is meaningless. The spec still clamps it so it stays in <code>[-1, 1]</code>.</p>
 </div>
 

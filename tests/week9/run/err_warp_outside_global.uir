@@ -1,0 +1,12 @@
+# expect: invalid
+# a warp loop is a phase of a block: it must be inside a global loop
+%A = buffer 512 dtype=i8 slot=0
+%B = buffer 256 dtype=i8 slot=1
+%C = buffer 512 dtype=i32 slot=2
+%w = range 2 axis=warp
+%o = mul %w 256
+%c = shrink %C %o shape=[]
+%a = shrink %A %o shape=[]
+%m = mma %c %a %B lda=16 ldb=16 ldc=16
+%ew = end %m %w
+%C1 = after %C %ew

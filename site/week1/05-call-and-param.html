@@ -40,7 +40,7 @@
 %body = add %x 1              # a graph with a hole: "x + 1"
 %r    = call %body 41         # fill hole 0 with 41 and evaluate
 %t    = assert %r 42</code></pre>
-<p><code>call</code>'s first source is the <strong>body</strong>. The rest are the <strong>args</strong>: arg i fills every <code>param i</code> reachable from the body. Args are checked statically. A missing arg, or one with the wrong dtype or shape, is a type error (exit 2). Extra args are allowed and ignored.</p>
+<p><code>call</code>'s first source is the <strong>body</strong>. The rest are the <strong>args</strong>: arg i fills every <code>param i</code> reachable from the body. Args are checked statically. A missing arg, or one with the wrong dtype or shape, is a type error (exit 2). Extra args are allowed, but a call evaluates every arg before its body, so <code>call %b 1 %e</code> with <code>%e = div 1 0</code> is still a runtime error (exit 2) when an assert needs it.</p>
 <p>A body is just an ordinary UOp. Nothing marks <code>%body</code> as "a function". It becomes one when a <code>call</code> uses it as src 0. In the graphs below, that src 0 edge is drawn dashed.</p>
 </div>
 
@@ -118,6 +118,14 @@
 %f = index %v %k
 %s = stack 7 8 9
 %r = call %f %s 1             # 8</code></pre>
+</div>
+<div class="prose">
+<h2>Invalid even if nothing calls it</h2>
+<p>These are static errors. They make the program exit 2 wherever they appear, used or not:</p>
+<ul>
+<li>One node that reaches the same slot with two dtypes or shapes, like <code>add %a %c</code> where <code>%a = param 0 dtype=i32</code> and <code>%c</code> casts a <code>param 0 dtype=f32</code>. No <code>call</code> is needed for this to be an error. Two such params in unrelated expressions are fine.</li>
+<li>A <code>shape</code> other than <code>[k]</code> with <code>k ≥ 1</code>. <code>shape=[0]</code> and <code>shape=[2 3]</code> are both invalid in week 1, because rank is at most 1.</li>
+</ul>
 </div>
 
 <div class="exercise small" data-ex="w1-05-rotate">

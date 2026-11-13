@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Week 9 Lab</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Teach your compiler registers and tensor cores. It reads i8, runs mma and warp loops, checks their rules, renders them for the CPU and as wmma calls, and keeps...">
+<link rel="canonical" href="https://sharpterminal.com/site/week9/06-lab">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="The Week 9 Lab">
+<meta property="og:description" content="Teach your compiler registers and tensor cores. It reads i8, runs mma and warp loops, checks their rules, renders them for the CPU and as wmma calls, and keeps per-thread memory in registers. You&#x27;re...">
+<meta property="og:url" content="https://sharpterminal.com/site/week9/06-lab">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-root="../">
+<main>
+<p class="eyebrow">Week 9 · Lesson 6</p>
+<h1>The week 9 lab</h1>
+<p class="lede">Teach your compiler registers and tensor cores. It reads <code>i8</code>, runs <code>mma</code> and warp loops, checks their rules, renders them for the CPU and as <code>wmma</code> calls, and keeps per-thread memory in registers. You're done when every week 9 test passes, in the emulator or on a GPU, weeks 1 to 8 still pass, and you've written 10 tests of your own.</p>
+
+<div class="prose">
+<h2>The command-line contract</h2>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>week 9 changes</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe run FILE</code></td><td>The <code>i8</code> dtype for buffers, allocs and casts, <code>mma</code> as an effect, and <code>axis=warp</code> as a plain loop. New static errors (exit 2): i8 data out of range, i8 literals or arithmetic, <code>dtype=i8</code> on any op but <code>buffer</code>, <code>alloc</code> and <code>cast</code> (so <code>param</code> and <code>bitcast</code> too), a cast to i8 from f32 or bool, an mma with a bad dtype, stride, alignment or bounds, a warp bound that isn't a literal from 1 to 32, a warp loop outside a global loop, a warp or local loop inside a phase, an mma outside a warp loop or a store inside one in a kernel, block sizes that disagree, and warps whose C tiles overlap.</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>A warp loop is a plain loop. An mma is 256 dot products of length 16, in <code>uint32_t</code> so it wraps. <code>i8</code> is <code>int8_t</code>.</td></tr>
+<tr><td><code>your.exe render-cuda FILE</code></td><td>A warp loop is a phase on <code>threadIdx.x / 32</code>, an mma is <code>wmma</code> calls and <code>__syncwarp()</code>, shared arrays are <code>__align__(32)</code>, and per-thread memory is a plain array in each thread.</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<h2>How the tests are graded</h2>
+<ul>
+<li><b>Run tests</b> check the semantics of <code>i8</code>, <code>mma</code> and warp loops, and every rule. Each <code>err_</code> test breaks exactly one rule. <code>mma_wraps</code> checks the sums wrap like <code>add</code>, and <code>per_thread_read_neighbor</code> checks that an alloc read across threads still means shared memory.</li>
+<li><b>Render tests</b> (<code>r_</code>) compare your C's buffers with the interpreter. <code>r_mma_reads_before_overwrite</code> checks your schedule runs an mma before a store that overwrites its A.</li>
+<li><b>CUDA tests</b> (<code>c_</code>) run your <code>render-cuda</code> on a GPU or in the emulator and compare every buffer, bit for bit: an int8 GEMM, a register-tiled f32 GEMM, a convolution, flash attention, and smaller ones for each rule. <code>c_shared_not_per_thread</code> fails if you put memory in registers that a later phase reads across threads.</li>
+<li><b>Speed tests</b> time your CUDA against the reference's on the GPU: <code>s_cuda_gemm_registers</code> (0.8 of its speed), <code>s_cuda_mma_gemm</code> (0.5), <code>s_cuda_flash_attention</code> (0.8) and <code>s_cuda_conv3x3</code> (0.5). The first and third need per-thread memory in registers, the second needs tensor cores. Without a GPU they only check that your CUDA builds. On a GPU their expected bits come from the reference's C, since the inputs are too big to interpret.</li>
+</ul>
+
+<h2>Running the suite</h2>
+<p>Stuck on a failing test? The <a href="../resources/tests-week9.html">week 9 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week9.html">week 9 study guide</a> has a cheat sheet and a step-by-step way out.</p>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 9                     # nvcc if it's on PATH, else the emulator
+python tools/test.py --compiler "C:/path/to/your.exe" --week 9 --cuda-docker nvidia/cuda:12.6.3-devel-ubuntu22.04
+python tools/test.py --compiler "C:/path/to/your.exe" --week 9 -k mma -v           # one group, with details
+python _reference/uirc.py render-cuda tests/week9/render/c_mma_from_global.uir      # the reference's CUDA, to compare</code></pre>
+<p>Then run weeks 1 to 8 again, one <code>--week</code> at a time. The register GEMM reads the 768×768 matrices of week 7 from <code>data/</code>. The other speed tests fill their inputs in a kernel of their own, so they need no files. Real tensor cores need an <code>sm_72</code> or newer GPU: an RTX 20-series or newer, or a T4 or better on a notebook or a rented machine. On Kaggle, choose the T4, not the P100. <a href="../week8/05-getting-a-gpu.html">Lesson 8.5</a> covers where to get one.</p>
+
+<h2>Write your 10 tests</h2>
+<p>Ten tests in <code>path/to/your-repo/tests/week9/</code>, checked with <code>python tools/test.py --check-tests path/to/your-repo/tests/week9</code>. Good targets: an mma whose C tile is offset inside a bigger matrix, and the same with an offset one element off alignment. Two warps whose tiles are exactly a tile apart, and one row closer. A per-thread alloc with a vector access that just fits its slice. A cast to <code>i8</code> of a value past 255. A kernel with a local phase, a warp phase and a local phase, sharing one block size.</p>
+</div>
+
+<h2>A build order that works</h2>
+<ol class="build">
+<li><h3>i8</h3><p>Parse <code>dtype=i8</code> on buffers, allocs and casts, check data ranges, wrap on cast, and reject everything else.</p><p class="check">Checkpoint: <code>i8_cast_wraps</code>, <code>i8_to_f32</code> and the <code>err_i8_*</code> tests pass, and <code>c_i8_kernel</code> passes in the emulator.</p></li>
+<li><h3>mma in run</h3><p>Parse it, check dtypes, strides, bounds and alignment, and execute it. Treat it as a load of A, B and C and a store into C everywhere your compiler orders memory: one effect per version, and loads before overwriting stores.</p><p class="check">Checkpoint: the <code>mma_*</code> run tests and <code>err_mma_*</code> pass.</p></li>
+<li><h3>Warp loops</h3><p>Accept <code>axis=warp</code>, check where it may be, the block size, and that kernels put mma in warp loops and stores in local loops. Add the tile's two digits to the mixed-radix rule.</p><p class="check">Checkpoint: every run test passes.</p></li>
+<li><h3>Render for the CPU</h3><p>Warp loops as plain loops, mma as loops in <code>uint32_t</code>.</p><p class="check">Checkpoint: the <code>r_</code> tests pass.</p></li>
+<li><h3>render-cuda: tensor cores</h3><p>Warp phases on <code>threadIdx.x / 32</code>, mma as <code>wmma</code>, aligned shared arrays.</p><p class="check">Checkpoint: <code>c_mma_from_global</code>, <code>c_one_warp</code>, <code>c_32_warps</code> and <code>c_mma_gemm</code> pass in the emulator.</p></li>
+<li><h3>render-cuda: registers</h3><p>Find the per-thread allocs with your week 7 slice check, declare them in each thread, and index them by the offset minus <code>t·S</code>.</p><p class="check">Checkpoint: every <code>c_</code> test passes in the emulator, including <code>c_shared_not_per_thread</code>.</p></li>
+<li><h3>On a GPU</h3><p>Run the suite with <code>nvcc</code> or <code>--cuda-docker</code>. If a speed test fails, compare your CUDA with the reference's: are the sums in a plain array, and is every index into it a literal after unrolling?</p><p class="check">Checkpoint: everything passes on the GPU, including the four speed tests.</p></li>
+</ol>
+
+<h2>Checklist</h2>
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="i8"><span><code>i8</code> buffers, allocs and casts, and nothing else takes i8 arithmetic</span></label></li>
+<li><label><input type="checkbox" data-k="mma"><span><code>mma</code> runs, and its strides, bounds and alignment are checked</span></label></li>
+<li><label><input type="checkbox" data-k="order"><span>An mma reads A, B and C before anything overwrites them</span></label></li>
+<li><label><input type="checkbox" data-k="warp"><span>Warp loops: where they may be, one block size, mma inside them and stores outside</span></label></li>
+<li><label><input type="checkbox" data-k="radix"><span>The mixed-radix rule counts an mma's C tile</span></label></li>
+<li><label><input type="checkbox" data-k="render"><span><code>render</code> handles warp loops and mma</span></label></li>
+<li><label><input type="checkbox" data-k="wmma"><span><code>render-cuda</code> emits <code>wmma</code> and passes every <code>c_</code> test in the emulator</span></label></li>
+<li><label><input type="checkbox" data-k="regs"><span>Per-thread memory is a plain array in each thread, and memory read across threads stays shared</span></label></li>
+<li><label><input type="checkbox" data-k="gpu"><span>Everything passes on a real GPU, including the speed tests (optional without a GPU)</span></label></li>
+<li><label><input type="checkbox" data-k="old"><span>Weeks 1 to 8 still pass everything</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 week 9 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+
+<div class="key">
+<span class="label">The AI policy, still</span>
+<p>An AI assistant may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why would my flash kernel be slower with the same bits?" is a fine question. "Write my wmma emitter" is not.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your compiler passes every week 9 test in the emulator, but on a GPU <code>s_cuda_gemm_registers</code> and <code>s_cuda_flash_attention</code> fail as too slow. What's the likely cause?</p>
+<div class="opts">
+<button data-k="a">A missing barrier</button>
+<button data-k="b">Per-thread memory left in shared memory, or indexed by something that isn't a literal, so it isn't in registers</button>
+<button data-k="c">The emulator is wrong</button>
+</div>
+<p class="hint">Which two tests need registers?</p>
+<div class="why"><p>Both keep each thread's sums in per-thread memory. Correct bits and a slow kernel point at where those sums live. A missing barrier would give wrong bits.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q"><code>c_shared_not_per_thread</code> fails, and every other test passes. What did your compiler do?</p>
+<div class="opts">
+<button data-k="a">Forgot to zero shared memory</button>
+<button data-k="b">Used tensor cores where it shouldn't</button>
+<button data-k="c">Put an alloc in registers whose later phase reads another thread's slice</button>
+</div>
+<p class="hint">Lesson 9.1, "When it isn't per-thread".</p>
+<div class="why"><p>The rule needs every access, loads included, at <code>t·S + e</code> with <code>e</code> inside the slice. A read of <code>(t + 1)·S + e</code> needs memory the block shares, so the alloc must stay in shared memory.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Without a GPU, which week 9 tests can't fully check your work?</p>
+<div class="opts">
+<button data-k="a">Only the speed tests: they build your CUDA but can't time it</button>
+<button data-k="b">Every tensor-core test</button>
+<button data-k="c">All the <code>c_</code> tests</button>
+</div>
+<p class="hint">What does the emulator do with <code>wmma</code>?</p>
+<div class="why"><p>The emulator runs <code>wmma</code> on the CPU, so every tensor-core test checks your bits without a GPU. Only timing needs real hardware, and lesson 8.5 shows how to rent some for about a dollar.</p></div>
+</div>
+
+<nav class="pager">
+<a href="05-flash-attention.html">← Lesson 5: Flash attention</a>
+<a href="../index.html">Course home →</a>
+</nav>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // per-viewer convenience only: remember ticked boxes; works without storage
+  const KEY = 'cc-week9-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

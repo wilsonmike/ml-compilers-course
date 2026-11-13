@@ -40,11 +40,17 @@ Rank-1 values may not depend on an open range from a hand-written week 3 loop.
 * `reduce x` becomes a loop that folds `x` at each index into an accumulator
 * `store` of a rank-1 value becomes a loop that stores each element
 
-When a value is used in two places (say `%y = reduce %x op=add`, then `%z = div` of `%x` by the sum),
+When a computed value is used in two places (say `%d = mul %v %v` feeds both a `reduce` and an elementwise `mul`),
 rangeify can **recompute** it at each use (fusion: no memory traffic, more arithmetic) or
 **materialize** it once into a temp buffer (fission: one extra pass over memory, no repeated work).
 Without `stage`, you may choose either; `stage` forces materialization. Either way the results must be
 identical, because elementwise ops are deterministic and every reduce folds in the same order.
+
+A `store` of a rank-1 value that reads the memory it writes is computed from the old contents. When any
+`load` in the stored value's graph reads the store's buffer or alloc (through any view or `after`), render
+the store as if its value were wrapped in `stage`: fill a temp, then copy the temp in. The oracle does this
+for every such store, even an elementwise one where fusing would be safe. Week 5's in-place transpose is
+a case where it isn't.
 
 ## 4. Commands and grading
 

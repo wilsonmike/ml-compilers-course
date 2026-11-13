@@ -306,6 +306,65 @@ end</code></pre>
     <p>Compute the post-order once, with a <code>Hashtbl</code> of node ids already seen. Keep each node&#x27;s received shares in a table of lists. Consing puts the newest first, so <code>List.rev</code> the list before folding it with <code>List.fold_left</code>, or the shares are added in the wrong order.</p>
   </div>
 
+  <h2>Week 7: upcast, threads and outlining</h2>
+
+  <div class="only-python">
+    <h3>A thread body in its own list</h3>
+    <p>Point your emitter at a fresh list of lines for the thread loop's body, and keep a dict from every C name you emit to its C type. The free names from lesson 7.5 are then set arithmetic: names used, minus names declared, minus the loop variable. Each free name becomes a field of the context struct, typed from that dict. Write the struct, the static function and the <code>uir_parallel_for</code> call from those pieces, and put the function above <code>kernel</code> in the output, since C needs it declared first.</p>
+    <div class="trap"><span class="label">Set order changes between runs</span>
+      <p>Python randomizes string hashing per process, so iterating a <code>set</code> of names gives a different order each run. Your C stays correct, but the struct's fields move around and every diff against the oracle is noisy. Sort the free names before writing the struct.</p>
+    </div>
+    <h3>Unrolling an upcast loop</h3>
+    <p>Emit the body once per value of the range, with the dict from range to C text mapping it to <code>"0"</code>, then <code>"1"</code>, and so on. Each copy declares the same values again, so either give them fresh names per copy or wrap each copy in its own <code>{ }</code> block.</p>
+    <h3>Private allocs in run</h3>
+    <p>Make a new list of zeros for each private alloc at the start of every iteration of its thread loop. A list made once outside the loop keeps the previous iteration&#x27;s values, which <code>thread_private_alloc_not_cumulative</code> catches.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>A thread body in its own <code>Buffer</code></h3>
+    <p>Render the thread loop's body into a second <code>Buffer.t</code>, and keep a <code>Hashtbl</code> from every C name you emit to its C type. With <code>module SS = Set.Make (String)</code>, the free names from lesson 7.5 are <code>SS.diff</code> of the names used and the names declared, minus the loop variable. <code>SS.elements</code> returns them sorted, so the context struct comes out the same on every run. Collect the outlined functions in a third buffer and print it above <code>kernel</code>, since C needs a function declared before its first use.</p>
+    <h3>Unrolling an upcast loop</h3>
+    <p>Emit the body once per value of the range, with the range's entry in your name table set to <code>"0"</code>, then <code>"1"</code>, and so on. Each copy declares the same values again, so either give them fresh names per copy or wrap each copy in its own <code>{ }</code> block.</p>
+    <h3>Private allocs in run</h3>
+    <p>Make a fresh <code>Array.make n 0l</code> (or <code>0.0</code>) for each private alloc at the start of every iteration of its thread loop. An array made once outside the loop keeps the previous iteration's values.</p>
+  </div>
+
+  <h2>Week 8: GPUs and render-cuda</h2>
+
+  <div class="only-python">
+    <h3>One emitter, two targets</h3>
+    <p>Don&#x27;t copy your renderer for <code>render-cuda</code>. Pass a <code>target</code> argument, <code>"c"</code> or <code>"cuda"</code>, down through it. Arithmetic, wraparound and hex floats print the same for both. The differences are few: a global loop becomes a <code>__global__</code> function that starts with <code>blockIdx.x</code>, each local loop becomes a block on <code>threadIdx.x</code> followed by <code>__syncthreads()</code>, pointers say <code>__restrict__</code>, and the host <code>kernel</code> calls <code>UIR_LAUNCH</code>.</p>
+    <h3>Check kernel form before printing</h3>
+    <p>Build the whole CUDA text in a list and print it only when the program has passed the kernel-form check. If you print as you go, a refusal halfway through leaves half a file on stdout before the exit 2.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>One emitter, two targets</h3>
+    <p>Pass a variant, <code>type target = C | Cuda</code>, down through your renderer instead of copying it. The few places that differ (a global loop as a <code>__global__</code> function, local loops as blocks on <code>threadIdx.x</code> followed by <code>__syncthreads()</code>, <code>__restrict__</code>, the <code>UIR_LAUNCH</code> call in the host <code>kernel</code>) each match on it, and the exhaustiveness check points at any place that forgets one.</p>
+    <h3>Check kernel form before printing</h3>
+    <p>Write each kernel into its own <code>Buffer.t</code>, then print them all only after the kernel-form check has passed. Raise an exception from the check and catch it in <code>main</code>, so a refusal exits 2 with nothing on stdout.</p>
+  </div>
+
+  <h2>Week 9: i8, mma and registers</h2>
+
+  <div class="only-python">
+    <h3>Wrap to 8 bits by hand</h3>
+    <p>Python ints don&#x27;t wrap at 8 bits any more than at 32. A cast to i8 keeps the low 8 bits as a signed number: <code>((x + 128) &amp; 255) - 128</code>, which takes 200 to -56. Check <code>data=</code> literals against -128 to 127 instead of wrapping them, since out-of-range data is an error.</p>
+    <h3>Reading i8 files</h3>
+    <p>Indexing <code>bytes</code> gives 0 to 255, so a <code>url=</code> file read that way turns -1 into 255. Decode signed bytes with <code>struct.unpack(f"&lt;{n}b", data)</code>.</p>
+    <h3>mma in run</h3>
+    <p>The products of two i8 values are small, so add each output&#x27;s 16 products and the old C value as plain ints and wrap the total to i32 once. Wrapping addition is associative, so that gives the same bits as wrapping after every add.</p>
+  </div>
+
+  <div class="only-ocaml">
+    <h3>No <code>int8</code> type</h3>
+    <p>OCaml has no 8-bit integer, so hold i8 values in an <code>int</code> or an <code>int32</code> and wrap them yourself. On an <code>int</code>, a cast to i8 is <code>((x + 128) land 255) - 128</code>, which takes 200 to -56. On an <code>int32</code>, shift the low byte to the top and back: <code>Int32.shift_right (Int32.shift_left x 24) 24</code>. Check <code>data=</code> literals against -128 to 127 instead of wrapping them, since out-of-range data is an error.</p>
+    <h3>Reading i8 files</h3>
+    <p><code>String.get_int8</code> reads one signed byte of a <code>url=</code> file. <code>String.get_uint8</code> would turn -1 into 255.</p>
+    <h3>mma in run</h3>
+    <p>Do the dot products in <code>Int32</code>: <code>Int32.mul</code> and <code>Int32.add</code> wrap like the spec&#x27;s i32, and the order of the adds doesn&#x27;t matter because wrapping addition is associative.</p>
+  </div>
+
   <h2>Profiling and testing</h2>
 
   <div class="only-python">

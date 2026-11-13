@@ -42,8 +42,8 @@
 <p>Each iteration <code>r</code> gets its own slice of memory: elements <code>r·S</code> to <code>r·S + S - 1</code>. Every store in the loop, and every load of memory the loop also stores into, must be at a flat offset of the form</p>
 <pre><code>r * S + e        S a literal (a bare r means S = 1), r in exactly one term,
                  e doesn't depend on r, and 0 &lt;= e, e + size &lt;= S</code></pre>
-<p>Your week 1 bounds analysis proves the part about <code>e</code>. Every access to one buffer in the loop uses the same <code>S</code>. Memory the loop only reads, like the A and B of a GEMM, may be read anywhere: two threads reading the same float is no problem.</p>
-<p>The check looks at the shape of the offset, not its value. <code>(r·2)·4</code> equals <code>r·8</code> but isn't in the form, so it's rejected. Write offsets expanded: in the GEMM, C's offset <code>(4ib + wi)·N + 8jb + wj</code> is written as <code>ib·(4N) + wi·N + jb·8 + wj</code>, with <code>e = wi·N + jb·8 + wj</code> in <code>[0, 4N - 1]</code>.</p>
+<p><code>size</code> is how many elements the access touches: 1 for a scalar load or store. Your <a href="../week1/04-symbolic.html">week 1 bounds analysis</a> proves the part about <code>e</code>: bound each of its terms on its own, then add up the lows and the highs. Every access to one buffer in the loop uses the same <code>S</code>. Memory the loop only reads, like the A and B of a GEMM, may be read anywhere: two threads reading the same float is no problem.</p>
+<p>The check looks at the shape of the offset, not its value. <code>(r·2)·4</code> equals <code>r·8</code> but isn't in the form, so it's rejected. Write offsets expanded: in the GEMM, C's offset <code>(4ib + wi)·N + 8jb + wj</code> is written as <code>ib·(4N) + wi·N + jb·8 + wj</code>, with <code>e = wi·N + jb·8 + wj</code>. For N = 768 the terms are in <code>[0, 2304]</code>, <code>[0, 760]</code> and <code>[0, 7]</code>, so e is in <code>[0, 3071]</code>, and <code>3071 + 1 &lt;= 3072 = S</code>. Each row block writes only its own 3072 elements.</p>
 </div>
 
 <div class="fig" id="slices" data-title="Which elements each iteration writes"></div>
@@ -57,6 +57,7 @@
 <h2>Private allocs</h2>
 <p>The GEMM's 32 accumulators are an alloc used only inside the thread loop. Shared between threads, they'd race. So the spec makes them <b>private</b>: an alloc whose every load and store is inside one thread loop gets a fresh copy, all zeros, at the start of every iteration. In C that's simply an array declared inside the thread's function.</p>
 <p>That's a real semantic difference, and <code>run</code> implements it too. In a plain loop an alloc keeps its contents from one iteration to the next, so an accumulator keeps a running total. In a thread loop each iteration starts from zero. The tests <code>loop_alloc_carries_over</code> and <code>thread_private_alloc_fresh</code> run the same program both ways and get different answers.</p>
+<p>Any other alloc, say one that is also loaded after the loop, is <b>shared</b>, and the slice rule applies to it exactly as to a buffer. Every iteration storing to element 0 is rejected (<code>err_thread_alloc_shared</code>), and iteration <code>r</code> storing to element <code>r</code> is fine (<code>thread_alloc_indexed_by_r</code>).</p>
 
 <h2>How the iterations are split</h2>
 <p>The harness gives each hardware thread one contiguous chunk of iterations: with 192 iterations on 8 threads, thread 0 runs 0 to 23, thread 1 runs 24 to 47, and so on. Contiguous chunks mean each thread writes one block of memory, so two threads rarely touch the same cache line. When they do, the line bounces between cores, which is slow even without a race. That's called <b>false sharing</b>.</p>
@@ -109,7 +110,7 @@
 <p class="q">Why is the store offset <code>(r·2)·4 + c</code> rejected, when it equals <code>8r + c</code>?</p>
 <div class="opts">
 <button data-k="a">Because 2·4 overflows</button>
-<button data-k="b">The rule checks the offset's shape: it needs a term that is <code>r</code> or <code>mul r S</code> with S a literal</button>
+<button data-k="b">The rule checks the offset's shape: it needs a term that is <code>r</code>, <code>mul r S</code> or <code>mul S r</code> with S a literal</button>
 <button data-k="c">Because c isn't bounded</button>
 </div>
 <p class="hint">Read the rule's form again.</p>
@@ -125,6 +126,17 @@
 </div>
 <p class="hint">What do all the cores have in common?</p>
 <div class="why"><p>Cores share the path to memory and the last-level cache. As cores are added, those shared parts become the limit, along with the fixed cost of starting threads.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A 4-element alloc is stored inside a thread loop over <code>r</code> and loaded after the loop. Each iteration stores to element <code>r</code>. What does the spec say?</p>
+<div class="opts">
+<button data-k="a">Invalid: an alloc used outside the thread loop can't be stored inside it</button>
+<button data-k="b">Valid: the alloc is shared, and each iteration writes its own slice</button>
+<button data-k="c">Valid, but every iteration starts from zeros, so only the last store survives</button>
+</div>
+<p class="hint">Is every load and store inside the thread loop?</p>
+<div class="why"><p>The load after the loop makes the alloc shared, so it follows the slice rule like a buffer. The offset is <code>r</code> itself, so S = 1 and each iteration owns its own element. That's the test <code>thread_alloc_indexed_by_r</code>.</p></div>
 </div>
 
 <nav class="pager">

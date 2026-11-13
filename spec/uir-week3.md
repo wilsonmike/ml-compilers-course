@@ -79,12 +79,13 @@ accumulating straight into the output at offset `i*N + j` (lesson 3.3 builds a m
 
 Within **one** iteration the week 2 rules hold: one store per version, and loads of a version run
 before the store that overwrites it. Bounds are proven as before; a range's interval is `[0, n-1]`
-(with `n`'s upper bound), so `i*K + k` is provably inside a `K*N` buffer when `i < N` and `k < K`.
+(with `n`'s upper bound, and `[0, 0]` when that bound is 0 or less), so `i*K + k` is provably
+inside an `M*K` buffer when `i < M` and `k < K`.
 
 ## 4. Commands
 
 `run` and `render` keep their week 2 contracts. `render` may now emit `for` loops (and only `for`
-loops: still no `while`, `goto` or recursion). Values that don't depend on a range should be computed
+loops: still no `while`, `do`, `goto` or recursion). Values that don't depend on a range should be computed
 outside it; the grader doesn't measure this in week 3, but week 6 will time your kernels.
 
 ## 5. Test headers

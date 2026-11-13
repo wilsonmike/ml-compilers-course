@@ -1,0 +1,136 @@
+# cuda speed: 0.5
+# time: 120
+# a 1024x1024 int8 GEMM: at least half the reference's speed. Without tensor cores it runs at about 0.3
+%A = buffer 1048576 dtype=i8 slot=0
+%B = buffer 1048576 dtype=i8 slot=1
+%C = buffer 1048576 dtype=i32 slot=2
+# fill A and B in a kernel of their own, so the test needs no data files
+%v1 = range 4096 axis=global
+%v2 = range 256 axis=local
+%v3 = mul %v1 256
+%v4 = add %v3 %v2
+%v5 = mul %v4 37
+%v6 = add %v5 11
+%v7 = mod %v6 17
+%v8 = add %v7 -8
+%v9 = cast %v8 dtype=i8
+%v10 = shrink %A %v4 shape=[]
+%v11 = store %v10 %v9
+%v12 = end %v11 %v2
+%v13 = end %v12 %v1
+%v14 = after %A %v13
+%v15 = range 4096 axis=global
+%v16 = range 256 axis=local
+%v17 = mul %v15 256
+%v18 = add %v17 %v16
+%v19 = mul %v18 53
+%v20 = add %v19 5
+%v21 = mod %v20 15
+%v22 = add %v21 -7
+%v23 = cast %v22 dtype=i8
+%v24 = shrink %B %v18 shape=[]
+%v25 = store %v24 %v23
+%v26 = end %v25 %v16
+%v27 = end %v26 %v15
+%v28 = after %B %v27
+%As = alloc 2048 dtype=i8
+%Bs = alloc 2048 dtype=i8
+%Cs = alloc 4096 dtype=i32
+%g = range 256 axis=global
+%bm = div %g 16
+%bn = mod %g 16
+%kt = range 32
+# phase 1: 256 threads copy the 64x32 A tile and the 32x64 B tile into shared memory, tile-major
+%t = range 256 axis=local
+%q = range 8 axis=upcast
+%v29 = div %t 16
+%v30 = mod %t 16
+%v31 = mul %bm 65536
+%v32 = div %q 2
+%v33 = mul %v32 16384
+%v34 = mul %v29 1024
+%v35 = mul %kt 32
+%v36 = mod %q 2
+%v37 = mul %v36 16
+%v38 = add %v31 %v33
+%v39 = add %v38 %v34
+%v40 = add %v39 %v35
+%v41 = add %v40 %v37
+%v42 = add %v41 %v30
+%v43 = shrink %v14 %v42 shape=[]
+%v44 = load %v43
+%v45 = mul %q 256
+%v46 = add %v45 %t
+%v47 = shrink %As %v46 shape=[]
+%v48 = store %v47 %v44
+%v49 = mul %kt 32768
+%v50 = div %q 4
+%v51 = mul %v50 16384
+%v52 = mul %v29 1024
+%v53 = mul %bn 64
+%v54 = mod %q 4
+%v55 = mul %v54 16
+%v56 = add %v49 %v51
+%v57 = add %v56 %v52
+%v58 = add %v57 %v53
+%v59 = add %v58 %v55
+%v60 = add %v59 %v30
+%v61 = shrink %v28 %v60 shape=[]
+%v62 = load %v61
+%v63 = shrink %Bs %v46 shape=[]
+%v64 = store %v63 %v62
+%v65 = end %v48 %v64 %q
+%e1 = end %v65 %t
+%v66 = after %As %e1
+%v67 = after %Bs %e1
+# phase 2: warp w adds A tile (mi, ki) times B tile (ki, ni) into C tile (mi, ni), for its two tiles of C
+%w = range 8 axis=warp
+%u = range 2 axis=upcast
+%ki = range 2 axis=upcast
+%v68 = div %w 2
+%v69 = mod %w 2
+%v70 = mul %v68 1024
+%v71 = mul %v69 32
+%v72 = mul %u 16
+%v73 = add %v70 %v71
+%v74 = add %v73 %v72
+%v75 = mul %v68 512
+%v76 = mul %ki 256
+%v77 = add %v75 %v76
+%v78 = mul %ki 1024
+%v79 = mul %v69 512
+%v80 = mul %u 256
+%v81 = add %v78 %v79
+%v82 = add %v81 %v80
+%v83 = shrink %Cs %v74 shape=[]
+%v84 = shrink %v66 %v77 shape=[]
+%v85 = shrink %v67 %v82 shape=[]
+%v86 = mma %v83 %v84 %v85 lda=16 ldb=16 ldc=64
+%v87 = end %v86 %ki
+%v88 = end %v87 %u
+%v89 = end %v88 %w
+%ekt = end %e1 %v89 %kt
+%v90 = after %Cs %ekt
+# phase 3: copy the 64x64 C tile out
+%t3 = range 256 axis=local
+%q3 = range 16 axis=upcast
+%v91 = mul %q3 256
+%v92 = add %v91 %t3
+%v93 = shrink %v90 %v92 shape=[]
+%v94 = load %v93
+%v95 = mul %bm 65536
+%v96 = mul %q3 4096
+%v97 = div %t3 64
+%v98 = mul %v97 1024
+%v99 = mul %bn 64
+%v100 = mod %t3 64
+%v101 = add %v95 %v96
+%v102 = add %v101 %v98
+%v103 = add %v102 %v99
+%v104 = add %v103 %v100
+%v105 = shrink %C %v104 shape=[]
+%v106 = store %v105 %v94
+%v107 = end %v106 %q3
+%v108 = end %v107 %t3
+%v109 = end %ekt %v108 %g
+%C1 = after %C %v109

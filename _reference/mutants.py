@@ -1,4 +1,4 @@
-# SPOILERS. Proves the week 1 to 8 suites have teeth: each mutant plants one plausible student bug in the
+# SPOILERS. Proves the week 1 to 9 suites have teeth: each mutant plants one plausible student bug in the
 # reference compiler, and the suite must catch (kill) every one. A few minutes for all of them.
 #   python _reference/mutants.py               every mutant, stopping at the first test that catches it
 #   python _reference/mutants.py w6 grad       only mutants whose names contain 'w6' or 'grad'
@@ -8,7 +8,7 @@ import os, re, sys, json, glob, threading, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 SRC = open(os.path.join(HERE, 'uirc.py'), encoding='utf-8').read()
-WEEKS = (1, 2, 3, 4, 5, 6, 7, 8)
+WEEKS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
 
 # (name, [(old, new), ...]) -- every old must occur exactly once in uirc.py
 M = [
@@ -76,7 +76,7 @@ M = [
   ("w4 reduce takes scalars",     [("need(len(src) == 1 and 1 <= m <= len(src[0].shape),", "need(len(src) == 1 and m >= 1,")]),
   ("w4 reduce on bool",           [('need(src[0].dtype in NUM, "reduce works on i32 or f32")', 'pass')]),
   ("w5 expand grows non-1 axes",  [("need(fr == () or (len(fr) == len(to) and all(a == b or a == 1 for a, b in zip(fr, to))),", "need(fr == () or len(fr) == len(to),")]),
-  ("w4 render skips rangeify",    [("u.op == 'range' or u.op in SHAPE_OPS or (u.op in ALU and u.shape) or len(u.shape) >= 2", "u.op == 'range'"), (" or (len(u.shape) == 1 and u.shape[0] > 32 and u.op not in MEM) for u in all_nodes(names))", " for u in all_nodes(names))")]),
+  ("w4 render skips rangeify",    [("u.op in ('range', 'mma') or u.op in SHAPE_OPS or (u.op in ALU and u.shape) or len(u.shape) >= 2", "u.op in ('range', 'mma')"), (" or (len(u.shape) == 1 and u.shape[0] > 32 and u.op not in MEM) for u in all_nodes(names))", " for u in all_nodes(names))")]),
   ("w4 render reduce reversed",   [("el(x, (c(0),) * m + idx)))  # start from the first element", "el(x, unflat(c(T - 1), lead) + idx)))"),
                                    ("el(x, unflat(A('add', r, c(1)), lead) + idx)", "el(x, unflat(A('add', A('mul', r, c(-1)), c(T - 2)), lead) + idx)")]),
   ("w4 render reduce from zero",  [("acc1 = after(acc, store(sv(acc, c(0)), el(x, (c(0),) * m + idx)))  # start from the first element", "acc1 = after(acc, store(sv(acc, c(0)), const(0, u.dtype)))"),
@@ -116,17 +116,17 @@ M = [
   ("w2 bounds off by one",        [("    need(lo >= 0 and hi + k <= plen, f\"can't prove", "    need(lo >= 0 and hi + k <= plen + 1, f\"can't prove")]),
   ("w2 nested view vs storage",   [("k, plen = (shape[0] if shape else 1), (src[0].shape[0] if src[0].shape else 1)", "k, plen = (shape[0] if shape else 1), storage_of(src[0]).shape[0]")]),
   ("w2 two stores per version",   [("    if len(ss) > 1: raise UIRError", "    if False: raise UIRError")]),
-  ("w2 unsequenced store ok",     [("    if u.op == 'store' and id(u) not in sequenced: raise", "    if False: raise")]),
+  ("w2 unsequenced store ok",     [("    if u.op in ('store', 'mma') and id(u) not in sequenced: raise", "    if False: raise")]),
   ("w2 duplicate slots ok",       [("  if len(slots) != len(set(slots)): raise", "  if False: raise")]),
-  ("w2 after version unchecked",  [("if src[1].op == 'store': need(version_of(src[1].src[0]) is src[0], ", "if src[1].op == 'store': need(True, ")]),
+  ("w2 after version unchecked",  [("if src[1].op in ('store', 'mma'): need(version_of(src[1].src[0]) is src[0], ", "if src[1].op in ('store', 'mma'): need(True, ")]),
   ("w2 memory in call body ok",   [("    need(not any(u.op in MEM or u.op in ('load', 'store') for u in toposort(body, into_bodies=True)), ", "    need(True, ")]),
-  ("w2 memory as ALU operand ok", [("  if op not in ('shrink', 'load', 'store', 'after'): need(not any(is_mem(s) for s in src), ", "  if False: need(True, ")]),
+  ("w2 memory as ALU operand ok", [("  if op not in ('shrink', 'load', 'store', 'after', 'mma'): need(not any(is_mem(s) for s in src), ", "  if False: need(True, ")]),
   ("w2 store type unchecked",     [("    need((src[0].dtype, src[0].shape) == (src[1].dtype, src[1].shape), ", "    need(True, ")]),
   ("w2 data length unchecked",    [("            if len(toks) != n: raise", "            if False: raise")]),
   ("w2 data dtype unchecked",     [("              if c is None or c.dtype != dt: raise", "              if c is None: raise")]),
   ("w2 no ordering cycle check",  [("      if st == 1: raise UIRError(\"a load of an old", "      if False: raise UIRError(\"a load of an old")]),
   # ---------------- week 2: renderer ----------------
-  ("w2 loads not before stores",  [("    if n.op == 'store': d += [", "    if False: d += [")]),
+  ("w2 loads not before stores",  [("    if n.op in ('store', 'mma'): d += [", "    if False: d += [")]),
   ("w2 C plain signed add",       [("      e = f\"(int32_t)((uint32_t){a[0]} {dict(add='+', mul='*', shl='<<')[op]} (uint32_t){a[1]})\"",
                                     "      e = f\"({a[0]} {dict(add='+', mul='*', shl='<<')[op]} {a[1]})\"")]),
   ("w2 C div without -1 guard",   [("    elif op == 'div': e = f\"({a[1]} == -1 ? (int32_t)(0u - (uint32_t){a[0]}) : {a[0]} / {a[1]})\"", "    elif op == 'div': e = f\"({a[0]} / {a[1]})\"")]),
@@ -241,7 +241,7 @@ M = [
   ("w6 url size unchecked",         [("  if len(data) != n * SIZE[dt]: raise UIRError", "  if len(data) < n * SIZE[dt]: raise UIRError")]),
   ("w6 url bool bytes unchecked",   [("  if dt == 'bool' and data.translate(None, b'\\x00\\x01'): raise UIRError(f\"{url}: bool bytes must be 0 or 1\")\n", "")]),
   ("w6 url with data allowed",      [("            if 'data' in attrs: raise UIRError(\"a buffer takes data= or url=, not both\")\n", "")]),
-  ("w6 url big-endian",             [("    return iter(struct.unpack(f\"<{self.n}{'f' if self.dtype == 'f32' else 'i'}\", b))", "    return iter(struct.unpack(f\">{self.n}{'f' if self.dtype == 'f32' else 'i'}\", b))")]),
+  ("w6 url big-endian",             [("    return iter(struct.unpack(f\"<{self.n}{dict(f32='f', i8='b').get(self.dtype, 'i')}\", b))", "    return iter(struct.unpack(f\">{self.n}{dict(f32='f', i8='b').get(self.dtype, 'i')}\", b))")]),
   ("w6 render bitcast nan not canonical", [("{ int32_t i; if (isnan(x)) return 0x7fc00000; memcpy(&i, &x, 4); return i; }", "{ int32_t i; memcpy(&i, &x, 4); return i; }")]),
   ("w5 render in-place store fused", [("      if any(n.op == 'load' and storage_of(n.src[0]) is storage_of(view) for n in toposort(val)):", "      if False:")]),
   ("w5 render reduce of a broadcast hoisted", [("      a1 = sv(acc1, c(0) if r in opens(xe) else A('mul', r, c(0)))", "      a1 = sv(acc1, c(0))")]),
@@ -254,22 +254,49 @@ M = [
   ("w7 render private allocs shared", [("        if id(u) not in private_ids:\n          if cuda:", "        if True:\n          if cuda:"),
                                        ("          for a in privates.get(id(r), ()): lines.append(alloc_line(a, '  '))\n          emit(body, 1)", "          emit(body, 1)")]),
   ("w7 thread slice ignores the access size", [("  need(lo >= 0 and hi + size <= S,", "  need(lo >= 0 and hi < S,")]),
-  ("w7 thread loads unchecked", [("          if sid in priv or (n.op == 'load' and sid not in written): continue", "          if sid in priv or n.op == 'load': continue")]),
+  ("w7 thread loads unchecked", [("          if sid in priv or (not w and sid not in written): continue", "          if sid in priv or not w: continue")]),
   ("w7 nested thread loops allowed", [("        if inside: raise UIRError(f\"{axis_of(r)} loop %{r.arg[1]} is inside another parallel loop\")\n", "")]),
   ("w7 mixed strides allowed", [("          if stride.setdefault(sid, S) != S: raise UIRError", "          if False: raise UIRError")]),
   ("w7 upcast bound unchecked", [("    if ax == 'upcast': need(src[0].op == 'const' and 1 <= src[0].arg <= 32,", "    if ax == 'upcast': need(True,")]),
   # ---------------- week 8: GPUs ----------------
-  ("w8 cuda no barrier between phases", [("          emit(body, depth + 1); lines.append(f\"{pad}}}\"); lines.append(f\"{pad}__syncthreads();\")", "          emit(body, depth + 1); lines.append(f\"{pad}}}\")")]),
+  ("w8 cuda no barrier between phases", [("          lines.append(f\"{pad}}}\"); lines.append(f\"{pad}__syncthreads();\")\n          continue\n        if cuda and ax == 'warp':", "          lines.append(f\"{pad}}}\")\n          continue\n        if cuda and ax == 'warp':")]),
   ("w8 cuda shared memory not zeroed", [("\\n{pad}for (int32_t z_ = threadIdx.x; z_ < {u.arg[1]}; z_ += blockDim.x) a{i}[z_] = 0;\\n\"", "\\n\"")]),
-  ("w8 cuda local loops run in one thread", [("          bs = next((x[2].src[0].arg for x in iter_loops(body) if axis_of(x[2]) == 'local'), 1)", "          bs = 1"),
+  ("w8 cuda local loops run in one thread", [("          bs = next((x[2].src[0].arg * (32 if axis_of(x[2]) == 'warp' else 1) for x in iter_loops(body) if axis_of(x[2]) in PHASE), 1)", "          bs = 1"),
                                             ("          lines.append(f\"{pad}{{\"); lines.append(f\"{pad}  int32_t {rv} = threadIdx.x;\")", "          lines.append(f\"{pad}for (int32_t {rv} = 0; {rv} < {ex(r.src[0])}; {rv}++) {{\")")]),
   ("w8 digits may touch", [("    need(c > rest, f\"can't be shown to keep threads apart:", "    need(c >= rest, f\"can't be shown to keep threads apart:")]),
-  ("w8 parallel index may be missing", [("  need(all(any(s_[0] == id(r) for s_ in sig) or top(r) == 0 for r in par),", "  need(True,")]),
-  ("w8 phase loads unchecked", [("    if n.op == 'load' and sid not in written: continue\n    f = radix_layout({r}", "    if n.op == 'load': continue\n    f = radix_layout({r}")]),
-  ("w8 store outside local allowed", [("      elif it.op == 'store' and not in_local: raise UIRError", "      elif False: raise UIRError")]),
+  ("w8 parallel index may be missing", [("  need(all(top(r) == 0 or exact(r) for r in par),", "  need(True,")]),
+  ("w8 div or mod alone pins an index", [("any(op == 'mod' and (k > top(r) or ('div', k) in ds) for op, k in ds)", "any(op in ('div', 'mod') for op, k in ds)")]),
+  ("w8 mod never pins an index alone", [("any(op == 'mod' and (k > top(r) or ('div', k) in ds) for op, k in ds)", "any(op == 'mod' and ('div', k) in ds for op, k in ds)")]),
+  ("w8 phase loads unchecked", [("    if sid in skip or (not w and sid not in written): continue", "    if sid in skip or not w: continue")]),
+  ("w8 store outside local allowed", [("      elif it.op == 'store' and phase != 'local':", "      elif False:")]),
   ("w8 block sizes may differ", [("  if len(sizes) > 1: raise UIRError", "  if False: raise UIRError")]),
-  ("w8 local outside global allowed", [("      if axis_of(r) == 'local' and not inside: raise UIRError", "      if False: raise UIRError")]),
-  ("w8 block layouts may differ", [("    if layout.setdefault(sid, f) != f: raise UIRError(f\"global loop", "    if False: raise UIRError(f\"global loop")]),
+  ("w8 local outside global allowed", [("      if axis_of(r) in PHASE and not inside: raise UIRError", "      if axis_of(r) == 'warp' and not inside: raise UIRError")]),
+  ("w8 block layouts may differ", [("    if layout.setdefault(sid, f) != f: raise UIRError(f\"{where}: every access", "    if False: raise UIRError(f\"{where}: every access")]),
+  ("w9 run mma overwrites C", [("            C[co + i * ldc + j] = wrap(C[co + i * ldc + j] + sum(", "            C[co + i * ldc + j] = wrap(0 + sum(")]),
+  ("w9 run mma uses lda for B", [("A_[ao + i * lda + k] * B_[bo + k * ldb + j] for k in range(TILE)", "A_[ao + i * lda + k] * B_[bo + k * lda + j] for k in range(TILE)")]),
+  ("w9 run mma transposes B", [("A_[ao + i * lda + k] * B_[bo + k * ldb + j] for k in range(TILE)", "A_[ao + i * lda + k] * B_[bo + j * ldb + k] for k in range(TILE)")]),
+  ("w9 render mma overwrites C", [("          lines.append(f\"{pad}  uint32_t s_ = (uint32_t){pc}[{oc} + i_ * {ldc} + j_];\")", "          lines.append(f\"{pad}  uint32_t s_ = 0u;\")")]),
+  ("w9 cuda mma overwrites C", [("wmma::load_matrix_sync(fc_, {pc} + {oc}, {ldc}, wmma::mem_row_major);", "wmma::fill_fragment(fc_, 0);")]),
+  ("w9 cuda mma B column-major", [("wmma::matrix_b, 16, 16, 16, signed char, wmma::row_major>", "wmma::matrix_b, 16, 16, 16, signed char, wmma::col_major>")]),
+  ("w9 cast to i8 saturates", [("  if to == 'i8': return (v + 128) % 256 - 128", "  if to == 'i8': return max(-128, min(127, v))")]),
+  ("w9 render i8 as unsigned", [("CT = {'f32': 'float', 'i32': 'int32_t', 'bool': 'bool', 'i8': 'int8_t'}", "CT = {'f32': 'float', 'i32': 'int32_t', 'bool': 'bool', 'i8': 'uint8_t'}")]),
+  ("w9 cuda warp loop of n is n threads", [("          bs = next((x[2].src[0].arg * (32 if axis_of(x[2]) == 'warp' else 1)", "          bs = next((x[2].src[0].arg * (1 if axis_of(x[2]) == 'warp' else 1)")]),
+  ("w9 cuda no barrier after a warp phase", [("          emit(body, depth + 1); lines.append(f\"{pad}}}\"); lines.append(f\"{pad}__syncthreads();\")", "          emit(body, depth + 1); lines.append(f\"{pad}}}\")")]),
+  ("w9 per-thread ignores other threads' reads", [("        except UIRError: bad.add(a); continue", "        except UIRError:\n          if w: bad.add(a)\n          continue")]),
+  ("w9 warp loop allowed inside a local loop", [("          if phase: raise UIRError(f\"{ax} loop", "          if phase and not (ax == 'warp' and phase == 'local'): raise UIRError(f\"{ax} loop"), ("        walk(b, phase or (ax if ax in PHASE else None))", "        walk(b, ax if ax in PHASE else phase)")]),
+  ("w9 local loop allowed inside a warp loop", [("          if phase: raise UIRError(f\"{ax} loop", "          if phase and not (ax == 'local' and phase == 'warp'): raise UIRError(f\"{ax} loop"), ("        walk(b, phase or (ax if ax in PHASE else None))", "        walk(b, ax if ax in PHASE else phase)")]),
+  ("w9 per-thread memory kept in shared memory", [("          if w9: mine.update(per_thread(body, privates.get(id(r), ())))\n", "")]),
+  ("w9 per-thread array not zeroed", [("      return f\"{pad}{CT[u.dtype]} a{i}[{mine[id(u)]}] = {{0}};\"", "      return f\"{pad}{CT[u.dtype]} a{i}[{mine[id(u)]}];\"")]),
+  ("w9 per-thread offset keeps t * S", [("      o = f\"(int32_t)((uint32_t)({o}) - (uint32_t){name[id(cur[0])]} * {S}u)\"", "      o = o")]),
+  ("w9 mma alignment unchecked", [("      need(all(multiple_of(t, 32 if nm != 'C' else 8) for t in ts),", "      need(True,")]),
+  ("w9 mma bounds unchecked", [("      need(lo >= 0 and hi + extent(v, ld) <= size,", "      need(lo >= 0,")]),
+  ("w9 mma allowed in a local loop", [("      elif it.op == 'mma' and phase != 'warp':", "      elif it.op == 'mma' and phase is None:")]),
+  ("w9 store allowed in a warp loop", [("      elif it.op == 'store' and phase != 'local':", "      elif it.op == 'store' and phase is None:")]),
+  ("w9 warp outside global allowed", [("      if axis_of(r) in PHASE and not inside: raise UIRError", "      if axis_of(r) == 'local' and not inside: raise UIRError")]),
+  ("w9 mma tile ignored by the race check", [("  if ld: digits += [(ld, TILE - 1), (1, TILE - 1)]", "  if False: digits += [(ld, TILE - 1), (1, TILE - 1)]")]),
+  ("w9 mma reads unordered", [("      for v in n.src[1:]: loads_of.setdefault(id(version_of(v)), []).append(n)\n", "      pass\n")]),
+  ("w9 block size ignores warps", [("          sizes.add(r.src[0].arg * (32 if ax == 'warp' else 1))", "          sizes.add(r.src[0].arg)")]),
+  ("w9 i8 data range unchecked", [("c.dtype == 'i32' and -128 <= c.arg <= 127: c = const(c.arg, 'i8')", "c.dtype == 'i32': c = const(c.arg, 'i8')")]),
 ]
 
 # Generated mutants: every validation in the reference, switched off one at a time. A `need(cond, msg)` becomes
@@ -306,7 +333,7 @@ def apply(muts):
 # compiles C when the mutant changed the C, because identical C gives the reference's (passing) result.
 # The MNIST test is skipped: it is an end-to-end check whose parts the other tests cover, and it costs 30 s.
 SKIP = ('mnist_train',)
-TIMEOUT = 300                                   # seconds per mutant: a hang counts as killed
+TIMEOUT = 2400 if os.environ.get('UIR_CUDA_DOCKER') else 300   # seconds per mutant: a hang counts as killed
 
 def test_files():
   fs = sorted(glob.glob(os.path.join(ROOT, 'tests', 'week*', '**', '*.uir'), recursive=True))

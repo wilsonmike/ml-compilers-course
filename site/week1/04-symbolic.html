@@ -37,7 +37,7 @@
 <div class="prose">
 <h2>Unknowns</h2>
 <p>Inside a function body, <code>param 0</code> (the input in slot 0, see lesson 1.2's params box) could be any i32. You can't fold <code>add %x 0</code> by computing it, but you can still prove it equals <code>%x</code> <em>for every possible x</em>. That's what makes a rule <strong>symbolic</strong>: it holds for all inputs, so it doesn't need the input.</p>
-<p>The <code>simplify</code> subcommand is your compiler's second command, next to <code>run</code> from lesson 1.2. It reads a file that defines <code>%out</code> and prints a smaller program that computes the same thing. It is graded exactly this way. Your output has to compute the same value as the original for every input where the original doesn't error. The grader checks that on every edge value in every param slot (a few hundred cases), including nasty ones like <code>INT_MIN</code>, <code>-0.0</code> and <code>nan</code>, and it compares f32 results bit for bit, so <code>-0.0</code> and <code>0.0</code> count as different there (all NaNs count as equal). Each test also has a <code>max_ops</code> budget, so leaving the graph untouched won't pass either.</p>
+<p>The <code>simplify</code> subcommand is your compiler's second command, next to <code>run</code> from lesson 1.2. It reads a file that defines <code>%out</code> and prints a smaller program that computes the same thing. The grader checks two things. Your output has to compute the same value as the original for every input where the original doesn't error. The grader checks that on every edge value in every param slot (a few hundred cases), including nasty ones like <code>INT_MIN</code>, <code>-0.0</code> and <code>nan</code>, and it compares f32 results bit for bit, so <code>-0.0</code> and <code>0.0</code> count as different there (all NaNs count as equal). And each test has a <code>max_ops</code> budget, a limit on the ops you print (<code>const</code> and <code>param</code> lines don't count), so leaving the graph untouched won't pass either.</p>
 
 <h2>i32 is a ring. f32 is not.</h2>
 <p>i32 arithmetic is arithmetic <strong>mod 2<sup>32</sup></strong>. Wraparound sounds messy, but it makes i32 a <em>ring</em>: addition and multiplication are associative and commutative, and multiplication distributes over addition, exactly like the integers you learned in school. Every identity built only from <code>+</code> and <code>×</code> holds, even when the values overflow.</p>
@@ -52,8 +52,15 @@
 <tr><td><code>add(x, 0) → x</code></td><td class="ok">valid</td><td class="no">wrong</td><td><code>-0.0 + 0.0 = +0.0</code>, so x changes from <code>-0.0</code> to <code>+0.0</code>. <code>recip</code> can tell them apart (<code>-inf</code> vs <code>inf</code>), and so can the simplify grader, which compares f32 bit for bit. <code>add(x, -0.0) → x</code> <em>is</em> valid: adding <code>-0.0</code> changes nothing.</td></tr>
 <tr><td><code>add(add(x, c1), c2) → add(x, c1 + c2)</code></td><td class="ok">valid</td><td class="no">wrong</td><td>i32 addition is associative mod 2<sup>32</sup>. f32 rounds after each add, so regrouping changes the result.</td></tr>
 <tr><td><code>xor(x, x) → 0</code></td><td class="ok">valid</td><td class="muted">n/a</td><td>xor only takes i32 and bool.</td></tr>
+<tr><td><code>div(x, 1) → x</code>, <code>shl(x, 0) → x</code></td><td class="ok">valid</td><td class="muted">n/a</td><td>Both are exact for every i32, including <code>INT_MIN</code>.</td></tr>
+<tr><td><code>xor(x, 0) → x</code></td><td class="ok">valid</td><td class="muted">n/a</td><td>Same for bool: <code>xor(x, false) → x</code>.</td></tr>
+<tr><td><code>mod(x, 1) → 0</code></td><td class="ok">valid</td><td class="muted">n/a</td><td>Every remainder by 1 is 0, even <code>INT_MIN mod 1</code>.</td></tr>
+<tr><td><code>max(x, x) → x</code></td><td class="ok">valid</td><td class="ok">valid</td><td>Both sides are the same node, so even <code>nan</code> and <code>-0.0</code> come back unchanged.</td></tr>
+<tr><td><code>cast(x) → x</code> when x already has the target dtype</td><td class="ok">valid</td><td class="ok">valid</td><td>A cast to the same dtype is the identity (spec section 5).</td></tr>
 <tr><td><code>cmplt(x, x) → false</code></td><td class="ok">valid</td><td class="ok">valid</td><td>Nothing is less than itself, and <code>nan</code> compares false anyway.</td></tr>
 <tr><td><code>where(c, a, a) → a</code></td><td class="ok">valid</td><td class="ok">valid</td><td>Both branches are the same node.</td></tr>
+<tr><td><code>where(true, a, b) → a</code>, <code>where(false, a, b) → b</code></td><td class="ok">valid</td><td class="ok">valid</td><td>The condition is known. It's often a <code>cmplt</code> that just folded.</td></tr>
+<tr><td><code>index(stack(a0, a1, ...), k) → ak</code></td><td class="ok">valid</td><td class="ok">valid</td><td>Only for a const <code>k</code> with <code>0 ≤ k &lt; n</code>. An out-of-range <code>k</code> is a runtime error, so leave it.</td></tr>
 <tr><td><code>div(mul(x, c), c) → x</code></td><td class="no">only with bounds</td><td class="muted">n/a</td><td><code>mul</code> can wrap, and <code>div</code> can't undo a wrap: <code>(2<sup>30</sup> × 2) / 2</code> is <code>INT_MIN / 2</code>, not <code>2<sup>30</sup></code>. Safe when bounds prove the product fits, and always safe for <code>c = 1</code> or <code>c = -1</code>. See the trap below.</td></tr>
 </tbody></table></div>
 
@@ -115,6 +122,19 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 <tr><td><code>1073741824</code> (2<sup>30</sup>)</td><td><code>-2147483648</code> (wrapped)</td><td><code>-1073741824</code></td><td class="no">no</td></tr>
 </tbody></table></div>
 <p>So <code>div(mul(x, c), c) → x</code> is only valid when bounds prove <code>mul(x, c)</code> can't wrap. With <code>%x = cast %b dtype=i32</code> (range [0, 1]) it's safe, and the oracle simplifies <code>(x * 2) / 2</code> down to the cast. With a raw param it must stay. The grader's edge-case inputs include 2<sup>30</sup> precisely to catch this.</p>
+</div>
+
+<div class="prose">
+<h2>Printing your result</h2>
+<p><code>simplify</code> prints a .uir program to stdout. Walk sources first from <code>%out</code> and print only the nodes it needs, each once, so every name is defined above its first use. Give each node a fresh name and write constants inline as literals. The last line defines <code>%out</code>. If <code>%out</code> folded to a constant, print it as <code>%out = const 3.0</code>.</p>
+<p>f32 constants need care. Print enough digits to round-trip, and <code>%.9g</code> is enough for any f32. But <code>%.9g</code> prints <code>3.0</code> as <code>3</code>, which reads back as an i32, so append <code>.0</code> when the text has no <code>.</code>, <code>e</code>, <code>n</code> or <code>i</code>. Print the specials as <code>inf</code>, <code>-inf</code> and <code>nan</code>. Here is one valid output for a file whose <code>%out</code> is <code>((max x (2.0 + 1.0)) + recip -0.0) + y * 0.1</code>:</p>
+<pre><code>%t0 = param 0 dtype=f32
+%t1 = max %t0 3.0
+%t2 = add %t1 -inf
+%t3 = param 1 dtype=f32
+%t4 = mul %t3 0.100000001
+%out = add %t2 %t4</code></pre>
+<p><code>0.100000001</code> is <code>%.9g</code> of the f32 nearest 0.1, and it reads back as exactly that f32. The oracle prints <code>0.10000000149011612</code> instead. Both are fine, because the grader compares values, not text.</p>
 </div>
 
 <h2>Code it</h2>

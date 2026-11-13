@@ -53,8 +53,13 @@ python tools/test.py --compiler YOUR_COMPILER --week 1 -k div -v</code></pre>
     <thead><tr><th>message starts with</th><th>look at</th></tr></thead>
     <tbody>
       <tr><td><code>expected exit 2 (invalid), got 0</code></td><td>a check you don't do yet: a type rule, a bounds proof, an ordering rule. The <code>oracle:</code> line under it says which.</td></tr>
+      <tr><td><code>oracle: a load of an old buffer version is needed after that version was overwritten</code></td><td>week 2's ordering rule. No order of loads and stores works, for example because the offset of a load from the old version depends on the new one (<code>err_old_version_needed_late</code>).</td></tr>
+      <tr><td><code>oracle: two stores into the same buffer version are unordered</code></td><td>week 2: a version takes one store at most. A second store must go into the version the first one's <code>after</code> made (<code>err_two_stores_one_version</code>, <code>err_two_stores_unsequenced_second</code>).</td></tr>
+      <tr><td><code>oracle: a store that no after sequences has no effect</code></td><td>week 2: every store must be named by an <code>after</code>, or the program is invalid (<code>err_unsequenced_store</code>).</td></tr>
       <tr><td><code>N ops in your output, the target is &lt;= M</code></td><td>a simplification you're missing, or duplicate statements in your output (hash cons what you print)</td></tr>
       <tr><td><code>wrong value: original gives ..., yours gives ...</code></td><td>a rewrite that isn't true for every input. The <code>args:</code> line is the input that breaks it.</td></tr>
+      <tr><td><code>your output is not valid .uir</code></td><td>simplify printed something the oracle can't parse. The usual cause is an f32 constant printed as an integer: <code>add %x 1</code> with an f32 <code>%x</code> fails with <code>add: two operands of the same dtype</code>. Print f32 constants with a decimal point, as <code>1.0</code>.</td></tr>
+      <tr><td><code>%out changed type: f32[] -&gt; i32[]</code></td><td>the same printing bug on <code>%out</code> itself: <code>const 1</code> is an i32, <code>const 1.0</code> an f32</td></tr>
       <tr><td><code>rendered C is N bytes; the limit is 20000</code></td><td>a vector you unrolled instead of looping over</td></tr>
       <tr><td><code>your C doesn't compile</code></td><td>the compiler's error is printed right below, so check names, types and missing semicolons in your printer</td></tr>
       <tr><td><code>your kernel crashed</code></td><td>undefined behavior caught by the sanitizer (see section 5)</td></tr>
@@ -64,7 +69,7 @@ python tools/test.py --compiler YOUR_COMPILER --week 1 -k div -v</code></pre>
   </div>
 
   <h2>2. Find out what the test is for</h2>
-  <p>Every test starts with a comment saying what it checks. The test guides collect all of them, with the plausible bugs known to fail each test: <a href="tests-week1.html">week 1</a>, <a href="tests-week2.html">week 2</a>, <a href="tests-week3.html">week 3</a>, <a href="tests-week4.html">week 4</a>, <a href="tests-week5.html">week 5</a>, <a href="tests-week6.html">week 6</a>. Read the matching section of the spec for that week before changing code: most failures are a rule read differently, not a typo.</p>
+  <p>Every test starts with a comment saying what it checks. The test guides collect all of them, with the plausible bugs known to fail each test: <a href="tests-week1.html">week 1</a>, <a href="tests-week2.html">week 2</a>, <a href="tests-week3.html">week 3</a>, <a href="tests-week4.html">week 4</a>, <a href="tests-week5.html">week 5</a>, <a href="tests-week6.html">week 6</a>, <a href="tests-week7.html">week 7</a>, <a href="tests-week8.html">week 8</a>, <a href="tests-week9.html">week 9</a>. Read the matching section of the spec for that week before changing code: most failures are a rule read differently, not a typo.</p>
 
   <h2>3. Shrink the failing test</h2>
   <p>A test with ten statements has ten places for the bug. Copy it to a scratch file and delete lines until it stops failing, then put back the last thing you removed. What's left is the bug.</p>
@@ -134,10 +139,56 @@ uint32_t bits_of(float x) { uint32_t u; memcpy(&amp;u, &amp;x, 4); return u; }
 /* printf("%08x\n", bits_of(v)); */</code></pre>
   <p><code>3e99999a</code> and <code>3e99999b</code> differ in the last bit: one rounding step somewhere.</p>
 
-  <h2>6. Print your IR between passes</h2>
+  <h2>6. When a speed test fails</h2>
+  <p>From week 7, a test with a <code># speed:</code> header checks your kernel's bits against the reference kernel's, then times both, best of 3 each. Two messages are specific to it:</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>message starts with</th><th>look at</th></tr></thead>
+    <tbody>
+      <tr><td><code>wrong result: line N of the buffers is ...</code></td><td>a render bug, not a speed problem. Debug it as in section 5. Unrolling and threads never change the order of any add.</td></tr>
+      <tr><td><code>too slow: your kernel took ... ms, the target is at most ... ms</code></td><td>the bits are right, but the C doesn't follow the program's schedule. Work through the list below.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <ol>
+    <li>Run the speed test alone. The grader runs one test per core by default, so other tests compete with the timing. Close other heavy programs too.
+      <pre><code>python tools/test.py --compiler YOUR_COMPILER --week 7 -k s_gemm -v --jobs 1</code></pre></li>
+    <li>Diff your C against the oracle's for the same file:
+      <pre><code>python _reference/uirc.py render FILE &gt; ref.c
+YOUR_COMPILER render FILE &gt; mine.c
+git diff --no-index ref.c mine.c</code></pre></li>
+    <li>Look for loops left un-unrolled. An upcast loop must be written out once per iteration, with the index as a literal. Left as a <code>for</code> loop, its accumulators stay in memory instead of registers.</li>
+    <li>Then look for missing <code>restrict</code> on the buffer pointers, a thread loop that isn't outlined into a <code>uir_parallel_for</code> call, and a private alloc declared outside the outlined function, where every thread shares it.</li>
+  </ol>
+  <p>On a machine with fewer than 4 hardware threads, the speed tests with thread loops only check bits.</p>
+
+  <h2>7. When a CUDA test fails</h2>
+  <p>CUDA tests (weeks 8 and 9, header <code># cuda</code>) run your <code>render-cuda</code> output on a GPU when the grader finds <code>nvcc</code> or you pass <code>--cuda-docker</code>, and in the emulator otherwise. A message ending in <code>(in the emulator)</code> came from the emulator. It runs each block's threads as real threads with a real barrier, so most bugs fail there just as on a GPU.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>symptom</th><th>usual cause</th><th>fix</th></tr></thead>
+    <tbody>
+      <tr><td><code>the emulated kernel didn't finish: a thread waiting at a __syncthreads() the others never reach?</code></td><td>a <code>__syncthreads()</code> that only some threads of the block run</td><td>put barriers between phases, at the top level of the kernel, where every thread reaches them</td></tr>
+      <tr><td>a wrong element that comes and goes, or only in <code>c_reverse_shared_1024</code></td><td>a missing <code>__syncthreads()</code>: a later phase reads a slot before the thread that writes it got there</td><td>emit a barrier after every phase, including the last</td></tr>
+      <tr><td>a wrong element in <code>c_block_shared_fresh</code> or <code>c_shared_dirty_then_fresh</code></td><td>unzeroed shared memory: a block sees what an earlier block or kernel left there</td><td>have the threads clear each <code>__shared__</code> array at the start of the kernel, then <code>__syncthreads()</code></td></tr>
+      <tr><td>an <code>mma</code> test passes in the emulator and fails on the GPU</td><td>a wmma load or store from an address that isn't a multiple of 32 bytes. The spec already checks the offsets, so it's usually a shared array declared without alignment. The emulator doesn't check alignment.</td><td>declare shared memory <code>__shared__ __align__(32)</code></td></tr>
+      <tr><td>any other disagreement between the emulator and the GPU</td><td>a missing barrier or unzeroed shared memory, first</td><td>check the two rows above it before anything else</td></tr>
+      <tr><td><code>your CUDA failed to build or run:</code> with <code>Value 'native' is not defined for option 'gpu-architecture'</code> or <code>Unsupported gpu architecture 'compute_89'</code></td><td>an <code>nvcc</code> too old for <code>-arch=native</code> or for your card. RTX 40-series cards need CUDA 11.8 or newer.</td><td>install CUDA 11.8 or newer (12.x preferred), or use <code>--cuda-docker nvidia/cuda:12.6.3-devel-ubuntu22.04</code> (lesson 8.5)</td></tr>
+      <tr><td>week 9 <code>mma</code> tests don't build on the GPU</td><td>a GPU older than sm_72, such as Kaggle's P100, has no int8 tensor cores</td><td>use a T4 or newer, or the emulator</td></tr>
+      <tr><td><code>render-cuda should exit 2 (the program isn't in kernel form)</code></td><td>work outside a global loop, or a kernel that uses values from outside it</td><td>check kernel form (lesson 8.4) before printing anything</td></tr>
+      <tr><td><code>too slow on the GPU:</code> with the bits right</td><td>a kernel that ignores part of the schedule</td><td>see below</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Without a GPU, a <code># cuda speed:</code> test only checks that your CUDA builds. With one, find a slow kernel the same way as on the CPU: diff your CUDA against the oracle's. For a week 8 test ask for week 8's rendering, and for a week 9 test leave the flag off:</p>
+  <pre><code>python _reference/uirc.py render-cuda FILE --week=8 &gt; ref.cu
+python _reference/uirc.py render-cuda FILE &gt; ref.cu</code></pre>
+  <p>In week 9, look first for per-thread memory left in a <code>__shared__</code> array instead of a plain array in each thread, and for an upcast loop left as a loop, which keeps that array out of registers.</p>
+
+  <h2>8. Print your IR between passes</h2>
   <p>Most bugs live between two passes: the graph was right after parsing and wrong after simplifying, or right before rangeify and wrong after. Give your compiler a debug flag that prints the graph as .uir after each pass, then diff the printouts. Printing .uir has a bonus: you can feed any intermediate stage back to the oracle and ask what it computes.</p>
 
-  <h2>7. Usual suspects, week by week</h2>
+  <h2>9. Usual suspects, week by week</h2>
   <p>These are mistakes planted into the reference compiler to prove the tests catch them. If a test below fails, start with the advice next to it.</p>
   <div class="tablewrap">
   <table>
@@ -169,11 +220,15 @@ uint32_t bits_of(float x) { uint32_t u; memcpy(&amp;u, &amp;x, 4); return u; }
       <tr><td>6</td><td>shares are added in the order they arrive, not in file order</td><td><code>grad_accumulation_order_inner</code></td></tr>
       <tr><td>6</td><td><code>reduce op=max</code> splits the gradient evenly between ties</td><td><code>grad_reduce_max_ties</code></td></tr>
       <tr><td>6</td><td>a <code>url=</code> file is checked by its hash and its size</td><td><code>err_url_sha_mismatch</code>, <code>err_url_file_too_long</code></td></tr>
+      <tr><td>7</td><td>the slice rule counts the access size: a store of k elements at <code>r * S + e</code> needs <code>e + k &lt;= S</code>, not just <code>e &lt; S</code></td><td><code>err_thread_vector_store_overflows</code></td></tr>
+      <tr><td>7</td><td>loads of memory the thread loop also writes are checked too, while memory it only reads may be read anywhere</td><td><code>err_thread_load_neighbor</code>, <code>thread_reads_any_input</code></td></tr>
+      <tr><td>7</td><td>every access to one buffer in a thread loop uses the same stride S</td><td><code>err_thread_mixed_strides</code></td></tr>
+      <tr><td>7</td><td>a private alloc starts at zero in every iteration, in run and in render</td><td><code>thread_private_alloc_fresh</code>, <code>thread_private_alloc_not_cumulative</code>, <code>r_thread_private_alloc</code></td></tr>
     </tbody>
   </table>
   </div>
 
-  <h2>8. Asking for help well</h2>
+  <h2>10. Asking for help well</h2>
   <p>Whoever helps you, a classmate or an AI assistant, needs the same four things:</p>
   <ol>
     <li>The smallest program that fails (section 3), not the whole test.</li>
@@ -185,7 +240,7 @@ uint32_t bits_of(float x) { uint32_t u; memcpy(&amp;u, &amp;x, 4); return u; }
     <p>The <code>AGENTS.md</code> from <code>templates/</code> sets the rule for your compiler repo: an AI assistant may explain concepts, draw diagrams, run the oracle, and ask you questions that lead to the bug, but it doesn't write or edit your compiler code. Ask "why would this give -4?" rather than "fix my div".</p>
   </div>
 
-  <h2>9. When the test itself looks wrong</h2>
+  <h2>11. When the test itself looks wrong</h2>
   <p>It happens. The format is provisional and the tests are written by people. Check in this order:</p>
   <ol>
     <li>Read the spec section again, slowly. Most "wrong tests" are a rule that says something subtler than it first seemed.</li>

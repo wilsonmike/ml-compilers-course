@@ -40,6 +40,7 @@
       <li>One statement per line, always <code>%name = op operand* key=value*</code>.</li>
       <li>Names are letters, digits and underscores. Define a name <em>above</em> its first use, and only once. So the file is already in a valid evaluation order.</li>
       <li>An operand is a <code>%name</code> or a literal. A literal is just an inline <code>const</code>.</li>
+      <li>Attributes come after every operand, and each one at most once. <code>cast dtype=f32 1</code> and <code>cast 1 dtype=f32 dtype=bool</code> are invalid, and so is an attribute the op doesn't take, like <code>add 1 2 dtype=f32</code>.</li>
     </ul>
   </div>
   <div class="tablewrap"><table>
@@ -48,6 +49,7 @@
     <tr><td><code>1.5</code>, <code>2e3</code>, <code>inf</code>, <code>-inf</code>, <code>nan</code></td><td><code>const</code>, dtype <code>f32</code> (any <code>.</code> or <code>e</code> makes it a float)</td></tr>
     <tr><td><code>true</code>, <code>false</code></td><td><code>const</code>, dtype <code>bool</code></td></tr>
     <tr><td><code>%x = const 3 dtype=f32</code></td><td>an explicit const. This one is <code>3.0</code>.</td></tr>
+    <tr><td><code>%x = const 1.5 dtype=i32</code></td><td>invalid. A float literal can't become an <code>i32</code> or a <code>bool</code>, even <code>2.0</code>.</td></tr>
   </table></div>
 
   <div class="key"><span class="label">Params in one paragraph</span><p><code>%x = param 0 dtype=i32</code> declares an input: slot 0, an i32. The exercises in lessons 1 to 4 use this: the tests fill slot 0 (and 1, and so on) with numbers and print what your <code>%out</code> computes. Lesson 5 shows how <code>call</code> fills params inside a program. Until then, think of a param as "a number the test hands in". In a plain <code>run</code>, nothing fills a param that sits outside any <code>call</code>, so evaluating one is a runtime error (lesson 5).</p></div>
@@ -125,7 +127,14 @@
   <h2>f32: rounding after every step</h2>
   <div class="prose">
     <p>An <code>f32</code> has 24 bits of precision. After every op, the exact result is rounded to the nearest representable f32. A tie goes to the even neighbor, like rounding 2.5 to 2 and 3.5 to 4. If your language computes in 64-bit doubles, round back to 32 bits after <em>each</em> op, not once at the end.</p>
+    <p>f32 also has special values that integers don't. They show up in the tests all the time:</p>
   </div>
+  <div class="tablewrap"><table>
+    <tr><th>value</th><th>one way to get it</th><th>watch out</th></tr>
+    <tr><td><code>inf</code>, <code>-inf</code></td><td><code>recip 0.0</code>, or a result too big for f32</td><td><code>add inf -inf</code> is <code>nan</code>.</td></tr>
+    <tr><td><code>nan</code></td><td><code>mul inf 0.0</code></td><td>"Not a number". Arithmetic on a NaN gives NaN, and <code>cmplt</code> with a NaN is <code>false</code>.</td></tr>
+    <tr><td><code>-0.0</code></td><td><code>mul -3.0 0.0</code></td><td>It equals <code>0.0</code>, but <code>recip</code> tells them apart: <code>-inf</code> vs <code>inf</code>.</td></tr>
+  </table></div>
   <div class="trap"><span class="label">16777216 + 1</span><p>2²⁴ = 16777216 is where f32 runs out of integers. <code>add 16777216.0 1.0</code> is exactly halfway between 16777216 and 16777218, and it rounds to even, giving <code>16777216.0</code>. The 1 just disappears.</p></div>
   <div class="trap"><span class="label">0.1 + 0.2</span><p>In 64-bit doubles, <code>0.1 + 0.2 == 0.3</code> is famously false. In f32 it happens to be <strong>true</strong>: <code>%s = add 0.1 0.2</code> then <code>%t = assert %s 0.3</code> passes. If your interpreter uses doubles and forgets to round, it gets this wrong.</p></div>
   <div class="prose">
@@ -135,6 +144,7 @@
       <li>f32 compares by value, so <code>0.0</code> equals <code>-0.0</code>.</li>
       <li>Two NaNs count as equal, so <code>assert nan nan</code> passes. In IEEE, <code>nan == nan</code> is false. Our rule is chosen so tests can say "this should be NaN".</li>
       <li><code>max</code> with a NaN operand is NaN. <code>cmplt</code> with a NaN is <code>false</code>.</li>
+      <li><code>max -0.0 0.0</code> and <code>max 0.0 -0.0</code> are both <code>+0.0</code>. <span class="only-python">Python's built-in <code>max</code> gets this wrong: <code>max(-0.0, 0.0)</code> returns <code>-0.0</code>, because it keeps the first of two equal values.</span><span class="only-ocaml">OCaml's <code>Stdlib.max</code> gets this wrong: <code>max (-0.0) 0.0</code> returns <code>-0.0</code>, because it keeps the first of two equal values. <code>Float.max</code> gets both zeros and NaN right.</span></li>
     </ul>
     <details class="toggle"><summary>cast rules</summary>
     <p><code>cast 3.9 dtype=i32</code> is <code>3</code> and <code>cast -3.9 dtype=i32</code> is <code>-3</code>, because f32 to i32 truncates toward zero. A NaN, or a value outside the i32 range, is a runtime error. bool to a number gives 0 or 1. A number to bool means "not zero".</p>

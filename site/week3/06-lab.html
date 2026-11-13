@@ -79,6 +79,7 @@
 <p>Two new ways to fail. A loop bound or offset that overflows <code>int32_t</code> in your C is undefined behavior, so keep loop counters <code>int32_t</code> and do index arithmetic through the same <code>uint32_t</code> wrap as every other <code>add</code> and <code>mul</code>. And an accumulator loaded once outside its loop gives the wrong sum, not a crash: it shows up as a wrong value in the buffer.</p>
 
 <h2>Running the suite</h2>
+<p>Stuck on a failing test? The <a href="../resources/tests-week3.html">week 3 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week3.html">week 3 study guide</a> has a cheat sheet and a step-by-step way out.</p>
 <p>From the course repo root, and keep the earlier weeks green while you work:</p>
 <pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 3
 python tools/test.py --compiler "C:/path/to/your.exe" --week 3 -k render -v   # just the render tests, with details
@@ -97,7 +98,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <li><h3>Parse and type the new ops</h3><p><code>range</code> takes one i32 operand and is named by its statement, so two ranges with the same bound are still different loops. <code>end</code> takes one or more effects and a range last. Effects are <code>void</code>, and only <code>end</code> and <code>after</code> may consume them.</p><p class="check">Checkpoint: every file in <code>tests/week3/run/</code> parses or is rejected with exit 2.</p></li>
 <li><h3>Open ranges</h3><p>One memoized pass: a range is open in itself, <code>end</code> removes its range, everything else takes the union of its sources. Then the static checks from the spec.</p><p class="check">Checkpoint: the loop-rule invalid tests exit 2.</p></li>
 <li><h3>Bounds through ranges</h3><p>Add one case to your interval analysis: a range's interval is <code>[0, hi(n) - 1]</code>, where <code>hi(n)</code> is the upper bound of its operand. If <code>hi(n)</code> is 0 or less, the loop never runs. Use <code>[0, 0]</code> then, so the interval stays well formed.</p><p class="check">Checkpoint: looped matmul and convolution offsets type check, and an unmasked padded index exits 2.</p></li>
-<li><h3>Loop order and placement</h3><p>Find each range's outer loops from its <code>end</code>. Give every node a path of loops, outermost first, and move accumulator loads to their uses. Keep this a separate pass: it's the part the syllabus says wants a rewrite engine.</p><p class="check">Checkpoint: print each node with its path and check the convolution by eye.</p></li>
+<li><h3>Loop order and placement</h3><p>Find each range's outer loops from its <code>end</code>. Give every node a path of loops, outermost first, and move accumulator loads to their uses. Place loads on the graph as written: if your builder folds <code>mul %k 0</code> to <code>0</code>, lesson 3.2's two-views trick merges back into one load. Keep this a separate pass: it's the part the syllabus says wants a rewrite engine.</p><p class="check">Checkpoint: print each node with its path and check the convolution by eye.</p></li>
 <li><h3>Linearize</h3><p>Build nested blocks: each block lists its nodes and its loops in an order where sources come first and loads of a version come before the store that overwrites it.</p><p class="check">Checkpoint: the "old version needed after it was overwritten" tests still exit 2.</p></li>
 <li><h3>Execute the blocks in <code>run</code></h3><p>Mutable arrays per storage, a value table, and a loop that sets each range's counter and runs its body.</p><p class="check">Checkpoint: every week 3 run test passes, and weeks 1 and 2 still do.</p></li>
 <li><h3>Render the blocks</h3><p>The same walk, printing <code>for</code> headers, indented bodies and closing braces. Your week 2 expression printer doesn't change.</p><p class="check">Checkpoint: every render test passes, bit for bit.</p></li>
@@ -187,7 +188,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 
 <nav class="pager">
 <a href="05-rendering-loops.html">← Lesson 5: Rendering loops</a>
-<a href="../index.html">Back to the course →</a>
+<a href="../week4/01-vectors.html">Week 4: Vectors and elementwise ops →</a>
 </nav>
 </main>
 

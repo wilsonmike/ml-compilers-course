@@ -1,0 +1,51 @@
+{
+  "id": "w9-03-tile-major-py",
+  "lang": "python",
+  "title": "Where does an element go, tile-major?",
+  "prompt": "<p>A matrix with <code>cols</code> columns (a multiple of 16) is stored <b>tile-major</b>: cut into 16×16 tiles, the tiles stored one after another in row-major order of tiles, and each tile's 256 elements row-major inside it. Write <code>tile_major(row, col, cols)</code>: the offset of element <code>(row, col)</code>.</p>",
+  "show": "str",
+  "starter": "def tile_major(row: int, col: int, cols: int) -> int:\n    \"\"\"offset of (row, col) in a matrix of `cols` columns stored as 16x16 tiles, tile after tile\"\"\"\n    return row * cols + col\n",
+  "tests": [
+    {
+      "expr": "tile_major(0, 0, 32)",
+      "sample": true,
+      "expect": "0"
+    },
+    {
+      "expr": "tile_major(0, 16, 32)",
+      "sample": true,
+      "expect": "256"
+    },
+    {
+      "expr": "tile_major(17, 3, 32)",
+      "sample": true,
+      "expect": "531"
+    },
+    {
+      "expr": "tile_major(15, 15, 16)",
+      "expect": "255"
+    },
+    {
+      "expr": "tile_major(1, 0, 64)",
+      "expect": "16"
+    },
+    {
+      "expr": "tile_major(16, 0, 64)",
+      "expect": "1024"
+    },
+    {
+      "expr": "tile_major(31, 63, 64)",
+      "expect": "2047"
+    },
+    {
+      "expr": "tile_major(40, 20, 48)",
+      "expect": "1924"
+    }
+  ],
+  "hints": [
+    "Which tile: <code>row // 16</code> tile rows down and <code>col // 16</code> tile columns across. There are <code>cols // 16</code> tiles per row of tiles.",
+    "Each tile is 256 elements, so tile number <code>k</code> starts at <code>256·k</code>.",
+    "Inside the tile: <code>(row % 16)·16 + col % 16</code>."
+  ],
+  "explain": "Tile-major order keeps each 16×16 tile in 256 consecutive elements, so every tile starts at a multiple of 256: 256 bytes for i8, comfortably aligned for the tensor cores. The tiles themselves go in row-major order, <code>cols / 16</code> of them per row of tiles. Element <code>(17, 3)</code> of a 32×32 matrix is in tile row 1, tile column 0, so tile 2, at row 1 and column 3 inside it: <code>2·256 + 1·16 + 3 = 531</code>."
+}

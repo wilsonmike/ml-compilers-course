@@ -44,11 +44,12 @@
 </ul>
 
 <h2>Running the suite</h2>
+<p>Stuck on a failing test? The <a href="../resources/tests-week8.html">week 8 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week8.html">week 8 study guide</a> has a cheat sheet and a step-by-step way out.</p>
 <pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 8                     # nvcc if it's on PATH, else the emulator
 python tools/test.py --compiler "C:/path/to/your.exe" --week 8 --cuda-docker nvidia/cuda:12.6.3-devel-ubuntu22.04
 python tools/test.py --compiler "C:/path/to/your.exe" --week 8 -k c_reverse -v     # one group, with details
-python _reference/uirc.py render-cuda tests/week8/render/c_reverse_shared.uir     # the reference's CUDA, to compare</code></pre>
-<p>Then run weeks 1 to 7 again, one <code>--week</code> at a time. The speed test reads <code>data/a512.f32</code> and <code>data/b512.f32</code> next to it, 1 MB each. Lesson 8.5 covers where to get a GPU, and you don't need one until the last step.</p>
+python _reference/uirc.py render-cuda tests/week8/render/c_reverse_shared.uir --week=8   # the reference's CUDA, to compare</code></pre>
+<p><code>--week=8</code> makes the reference print what a week 8 compiler would. Without it you get week 9's output, which keeps some shared memory in registers. The speed test's reference is also the week 8 output. Then run weeks 1 to 7 again, one <code>--week</code> at a time. The speed test reads <code>data/a512.f32</code> and <code>data/b512.f32</code> next to it, 1 MB each. Lesson 8.5 covers where to get a GPU, and you don't need one until the last step.</p>
 
 <h2>Write your 10 tests</h2>
 <p>Ten tests in <code>path/to/your-repo/tests/week8/</code>, checked with <code>python tools/test.py --check-tests path/to/your-repo/tests/week8</code>. Good targets: an offset with <code>div</code> and <code>mod</code> digits that just fits, and one where a coefficient is one too small. A vector store whose size pushes it into a neighbor's slot. A later phase reading another thread's slot, and the same read in the same phase. Shared memory read before any phase writes it. A CUDA test with two kernels where the second reads what the first wrote.</p>
@@ -59,7 +60,7 @@ python _reference/uirc.py render-cuda tests/week8/render/c_reverse_shared.uir   
 <li><h3>Parse the new axes</h3><p>Accept <code>global</code> and <code>local</code>, check local bounds, and run both as plain loops.</p><p class="check">Checkpoint: weeks 1 to 7 pass, and the week 8 run tests that expect a result pass, except <code>block_shared_starts_at_zero</code>.</p></li>
 <li><h3>Shared memory</h3><p>An alloc whose every load and store is inside one global loop is shared. Re-zero it for each value of the global index in <code>run</code>, exactly like week 7's private allocs.</p><p class="check">Checkpoint: <code>block_shared_starts_at_zero</code> and <code>plain_loop_alloc_carries_over</code> both pass.</p></li>
 <li><h3>Shape rules</h3><p>Where local loops may be, one block size per kernel, no other parallel loops inside, no stores outside local loops.</p><p class="check">Checkpoint: <code>err_local_*</code>, <code>err_thread_in_global</code> and <code>err_store_outside_local</code> exit 2.</p></li>
-<li><h3>The mixed-radix rule</h3><p>Split each offset into terms, find the digits and their largest values, sort, and compare. Do it per phase with the local index, then per kernel with the global index, skipping shared memory. Check the parallel index is there, and that every access to a buffer is the same expression.</p><p class="check">Checkpoint: every run test passes.</p></li>
+<li><h3>The mixed-radix rule</h3><p>Split each offset into terms, find the digits and their largest values, sort, and compare. Do it per phase with the local index, then per kernel with the global index, skipping shared memory. Check the offset pins down the parallel index (the index itself, or its <code>div k</code> and <code>mod k</code>), and that every access to a buffer is the same expression.</p><p class="check">Checkpoint: every run test passes.</p></li>
 <li><h3>Render for the CPU</h3><p>Treat a global loop as a thread loop and its shared allocs as private ones. Your week 7 outlining does the rest.</p><p class="check">Checkpoint: the <code>r_</code> tests pass.</p></li>
 <li><h3>render-cuda</h3><p>Start from your C emitter. Emit one <code>__global__</code> function per top-level global loop with its free buffers as parameters, then the shared arrays and their zeroing, then each phase. Add <code>__device__</code> to your helpers and emit the host <code>kernel</code>.</p><p class="check">Checkpoint: every <code>c_</code> test passes in the emulator.</p></li>
 <li><h3>On a GPU</h3><p>Run the suite with <code>nvcc</code> or <code>--cuda-docker</code>. If a test passes in the emulator and fails on the GPU, or the other way around, look for a missing barrier or unzeroed shared memory first.</p><p class="check">Checkpoint: everything passes on the GPU, including <code>s_cuda_gemm_512</code>.</p></li>
@@ -121,7 +122,7 @@ python _reference/uirc.py render-cuda tests/week8/render/c_reverse_shared.uir   
 
 <nav class="pager">
 <a href="05-getting-a-gpu.html">← Lesson 5: Getting a GPU</a>
-<a href="../index.html">Course home →</a>
+<a href="../week9/01-registers.html">Week 9: Registers and register tiles →</a>
 </nav>
 </main>
 

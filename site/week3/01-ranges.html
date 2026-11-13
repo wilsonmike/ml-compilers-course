@@ -41,7 +41,7 @@
 %e  = end %s %i             # repeat %s for i = 0, 1, 2, 3
 %b1 = after %b %e           # the buffer after the whole loop</code></pre>
 <p><code>end %s %i</code> says "run the store once for every value of <code>%i</code>, in order". After the loop, <code>%b1</code> holds 0, 1, 4, 9. A <code>range</code> on its own doesn't loop anything. The loop exists only where an <code>end</code> closes it.</p>
-<p>The bound can be any i32 expression that doesn't depend on another range. <code>range 0</code> (or anything 0 or below) runs zero times. Because the bound can't depend on another range, every loop nest in week 3 is a rectangle: no triangular loops yet.</p>
+<p>The bound can be any i32 expression that doesn't depend on another range. <code>range 0</code> (or anything 0 or below) runs zero times. A computed or loaded bound is fine too, like <code>range %c</code> with <code>%c = mod (max %k 0) 5</code> for a loaded <code>%k</code>. Because the bound can't depend on another range, every loop nest in week 3 is a rectangle: no triangular loops yet.</p>
 </div>
 
 <h2>Open ranges</h2>
@@ -113,7 +113,7 @@
 <li><strong>A bound that depends on a range.</strong> <code>%j = range %i</code> is rejected in week 3.</li>
 <li><strong>An open range where none is allowed.</strong> <code>assert</code>, <code>call</code> and a range's bound must have nothing open. An assert inside a loop would have to pass once per iteration, which the format doesn't say how to report.</li>
 <li><strong>Closing a range twice.</strong> Each range has exactly one <code>end</code>, so each range is exactly one loop.</li>
-<li><strong>Out of bounds.</strong> A range's interval is <code>[0, n-1]</code>, and week 2's bounds check uses it. <code>shrink %b %i</code> with <code>%i = range 5</code> on a four-element buffer is invalid.</li>
+<li><strong>Out of bounds.</strong> A range's interval is <code>[0, n-1]</code>, and week 2's bounds check uses it. <code>shrink %b %i</code> with <code>%i = range 5</code> on a four-element buffer is invalid. When the bound isn't a constant, the interval is <code>[0, hi(n) - 1]</code>, where <code>hi(n)</code> is the top of the bound's own interval, so <code>range %c</code> with <code>%c</code> in [0, 4] is <code>[0, 3]</code>. If <code>hi(n) ≤ 0</code> the loop never runs, and the interval is <code>[0, 0]</code>.</li>
 </ul>
 </div>
 

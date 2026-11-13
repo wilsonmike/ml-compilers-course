@@ -38,6 +38,7 @@
 <h2>The chain rule, backward</h2>
 <p>Every op knows its local derivatives. For <code>u = mul a b</code>, <code>∂u/∂a = b</code> and <code>∂u/∂b = a</code>. The chain rule says that if you already know <code>g = ∂y/∂u</code>, then u sends <code>g · b</code> to a and <code>g · a</code> to b. Those are a and b's <b>shares</b> of the gradient.</p>
 <p>So start at y with <code>g = 1.0</code> (<code>∂y/∂y</code>), and walk the graph from y back toward x. At each node, add up the shares it has received, then pass on its own shares to its operands. When the walk reaches x, the sum there is the answer. This is <b>reverse mode</b>. One backward walk gives the gradient with respect to every weight at once, which is why it's what trains networks: one loss, millions of weights.</p>
+<p>The other direction is <b>forward mode</b>: give one input a wiggle and push its derivative forward through the program, alongside the values. One forward pass gives the derivative of every output with respect to that one input, so a gradient over a million weights would take a million passes.</p>
 <p>A node has to receive all of its shares before it passes anything on. The spec orders the walk to guarantee that: take the <b>post-order</b> of y's graph (depth first, operands left to right, each node once) and visit it in reverse. Every node comes before the nodes it uses.</p>
 </div>
 
@@ -69,6 +70,23 @@
 <h2>Adding shares up, in order</h2>
 <p>In <code>(x · x) · x</code>, x receives three shares. In exact arithmetic the order doesn't matter, but in f32 it does: <code>(a + b) + c</code> and <code>a + (b + c)</code> can round differently. So the spec fixes it. Shares are added in the order they arrive during the reverse walk, as a left fold: <code>add c1 c2</code>, then <code>add</code> that and <code>c3</code>. Because the walk runs backward, arrival order is often the reverse of the order the statements appear in the file. The test <code>grad_accumulation_order</code> has three shares whose sum depends on the order, and <code>grad_accumulation_other_order</code> checks that the program-order sum is <em>not</em> what you get.</p>
 
+<h2>The graph gradient builds</h2>
+<p>Here is the program from the figure:</p>
+</div>
+<pre><code>%t = mul %x %x
+%y = mul %t %x
+%g = gradient %y %x</code></pre>
+<div class="prose">
+<p>The post-order of y's graph is x, t, y (t's operands come first, then t, then y), so the walk visits y, then t, and stops at x. y sends <code>mul 1.0 %x</code> to t and <code>mul 1.0 %t</code> to x. Call t's share <code>%gt</code>. t sends <code>mul %gt %x</code> to each operand, and both of them are x. So <code>%g</code> is this graph:</p>
+</div>
+<pre><code>%gt = mul 1.0 %x
+%c1 = mul 1.0 %t
+%c2 = mul %gt %x
+%s  = add %c1 %c2
+%g  = add %s %c2</code></pre>
+<div class="prose">
+<p>t's two shares are one node, <code>%c2</code>, because hash consing merges equal nodes, but x still adds it twice, once per share. Nothing is simplified: <code>mul 1.0 %x</code> stays in the graph. Here x is a scalar, so every literal is too. When an op's result has a shape, each literal in its rule (the <code>-1.0</code> in recip's share, say) is first expanded to that shape, because ALU ops don't broadcast. The seed <code>1.0</code> is always a scalar, like y.</p>
+
 <h2>Which nodes take part</h2>
 <p>Only nodes on a path from x to y. A node that doesn't depend on x can't pass anything back to x, so the walk skips it. Skipping isn't just faster. A node off the path may be an op with no rule (a <code>reduce op=mul</code> of some unrelated data, say), and that's fine as long as x doesn't reach it. The walk also stops at x: x's own operands don't matter, because x is what you're differentiating against.</p>
 <p>What can be on the path is limited. Gradients don't go through <code>call</code>, <code>load</code>, <code>store</code> or loops, so a program like that is invalid. That's the syllabus's rule: autodiff works on pure graphs. x itself may be a <code>load</code>, though. The weights of a model are.</p>
@@ -81,7 +99,7 @@
 
 <div class="prose">
 <h2>detach: "treat this as a constant"</h2>
-<p><code>detach x</code> has the value of x and passes no gradient. <code>gradient (mul x (detach x)) x</code> is x, not 2x: the detached copy counts as a constant. It's how you stop a gradient on purpose. Lesson 6.5 uses it on the max subtracted for a stable softmax, whose gradient cancels out anyway.</p>
+<p><code>detach x</code> has the value of x and passes no gradient. <code>gradient (mul x (detach x)) x</code> is x, not 2x: the detached copy counts as a constant. It's how you stop a gradient on purpose. Lesson 6.5 uses it on the max subtracted for a stable softmax, whose gradient cancels out in exact math. In f32 the cancelling terms round, so the bits can differ without the detach.</p>
 
 <h2>When gradient is invalid</h2>
 <ul>

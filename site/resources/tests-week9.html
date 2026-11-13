@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 9 Test Guide</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A test failed and you don&#x27;t know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the week 9...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/tests-week9">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 9 Test Guide">
+<meta property="og:description" content="A test failed and you don&#x27;t know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the week 9 spec.">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/tests-week9">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+<style>
+  .guide td:first-child { white-space: nowrap; }
+  .guide td { font-size: 0.9375rem; }
+  .filter { width: 100%; max-width: 28rem; font: 1rem var(--sans); padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); color: var(--ink); margin: 0 0 var(--s4); }
+</style>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 9 test guide</h1>
+  <p class="lede">A test failed and you don't know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the <a href="../../spec/uir-week9.md">week 9 spec</a>.</p>
+  <div class="note"><span class="label">How to use this</span>
+    <p>Run <code>python tools/test.py --compiler PATH --week 9 -v</code>, copy the failing test's name, and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
+  </div>
+  <input class="filter" type="search" placeholder="Filter by test name, kind, or words" aria-label="Filter tests" oninput="for (const r of document.querySelectorAll('.guide tbody tr')) r.hidden = !r.textContent.toLowerCase().includes(this.value.toLowerCase())">
+  <div class="tablewrap bleed">
+  <table class="guide">
+    <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
+    <tbody>
+    <tr><td><code>render/c_32_warps</code></td><td>cuda</td><td>a warp loop of 32: a block of 1024 threads, 32 mmas at once</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_conv3x3</code></td><td>cuda</td><td>a 3x3 convolution: a block per output row and 8 channels, input rows and filters staged in shared memory</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_err_mma_outside_kernel</code></td><td>cuda: invalid</td><td>an mma at the top level is a fine program, but render-cuda has no warp to run it on</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_flash_attention</code></td><td>cuda</td><td>flash attention for 2 heads: a thread per query row, an online softmax over key tiles staged in shared memory</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_i8_kernel</code></td><td>cuda</td><td>i8 in a kernel: y = low 8 bits of 3x (it wraps), z = x / 2 as f32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_mma_from_global</code></td><td>cuda</td><td>mma straight from global memory: A and B stored tile-major, block g makes rows 16g..16g+15 of C,</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_mma_gemm</code></td><td>cuda</td><td>an int8 GEMM on tensor cores: a block per 64x64 tile of C, A and B staged tile-major in shared memory,</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_one_warp</code></td><td>cuda</td><td>a warp loop of 1: a block of 32 threads, one mma</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_per_thread_fresh_each_block</code></td><td>cuda</td><td>per-thread memory starts at zero in every block, in registers or not</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_per_thread_plain_loop</code></td><td>cuda</td><td>per-thread memory indexed by a plain loop k, not an upcast: e isn&#x27;t a literal, so it may not fit in registers,</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_regtile_gemm</code></td><td>cuda</td><td>an f32 GEMM where each thread makes a 4x4 piece of C, its 16 sums in acc[t*16 + i*4 + j]: per-thread memory</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_shared_not_per_thread</code></td><td>cuda</td><td>looks per-thread in the first phase, but the second reads thread t+1&#x27;s slice: keep it in shared memory</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_mma_gemm_cpu</code></td><td>render</td><td>the same tensor-core GEMM rendered for the CPU: warp loops are plain loops, mma is 256 dot products of length 16</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_mma_reads_before_overwrite</code></td><td>render</td><td>the store into A comes first in the text, but the mma reads the version before it: the C must run the mma</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/s_cuda_conv3x3</code></td><td>cuda, speed 0.5</td><td>a 3x3 convolution, 32 channels in, 64 out, a 256x64 image: at least half the reference&#x27;s speed</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/s_cuda_flash_attention</code></td><td>cuda, speed 0.8</td><td>flash attention, 16 heads of 1024 queries, head size 32: at least 0.8 of the reference&#x27;s speed. Each thread&#x27;s</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/s_cuda_gemm_registers</code></td><td>cuda, speed 0.8</td><td>a 768x768 f32 GEMM with 4x4 register tiles: at least 0.8 of the reference&#x27;s speed. Its sums must live in</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/s_cuda_mma_gemm</code></td><td>cuda, speed 0.5</td><td>a 1024x1024 int8 GEMM: at least half the reference&#x27;s speed. Without tensor cores it runs at about 0.3</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_block_size_mismatch</code></td><td>run: invalid</td><td>a warp loop of 2 is 64 threads, but the local loop has 32: one block size per kernel</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_cast_f32_to_i8</code></td><td>run: invalid</td><td>cast to i8 takes an i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_i8_add</code></td><td>run: invalid</td><td>i8 is for memory: load it and cast it to i32 before doing arithmetic</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_i8_const</code></td><td>run: invalid</td><td>there are no i8 literals: cast an i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_i8_data_out_of_range</code></td><td>run: invalid</td><td>i8 holds -128 .. 127</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_local_in_warp</code></td><td>run: invalid</td><td>a local loop inside a warp loop: phases don&#x27;t nest either way</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_a_misaligned</code></td><td>run: invalid</td><td>A&#x27;s tile starts at byte 16, not a multiple of 32: the tensor cores can&#x27;t load it</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_c_f32</code></td><td>run: invalid</td><td>C is i32: the tensor cores add i8 products in i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_c_misaligned</code></td><td>run: invalid</td><td>C&#x27;s tile starts at element 4 (byte 16), not a multiple of 8 elements</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_in_local_loop</code></td><td>run: invalid</td><td>inside a kernel, mma runs in a warp loop: one warp of 32 threads does it together, not one thread</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_lda_not_16</code></td><td>run: invalid</td><td>row strides are multiples of 16</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_missing_ldc</code></td><td>run: invalid</td><td>mma needs all three strides</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_no_after</code></td><td>run: invalid</td><td>an mma that no after sequences has no effect</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_offset_not_provable</code></td><td>run: invalid</td><td>an offset of 32 * k + j isn&#x27;t a provable multiple of 32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_out_of_bounds</code></td><td>run: invalid</td><td>A&#x27;s tile with lda=32 reaches 15 * 32 + 16 = 496 elements, more than the 256 there are</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_outside_phase</code></td><td>run: invalid</td><td>an mma directly in a global loop would run on every thread of the block</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_mma_shaped_view</code></td><td>run: invalid</td><td>each operand is memory or a scalar view where its tile starts, not a [4] view</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_store_in_warp_loop</code></td><td>run: invalid</td><td>a store in a warp loop would run on all 32 threads of the warp</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_warp_bound_33</code></td><td>run: invalid</td><td>a block has at most 32 warps (1024 threads)</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_warp_in_local</code></td><td>run: invalid</td><td>a warp loop inside a local loop: phases don&#x27;t nest</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_warp_outside_global</code></td><td>run: invalid</td><td>a warp loop is a phase of a block: it must be inside a global loop</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_warp_tiles_overlap</code></td><td>run: invalid</td><td>warp w&#x27;s tile starts at w*128, but a tile with ldc=16 covers 256 elements: rows 8..15 of warp 0&#x27;s tile are</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/err_warps_same_tile</code></td><td>run: invalid</td><td>both warps add into the same C tile at once: the offset doesn&#x27;t depend on w</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/i8_cast_wraps</code></td><td>run: pass</td><td>cast to i8 keeps the low 8 bits, as two&#x27;s complement: 200 -&gt; -56, -129 -&gt; 127, 1000 -&gt; -24</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/i8_to_f32</code></td><td>run: pass</td><td>i8 memory holds -128 .. 127, and casts to f32 exactly</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mma_adds_to_c</code></td><td>run: pass</td><td>mma adds to what C holds: C = C + A @ B</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mma_k_loop</code></td><td>run: pass</td><td>a 16x64 times 64x16 product, four mmas in a loop over k. A is stored tile-major (each 16x16 tile in</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mma_one_tile</code></td><td>run: pass</td><td>one mma: C = A @ B for 16x16 tiles, i8 in, i32 out</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mma_reads_before_overwrite</code></td><td>run: pass</td><td>the store into A comes first in the text, but the mma reads the version before it (A, not A1): the mma must</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mma_strides</code></td><td>run: pass</td><td>tiles inside bigger matrices: A&#x27;s columns 32..47 of 64 (lda=64), B&#x27;s rows 16..31 of a 32x32 (ldb=32),</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mma_wraps</code></td><td>run: pass</td><td>the sums wrap around like i32 add: 2147482647 + 16 * 127 * 127 is past INT_MAX</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/per_thread_read_neighbor</code></td><td>run: pass</td><td>a later phase reads thread t+1&#x27;s slice (allowed: it only reads acc). So acc is NOT per-thread, and must stay</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/per_thread_starts_at_zero_each_block</code></td><td>run: pass</td><td>acc[t*4 + e] is only ever touched by thread t, so render-cuda may keep it in registers. Its meaning is still</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/warp_and_local_phases</code></td><td>run: pass</td><td>local, warp, local: 64 threads copy A into shared memory, then 2 warps (the same 64 threads) multiply, then the</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/warp_each_warp_a_tile</code></td><td>run: pass</td><td>a warp loop: warp w multiplies A tile w by B into C tile w. Two warps, a block of 64 threads</td><td><span class=muted>none recorded</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</main>
+</body>
+</html>

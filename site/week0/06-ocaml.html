@@ -310,6 +310,12 @@ let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
     exit 2</code></pre>
   <div class="prose">
     <p><code>Sys.argv.(0)</code> is the program name. <code>exit n</code> ends the program with status <code>n</code>, which is how the course's test runner learns whether a test passed. <code>[| _; "count"; path |]</code> matches an array of exactly three elements. <code>prerr_endline</code> prints a line to stderr, and <code>Printf.eprintf</code> prints formatted text to stderr. <code>In_channel.input_lines</code> needs OCaml 5.1 or newer, which any fresh install has. (Splitting the whole text on <code>'\n'</code> instead overcounts by one when the file ends with a newline.)</p>
+    <p>The test runner, <code>tools/test.py</code>, runs your compiler as <code>COMPILER run FILE</code> from the course repo's folder and reads the exit code. Build with <code>dune build</code> and point the grader at the binary itself, not at <code>dune exec</code>, because the grader runs tests in parallel and parallel <code>dune exec</code> runs fight over dune's lock. Run it from the course repo and give the full path to your binary. On WSL, use <code>python3</code> and a path like <code>~/my-ml-compiler/_build/default/bin/main.exe</code>:</p>
+  </div>
+<pre><code>python tools/test.py --compiler "C:/path/to/my-ml-compiler/_build/default/bin/main.exe" --week 1</code></pre>
+  <div class="trap">
+    <span class="label">An uncaught exception is not a diagnosis</span>
+    <p>An uncaught OCaml exception prints <code>Fatal error: exception ...</code> and exits with status 2. The exit code looks right, but the grader also wants a line starting <code>invalid:</code> on stderr, so the test still fails. When your compiler rejects a program, raise your own exception, catch it in the main function, print the <code>invalid:</code> line and <code>exit 2</code>. Let anything else crash loudly while you're developing, so you see it.</p>
   </div>
 
   <h2>Capstone: the toposort from lesson 0.3</h2>

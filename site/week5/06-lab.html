@@ -52,7 +52,7 @@
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 5 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td>Values may have any rank. <code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> are new, and <code>expand</code>, <code>stack</code>, <code>index</code> and <code>reduce pop=m</code> work at any rank. Static errors (exit 2 with an <code>invalid:</code> line) include: a reshape that changes the element count, an order that isn't a permutation, the wrong number of pads, a shrink offset that can't be proven in range, an expand that grows an axis that isn't size 1, a reduce popping more axes than the value has, storing a value whose shape isn't the view's (buffers stay rank 1), and a param of rank 2 or more.</td></tr>
+<tr><td><code>your.exe run FILE</code></td><td>Values may have any rank. <code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> are new, and <code>expand</code>, <code>stack</code>, <code>index</code> and <code>reduce pop=m</code> work at any rank. Static errors (exit 2 with an <code>invalid:</code> line) include: a reshape that changes the element count, an order that isn't a permutation, the wrong number of pads, a shrink offset that can't be proven in range, an expand that grows an axis that isn't size 1, a reduce popping more axes than the value has, storing a value whose shape isn't the view's (buffers stay rank 1), a param of rank 2 or more, a negative pad, more indices than axes, and stacking values of different shapes. An index that is out of range at run time also exits 2, as in week 1.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>Still at most 20,000 bytes, bit-exact. <code>for</code> loops are allowed when the program has a <code>range</code>, any shape op (<code>reduce</code>, <code>expand</code>, <code>stage</code>, <code>reshape</code>, <code>permute</code>, <code>pad</code>, value <code>shrink</code>), an elementwise op on a shaped value, a value of rank 2 or more, or a rank-1 value with more than 32 elements. Otherwise it stays loopless, as in week 2.</td></tr>
 </tbody></table></div>
 
@@ -66,9 +66,10 @@
 <li>compiles your C with its own <code>main</code>: <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code>;</li>
 <li>runs it and compares every buffer with the oracle: i32 and bool exactly, f32 bit for bit, any NaN matching any NaN.</li>
 </ol>
-<p>Two things bite this week. A reduce over several axes must fold them in row-major order, the same order the oracle uses, or f32 bits drift. And a padded read must clamp its index: an out-of-bounds read is undefined behavior even when the mask throws the value away. The sanitizer won't always catch it, so don't count on the grader to: clamp because the C must be correct.</p>
+<p>Three things bite this week. A reduce over several axes must fold them in row-major order, the same order the oracle uses, or f32 bits drift. And a padded read must clamp its index: an out-of-bounds read is undefined behavior even when the mask throws the value away. The sanitizer won't always catch it, so don't count on the grader to: clamp because the C must be correct. Last, a store into the buffer its own value reads, like <code>r_inplace_transpose</code>, must go through a temp (the trap in lesson 4.4). A fused transpose overwrites elements it still has to read.</p>
 
 <h2>Running the suite</h2>
+<p>Stuck on a failing test? The <a href="../resources/tests-week5.html">week 5 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week5.html">week 5 study guide</a> has a cheat sheet and a step-by-step way out.</p>
 <p>From the course repo root, keeping every earlier week green:</p>
 <pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 5
 python tools/test.py --compiler "C:/path/to/your.exe" --week 5 -k render -v   # the render tests, with details

@@ -26,7 +26,7 @@
   <h3><a href="../week8/01-gpus.html">8.1 How a GPU runs code</a></h3>
   <p>A kernel is one function every thread runs. Threads come in blocks of up to 1024, a launch starts a grid of blocks, and each thread finds its work from <code>blockIdx.x</code> and <code>threadIdx.x</code>. Blocks run in any order and never wait for each other. Memory is global (everyone), shared (one block) or registers (one thread). <code>-fmad=false</code> and <code>-prec-div=true</code> keep the bits identical to the CPU's.</p>
   <h3><a href="../week8/02-global-and-local.html">8.2 Global and local loops</a></h3>
-  <p><code>axis=global</code> is the grid, <code>axis=local</code> a block's threads, with a literal bound from 1 to 1024. Neither changes a result. Offsets that are stored, or loaded where the same code stores, must be mixed-radix numbers: digits are loop indices (or their <code>div</code> or <code>mod</code> by a literal) times positive literals, and sorted by coefficient each must beat the most the smaller digits add up to. The offset contains the parallel index, and every access to a buffer is the same expression.</p>
+  <p><code>axis=global</code> is the grid, <code>axis=local</code> a block's threads, with a literal bound from 1 to 1024. Neither changes a result. Offsets that are stored, or loaded where the same code stores, must be mixed-radix numbers: digits are loop indices (or their <code>div</code> or <code>mod</code> by a literal) times positive literals, and sorted by coefficient each must beat the most the smaller digits add up to. The offset pins down the parallel index (the index itself, or its <code>div k</code> and <code>mod k</code> by the same <code>k</code>), and every access to a buffer is the same expression: the same terms, in any order.</p>
   <h3><a href="../week8/03-shared-memory.html">8.3 Shared memory and barriers</a></h3>
   <p>Consecutive local loops are phases, with a barrier between them. The rule is checked per phase, so a later phase may read any shared slot an earlier one wrote. An alloc used only in one global loop is shared memory, zeroed for each block. A missing barrier can pass by luck in a block of one or two warps, so the suite also uses blocks of 1024.</p>
   <h3><a href="../week8/04-rendering-cuda.html">8.4 Rendering CUDA</a></h3>
@@ -34,7 +34,7 @@
   <h3><a href="../week8/05-getting-a-gpu.html">8.5 Getting a GPU</a></h3>
   <p>The emulator grades everything but speed. With an NVIDIA GPU: <code>nvcc</code> on Linux, or <code>--cuda-docker</code> on Windows. Otherwise Colab, Kaggle, or a rented machine on Vast.ai or RunPod for well under a dollar an hour. Bring no secrets to a rented machine, and stop it when you're done.</p>
   <h3><a href="../week8/06-lab.html">8.6 Lab</a></h3>
-  <p>The suite has 39 tests: run tests for the rules, <code>r_</code> tests for the CPU render, <code>c_</code> tests for CUDA (four of them must be refused), and one GPU speed test that needs half the reference's speed. Weeks 1 to 7 must stay green.</p>
+  <p>The suite has 42 tests: run tests for the rules, <code>r_</code> tests for the CPU render, <code>c_</code> tests for CUDA (four of them must be refused), and one GPU speed test that needs half the reference's speed. Weeks 1 to 7 must stay green.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -52,6 +52,7 @@
       <tr><td><code>c · (i div k)</code></td><td><code>(n - 1) div k</code></td></tr>
       <tr><td><code>c · (i mod k)</code></td><td><code>k - 1</code> (or <code>n - 1</code> if smaller)</td></tr>
       <tr><td>a vector access of <code>k</code> elements</td><td>coefficient 1, largest value <code>k - 1</code></td></tr>
+      <tr><td>any other term with an inner loop, like <code>i·j</code></td><td>coefficient 1, largest value its largest minus its smallest (invalid if it involves the parallel index)</td></tr>
     </tbody>
   </table></div>
 
@@ -63,6 +64,7 @@
     <li><strong>Running a phase on one thread.</strong> The bits stay right, but the GPU sits idle. Caught by <code>s_cuda_gemm_512</code> on a GPU.</li>
     <li><strong>Letting digits touch.</strong> A coefficient equal to the most the smaller digits add is a collision. Caught by <code>err_digits_exactly_touch</code>.</li>
     <li><strong>Forgetting the parallel index.</strong> Every block writing <code>o[t]</code>. Caught by <code>err_blocks_write_one_place</code> and <code>err_threads_write_one_cell</code>.</li>
+    <li><strong>Letting a lone <code>div</code> or <code>mod</code> pin down the parallel index.</strong> <code>t mod 4</code> with 8 threads sends threads 0 and 4 to one element. Caught by <code>err_mod_only_race</code> and <code>err_div_only_race</code>. A <code>mod k</code> wider than the loop is the index itself, and <code>mod_wider_than_range</code> must still pass.</li>
     <li><strong>Checking only stores in a phase.</strong> Caught by <code>err_same_phase_neighbor</code>.</li>
     <li><strong>Missing a shape rule.</strong> A store outside a local loop, a local loop outside a global one, two block sizes, or two layouts for one buffer. Caught by <code>err_store_outside_local</code>, <code>err_local_outside_global</code>, <code>err_local_sizes_differ</code> and <code>err_block_layouts_differ</code>.</li>
   </ol>
@@ -118,6 +120,14 @@
     <p class="hint">Shared memory, in .uir.</p>
     <div class="why">All zeros, like at the start of every block.</div>
   </div>
+
+  <h2>Go deeper</h2>
+  <ul>
+    <li><a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/">CUDA C++ Programming Guide</a>. Read the programming model chapter for grids, blocks and threads, and the shared memory section for <code>__shared__</code> and <code>__syncthreads()</code>.</li>
+    <li><a href="https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/">CUDA C++ Best Practices Guide</a>. Coalesced access to global memory and occupancy, the two things that most often decide a kernel's speed.</li>
+    <li><a href="https://siboehm.com/articles/22/CUDA-MMM">How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance</a> (Simon Boehm). Starts from a naive kernel and adds coalescing and shared-memory tiles, as this week does.</li>
+    <li><a href="https://doi.org/10.1145/1498765.1498785">Roofline: An Insightful Visual Performance Model for Multicore Architectures</a> (Williams, Waterman and Patterson, 2009). Whether a kernel is limited by arithmetic or by memory traffic.</li>
+  </ul>
 </main>
 </body>
 </html>

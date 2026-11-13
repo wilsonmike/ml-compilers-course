@@ -19,6 +19,7 @@ SECTIONS = {
   'week6': 'Week 6: math ops, sugar, autodiff, data files and training on MNIST',
   'week7': 'Week 7: fast kernels (measuring speed, tiling, upcast, threads)',
   'week8': 'Week 8: GPUs (blocks and threads, shared memory, rendering CUDA, getting a GPU)',
+  'week9': 'Week 9: GPUs, part 2 (registers, fast GEMMs, tensor cores, convolutions, flash attention)',
   'resources': 'Resources',
 }
 
@@ -92,7 +93,7 @@ for key, title in [('site', 'Start here')] + list(SECTIONS.items()):
   out += [f'- [{h1}]({url(p)})' + (f': {clip(lede, 200)}' if lede else '') for p, h1, lede in groups[key]]
   out.append('')
 out += ['## Specs', '', 'The .uir format, one plain Markdown file per week.', '']
-out += [f'- [.uir week {n}]({BASE}/spec/uir-week{n}.md)' for n in range(1, 9)]
+out += [f'- [.uir week {n}]({BASE}/spec/uir-week{n}.md)' for n in range(1, 10)]
 out += ['', '## Optional', '',
   f'- [GitHub repository]({REPO}): the course pages, exercises, tests and the Python reference compiler',
   '- [10-411 course site](https://10-411.com/): the CMU course this one follows', '']
