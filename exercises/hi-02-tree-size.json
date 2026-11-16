@@ -1,0 +1,45 @@
+{
+ "id": "hi-02-tree-size",
+ "lang": "ocaml",
+ "title": "How big would the tree be?",
+ "show": "string_of_int",
+ "starter": "type e = Num of int | Add of e * e\n\nlet rec chain k = if k = 0 then Num 1 else let s = chain (k - 1) in Add (s, s)\n\nlet tree_size (e : e) : int =\n  match e with\n  | Num _ -> 1\n  | Add _ -> 3\n",
+ "tests": [
+  {
+   "expr": "tree_size (Num 5)",
+   "expect": "1",
+   "sample": true
+  },
+  {
+   "expr": "tree_size (chain 3)",
+   "expect": "15",
+   "sample": true
+  },
+  {
+   "expr": "tree_size (Add (Num 1, Num 2))",
+   "expect": "3"
+  },
+  {
+   "expr": "tree_size (Add (Add (Num 1, Num 2), Num 3))",
+   "expect": "5"
+  },
+  {
+   "expr": "let s = chain 2 in tree_size (Add (s, Add (s, Num 0)))",
+   "expect": "17"
+  },
+  {
+   "expr": "tree_size (chain 20)",
+   "expect": "2097151"
+  },
+  {
+   "expr": "tree_size (chain 60)",
+   "expect": "2305843009213693951"
+  }
+ ],
+ "hints": [
+  "The tree size of a `Num` is 1, and of an `Add` it is 1 plus the tree sizes of both children. Written as plain recursion, that is right but walks every path: `chain 60` never finishes.",
+  "Keep a memo of the answers you've worked out, created inside `tree_size`. `List.assq_opt e !memo` looks a node up by identity (`==`), so it never compares contents.",
+  "Look up first. On a miss, compute the answer from the children (through the memo), add `(e, answer)` to the memo, and return it."
+ ],
+ "explain": "Each distinct node is worked out once and then found in the memo by identity, so `chain 60` takes 61 computations instead of 2^61. The memo is an association list searched with `List.assq_opt`, which uses `==` and never walks a subtree. The answer for `chain 60`, 2^61 - 1, still fits in OCaml's 63-bit int."
+}

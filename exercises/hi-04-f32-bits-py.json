@@ -1,0 +1,54 @@
+{
+ "id": "hi-04-f32-bits-py",
+ "lang": "python",
+ "title": "An f32's bits",
+ "prompt": "<p>Write <code>f32_bits(x)</code>: round the float <code>x</code> to f32 and return its 32 bits as a non-negative int (from 0 to 2<sup>32</sup> − 1). The tests print it as 8 hex digits: <code>f32_bits(1.0)</code> shows as <code>3f800000</code>, and <code>f32_bits(-0.0)</code> as <code>80000000</code>. A value too big for f32 becomes infinity, as in C.</p><p class=\"muted\">The <code>struct</code> module, as shown above: pack as <code>\"&lt;f\"</code>, unpack as <code>\"&lt;I\"</code>. Then check what happens with <code>1e39</code>.</p>",
+ "show": "lambda n: format(n, \"08x\")",
+ "starter": "def f32_bits(x: float) -> int:\n    return int(x)\n",
+ "tests": [
+  {
+   "expr": "f32_bits(1.0)",
+   "expect": "3f800000",
+   "sample": true
+  },
+  {
+   "expr": "f32_bits(-0.0)",
+   "expect": "80000000",
+   "sample": true
+  },
+  {
+   "expr": "f32_bits(0.1)",
+   "expect": "3dcccccd"
+  },
+  {
+   "expr": "f32_bits(-2.0)",
+   "expect": "c0000000"
+  },
+  {
+   "expr": "f32_bits(16777217.0)",
+   "expect": "4b800000"
+  },
+  {
+   "expr": "f32_bits(float(\"inf\"))",
+   "expect": "7f800000"
+  },
+  {
+   "expr": "f32_bits(1e39)",
+   "expect": "7f800000"
+  },
+  {
+   "expr": "f32_bits(-1e39)",
+   "expect": "ff800000"
+  },
+  {
+   "expr": "f32_bits(float(\"nan\"))",
+   "expect": "7fc00000"
+  }
+ ],
+ "hints": [
+  "`int(x)` converts the value: 1.0 becomes 1. You want the bits that store the value instead.",
+  "`struct.pack(\"<f\", x)` rounds to f32 and gives its 4 bytes. `struct.unpack(\"<I\", those_bytes)[0]` reads the same bytes as an unsigned 32-bit int. Remember `import struct`.",
+  "`struct.pack(\"<f\", 1e39)` raises `OverflowError`, where C gives infinity. Catch it and return the bits of infinity with the right sign: `0x7f800000`, or `0xff800000` for a negative `x`."
+ ],
+ "explain": "Packing with `\"<f\"` rounds to f32 exactly as C's cast does, and unpacking the same 4 bytes with `\"<I\"` reads them as a plain count from 0 to 2**32 - 1. The only difference from C is overflow, where `struct` raises instead of giving infinity, so the solution catches it and returns infinity's bits with the sign of `x`."
+}

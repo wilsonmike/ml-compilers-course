@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Walking a Graph Once</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A shared graph is small, but a careless walk over it treats it like the huge tree it stands for. This page shows the three tools that keep a walk small (a memo...">
+<link rel="canonical" href="https://sharpterminal.com/site/learn/hard-02-walking-graphs">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Walking a Graph Once">
+<meta property="og:description" content="A shared graph is small, but a careless walk over it treats it like the huge tree it stands for. This page shows the three tools that keep a walk small (a memo table, a visited set, and a topological...">
+<meta property="og:url" content="https://sharpterminal.com/site/learn/hard-02-walking-graphs">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Hard ideas|Walking a graph once" data-root="../">
+<main>
+  <p class="eyebrow">Hard ideas · 2</p>
+  <h1>Walking a graph once</h1>
+  <p class="lede">A shared graph is small, but a careless walk over it treats it like the huge tree it stands for. This page shows the three tools that keep a walk small (a memo table, a visited set, and a topological order) and what to do when the graph is too deep for recursion.</p>
+
+  <div class="note">
+    <span class="label">Before you start</span>
+    <p>Read <a href="hard-01-sharing.html">H.1</a> first, for trees, DAGs and identity. You should also be able to read a recursive function: <span class="only-python"><a href="py-05-recursion.html">P.5</a></span><span class="only-ocaml"><a href="ml-03-lists-matching.html">O.3</a></span> covers it.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Asking the same question twice</h2>
+    <p>Say you want the value of <code>x3</code> from H.1, where <code>x0</code> is 1 and each level adds the level below to itself. The natural code is recursive: the value of a <code>+</code> node is the value of its left child plus the value of its right child. It gives the right answer. The problem is how often it asks.</p>
+    <p><code>x3</code> asks <code>x2</code> twice, because both of its arrows come from <code>x2</code>. Each of those asks <code>x1</code> twice. Each of <em>those</em> asks <code>x0</code> twice. Nobody remembers an answer, so the same question gets asked again and again. Step through the calls and watch the counts next to each node.</p>
+  </div>
+
+  <div class="fig" id="naive" data-title="the naive walk on x3: one step per call"></div>
+
+  <div class="prose">
+    <p>Fifteen calls for four nodes. That's the tree size of <code>x3</code> from H.1, and it's no accident: a walk that never remembers anything visits every <em>path</em> to a node, so it walks the tree. You can count the calls in code. A <b>counter</b> is a variable that the function adds 1 to each time it runs:</p>
+  </div>
+<pre class="only-python"><code>calls = 0
+
+def value(e):
+    global calls
+    calls += 1
+    if e[0] == "num":
+        return e[1]
+    return value(e[1]) + value(e[2])
+
+x = ("num", 1)
+for i in range(20):
+    x = ("+", x, x)
+print(value(x), calls)</code></pre>
+<pre class="only-ocaml"><code>type e = Num of int | Add of e * e
+
+let calls = ref 0
+
+let rec value e =
+  incr calls;
+  match e with
+  | Num n -&gt; n
+  | Add (a, b) -&gt; value a + value b
+
+let rec chain k = if k = 0 then Num 1 else let s = chain (k - 1) in Add (s, s)
+
+let () =
+  let v = value (chain 20) in
+  Printf.printf "%d %d\n" v !calls</code></pre>
+  <div class="prose">
+    <p>This prints <code>1048576 2097151</code>. The answer is 2<sup>20</sup>, and it took 2<sup>21</sup> − 1 calls for 21 distinct nodes. Every extra level doubles the work. At 60 levels it would never finish.</p>
+  </div>
+  <div class="trap only-python">
+    <span class="label"><code>global</code> for the counter</span>
+    <p>Without <code>global calls</code>, the line <code>calls += 1</code> makes Python treat <code>calls</code> as a new local variable, and the first call fails with <code>UnboundLocalError</code>. For a real program, a counter passed in or kept on an object is cleaner. Here it keeps the example short.</p>
+  </div>
+  <div class="trap only-ocaml">
+    <span class="label">Arguments are evaluated right to left</span>
+    <p>Writing <code>Printf.printf "%d %d\n" (value x) !calls</code> prints <code>1048576 0</code>. OCaml is allowed to evaluate a function's arguments in any order, and in practice it goes right to left, so <code>!calls</code> is read before <code>value x</code> runs. That's why the code above names the result with <code>let v = ...</code> first.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Memoization: write the answer down</h2>
+    <p>The fix is what you'd do on paper: when you work something out, write the answer in a margin, and before you work anything out, look in the margin first. In code the margin is a table. This is called <b>memoization</b>, and the table is a <b>memo</b>.</p>
+    <p>The key must be the node's <em>identity</em>, not its contents (H.1 says why: comparing contents walks the tree again). <span class="only-python">In Python, <code>id(e)</code> is a number unique to each object that is still alive.</span><span class="only-ocaml">In OCaml, the course's nodes carry an <code>id</code> number for this. The small example below has no ids, so it keeps an association list and looks up with <code>List.assq</code>, which compares keys with <code>==</code>.</span></p>
+  </div>
+
+  <div class="fig" id="memo" data-title="the memo walk on x3"></div>
+
+<pre class="only-python"><code>def value_memo(e, memo):
+    key = id(e)
+    if key in memo:
+        return memo[key]
+    if e[0] == "num":
+        result = e[1]
+    else:
+        result = value_memo(e[1], memo) + value_memo(e[2], memo)
+    memo[key] = result
+    return result</code></pre>
+<pre class="only-ocaml"><code>let value_memo e =
+  let memo = ref [] in
+  let rec go e =
+    match List.assq_opt e !memo with
+    | Some v -&gt; v
+    | None -&gt;
+      let v = match e with Num n -&gt; n | Add (a, b) -&gt; go a + go b in
+      memo := (e, v) :: !memo;
+      v
+  in
+  go e</code></pre>
+  <div class="prose">
+    <p>On the 20-level chain, <code>value_memo</code> computes 21 values, one per node, and every other call is a lookup that hits. On <code>x60</code> it returns 2<sup>60</sup> at once. Here is the trace for <code>x3</code>, one row per call:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>call</th><th>in the memo?</th><th>what happens</th><th>memo after</th></tr></thead>
+    <tbody>
+      <tr><td>x3</td><td>no</td><td>asks x2</td><td>empty</td></tr>
+      <tr><td>x2</td><td>no</td><td>asks x1</td><td>empty</td></tr>
+      <tr><td>x1</td><td>no</td><td>asks x0</td><td>empty</td></tr>
+      <tr><td>x0</td><td>no</td><td>a leaf: 1</td><td>x0=1</td></tr>
+      <tr><td>x0</td><td>yes</td><td>returns 1, x1 = 1 + 1</td><td>x0=1, x1=2</td></tr>
+      <tr><td>x1</td><td>yes</td><td>returns 2, x2 = 2 + 2</td><td>x0=1, x1=2, x2=4</td></tr>
+      <tr><td>x2</td><td>yes</td><td>returns 4, x3 = 4 + 4</td><td>x0=1, x1=2, x2=4, x3=8</td></tr>
+    </tbody>
+  </table></div>
+  <div class="trap">
+    <span class="label">One memo per question</span>
+    <p>Create the memo for one walk and drop it afterward. A memo that lives forever keeps every node alive and can hand back an answer that belonged to a different question. <span class="only-python">Python reuses the <code>id</code> of an object that has been freed, so a long-lived table keyed by <code>id</code> can even match the wrong node. Keep the nodes alive while the memo is in use.</span><span class="only-ocaml">A table at the top level of a module is shared by every call, which is wrong as soon as an answer depends on more than the node.</span> <a href="../week1/05-call-and-param.html">Lesson 1.5</a> has the course's case of this.</p>
+  </div>
+
+  <div class="exercise small" data-ex="hi-02-tree-size" data-ex-py="hi-02-tree-size-py">
+    <h3>How big would the tree be?</h3>
+    <p>Write <code>tree_size e</code>: how many nodes <code>e</code> would have if it were written out as a tree, with no sharing. That's also the number of calls the naive walk makes. <code>tree_size (chain 3)</code> is 15, and <code>tree_size (chain 60)</code> must finish.</p>
+    <p class="muted">The tree size of a node is 1 plus the tree sizes of its children. Write each node's answer down, keyed by identity, with <code>List.assq_opt</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>A visited set: when you only need "seen it"</h2>
+    <p>Sometimes a walk doesn't produce a value per node. It only needs to do something once per node: count it, print it, or add it to a list. Then the memo shrinks to a <b>visited set</b>: a set of the things you have already handled.</p>
+    <p>An everyday graph: a recipe. A pizza needs dough and sauce. Dough needs flour, water and salt. Sauce needs tomatoes and salt. Salt is shared. Your shopping list should name it once, not once per recipe that uses it.</p>
+  </div>
+<pre class="only-python"><code>needs = {
+    "pizza": ["dough", "sauce"],
+    "dough": ["flour", "water", "salt"],
+    "sauce": ["tomatoes", "salt"],
+}
+
+def shopping(item, seen):
+    for part in needs.get(item, []):
+        if part not in seen:
+            seen.add(part)
+            shopping(part, seen)
+    return seen</code></pre>
+<pre class="only-ocaml"><code>let needs = [
+  ("pizza", ["dough"; "sauce"]);
+  ("dough", ["flour"; "water"; "salt"]);
+  ("sauce", ["tomatoes"; "salt"]);
+]
+
+let parts item = Option.value (List.assoc_opt item needs) ~default:[]
+
+let shopping item =
+  let seen = Hashtbl.create 16 in
+  let rec go item =
+    List.iter
+      (fun p -&gt; if not (Hashtbl.mem seen p) then begin Hashtbl.add seen p (); go p end)
+      (parts item)
+  in
+  go item;
+  seen</code></pre>
+  <div class="prose">
+    <p>Items that aren't keys of <code>needs</code>, like <code>flour</code>, need nothing, so they are leaves. Here the names are strings, and two equal strings are the same item, so a plain set of names works. For nodes, you'd store ids.</p>
+    <p>The check comes <em>before</em> the walk goes deeper. When <code>sauce</code> reaches <code>salt</code>, <code>salt</code> is already in <code>seen</code>, so the walk doesn't go into it again. On a recipe that saves one step. On the doubling chain it is the difference between 61 steps and forever.</p>
+
+    <h2>Children before parents: topological order</h2>
+    <p>Now you want to cook. You can't make the dough before you have the flour, and you can't assemble the pizza before the dough and the sauce exist. You need an order where every item comes <em>after</em> everything it needs. That's a <b>topological order</b>. A compiler needs one every time it turns a graph into lines of code, because a line can only use values computed by earlier lines.</p>
+    <p>A <b>post-order walk</b> produces one. For each item: first walk each of its parts, left to right, then write the item itself down. Writing it down last is what "post" means. Add a visited set so a shared item is written once. Step through it.</p>
+  </div>
+
+  <div class="fig" id="topo" data-title="post-order walk from pizza"></div>
+
+<pre class="only-python"><code>def cooking_order(dish):
+    done = set()
+    order = []
+
+    def visit(item):
+        if item in done:
+            return
+        done.add(item)
+        for part in needs.get(item, []):
+            visit(part)
+        order.append(item)
+
+    visit(dish)
+    return order</code></pre>
+<pre class="only-ocaml"><code>let cooking_order dish =
+  let done_ = Hashtbl.create 16 in
+  let order = ref [] in
+  let rec visit item =
+    if not (Hashtbl.mem done_ item) then begin
+      Hashtbl.add done_ item ();
+      List.iter visit (parts item);
+      order := item :: !order
+    end
+  in
+  visit dish;
+  List.rev !order</code></pre>
+  <div class="prose">
+    <p>For <code>"pizza"</code> this returns <code>flour, water, salt, dough, tomatoes, sauce, pizza</code>. Read it as a cooking plan and every step has what it needs. <span class="only-ocaml">The list is built backwards with <code>::</code>, which is cheap, and reversed once at the end. <code>done</code> is a keyword in OCaml, so the table is called <code>done_</code>.</span></p>
+  </div>
+  <div class="trap">
+    <span class="label">Writing the item down first gives the wrong order</span>
+    <p>If you write the item down when you <em>enter</em> it (pre-order), pizza comes first, before anything it needs. That order is right for some jobs, like printing a table of contents, but it is backwards for computing. Post-order writes an item on the way <em>out</em>, after all its parts.</p>
+  </div>
+
+  <div class="prose">
+    <h2>When the graph is too deep</h2>
+    <p>Every recursive call waits for the calls it made. While it waits, its local variables sit on the <b>call stack</b>, a region of memory with one frame per unfinished call. A chain of nodes 100,000 long, each using the one below, means 100,000 unfinished calls at the deepest point. The two languages react differently.</p>
+  </div>
+  <div class="only-python">
+  <div class="prose">
+    <p>Python refuses to go deeper than a fixed limit, 1000 calls by default:</p>
+  </div>
+<pre><code>&gt;&gt;&gt; import sys
+&gt;&gt;&gt; sys.getrecursionlimit()
+1000
+&gt;&gt;&gt; def depth(n):
+...     return 0 if n == 0 else 1 + depth(n - 1)
+...
+&gt;&gt;&gt; depth(900)
+900
+&gt;&gt;&gt; depth(5000)
+Traceback (most recent call last):
+  ...
+RecursionError: maximum recursion depth exceeded</code></pre>
+  <div class="prose">
+    <p><code>sys.setrecursionlimit(100_000)</code> raises the limit, and a few thousand levels are fine. Much higher, and the real stack underneath can run out, and then the program dies with no Python error message at all. A <code>.uir</code> test can be a chain thousands of nodes long, so the sturdy fix is the next section.</p>
+  </div>
+  </div>
+  <div class="only-ocaml">
+  <div class="prose">
+    <p>OCaml 5 grows the stack as it needs to, up to a limit of 1 GB by default. A depth of ten million works in the toplevel:</p>
+  </div>
+<pre><code># let rec depth n = if n = 0 then 0 else 1 + depth (n - 1);;
+val depth : int -&gt; int = &lt;fun&gt;
+# depth 10_000_000;;
+- : int = 10000000</code></pre>
+  <div class="prose">
+    <p>Past the limit, the program raises the exception <code>Stack_overflow</code>, and the toplevel prints <code>Stack overflow during evaluation (looping recursion?).</code> Recursion that never stops ends there too. So in OCaml, recursion is usually fine for the course's graphs. Older OCaml versions (4.14 and before) used a much smaller system stack, so you may see advice that says otherwise. The explicit stack below still matters in OCaml when you want to control the order of work yourself, and it is how you'd write the same walk in C.</p>
+  </div>
+  </div>
+
+  <div class="prose">
+    <h2>Your own stack</h2>
+    <p>A recursive walk keeps its "what to do next" on the call stack. You can keep it in an ordinary list instead, and then the depth is limited only by memory. A list used this way is a <b>stack</b>: you push onto the end and pop from the end, so the last thing pushed is the first thing taken.</p>
+    <p>The one trick is post-order. When you first meet a node, you can't write it down yet, because its children come first. So you push it back <em>with a note</em> that says "ready: its children are done", and then push its children on top. The children pop first. When the node pops again with its note, you write it down. The example writes an arithmetic tree in <b>postfix</b>, where each operator comes after its two operands: <code>(2 + 3) * 4</code> becomes <code>2 3 + 4 *</code>.</p>
+  </div>
+
+  <div class="fig" id="stack" data-title="postfix of (2 + 3) * 4 with an explicit stack"></div>
+
+<pre class="only-python"><code>def postfix(e):
+    out = []
+    stack = [(e, False)]
+    while stack:
+        node, ready = stack.pop()
+        if node[0] == "num":
+            out.append(str(node[1]))
+        elif ready:
+            out.append(node[0])
+        else:
+            stack.append((node, True))
+            stack.append((node[2], False))
+            stack.append((node[1], False))
+    return " ".join(out)</code></pre>
+<pre class="only-ocaml"><code>type t = N of int | Op of string * t * t
+
+let postfix e =
+  let out = ref [] in
+  let stack = ref [ (e, false) ] in
+  while !stack &lt;&gt; [] do
+    let node, ready = List.hd !stack in
+    stack := List.tl !stack;
+    match node with
+    | N n -&gt; out := string_of_int n :: !out
+    | Op (name, _, _) when ready -&gt; out := name :: !out
+    | Op (_, a, b) -&gt; stack := (a, false) :: (b, false) :: (node, true) :: !stack
+  done;
+  String.concat " " (List.rev !out)</code></pre>
+  <div class="prose">
+    <p><span class="only-python">The node format is <code>("num", 2)</code> for a number and <code>("+", left, right)</code> for an operator. The right child is pushed before the left, so the left one is on top and pops first.</span><span class="only-ocaml">The stack is a list whose head is the top. Putting <code>a</code> first means the left child pops first, then the right child, then the node again with <code>ready</code> set.</span> Here is the trace, with the top of the stack on the right and a check mark for "ready":</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>step</th><th>popped</th><th>action</th><th>stack after</th><th>output</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td></td><td>start</td><td><code>*</code></td><td></td></tr>
+      <tr><td>1</td><td><code>*</code></td><td>not ready: push it back ready, then 4, then +</td><td><code>*✓ 4 +</code></td><td></td></tr>
+      <tr><td>2</td><td><code>+</code></td><td>not ready: push it back ready, then 3, then 2</td><td><code>*✓ 4 +✓ 3 2</code></td><td></td></tr>
+      <tr><td>3</td><td><code>2</code></td><td>a number: write it</td><td><code>*✓ 4 +✓ 3</code></td><td><code>2</code></td></tr>
+      <tr><td>4</td><td><code>3</code></td><td>a number: write it</td><td><code>*✓ 4 +✓</code></td><td><code>2 3</code></td></tr>
+      <tr><td>5</td><td><code>+✓</code></td><td>ready: write it</td><td><code>*✓ 4</code></td><td><code>2 3 +</code></td></tr>
+      <tr><td>6</td><td><code>4</code></td><td>a number: write it</td><td><code>*✓</code></td><td><code>2 3 + 4</code></td></tr>
+      <tr><td>7</td><td><code>*✓</code></td><td>ready: write it</td><td>empty</td><td><code>2 3 + 4 *</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>The same code handles an expression 100,000 levels deep, because the list grows instead of the call stack. For a DAG you add a visited set, exactly as in the recursive version: when a node pops without its note and is already in the set, skip it.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Two common slips</span>
+    <p>Pushing the children in reading order makes the <em>last</em> child pop first, so the output comes out mirrored. And forgetting the "ready" note makes the loop expand the same node forever, or write it before its children.</p>
+  </div>
+
+  <div class="exercise small" data-ex="hi-02-topo" data-ex-py="hi-02-topo-py">
+    <h3>A cooking order without recursion</h3>
+    <p>Write <code>topo g root</code>. <code>g</code> is a <code>Hashtbl</code> from an item to the list of items it needs (the starter's <code>graph</code> builds one from a list of pairs). An item that isn't a key needs nothing. Return every item reachable from <code>root</code>, <b>each exactly once</b>, in post-order: an item's parts left to right, then the item. Items not reachable from <code>root</code> are left out.</p>
+    <p>Use your own stack, not recursion. One test is a chain 100,000 items deep.</p>
+    <p class="muted">A stack of <code>(item, ready)</code> pairs and a table of items you have started. Mark an item when it pops without its note, and skip it if it is already marked.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Where each one appears</h2>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>tool</th><th>where in the course</th></tr></thead>
+    <tbody>
+      <tr><td>memo keyed by identity</td><td><a href="../week1/02-uir-and-interpreting.html">1.2</a> the interpreter computes each node once. <a href="../week1/03-rewrites-and-folding.html">1.3</a> the simplifier keeps a memo from each old node to its new one. <a href="../week1/05-call-and-param.html">1.5</a> one memo per call. <a href="../week2/03-bounds.html">2.3</a> bounds are worked out once per node.</td></tr>
+      <tr><td>visited set</td><td><a href="../week1/01-the-uop.html">1.1</a> counting the distinct nodes of a graph.</td></tr>
+      <tr><td>topological order</td><td><a href="../week0/03-compilers-and-irs.html">0.3</a> and the capstone of <span class="only-python"><a href="../week0/07-python.html">0.7</a></span><span class="only-ocaml"><a href="../week0/06-ocaml.html">0.6</a></span>. <a href="../week1/03-rewrites-and-folding.html">1.3</a> rewrites sources first. <a href="../week2/04-rendering-c.html">2.4</a> prints one line of C per node, in order.</td></tr>
+      <tr><td>explicit stack</td><td>the <a href="../week1/06-lab.html">week 1 lab</a>'s deep chains, and every later walk over a long program, including the passes of weeks 3 and 4.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Predict how many calls a naive recursive walk makes on a shared graph.</li>
+      <li>Add a memo keyed by identity so each node is computed once.</li>
+      <li>Use a visited set when a walk only needs to handle each node once.</li>
+      <li>Produce a topological order with a post-order walk.</li>
+      <li>Explain what the call stack is and why deep recursion fails, in your language.</li>
+      <li>Rewrite a post-order walk with your own stack and a "ready" note.</li>
+    </ul>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="31">
+    <p class="q">How many calls does the naive <code>value</code> make on <code>x4</code> (a leaf plus four doubling levels)?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The naive walk visits every path, so it makes as many calls as the tree has nodes.</p>
+    <p class="hint"><code>x3</code> took 15 calls. Each level is 1 + 2 times the level below.</p>
+    <div class="why"><p>31: one call for <code>x4</code> and 15 for each of its two arrows into <code>x3</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="5">
+    <p class="q">With a memo, how many values does the walk on <code>x4</code> actually compute (calls that miss the memo)?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">A node misses only the first time it is asked. How many distinct nodes are there?</p>
+    <div class="why"><p>Five, one per distinct node: <code>x0</code> to <code>x4</code>. Every second arrow is a memo hit.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Why must the memo key be the node's identity, not its contents?</p>
+    <div class="opts">
+      <button data-k="a">Contents can't be stored in a table</button>
+      <button data-k="b">Hashing and comparing contents walks the subtree, which is the cost the memo is there to avoid</button>
+      <button data-k="c">Two nodes with the same contents can have different values</button>
+    </div>
+    <p class="hint">What does a table do with a key on every lookup? How much of a node's contents is there, counted as a tree?</p>
+    <div class="why"><p>A content key makes every lookup read the whole subtree, so the walk is slow again. An identity key is one small number. (In a hash-consed graph, equal contents means the same node anyway.)</p></div>
+  </div>
+
+  <div class="quiz" data-fill="c, b, a">
+    <p class="q"><code>a</code> needs <code>b</code> and <code>c</code>, and <code>b</code> needs <code>c</code>. Write the post-order from <code>a</code>, parts left to right, each item once. Separate the names with commas.</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Start at <code>a</code> and go to its first part, <code>b</code>. What does <code>b</code> need, and when is <code>b</code> written down?</p>
+    <p class="hint"><code>c</code> is written inside the walk of <code>b</code>. When <code>a</code> later reaches <code>c</code>, it's already done.</p>
+    <div class="why"><p><code>c, b, a</code>. The walk of <code>b</code> writes <code>c</code> first, then <code>b</code>. Back in <code>a</code>, its second part <code>c</code> is already done, so it is skipped, and <code>a</code> comes last.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">In the explicit-stack walk, why does a node get pushed back with a "ready" note before its children?</p>
+    <div class="opts">
+      <button data-k="a">To count how many times it was visited</button>
+      <button data-k="b">So the children pop after it</button>
+      <button data-k="c">So that it pops again after its children, and is written down then</button>
+    </div>
+    <p class="hint">A stack gives back the last thing pushed first. Which of the node and its children is pushed last?</p>
+    <div class="why"><p>The children go on top, so they pop and finish first. Then the node pops again with its note, and post-order says that's when it is written.</p></div>
+  </div>
+
+  <div class="quiz only-python" data-answer="a">
+    <p class="q">A recursive walk in Python reaches a chain 5000 nodes deep. What happens with the default settings?</p>
+    <div class="opts">
+      <button data-k="a"><code>RecursionError</code></button>
+      <button data-k="b">It works, only slower</button>
+      <button data-k="c">The program hangs</button>
+    </div>
+    <p class="hint">What does <code>sys.getrecursionlimit()</code> return?</p>
+    <div class="why"><p>The default limit is 1000, so the walk stops with <code>RecursionError: maximum recursion depth exceeded</code>. Use your own stack, or raise the limit for moderate depths.</p></div>
+  </div>
+
+  <div class="quiz only-ocaml" data-answer="b">
+    <p class="q">A recursive walk in OCaml 5 reaches a chain 100,000 nodes deep. What happens with the default settings?</p>
+    <div class="opts">
+      <button data-k="a"><code>Stack_overflow</code></button>
+      <button data-k="b">It works</button>
+      <button data-k="c">The program hangs</button>
+    </div>
+    <p class="hint">How large can OCaml 5's stack grow by default?</p>
+    <div class="why"><p>OCaml 5 grows the stack up to 1 GB, and ten million frames of a small function fit. 100,000 is no problem. Older OCaml versions had a much smaller stack.</p></div>
+  </div>
+
+  <nav class="pager"><a href="hard-01-sharing.html">← Sharing nodes</a><a href="hard-03-rewriting.html">Rewriting until nothing changes →</a></nav>
+</main>
+
+<script>
+(() => {
+  const { h, graph, stepper, code } = CC;
+  const chain = (vals, cls) => [0, 1, 2, 3].map(i => ({ id: 'x' + i, op: i ? '+' : '1', sub: 'x' + i,
+    src: i ? ['x' + (i - 1), 'x' + (i - 1)] : [], cls: cls[i] || '', val: vals[i] }));
+
+  const seq = [];
+  const walk = (k, path) => { seq.push(path.concat(k)); if (k > 0) { walk(k - 1, path.concat(k)); walk(k - 1, path.concat(k)); } };
+  walk(3, []);
+  const naive = [{ caption: 'Four nodes. The number next to a node will count how many times the naive walk has asked it.', path: [] }]
+    .concat(seq.map((path, i) => ({ path, n: i + 1,
+      caption: `Call ${i + 1}: ${path.map(k => 'value(x' + k + ')').join(' → ')}.` + (path[path.length - 1] === 0 ? ' A leaf, so it returns 1.' : '') +
+        (i === seq.length - 1 ? ' That was the last call: 15 calls for 4 nodes, and <code>x0</code> alone was asked 8 times.' : '') })));
+  stepper(document.getElementById('naive'), naive, (s, body) => {
+    const counts = [0, 0, 0, 0];
+    seq.slice(0, s.n || 0).forEach(p => counts[p[p.length - 1]]++);
+    const cur = s.path.length ? s.path[s.path.length - 1] : -1;
+    body.append(graph(chain(counts.map(c => c + (c === 1 ? ' call' : ' calls')), [0, 1, 2, 3].map(i => i === cur ? 'hit' : ''))));
+  });
+
+  const M = [
+    [3, 'miss', {}, 'Ask <code>x3</code>. The memo is empty, so it must be worked out. It asks its first child, <code>x2</code>.'],
+    [2, 'miss', {}, '<code>x2</code> is not in the memo either. It asks <code>x1</code>.'],
+    [1, 'miss', {}, '<code>x1</code>: not in the memo. It asks <code>x0</code>.'],
+    [0, 'store', { 0: 1 }, '<code>x0</code> is a leaf. Its value is 1. <b>Write it down</b>: x0 = 1.'],
+    [0, 'hit', { 0: 1 }, '<code>x1</code> asks its second child, <code>x0</code>, again. This time it is in the memo: a <b>hit</b>, no work.'],
+    [1, 'store', { 0: 1, 1: 2 }, '<code>x1</code> = 1 + 1 = 2. Write it down.'],
+    [1, 'hit', { 0: 1, 1: 2 }, '<code>x2</code> asks its second child, <code>x1</code>. Hit.'],
+    [2, 'store', { 0: 1, 1: 2, 2: 4 }, '<code>x2</code> = 2 + 2 = 4. Write it down.'],
+    [2, 'hit', { 0: 1, 1: 2, 2: 4 }, '<code>x3</code> asks its second child, <code>x2</code>. Hit.'],
+    [3, 'store', { 0: 1, 1: 2, 2: 4, 3: 8 }, '<code>x3</code> = 8. Four values worked out, three hits, seven calls instead of fifteen. Each level adds two calls, not double the work.'],
+  ];
+  stepper(document.getElementById('memo'), [{ at: -1, memo: {}, caption: 'The same graph. This time a memo table sits beside the walk.' }]
+    .concat(M.map(([at, what, memo, caption]) => ({ at, what, memo, caption }))), (s, body) => {
+    const cls = [0, 1, 2, 3].map(i => i === s.at ? (s.what === 'store' ? 'new' : 'hit') : '');
+    const vals = [0, 1, 2, 3].map(i => s.memo[i] != null ? s.memo[i] : null);
+    const cells = [0, 1, 2, 3].filter(i => s.memo[i] != null).map(i =>
+      h('div', { class: 'cell' + (i === s.at ? (s.what === 'hit' ? ' hit' : ' on') : '') }, h('span', { class: 'addr', text: 'x' + i }), String(s.memo[i])));
+    body.append(h('div', { class: 'split' },
+      h('div', {}, h('span', { class: 'label', text: 'memo' }), cells.length ? h('div', { class: 'mem' }, cells) : h('p', { class: 'muted', text: 'empty' })),
+      graph(chain(vals, cls))));
+  });
+
+  const G = [
+    { id: 'flour', op: 'flour' }, { id: 'water', op: 'water' }, { id: 'salt', op: 'salt' }, { id: 'tomatoes', op: 'tomatoes' },
+    { id: 'dough', op: 'dough', src: ['flour', 'water', 'salt'] }, { id: 'sauce', op: 'sauce', src: ['tomatoes', 'salt'] },
+    { id: 'pizza', op: 'pizza', src: ['dough', 'sauce'] }];
+  const TS = [
+    ['pizza', [], 'Visit <code>pizza</code>. Mark it as started. It needs <code>dough</code> and <code>sauce</code>, so walk <code>dough</code> first.'],
+    ['dough', [], 'Visit <code>dough</code>. It needs flour, water and salt, in that order.'],
+    ['flour', ['flour'], '<code>flour</code> needs nothing. All of its parts are done (there are none), so <b>write it down</b>.'],
+    ['water', ['flour', 'water'], '<code>water</code>: write it down.'],
+    ['salt', ['flour', 'water', 'salt'], '<code>salt</code>: write it down.'],
+    ['dough', ['flour', 'water', 'salt', 'dough'], 'Back in <code>dough</code>. Every part is written, so <b>write dough</b>.'],
+    ['tomatoes', ['flour', 'water', 'salt', 'dough', 'tomatoes'], 'Back in <code>pizza</code>, on to <code>sauce</code>. Its first part, <code>tomatoes</code>, needs nothing: write it.'],
+    ['salt', ['flour', 'water', 'salt', 'dough', 'tomatoes'], '<code>sauce</code> also needs <code>salt</code>. It is already marked, so <b>skip it</b>. Without the visited set, salt would be written twice.'],
+    ['sauce', ['flour', 'water', 'salt', 'dough', 'tomatoes', 'sauce'], 'All parts of <code>sauce</code> are done: write it.'],
+    ['pizza', ['flour', 'water', 'salt', 'dough', 'tomatoes', 'sauce', 'pizza'], 'Back in <code>pizza</code>. Both parts are done: <b>write pizza</b>. Every item comes after everything it needs.'],
+  ];
+  stepper(document.getElementById('topo'), TS.map(([at, out, caption]) => ({ at, out, caption })), (s, body) => {
+    const nodes = G.map(n => ({ ...n, cls: n.id === s.at ? 'hit' : s.out.includes(n.id) ? 'new' : '' }));
+    body.append(h('div', { class: 'split' }, graph(nodes),
+      h('div', {}, h('span', { class: 'label', text: 'order so far' }), code(s.out.length ? s.out.map((x, i) => `${i + 1}. ${x}`).join('\n') : 'nothing yet', s.at === s.out[s.out.length - 1] ? s.out.length - 1 : -1))));
+  });
+
+  const E = [{ id: 'two', op: '2' }, { id: 'three', op: '3' }, { id: 'four', op: '4' }, { id: 'plus', op: '+', src: ['two', 'three'] }, { id: 'times', op: '*', src: ['plus', 'four'] }];
+  const ST = [
+    [null, ['*'], '', 'Start: the stack holds the root, <code>*</code>, without a note.'],
+    ['times', ['*✓', '4', '+'], '', 'Pop <code>*</code>. Not ready, so push it back <b>with the note</b>, then its right child 4, then its left child <code>+</code>, which is now on top.'],
+    ['plus', ['*✓', '4', '+✓', '3', '2'], '', 'Pop <code>+</code>. Not ready: push it back with the note, then 3, then 2.'],
+    ['two', ['*✓', '4', '+✓', '3'], '2', 'Pop 2. A number has no children, so write it at once.'],
+    ['three', ['*✓', '4', '+✓'], '2 3', 'Pop 3. Write it.'],
+    ['plus', ['*✓', '4'], '2 3 +', 'Pop <code>+✓</code>. It has its note, so both children are done: <b>write +</b>.'],
+    ['four', ['*✓'], '2 3 + 4', 'Pop 4. Write it.'],
+    ['times', [], '2 3 + 4 *', 'Pop <code>*✓</code>: write it. The stack is empty, so the loop ends. No recursion was used.'],
+  ];
+  stepper(document.getElementById('stack'), ST.map(([at, stack, out, caption]) => ({ at, stack, out, caption })), (s, body) => {
+    const done = s.out.split(' ').filter(Boolean).length;
+    const order = ['two', 'three', 'plus', 'four', 'times'];
+    const nodes = E.map(n => ({ ...n, cls: n.id === s.at ? 'hit' : order.indexOf(n.id) < done && order.indexOf(n.id) >= 0 ? 'new' : '' }));
+    const cells = s.stack.map((x, i) => h('div', { class: 'cell' + (i === s.stack.length - 1 ? ' on' : '') }, h('span', { class: 'addr', text: i === s.stack.length - 1 ? 'top' : String(i) }), x));
+    body.append(h('div', { class: 'split' },
+      h('div', {}, h('span', { class: 'label', text: 'stack, top on the right' }), cells.length ? h('div', { class: 'mem' }, cells) : h('p', { class: 'muted', text: 'empty' }),
+        h('p', {}, h('span', { class: 'label', text: 'output' }), ' ', h('code', { text: s.out || '(nothing yet)' }))),
+      graph(nodes)));
+  });
+})();
+</script>
+</body>
+</html>

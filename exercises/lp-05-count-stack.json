@@ -1,0 +1,42 @@
+{
+ "id": "lp-05-count-stack",
+ "lang": "python",
+ "title": "Count nodes without recursion",
+ "starter": "from dataclasses import dataclass\n\n@dataclass(frozen=True)\nclass Num:\n    value: int\n\n@dataclass(frozen=True)\nclass Add:\n    left: \"Expr\"\n    right: \"Expr\"\n\n@dataclass(frozen=True)\nclass Mul:\n    left: \"Expr\"\n    right: \"Expr\"\n\nExpr = Num | Add | Mul\n\ndef chain(n):\n    e = Num(1)\n    for i in range(n):\n        e = Add(Num(1), e)\n    return e\n\ndef count_nodes(e):\n    match e:\n        case Num(_):\n            return 1\n        case Add(left, right) | Mul(left, right):\n            return 1 + count_nodes(left) + count_nodes(right)\n        case _:\n            raise TypeError(f\"not an expression: {e!r}\")\n",
+ "show": "str",
+ "tests": [
+  {
+   "expr": "count_nodes(Add(Num(2), Mul(Num(3), Num(4))))",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "count_nodes(Num(7))",
+   "expect": "1",
+   "sample": true
+  },
+  {
+   "expr": "count_nodes(chain(10))",
+   "expect": "21",
+   "sample": true
+  },
+  {
+   "expr": "count_nodes(Mul(Add(Num(1), Num(2)), Add(Num(3), Num(4))))",
+   "expect": "7"
+  },
+  {
+   "expr": "count_nodes(chain(5000))",
+   "expect": "10001"
+  },
+  {
+   "expr": "count_nodes(chain(20000))",
+   "expect": "40001"
+  }
+ ],
+ "hints": [
+  "Start with `stack = [e]` and `count = 0`, then loop `while stack:` and take one node with `node = stack.pop()`.",
+  "Every node you pop adds one to the count, whatever kind it is.",
+  "If the node is an `Add` or a `Mul`, push both children with `stack.append(...)`. A `Num` pushes nothing. When the stack is empty, every node has been counted."
+ ],
+ "explain": "The reference keeps a list of nodes still to count. It pops one, adds 1, and pushes the two children of an Add or Mul. Since the list lives in ordinary memory, a chain of 20000 levels is no harder than a small tree, while the recursive version needs one frame per level and hits Python's limit of about 1000."
+}

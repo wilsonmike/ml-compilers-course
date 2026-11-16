@@ -1,0 +1,53 @@
+{
+ "id": "hi-03-bool-simplify",
+ "lang": "ocaml",
+ "title": "Simplify true and false",
+ "show": "fun e -> to_string (simplify e)",
+ "starter": "type b = T | F | Var of string | Not of b | And of b * b | Or of b * b\n\nlet rec to_string e =\n  match e with\n  | T -> \"T\"\n  | F -> \"F\"\n  | Var s -> s\n  | Not a -> \"(not \" ^ to_string a ^ \")\"\n  | And (a, b) -> \"(\" ^ to_string a ^ \" and \" ^ to_string b ^ \")\"\n  | Or (a, b) -> \"(\" ^ to_string a ^ \" or \" ^ to_string b ^ \")\"\n\nlet rule e =\n  match e with\n  | Not T -> Some F\n  | Not F -> Some T\n  | Not (Not x) -> Some x\n  | And (x, T) | And (T, x) -> Some x\n  | And (_, F) | And (F, _) -> Some F\n  | Or (x, F) | Or (F, x) -> Some x\n  | Or (_, T) | Or (T, _) -> Some T\n  | _ -> None\n\nlet rec simplify e =\n  match rule e with\n  | Some r -> r\n  | None ->\n    match e with\n    | Not a -> Not (simplify a)\n    | And (a, b) -> And (simplify a, simplify b)\n    | Or (a, b) -> Or (simplify a, simplify b)\n    | T | F | Var _ -> e\n",
+ "tests": [
+  {
+   "expr": "Not (Not T)",
+   "expect": "T",
+   "sample": true
+  },
+  {
+   "expr": "And (Not (Not T), Var \"p\")",
+   "expect": "p",
+   "sample": true
+  },
+  {
+   "expr": "And (Var \"x\", Var \"y\")",
+   "expect": "(x and y)"
+  },
+  {
+   "expr": "Not (And (T, F))",
+   "expect": "T"
+  },
+  {
+   "expr": "Or (Var \"a\", Not (Or (Var \"b\", T)))",
+   "expect": "a"
+  },
+  {
+   "expr": "Not (Not (Not (Not (Var \"q\"))))",
+   "expect": "q"
+  },
+  {
+   "expr": "And (Or (Var \"a\", F), Or (F, Var \"b\"))",
+   "expect": "(a and b)"
+  },
+  {
+   "expr": "Not (Var \"z\")",
+   "expect": "(not z)"
+  },
+  {
+   "expr": "Or (And (Not F, Not (Not (Var \"r\"))), F)",
+   "expect": "r"
+  }
+ ],
+ "hints": [
+  "The starter offers a node to `rule` before its children are simplified, and stops after one rule fires. Try `Not (And (T, F))` by hand to see what it misses.",
+  "Go bottom-up: first rebuild the node from `simplify` of each child, then offer the rebuilt node to `rule`.",
+  "After a rule fires, offer its result to `rule` again, and keep going until it returns `None`. A small recursive helper does that."
+ ],
+ "explain": "The solution simplifies the children first, rebuilds the node, and then applies `rule` until it returns `None`. Every result a rule produces is either a constant or a part that was already simplified, so settling the rebuilt node is enough: when the walk returns, no rule matches anywhere. That is the bottom-up pass plus a fixed point at each node."
+}

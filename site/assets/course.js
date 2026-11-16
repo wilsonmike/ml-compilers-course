@@ -17,6 +17,17 @@ const CC = (() => {
     { title: 'Start here', items: [['index.html', 'Overview']] },
     { title: 'Resources', items: [['resources/index.html', 'All resources'], ['resources/debugging.html', 'Debugging your compiler'],
       ['resources/review.html', 'Quiz review'], ['resources/glossary.html', 'Glossary'], ['resources/languages.html', 'Python and OCaml, deeper']] },
+    { title: 'Learn Python', track: 'python', items: [
+      ['learn/py-01-first-steps.html', 'First steps in Python', 'P.1'], ['learn/py-02-decisions-loops.html', 'Decisions, loops and functions', 'P.2'],
+      ['learn/py-03-collections.html', 'Lists, dicts and sets', 'P.3'], ['learn/py-04-your-own-types.html', 'Your own types', 'P.4'],
+      ['learn/py-05-recursion.html', 'Recursion and functions as values', 'P.5'], ['learn/py-06-files-errors-tests.html', 'Files, errors and testing', 'P.6']] },
+    { title: 'Learn OCaml', track: 'ocaml', items: [
+      ['learn/ml-01-first-steps.html', 'First steps in OCaml', 'O.1'], ['learn/ml-02-functions.html', 'Functions and types', 'O.2'],
+      ['learn/ml-03-lists-matching.html', 'Lists and pattern matching', 'O.3'], ['learn/ml-04-your-own-types.html', 'Your own types', 'O.4'],
+      ['learn/ml-05-mutation.html', 'Arrays, tables and mutation', 'O.5'], ['learn/ml-06-modules-projects.html', 'Modules, maps and projects', 'O.6']] },
+    { title: 'Hard ideas, slowly', items: [
+      ['learn/hard-01-sharing.html', 'Sharing nodes', 'H.1'], ['learn/hard-02-walking-graphs.html', 'Walking a graph once', 'H.2'],
+      ['learn/hard-03-rewriting.html', 'Rewriting until nothing changes', 'H.3'], ['learn/hard-04-numbers-like-c.html', 'Numbers that behave like C', 'H.4']] },
     { title: 'Week 0 · Prerequisites', items: [
       ['week0/01-c-and-pointers.html', 'C and pointers', '0.1'], ['week0/02-memory-and-caches.html', 'Memory and caches', '0.2'],
       ['week0/03-compilers-and-irs.html', 'Compilers and IRs', '0.3'], ['week0/04-tensors-and-shapes.html', 'Tensors and shapes', '0.4'],
@@ -112,12 +123,12 @@ const CC = (() => {
       return h('li', {}, h('a', { href: root + href, class: cur && cur[1][0] === href ? 'on' : null, 'aria-current': cur && cur[1][0] === href ? 'page' : null },
         n ? h('span', { class: 'n', text: n }) : null, h('span', { text: title }),
         p && p.s > 0 ? h('span', { class: 'prog' + (p.s >= p.t ? ' done' : ''), text: p.s >= p.t ? '✓' : `${p.s}/${p.t}` }) : null)); };
-    const nav = h('nav', { 'aria-label': 'Lessons' }, NAV.map((g, gi) => {
+    const nav = h('nav', { 'aria-label': 'Lessons' }, NAV.filter(g => !g.track || g.track === track() || (cur && cur[0] === g)).map(g => {
       if (g.title === 'Start here') return h('ul', { class: 'top' }, g.items.map(item));
-      const closed = store.get('cc-grp:' + gi) === '0';
+      const gk = 'cc-grp:' + g.title, closed = store.get(gk) === '0';
       const grp = h('div', { class: 'grp' + (closed ? ' closed' : '') });
       grp.append(h('button', { type: 'button', 'aria-expanded': String(!closed), onclick: () => {
-        const c = grp.classList.toggle('closed'); grp.firstChild.setAttribute('aria-expanded', String(!c)); store.set('cc-grp:' + gi, c ? '0' : '1'); } },
+        const c = grp.classList.toggle('closed'); grp.firstChild.setAttribute('aria-expanded', String(!c)); store.set(gk, c ? '0' : '1'); } },
         h('span', { class: 'chev', 'aria-hidden': 'true' }, h('svg', { width: 10, height: 10, viewBox: '0 0 10 10' }, h('path', { d: 'M2 3.5l3 3 3-3', stroke: 'currentColor', 'stroke-width': 1.5, fill: 'none' }))), g.title));
       grp.append(h('ul', {}, g.items.map(item)));
       return grp; }));

@@ -1,0 +1,54 @@
+{
+ "id": "lp-04-evaluate",
+ "lang": "python",
+ "title": "Evaluate with minus",
+ "starter": "from dataclasses import dataclass\n\n@dataclass(frozen=True)\nclass Num:\n    value: int\n\n@dataclass(frozen=True)\nclass Add:\n    left: \"Expr\"\n    right: \"Expr\"\n\n@dataclass(frozen=True)\nclass Sub:\n    left: \"Expr\"\n    right: \"Expr\"\n\n@dataclass(frozen=True)\nclass Mul:\n    left: \"Expr\"\n    right: \"Expr\"\n\n@dataclass(frozen=True)\nclass Neg:\n    inner: \"Expr\"\n\nExpr = Num | Add | Sub | Mul | Neg\n\ndef evaluate(e):\n    match e:\n        case Num(v):\n            return v\n        case _:\n            raise TypeError(f\"not an expression: {e!r}\")\n",
+ "show": "str",
+ "tests": [
+  {
+   "expr": "evaluate(Add(Num(2), Mul(Num(3), Num(4))))",
+   "expect": "14",
+   "sample": true
+  },
+  {
+   "expr": "evaluate(Sub(Num(10), Num(3)))",
+   "expect": "7",
+   "sample": true
+  },
+  {
+   "expr": "evaluate(Neg(Num(5)))",
+   "expect": "-5",
+   "sample": true
+  },
+  {
+   "expr": "evaluate(Num(7))",
+   "expect": "7"
+  },
+  {
+   "expr": "evaluate(Mul(Add(Num(2), Num(3)), Num(4)))",
+   "expect": "20"
+  },
+  {
+   "expr": "evaluate(Sub(Num(3), Num(10)))",
+   "expect": "-7"
+  },
+  {
+   "expr": "evaluate(Neg(Neg(Num(5))))",
+   "expect": "5"
+  },
+  {
+   "expr": "evaluate(Sub(Num(1), Sub(Num(2), Num(3))))",
+   "expect": "2"
+  },
+  {
+   "expr": "evaluate(Mul(Neg(Num(2)), Sub(Num(0), Num(4))))",
+   "expect": "8"
+  }
+ ],
+ "hints": [
+  "Add one `case` per class, in the same style as the page: `case Add(left, right): return evaluate(left) + evaluate(right)`.",
+  "`Sub(left, right)` means `left - right`, so the left value comes first: `evaluate(left) - evaluate(right)`.",
+  "`Neg` has a single field: `case Neg(inner): return -evaluate(inner)`."
+ ],
+ "explain": "The reference has one case per class. A Num returns its value. Add, Sub and Mul evaluate both children and combine them, keeping the left value on the left for Sub. Neg evaluates its one child and negates it. The final `case _:` raises, so a value that isn't an expression is a loud error."
+}

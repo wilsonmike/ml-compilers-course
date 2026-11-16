@@ -1,0 +1,44 @@
+{
+ "id": "hi-03-fixpoint",
+ "lang": "ocaml",
+ "title": "Repeat until nothing changes",
+ "show": "fun (v, n) -> Printf.sprintf \"(%d, %d)\" v n",
+ "starter": "let fixpoint (f : 'a -> 'a) (x : 'a) : 'a * int =\n  (f x, 1)\n",
+ "tests": [
+  {
+   "expr": "fixpoint (fun n -> n / 2) 100",
+   "expect": "(0, 7)",
+   "sample": true
+  },
+  {
+   "expr": "fixpoint (fun n -> n) 5",
+   "expect": "(5, 0)",
+   "sample": true
+  },
+  {
+   "expr": "fixpoint (fun n -> if n > 10 then n - 10 else n) 95",
+   "expect": "(5, 9)"
+  },
+  {
+   "expr": "fixpoint (let rec ds n = if n = 0 then 0 else n mod 10 + ds (n / 10) in ds) 987654321",
+   "expect": "(9, 2)"
+  },
+  {
+   "expr": "fixpoint (fun n -> if n mod 2 = 0 then n / 2 else n) 96",
+   "expect": "(3, 5)"
+  },
+  {
+   "expr": "let (l, n) = fixpoint (fun l -> match l with x :: y :: r when x = y -> y :: r | l -> l) [3; 3; 3; 1] in (List.length l, n)",
+   "expect": "(2, 2)"
+  },
+  {
+   "expr": "fixpoint (fun n -> if n > 0 then n - 1 else 0) 1000000",
+   "expect": "(0, 1000000)"
+  }
+ ],
+ "hints": [
+  "Apply `f` once and compare the result with the input using `=`. If they're equal, you're done, and nothing changed.",
+  "If they differ, do the same again starting from the new value, with the count one higher. A recursive helper `go x count` that calls itself last is a loop in disguise."
+ ],
+ "explain": "The helper applies `f`, stops when the result equals the input, and otherwise calls itself on the new value with the count plus one. The recursive call is the last thing the helper does (a tail call), so OCaml runs it as a loop and even a million steps use no stack. That stopping rule is exactly the fixed-point loop around a rewrite pass."
+}

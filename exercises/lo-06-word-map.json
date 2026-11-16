@@ -1,0 +1,37 @@
+{
+ "id": "lo-06-word-map",
+ "lang": "ocaml",
+ "title": "Word counts in a StringMap",
+ "starter": "module StringMap = Map.Make (String)\n\nlet count_words (words : string list) : int StringMap.t =\n  let m = StringMap.empty in\n  List.iter (fun w -> ignore (StringMap.add w 1 m)) words;\n  m\n",
+ "show": "(fun m -> String.concat \" \" (List.map (fun (w, n) -> w ^ \":\" ^ string_of_int n) (StringMap.bindings m)))",
+ "tests": [
+  {
+   "expr": "count_words [\"the\"; \"cat\"; \"the\"]",
+   "expect": "cat:1 the:2",
+   "sample": true
+  },
+  {
+   "expr": "count_words []",
+   "expect": "",
+   "sample": true
+  },
+  {
+   "expr": "count_words [\"b\"; \"a\"; \"b\"]",
+   "expect": "a:1 b:2"
+  },
+  {
+   "expr": "count_words [\"x\"; \"x\"; \"x\"; \"x\"]",
+   "expect": "x:4"
+  },
+  {
+   "expr": "count_words [\"Kiwi\"; \"kiwi\"]",
+   "expect": "Kiwi:1 kiwi:1"
+  }
+ ],
+ "hints": [
+  "The starter throws away every map that `StringMap.add` returns, so `m` stays empty. A map never changes, so you have to keep the new one.",
+  "Use `List.fold_left`: the accumulator is the map so far, starting at `StringMap.empty`.",
+  "`List.fold_left (fun m w -> let n = match StringMap.find_opt w m with Some n -> n | None -> 0 in StringMap.add w (n + 1) m) StringMap.empty words`."
+ ],
+ "explain": "The reference folds over the words with the map as the accumulator. Each step looks up the old count with `find_opt` and returns `StringMap.add w (n + 1) m`, a new map, which the fold hands to the next step. `StringMap.bindings` lists the keys in sorted order, so no sort is needed."
+}

@@ -1,0 +1,50 @@
+{
+ "id": "hi-03-fixpoint-py",
+ "lang": "python",
+ "title": "Repeat until nothing changes",
+ "prompt": "<p>Write <code>fixpoint(f, x)</code>. Apply <code>f</code> to <code>x</code>, then to the result, and so on, until applying it gives back an equal value. Return that value and the number of times <code>f</code> changed something, as a tuple. Halving 100 with <code>lambda n: n // 2</code> goes 50, 25, 12, 6, 3, 1, 0, and then <code>0 // 2</code> is still 0, so <code>fixpoint(lambda n: n // 2, 100)</code> is <code>(0, 7)</code>.</p><p class=\"muted\">A loop and a counter. Compare with <code>==</code>.</p>",
+ "show": "str",
+ "starter": "def fixpoint(f, x):\n    return (f(x), 1)\n",
+ "tests": [
+  {
+   "expr": "fixpoint(lambda n: n // 2, 100)",
+   "expect": "(0, 7)",
+   "sample": true
+  },
+  {
+   "expr": "fixpoint(lambda n: n, 5)",
+   "expect": "(5, 0)",
+   "sample": true
+  },
+  {
+   "expr": "fixpoint(lambda s: s.replace(\"aa\", \"a\"), \"aaaaab\")",
+   "expect": "('ab', 3)"
+  },
+  {
+   "expr": "fixpoint(lambda s: s.replace(\"()\", \"\"), \"(()(()))\")",
+   "expect": "('', 3)"
+  },
+  {
+   "expr": "fixpoint(lambda n: sum(int(d) for d in str(n)), 987654321)",
+   "expect": "(9, 2)"
+  },
+  {
+   "expr": "fixpoint(lambda n: n - 10 if n > 10 else n, 95)",
+   "expect": "(5, 9)"
+  },
+  {
+   "expr": "fixpoint(lambda l: l[1:] if len(l) > 1 and l[0] == l[1] else l, [3, 3, 3, 1])",
+   "expect": "([3, 1], 2)"
+  },
+  {
+   "expr": "fixpoint(lambda n: n - 1 if n > 0 else 0, 100000)",
+   "expect": "(0, 100000)"
+  }
+ ],
+ "hints": [
+  "Apply `f` once and compare the result with the input using `==`. If they're equal, you're done, and nothing changed.",
+  "If they differ, do the same again starting from the new value, and add 1 to a counter. A `while True:` loop that returns when nothing changed fits well.",
+  "Recursion is the wrong tool here: one test changes something 100,000 times, far past Python's recursion limit."
+ ],
+ "explain": "The loop applies `f`, returns as soon as the result equals the input, and otherwise moves to the new value and counts one change. A loop has no depth limit, so 100,000 changes are fine. That stopping rule is exactly the fixed-point loop around a rewrite pass."
+}

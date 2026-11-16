@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recursion and Functions as Values in Python</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="At the end of the last lesson, evaluate called itself to work out a tree. This lesson explains how that works, from the very start: what happens when a...">
+<link rel="canonical" href="https://sharpterminal.com/site/learn/py-05-recursion">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Recursion and Functions as Values in Python">
+<meta property="og:description" content="At the end of the last lesson, evaluate called itself to work out a tree. This lesson explains how that works, from the very start: what happens when a function calls itself, how Python keeps track...">
+<meta property="og:url" content="https://sharpterminal.com/site/learn/py-05-recursion">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Learn Python|Recursion and functions as values" data-root="../">
+<main>
+  <p class="eyebrow">Learn Python · Lesson 5</p>
+  <h1>Recursion and functions as values</h1>
+  <p class="lede">At the end of the last lesson, <code>evaluate</code> called itself to work out a tree. This lesson explains how that works, from the very start: what happens when a function calls itself, how Python keeps track, what goes wrong, and how to fix it. Then it shows that a function is a value like any other, which you can store, pass around, and build inside other functions.</p>
+
+  <div class="prose">
+    <h2>A function that calls itself</h2>
+    <p>A function is <b>recursive</b> when it calls itself. That sounds like it should go on forever, and it would, unless each call works on a smaller problem and there's a problem small enough to answer straight away. Here's a countdown:</p>
+  </div>
+<pre><code>def countdown(n):
+    if n == 0:
+        print("liftoff")
+        return
+    print(n)
+    countdown(n - 1)</code></pre>
+<pre><code>&gt;&gt;&gt; countdown(3)
+3
+2
+1
+liftoff</code></pre>
+  <div class="prose">
+    <p>Every recursive function has two parts:</p>
+    <ul>
+      <li>The <b>base case</b> answers the smallest problem without calling itself. Here, <code>n == 0</code> prints <code>liftoff</code> and stops.</li>
+      <li>The <b>recursive step</b> does a little work and calls itself on a smaller problem. Here, it prints <code>n</code> and counts down from <code>n - 1</code>.</li>
+    </ul>
+    <p>Each call moves one step closer to the base case, so the calls must end. Here is every call that <code>countdown(3)</code> makes:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>call</th><th><code>n</code></th><th>base case?</th><th>prints</th><th>then calls</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>3</td><td>no</td><td><code>3</code></td><td><code>countdown(2)</code></td></tr>
+      <tr><td>2</td><td>2</td><td>no</td><td><code>2</code></td><td><code>countdown(1)</code></td></tr>
+      <tr><td>3</td><td>1</td><td>no</td><td><code>1</code></td><td><code>countdown(0)</code></td></tr>
+      <tr><td>4</td><td>0</td><td>yes</td><td><code>liftoff</code></td><td>nothing, it returns</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>A loop could do the same countdown. Recursion earns its keep on problems that contain smaller copies of themselves, like trees, where a loop gets awkward. You'll get there in two sections.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Factorial and the call stack</h2>
+    <p>The <b>factorial</b> of n, written n!, is <code>1 * 2 * 3 * ... * n</code>. So 3! is 6, and 0! is 1 by agreement. The key fact is that n! is n times (n − 1)!. That's a smaller copy of the same problem, so it turns straight into code:</p>
+  </div>
+<pre><code>def factorial(n):
+    if n == 0:
+        return 1
+    return n * factorial(n - 1)</code></pre>
+<pre><code>&gt;&gt;&gt; factorial(3)
+6
+&gt;&gt;&gt; factorial(10)
+3628800</code></pre>
+  <div class="prose">
+    <p>This time each call needs an answer back before it can finish. <code>factorial(3)</code> can't multiply by 3 until <code>factorial(2)</code> has returned. So how does Python keep track of all the calls that are waiting?</p>
+    <p>Every call gets its own <b>frame</b>: a small record holding that call's variables (its own <code>n</code>) and the place to carry on from when the call it's waiting for returns. The frames sit on the <b>call stack</b>. A call adds a frame on the end, and a return removes it. Only the newest frame is running, and every frame above it is waiting. Step through it:</p>
+  </div>
+
+  <div class="fig" id="stack" data-title="factorial(3) on the call stack"></div>
+
+  <div class="prose">
+    <p>There are four <code>n</code> variables during this run, one per frame, each holding a different number. They don't clash, because each lives in its own frame. Here's the same run as a table, read top to bottom for the calls and bottom to top for the returns:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>frame</th><th><code>n</code></th><th>waits for</th><th>gets back</th><th>returns</th></tr></thead>
+    <tbody>
+      <tr><td><code>factorial(3)</code></td><td>3</td><td><code>factorial(2)</code></td><td>2</td><td>3 * 2 = 6</td></tr>
+      <tr><td><code>factorial(2)</code></td><td>2</td><td><code>factorial(1)</code></td><td>1</td><td>2 * 1 = 2</td></tr>
+      <tr><td><code>factorial(1)</code></td><td>1</td><td><code>factorial(0)</code></td><td>1</td><td>1 * 1 = 1</td></tr>
+      <tr><td><code>factorial(0)</code></td><td>0</td><td>nothing: base case</td><td></td><td>1</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">
+    <span class="label">How to write one without tracing it</span>
+    <p>Tracing every call is good for learning, and tiring for real work. When you write a recursive function, trust that the call on the smaller problem returns the right answer, and ask only: "given that, is my answer right?" If <code>factorial(n - 1)</code> really is (n − 1)!, then <code>n * factorial(n - 1)</code> really is n!. Check the base case on its own, and you're done.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-05-sum-digits">
+    <h3>Sum the digits</h3>
+    <p>Write <code>sum_digits(n)</code> for a whole number <code>n</code> that is 0 or more, recursively. <code>sum_digits(1234)</code> is <code>1 + 2 + 3 + 4 = 10</code>.</p>
+    <p class="muted"><code>n % 10</code> is the last digit and <code>n // 10</code> is everything before it. What's the smallest <code>n</code>, the one you can answer straight away?</p>
+  </div>
+
+  <div class="prose">
+    <h2>Recursion on a tree</h2>
+    <p>Here are the expression classes from lesson P.4 again. An <code>Add</code> holds two smaller expressions, and each of those may hold smaller ones still. A tree is made of smaller trees, so recursion fits it exactly.</p>
+  </div>
+<pre><code>from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Num:
+    value: int
+
+@dataclass(frozen=True)
+class Add:
+    left: "Expr"
+    right: "Expr"
+
+@dataclass(frozen=True)
+class Mul:
+    left: "Expr"
+    right: "Expr"
+
+Expr = Num | Add | Mul
+
+e = Add(Num(2), Mul(Num(3), Num(4)))</code></pre>
+  <div class="prose">
+    <p>To count the nodes in a tree: a <code>Num</code> is one node. An <code>Add</code> or a <code>Mul</code> is one node, plus all the nodes on its left, plus all the nodes on its right. The base case is the leaf, and the recursive step is the two children:</p>
+  </div>
+<pre><code>def count_nodes(e):
+    match e:
+        case Num(_):
+            return 1
+        case Add(left, right) | Mul(left, right):
+            return 1 + count_nodes(left) + count_nodes(right)
+        case _:
+            raise TypeError(f"not an expression: {e!r}")</code></pre>
+<pre><code>&gt;&gt;&gt; count_nodes(e)
+5
+&gt;&gt;&gt; count_nodes(Num(7))
+1</code></pre>
+  <div class="prose">
+    <p><code>Add(left, right) | Mul(left, right)</code> is an <b>or-pattern</b>: it matches either class, and both sides name their fields the same way, so one case covers both. Here's the trace for <code>e</code>, with the calls listed in the order they finish:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>call</th><th>node</th><th>left gives</th><th>right gives</th><th>returns</th></tr></thead>
+    <tbody>
+      <tr><td><code>count_nodes(Num(2))</code></td><td>leaf</td><td></td><td></td><td>1</td></tr>
+      <tr><td><code>count_nodes(Num(3))</code></td><td>leaf</td><td></td><td></td><td>1</td></tr>
+      <tr><td><code>count_nodes(Num(4))</code></td><td>leaf</td><td></td><td></td><td>1</td></tr>
+      <tr><td><code>count_nodes(Mul(...))</code></td><td><code>Mul</code></td><td>1</td><td>1</td><td>1 + 1 + 1 = 3</td></tr>
+      <tr><td><code>count_nodes(Add(...))</code></td><td><code>Add</code></td><td>1</td><td>3</td><td>1 + 1 + 3 = 5</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>Change one line and the same walk answers a different question. To add up every number in the leaves, a <code>Num</code> gives its value instead of 1, and a parent adds its children's sums without the extra 1:</p>
+  </div>
+<pre><code>def leaf_sum(e):
+    match e:
+        case Num(v):
+            return v
+        case Add(left, right) | Mul(left, right):
+            return leaf_sum(left) + leaf_sum(right)
+        case _:
+            raise TypeError(f"not an expression: {e!r}")</code></pre>
+<pre><code>&gt;&gt;&gt; leaf_sum(e)
+9</code></pre>
+  <div class="prose">
+    <p>Most tree functions you'll ever write have this shape: a case for the leaves, a case that calls itself on the children and combines the results, and a <code>case _:</code> that raises. <code>evaluate</code> from lesson P.4 is one more of them. In week 1 your compiler walks its graph of nodes the same way, calling itself on each node's sources.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-05-depth">
+    <h3>How deep is the tree?</h3>
+    <p>Write <code>depth(e)</code>: the number of nodes on the longest path from the top node down to a leaf. A lone <code>Num</code> has depth 1. <code>Add(Num(2), Mul(Num(3), Num(4)))</code> has depth 3: <code>Add</code>, then <code>Mul</code>, then a <code>Num</code>. The starter has the classes. Keep them as they are.</p>
+    <p class="muted">A node is one level, plus the deeper of its two children. <code>max(a, b)</code> gives the larger of two numbers.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-05-flatten">
+    <h3>Flatten nested lists</h3>
+    <p>A list can hold other lists, which can hold lists too. That's a tree as well. Write <code>flatten(items)</code>, which returns one flat list of all the non-list values, in order. <code>flatten([1, [2, [3, 4]], 5])</code> is <code>[1, 2, 3, 4, 5]</code>.</p>
+    <p class="muted">Go through <code>items</code>. <code>isinstance(x, list)</code> tells you whether an item is a list, which you flatten with a recursive call and add with <code>extend</code>: <code>a.extend(b)</code> adds every item of the list <code>b</code> to the end of <code>a</code>. Anything else is a leaf you <code>append</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>When recursion goes wrong</h2>
+    <p>Forget the base case, and the calls never stop. Here's a countdown that never checks for zero:</p>
+  </div>
+<pre><code>def countdown(n):
+    print(n)
+    countdown(n - 1)</code></pre>
+  <div class="prose">
+    <p><code>countdown(3)</code> prints 3, 2, 1, 0, −1, −2, and on for about a thousand lines, and then Python stops it:</p>
+  </div>
+<pre><code>Traceback (most recent call last):
+  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
+  File "&lt;stdin&gt;", line 3, in countdown
+  File "&lt;stdin&gt;", line 3, in countdown
+  File "&lt;stdin&gt;", line 3, in countdown
+  [Previous line repeated 993 more times]
+  File "&lt;stdin&gt;", line 2, in countdown
+RecursionError: maximum recursion depth exceeded while calling a Python object</code></pre>
+  <div class="prose">
+    <p>That is Python 3.11. Other versions may show a slightly different count, or end the last line after "exceeded". Every call adds a frame, and frames take memory. To stop a runaway function from eating it all, Python limits how many frames can be on the stack at once. The <b>recursion limit</b> is 1000 by default:</p>
+  </div>
+<pre><code>&gt;&gt;&gt; import sys
+&gt;&gt;&gt; sys.getrecursionlimit()
+1000</code></pre>
+  <div class="prose">
+    <p>When you see <code>RecursionError</code>, the first suspect is a missing or unreachable base case. Check that every call really gets closer to it. <code>factorial(-1)</code>, for example, counts down −2, −3, and never hits 0.</p>
+    <p>The second cause is sneakier: the function is correct, and the input is deep. Here is a tree that is a long chain, <code>1 + (1 + (1 + ...))</code>, 5000 levels deep:</p>
+  </div>
+<pre><code>chain = Num(1)
+for i in range(5000):
+    chain = Add(Num(1), chain)</code></pre>
+<pre><code>&gt;&gt;&gt; leaf_sum(chain)
+Traceback (most recent call last):
+  ...
+RecursionError: maximum recursion depth exceeded</code></pre>
+  <div class="prose">
+    <p>(The middle of that traceback is a thousand lines of <code>leaf_sum</code>, shortened here.) <code>leaf_sum</code> is right. It needs about 5000 frames, one per level, and Python allows 1000. Programs that compilers read can be this deep: in week 1, a chain of thousands of nodes is one of the tests. There are two fixes.</p>
+    <p><b>Fix 1: raise the limit.</b> <code>sys.setrecursionlimit(10_000)</code> allows 10,000 frames (the <code>_</code> in a number only makes it easier to read), and then <code>leaf_sum(chain)</code> returns 5001. It's one line, and it's fine for a few thousand levels. But the limit was protecting something: set it very high, feed in a deep enough tree, and Python itself can crash, with no traceback to tell you why.</p>
+    <p><b>Fix 2: keep your own stack.</b> The call stack holds "things still to do". You can hold them yourself, in an ordinary list, which is limited only by your computer's memory. Take a node off the list, deal with it, and put its children on the list to deal with later:</p>
+  </div>
+<pre><code>def leaf_sum(e):
+    stack = [e]
+    total = 0
+    while stack:
+        node = stack.pop()
+        match node:
+            case Num(v):
+                total += v
+            case Add(left, right) | Mul(left, right):
+                stack.append(left)
+                stack.append(right)
+            case _:
+                raise TypeError(f"not an expression: {node!r}")
+    return total</code></pre>
+<pre><code>&gt;&gt;&gt; leaf_sum(e)
+9
+&gt;&gt;&gt; leaf_sum(chain)
+5001</code></pre>
+  <div class="prose">
+    <p><code>stack.pop()</code> removes and returns the last item, so the list works like the call stack: the newest thing added is the first one handled. <code>while stack:</code> keeps going until the list is empty. Here's the run on <code>e = Add(Num(2), Mul(Num(3), Num(4)))</code>:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>step</th><th>pops</th><th>does</th><th><code>stack</code> afterwards</th><th><code>total</code></th></tr></thead>
+    <tbody>
+      <tr><td>start</td><td></td><td></td><td><code>[Add]</code></td><td>0</td></tr>
+      <tr><td>1</td><td><code>Add</code></td><td>pushes its two children</td><td><code>[Num(2), Mul]</code></td><td>0</td></tr>
+      <tr><td>2</td><td><code>Mul</code></td><td>pushes its two children</td><td><code>[Num(2), Num(3), Num(4)]</code></td><td>0</td></tr>
+      <tr><td>3</td><td><code>Num(4)</code></td><td>adds 4</td><td><code>[Num(2), Num(3)]</code></td><td>4</td></tr>
+      <tr><td>4</td><td><code>Num(3)</code></td><td>adds 3</td><td><code>[Num(2)]</code></td><td>7</td></tr>
+      <tr><td>5</td><td><code>Num(2)</code></td><td>adds 2</td><td><code>[]</code></td><td>9</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>The leaves are visited in a different order than in the recursive version, and for a sum the order doesn't matter. When it does matter, as when a node must be handled after its children, it takes more care. <a href="../week0/07-python.html">Lesson 0.7</a> shows how.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-05-count-stack">
+    <h3>Count nodes without recursion</h3>
+    <p>The starter's <code>count_nodes</code> is the recursive one from above. It's correct, and it fails on the hidden test, a chain 5000 levels deep. Rewrite it with an explicit stack, like the second <code>leaf_sum</code>. The starter also has <code>chain(n)</code>, which builds a chain like the one above with <code>n</code> <code>Add</code> nodes, so you can try deep trees yourself. Keep the classes and <code>chain</code> as they are.</p>
+    <p class="muted">Start with <code>stack = [e]</code> and a count of 0. Every node you pop counts as one, leaf or not. Which nodes push children?</p>
+  </div>
+
+  <div class="prose">
+    <h2>Functions are values</h2>
+    <p>In Python a function is a value, like a number or a string. <code>def</code> makes a function and stores it in a variable named after it. You can store it in another variable too, and call it through that name:</p>
+  </div>
+<pre><code>&gt;&gt;&gt; def shout(s):
+...     return s.upper() + "!"
+...
+&gt;&gt;&gt; yell = shout
+&gt;&gt;&gt; yell("hi")
+'HI!'</code></pre>
+  <div class="prose">
+    <p>Without parentheses, <code>shout</code> is the function itself. With them, <code>shout("hi")</code> calls it. That means you can pass a function to another function, which calls it for you:</p>
+  </div>
+<pre><code>&gt;&gt;&gt; def apply_twice(f, x):
+...     return f(f(x))
+...
+&gt;&gt;&gt; apply_twice(shout, "hi")
+'HI!!'
+&gt;&gt;&gt; apply_twice(factorial, 3)
+720</code></pre>
+  <div class="prose">
+    <p><code>apply_twice(factorial, 3)</code> works out <code>factorial(factorial(3))</code>, which is <code>factorial(6)</code>, which is 720. <code>apply_twice</code> doesn't care which function it gets, as long as it can be called with one argument.</p>
+    <p>You've seen this before: <code>sorted</code> takes a <code>key=</code> function. It calls the function on every item and sorts by what comes back.</p>
+  </div>
+<pre><code>&gt;&gt;&gt; words = ["pear", "fig", "banana"]
+&gt;&gt;&gt; sorted(words)
+['banana', 'fig', 'pear']
+&gt;&gt;&gt; sorted(words, key=len)
+['fig', 'pear', 'banana']</code></pre>
+  <div class="prose">
+    <p>Often the key you need is a one-off, too small to deserve a <code>def</code> and a name. A <b>lambda</b> is a small function written in place: <code>lambda w: -len(w)</code> is a function that takes <code>w</code> and returns <code>-len(w)</code>. Its body is one expression, and its value is returned without a <code>return</code>.</p>
+  </div>
+<pre><code>&gt;&gt;&gt; sorted(words, key=lambda w: -len(w))
+['banana', 'pear', 'fig']
+&gt;&gt;&gt; sorted(words, key=lambda w: w[-1])
+['banana', 'fig', 'pear']</code></pre>
+  <div class="prose">
+    <p>The first sorts longest first, since a bigger length gives a smaller key. The second sorts by last letter: a, g, r.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Pass the function, don't call it</span>
+    <p><code>sorted(words, key=len())</code> calls <code>len</code> with no arguments right away, before <code>sorted</code> ever runs, and fails with <code>TypeError: len() takes exactly one argument (0 given)</code>. Write <code>key=len</code>, without parentheses, so <code>sorted</code> gets the function and calls it itself.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Functions that make functions</h2>
+    <p>A function can define another function inside itself and return it. The inner function can still see the outer function's variables, even after the outer one has returned. Here's a function that makes counters:</p>
+  </div>
+<pre><code>def make_counter():
+    count = 0
+    def next_number():
+        nonlocal count
+        count += 1
+        return count
+    return next_number</code></pre>
+<pre><code>&gt;&gt;&gt; c = make_counter()
+&gt;&gt;&gt; c()
+1
+&gt;&gt;&gt; c()
+2
+&gt;&gt;&gt; d = make_counter()
+&gt;&gt;&gt; d()
+1
+&gt;&gt;&gt; c()
+3</code></pre>
+  <div class="prose">
+    <p>Slowly: each call to <code>make_counter()</code> runs its body once. It makes a fresh <code>count</code> set to 0, defines <code>next_number</code>, and returns it without calling it. The returned function keeps hold of that <code>count</code>. Calling <code>c()</code> adds one to it. <code>d</code> came from a second call, so it has a <code>count</code> of its own, and counting with <code>d</code> doesn't move <code>c</code>.</p>
+    <p>A function bundled with the outer variables it uses is called a <b>closure</b>. <code>nonlocal count</code> says "the <code>count</code> I change here is the outer one". Without it, <code>count += 1</code> would make Python treat <code>count</code> as a new variable belonging to <code>next_number</code>, and the first call fails with <code>UnboundLocalError: cannot access local variable 'count' where it is not associated with a value</code>. You only need <code>nonlocal</code> to assign to an outer variable. Reading it, or changing a dict it names, works without.</p>
+    <p>This shape is worth knowing: lesson 1.1 asks you to write a function that returns a node-making function with its own private dict inside.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Remembering answers with a cache</h2>
+    <p>The Fibonacci numbers start 0, 1, and each one after is the sum of the two before: 0, 1, 1, 2, 3, 5, 8, 13. That's a recursive definition with two base cases. To see how much work it does, this version counts its calls in a variable outside the function (<code>global calls</code> lets it change that variable, as <code>nonlocal</code> did above):</p>
+  </div>
+<pre><code>&gt;&gt;&gt; calls = 0
+&gt;&gt;&gt; def fib(n):
+...     global calls
+...     calls += 1
+...     if n &lt; 2:
+...         return n
+...     return fib(n - 1) + fib(n - 2)
+...
+&gt;&gt;&gt; fib(20)
+6765
+&gt;&gt;&gt; calls
+21891</code></pre>
+  <div class="prose">
+    <p>21,891 calls to find one number. <code>fib(20)</code> calls <code>fib(19)</code> and <code>fib(18)</code>. But <code>fib(19)</code> calls <code>fib(18)</code> again, and each of those calls <code>fib(17)</code>, and so on. The same small answers are worked out over and over. The fix is to remember each answer the first time. <code>functools.cache</code> is a decorator that does this: it keeps a dict from arguments to results, and a repeated call returns the stored result without running the function.</p>
+  </div>
+<pre><code>&gt;&gt;&gt; from functools import cache
+&gt;&gt;&gt; calls = 0
+&gt;&gt;&gt; @cache
+... def fib(n):
+...     global calls
+...     calls += 1
+...     if n &lt; 2:
+...         return n
+...     return fib(n - 1) + fib(n - 2)
+...
+&gt;&gt;&gt; fib(20)
+6765
+&gt;&gt;&gt; calls
+21</code></pre>
+  <div class="tablewrap"><table>
+    <thead><tr><th><code>n</code></th><th><code>fib(n)</code></th><th>calls without cache</th><th>calls with cache</th></tr></thead>
+    <tbody>
+      <tr><td>5</td><td>5</td><td>15</td><td>6</td></tr>
+      <tr><td>10</td><td>55</td><td>177</td><td>11</td></tr>
+      <tr><td>20</td><td>6765</td><td>21,891</td><td>21</td></tr>
+      <tr><td>25</td><td>75025</td><td>242,785</td><td>26</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>With the cache, each <code>n</code> from 0 to 20 runs once, so 21 calls. Without it, the count grows by about 1.6 times for each step of <code>n</code>. The arguments become dict keys, so they must be hashable: a frozen dataclass works, a list doesn't. Remembering results like this is called <b>memoization</b>, and you'll use it in week 1 to avoid walking the same part of a graph twice. <a href="../week0/07-python.html">Lesson 0.7</a> explains when a plain dict you manage yourself is the better memo.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Write a recursive function with a base case and a step that gets closer to it.</li>
+      <li>Explain the call stack: one frame per call, each with its own variables.</li>
+      <li>Walk a tree recursively to count, sum, or measure it.</li>
+      <li>Recognise <code>RecursionError</code>, and fix a deep walk with an explicit stack.</li>
+      <li>Pass functions as values, use <code>key=</code> and <code>lambda</code>, and build a closure.</li>
+      <li>Speed up repeated work with <code>functools.cache</code>.</li>
+    </ul>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="5">
+    <p class="q">While <code>factorial(4)</code> is computing the base case <code>factorial(0)</code>, how many <code>factorial</code> frames are on the call stack?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Which calls have started and haven't returned yet?</p>
+    <p class="hint">List them: <code>factorial(4)</code>, <code>factorial(3)</code>, and so on, down to 0.</p>
+    <div class="why"><p>Five: <code>factorial(4)</code>, <code>(3)</code>, <code>(2)</code>, <code>(1)</code> are all waiting, and <code>factorial(0)</code> is running. Each has its own <code>n</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">This function is meant to add the numbers from 1 to <code>n</code>. What happens on <code>total(3)</code>?</p>
+<pre><code>def total(n):
+    return n + total(n - 1)</code></pre>
+    <div class="opts"><button data-k="a">It returns 6</button><button data-k="b">It returns 0</button><button data-k="c">It raises <code>RecursionError</code></button></div>
+    <p class="hint">Find the base case. When does it stop calling itself?</p>
+    <p class="hint">There's no <code>if</code>, so every call makes another call.</p>
+    <div class="why"><p>With no base case, the calls go 3, 2, 1, 0, −1, and on until the stack reaches the limit of about 1000 frames. Adding <code>if n == 0: return 0</code> fixes it.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">What is <code>leaf_sum(Mul(Num(1), Num(2)))</code>, with <code>leaf_sum</code> from this page?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint"><code>leaf_sum</code> doesn't evaluate the tree. What does it do with the leaves?</p>
+    <p class="hint">It adds the numbers in the leaves, whatever the node above them is.</p>
+    <div class="why"><p>3, which is 1 + 2. <code>leaf_sum</code> adds every leaf, even under a <code>Mul</code>. <code>evaluate</code> would give 2.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Your tree walk is correct, but fails with <code>RecursionError</code> on a tree 50,000 levels deep. What's the sturdiest fix?</p>
+    <div class="opts"><button data-k="a">Keep the nodes still to do in a list, and loop until it's empty</button><button data-k="b"><code>sys.setrecursionlimit(1_000_000)</code></button><button data-k="c">Add a <code>try</code> around the call</button></div>
+    <p class="hint">Raising the limit lets Python's own stack grow further. Is that stack unlimited?</p>
+    <p class="hint">Which kind of stack is limited only by memory?</p>
+    <div class="why"><p>An explicit stack in a list can grow as far as memory allows. A huge recursion limit risks crashing Python outright, and catching the error doesn't give you the answer.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What does <code>sorted(["bb", "a", "ccc"], key=lambda s: -len(s))</code> return?</p>
+    <div class="opts"><button data-k="a"><code>['a', 'bb', 'ccc']</code></button><button data-k="b"><code>['ccc', 'bb', 'a']</code></button><button data-k="c"><code>['a', 'ccc', 'bb']</code></button></div>
+    <p class="hint">Work out the key for each string: <code>"bb"</code> gives -2. What about the others?</p>
+    <p class="hint">The keys are -2, -1, -3. <code>sorted</code> puts the smallest key first.</p>
+    <div class="why"><p>The keys are -3 for <code>"ccc"</code>, -2 for <code>"bb"</code> and -1 for <code>"a"</code>, so the longest string comes first.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">With <code>make_counter</code> from this page, what does the last line return?</p>
+<pre><code>c = make_counter()
+d = make_counter()
+c()
+c()
+d()
+d()</code></pre>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Do <code>c</code> and <code>d</code> share one <code>count</code>, or have one each?</p>
+    <p class="hint">Each call to <code>make_counter()</code> makes a fresh <code>count</code>.</p>
+    <div class="why"><p>2. <code>d</code> has its own <code>count</code>, which only <code>d()</code> moves. It was called twice, so its second call returns 2, whatever <code>c</code> did.</p></div>
+  </div>
+
+  <nav class="pager"><a href="py-04-your-own-types.html">← Your own types</a><a href="py-06-files-errors-tests.html">Files, errors and testing →</a></nav>
+</main>
+
+<script>
+(() => {
+  const { h } = CC;
+  const F = n => `factorial(${n})`;
+  const frames = [
+    [[`${F(3)}   n = 3   running`], '<code>factorial(3)</code> is called. Python makes a frame for it, with <code>n = 3</code>. 3 is not 0, so it needs <code>factorial(2)</code> first.'],
+    [[`${F(3)}   n = 3   waiting for factorial(2)`, `${F(2)}   n = 2   running`], 'A new frame for <code>factorial(2)</code>, with its own <code>n = 2</code>. The first frame waits.'],
+    [[`${F(3)}   n = 3   waiting for factorial(2)`, `${F(2)}   n = 2   waiting for factorial(1)`, `${F(1)}   n = 1   running`], 'Another frame, <code>n = 1</code>. Still not the base case.'],
+    [[`${F(3)}   n = 3   waiting for factorial(2)`, `${F(2)}   n = 2   waiting for factorial(1)`, `${F(1)}   n = 1   waiting for factorial(0)`, `${F(0)}   n = 0   base case: return 1`], '<code>n == 0</code>: the base case. This call answers 1 without calling anything. Four frames is as tall as the stack gets.'],
+    [[`${F(3)}   n = 3   waiting for factorial(2)`, `${F(2)}   n = 2   waiting for factorial(1)`, `${F(1)}   n = 1   got 1, returns 1 * 1 = 1`], 'The base-case frame is gone. <code>factorial(1)</code> gets 1 back, and returns <code>1 * 1 = 1</code>.'],
+    [[`${F(3)}   n = 3   waiting for factorial(2)`, `${F(2)}   n = 2   got 1, returns 2 * 1 = 2`], '<code>factorial(2)</code> gets 1 back, and returns <code>2 * 1 = 2</code>. Its <code>n</code> is still 2: each frame kept its own.'],
+    [[`${F(3)}   n = 3   got 2, returns 3 * 2 = 6`], '<code>factorial(3)</code> gets 2 back, and returns <code>3 * 2 = 6</code>.'],
+    [[], 'The stack is empty again, and the answer is <b>6</b>. The multiplications happened on the way back up: 1, then 1 * 1, then 2 * 1, then 3 * 2.'],
+  ];
+  const steps = frames.map(([lines, caption]) => ({ lines, caption }));
+  CC.stepper(document.getElementById('stack'), steps, (s, body) => body.append(
+    h('span', { class: 'label', text: 'call stack, newest call at the bottom' }),
+    CC.code(s.lines.join('\n') || '(empty)', s.lines.length - 1)));
+})();
+</script>
+</body>
+</html>

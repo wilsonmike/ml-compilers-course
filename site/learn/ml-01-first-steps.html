@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First Steps in OCaml</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="You&#x27;ll install OCaml, type your first expressions, learn the six basic kinds of value, and, most important of all, learn to read the messages OCaml gives you...">
+<link rel="canonical" href="https://sharpterminal.com/site/learn/ml-01-first-steps">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="First Steps in OCaml">
+<meta property="og:description" content="You&#x27;ll install OCaml, type your first expressions, learn the six basic kinds of value, and, most important of all, learn to read the messages OCaml gives you when something doesn&#x27;t fit. Nothing here...">
+<meta property="og:url" content="https://sharpterminal.com/site/learn/ml-01-first-steps">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Learn OCaml|First steps in OCaml" data-root="../">
+<main>
+  <p class="eyebrow">Learn OCaml · Lesson 1</p>
+  <h1>First steps in OCaml</h1>
+  <p class="lede">You'll install OCaml, type your first expressions, learn the six basic kinds of value, and, most important of all, learn to read the messages OCaml gives you when something doesn't fit. Nothing here assumes you have programmed before.</p>
+
+  <div class="note">
+    <span class="label">How to use this track</span>
+    <p>These six lessons lead into <a href="../week0/06-ocaml.html">lesson 0.6, the OCaml crash course</a>. That page moves fast. This track goes slowly and explains why OCaml does things the way it does. Type every example yourself. Reading code and typing code teach different things.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What OCaml is, and why the course offers it</h2>
+    <p>OCaml is a programming language. You write instructions in a text file, and OCaml turns them into something the computer can run. It has been around since 1996 and is used for compilers, financial software and tools that check other programs for bugs.</p>
+    <p>The thing that makes OCaml different from a language like Python is that it checks <b>types</b> before your program runs. A type is the kind of a value: a whole number, a piece of text, true or false. OCaml reads your whole program first and checks that every piece fits. If you try to add a number to a word, it refuses to run anything and tells you which line is wrong.</p>
+    <p>That can feel strict on day one. It is also the main reason the course offers OCaml. A compiler is a big program that handles many kinds of thing at once: numbers, names, operations, whole trees of them. When you change one part, OCaml points at every other part that no longer fits. In Python you find those places by running the program and watching it crash, sometimes weeks later.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">A trade, not a free lunch</span>
+    <p>You will spend more time arguing with the type checker before your code runs, and less time hunting bugs after. Most people find the trade worth it once their program is longer than a page.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Opening a terminal</h2>
+    <p>A <b>terminal</b> is a window where you type commands instead of clicking. On Windows, open <b>PowerShell</b> from the Start menu. On macOS, open <b>Terminal</b> from Applications, Utilities. On Linux, it is usually called Terminal too.</p>
+    <p>The terminal is always "standing in" one folder, called the <b>current folder</b> (or working directory). Three commands get you around, and they have the same names in PowerShell, macOS and Linux:</p>
+  </div>
+<pre><code>pwd
+ls
+cd Documents
+cd ..</code></pre>
+  <div class="prose">
+    <p><code>pwd</code> prints where you are ("print working directory"). <code>ls</code> lists the files and folders here. <code>cd Documents</code> moves into the folder called <code>Documents</code>, and <code>cd ..</code> moves back up one level. Type a command, press Enter, read what it prints. That is the whole loop.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Installing OCaml</h2>
+    <p>OCaml comes with a package manager called <b>opam</b>, a program that downloads and installs OCaml and its libraries. You install opam once, and opam installs everything else. Pick the line for your computer:</p>
+    <ul>
+      <li><b>Windows:</b> follow <a href="../week0/06-ocaml.html#install">the Install section of lesson 0.6</a>. It has a native Windows route and a WSL route. Come back here when <code>ocaml -version</code> prints a number.</li>
+      <li><b>macOS:</b> install <a href="https://brew.sh">Homebrew</a> first, then run the lines below.</li>
+      <li><b>Linux or WSL:</b> use your package manager for opam, then run the same lines.</li>
+    </ul>
+  </div>
+<pre><code>brew install opam
+opam init -y
+eval $(opam env)
+opam install -y dune utop ocaml-lsp-server</code></pre>
+  <div class="prose">
+    <p>On Linux or WSL, replace the first line with <code>sudo apt update &amp;&amp; sudo apt install -y opam clang</code>, the same line lesson 0.6 uses. clang is a C compiler that later weeks need. <code>opam init</code> builds the OCaml compiler, so it can take 10 minutes or more. <code>eval $(opam env)</code> tells this terminal where opam put things. If <code>ocaml</code> is "not found" in a new terminal later, run that line again.</p>
+    <p>The last line installs three tools. <b>dune</b> builds bigger projects (lesson O.6). <b>utop</b> is the program you'll use most in this track. <b>ocaml-lsp-server</b> lets an editor such as VS Code show you the type of anything you point at.</p>
+    <p>Check it worked:</p>
+  </div>
+<pre><code>ocaml -version</code></pre>
+  <div class="note">
+    <span class="label">Trying it without installing</span>
+    <p>If the install fights you, you can still follow along. The OCaml website has a playground that runs in your browser at <a href="https://ocaml.org/play">ocaml.org/play</a>. If you have Docker Desktop running, <code>docker run --rm -it ocaml/opam:alpine-ocaml-5.2 ocaml</code> gives you the same toplevel used to check every example on these pages.</p>
+  </div>
+  <div class="note">
+    <span class="label">Running the exercises</span>
+    <p>The exercise editors on these pages are graded by <code>python tools/serve.py</code>, run from the course folder. It calls <code>ocaml</code>, so start it from a terminal where <code>ocaml -version</code> works. With WSL, OCaml lives inside Ubuntu, so run <code>python3 tools/serve.py</code> inside Ubuntu too. Without OCaml installed, <code>python tools/serve.py --ocaml "docker run --rm -i ocaml/opam:alpine-ocaml-5.2 ocaml"</code> borrows it from Docker.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Talking to utop</h2>
+    <p>Type <code>utop</code> in the terminal and press Enter. You get a <b>prompt</b>, a sign that it is waiting for you. utop is a <b>REPL</b>: it Reads what you type, Evaluates it, Prints the answer, and Loops back for more. Try this:</p>
+  </div>
+<pre><code># 2 + 3;;
+- : int = 5</code></pre>
+  <div class="prose">
+    <p>The first line is what you type. You don't type the <code>#</code>: it is the prompt. The second line is OCaml's reply. Two things to notice.</p>
+    <p>First, the <code>;;</code> at the end. It means "I'm done, run this now". Without it, utop thinks you are still typing and waits for more. If utop seems stuck, you probably forgot <code>;;</code>. You only need <code>;;</code> in utop, not in files.</p>
+    <p>Second, the reply has three parts. Read <code>- : int = 5</code> as "a value with no name, of type <code>int</code>, equal to <code>5</code>":</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>Part</th><th>Here</th><th>Meaning</th></tr>
+    <tr><td>name</td><td><code>-</code></td><td>The value has no name. A dash means "anonymous".</td></tr>
+    <tr><td>type</td><td><code>int</code></td><td>What kind of value it is. Here, a whole number.</td></tr>
+    <tr><td>value</td><td><code>5</code></td><td>The value itself.</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>Every answer OCaml gives you comes with its type. That is how you learn the language: try something, read the type. The examples on these pages were run in the plain <code>ocaml</code> toplevel, which you can start with <code>ocaml</code> if utop isn't installed. Its prompt is <code>#</code>, utop's reads <code>utop #</code>, and the answers are the same. To leave either one, type <code>#quit;;</code> or press Ctrl+D.</p>
+  </div>
+<pre><code># 10 - 3 * 2;;
+- : int = 4
+# 3 &gt; 2;;
+- : bool = true
+# "hello";;
+- : string = "hello"</code></pre>
+  <div class="prose">
+    <p>Each line you type is an <b>expression</b>: a piece of code that has a value. <code>10 - 3 * 2</code> has the value 4 (multiplication goes first, as in maths). <code>3 &gt; 2</code> has the value <code>true</code>. Even <code>"hello"</code> on its own is an expression whose value is itself.</p>
+    <p>In OCaml almost <em>everything</em> is an expression with a value, including things that are statements in other languages, such as <code>if</code>. That idea comes back in every lesson of this track.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Naming values with let</h2>
+    <p><code>let</code> gives a value a name, so you can use it later:</p>
+  </div>
+<pre><code># let price = 10;;
+val price : int = 10
+# price * 3;;
+- : int = 30</code></pre>
+  <div class="prose">
+    <p>This time the reply starts with <code>val price</code> instead of <code>-</code>. The value now has a name. Read it as "a value called <code>price</code>, of type <code>int</code>, equal to 10".</p>
+    <p>Here is the big difference from most languages: <b>a name, once made, never changes</b>. There is no way to say "<code>price</code> is now 11". OCaml has no assignment of that kind. If you write <code>let price = 99</code> later, you don't change the old <code>price</code>. You make a <em>new</em> name that happens to be spelled the same and hides the old one from then on. This is called <b>shadowing</b>.</p>
+    <p>Step through it. Watch <code>total</code> in the last step.</p>
+  </div>
+
+  <div class="fig" id="shadow" data-title="Shadowing: a new price, not a changed one"></div>
+
+<pre><code># let price = 10;;
+val price : int = 10
+# let total = price * 3;;
+val total : int = 30
+# let price = 99;;
+val price : int = 99
+# total;;
+- : int = 30</code></pre>
+  <div class="prose">
+    <p><code>total</code> is still 30. It was worked out from the first <code>price</code>, and that value never changed. Nothing you do later can reach back and alter a value that was already made.</p>
+    <p>Why would a language forbid changing things? Because it makes code much easier to reason about. When you see <code>total</code> on line 50, you know it is exactly what line 2 said it was. You never have to scan the lines in between for something that changed it. Your compiler will build trees out of thousands of values, and knowing that none of them change behind your back is worth a lot. (OCaml does have values you can change, called refs and arrays. They come in <a href="ml-05-mutation.html">lesson O.5</a>, and you'll use them rarely.)</p>
+  </div>
+  <div class="trap">
+    <span class="label">= compares, it doesn't assign</span>
+    <p>Outside a <code>let</code>, <code>=</code> asks a question: are these equal? <code>price = 100</code> doesn't set anything. It gives <code>- : bool = false</code>. If you see a <code>bool</code> where you expected a change, this is why.</p>
+  </div>
+
+  <div class="prose">
+    <h2>The basic types</h2>
+    <p>Six types cover almost everything in this track. Try each one in utop and read the reply.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>Type</th><th>What it holds</th><th>Examples</th></tr>
+    <tr><td><code>int</code></td><td>whole numbers</td><td><code>0</code>, <code>42</code>, <code>-7</code></td></tr>
+    <tr><td><code>float</code></td><td>numbers with a fractional part</td><td><code>3.5</code>, <code>2.0</code>, <code>0.1</code></td></tr>
+    <tr><td><code>string</code></td><td>text, in double quotes</td><td><code>"hello"</code>, <code>""</code></td></tr>
+    <tr><td><code>bool</code></td><td>true or false</td><td><code>true</code>, <code>false</code></td></tr>
+    <tr><td><code>char</code></td><td>one character, in single quotes</td><td><code>'a'</code>, <code>'7'</code></td></tr>
+    <tr><td><code>unit</code></td><td>"nothing interesting", one value only</td><td><code>()</code></td></tr>
+  </table></div>
+<pre><code># 'a';;
+- : char = 'a'
+# "A";;
+- : string = "A"
+# ();;
+- : unit = ()</code></pre>
+  <div class="prose">
+    <p><code>'a'</code> and <code>"A"</code> look alike but are different types: a char is exactly one character, a string is any amount of text. <code>unit</code> looks odd at first. It is the type of expressions that do something (like printing) but have no useful answer. Its only value is written <code>()</code>, and you'll meet it again when you print things below.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Two kinds of number</h2>
+    <p>Here is the first surprise. Integers and floats have <em>separate</em> arithmetic. <code>+ - * /</code> work on ints. Floats use the same signs with a dot after them: <code>+. -. *. /.</code>.</p>
+  </div>
+<pre><code># 7 / 2;;
+- : int = 3
+# 7 mod 2;;
+- : int = 1
+# 7.0 /. 2.0;;
+- : float = 3.5
+# 2.0 *. 3.5;;
+- : float = 7.</code></pre>
+  <div class="prose">
+    <p><code>7 / 2</code> is 3, not 3.5. Dividing two ints gives an int, and the fractional part is thrown away (cut toward zero, so <code>-7 / 2</code> is <code>-3</code>). <code>mod</code> gives the remainder. Notice also that OCaml prints the float seven as <code>7.</code>: a float always shows its dot, so you can tell it apart from the int <code>7</code>.</p>
+    <p>Why separate signs? A computer stores ints and floats in completely different ways, and adding them takes different machine instructions. Many languages quietly convert one into the other for you, and sometimes pick the conversion you didn't want. OCaml makes you say which one you mean. That matters for this course: the language your compiler handles has 32-bit ints and 32-bit floats that must never be mixed by accident, and OCaml's own rules train you to notice.</p>
+    <p>To go from one to the other, you convert on purpose:</p>
+  </div>
+<pre><code># float_of_int 7 /. 2.0;;
+- : float = 3.5
+# int_of_float 3.9;;
+- : int = 3
+# let a = 7;;
+val a : int = 7
+# let b = 2;;
+val b : int = 2
+# float_of_int a /. float_of_int b;;
+- : float = 3.5
+# float_of_int (a / b);;
+- : float = 3.</code></pre>
+  <div class="prose">
+    <p>The last two lines are the classic mistake. <code>float_of_int (a / b)</code> divides two ints first (giving 3) and only then converts, so the half is already gone. Convert first, then divide.</p>
+    <p><code>int_of_float</code> drops the fraction too: <code>3.9</code> becomes <code>3</code>, it doesn't round.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-01-average">
+    <h3>Average of two ints, as a float</h3>
+    <p>Write <code>average a b</code>: the average of two ints, as a float. <code>average 3 4</code> is <code>3.5</code>. The starter already defines it as a function (functions are lesson O.2, for now fill in the line after the <code>=</code>), and it compiles, but it gives <code>3.</code> for <code>average 3 4</code>.</p>
+    <p class="muted">Which happens first in the starter, the division or the conversion?</p>
+  </div>
+
+  <div class="prose">
+    <h2>Strings and printing</h2>
+    <p><code>^</code> joins two strings into one. <code>String.length</code> counts the characters. The dot in <code>String.length</code> means "the <code>length</code> function that lives in the <code>String</code> module", a module being a named group of related functions (more in lesson O.6).</p>
+  </div>
+<pre><code># "cat" ^ "s";;
+- : string = "cats"
+# "Ada" ^ " " ^ "Lovelace";;
+- : string = "Ada Lovelace"
+# String.length "hello";;
+- : int = 5
+# string_of_int 42;;
+- : string = "42"
+# "Total: " ^ string_of_int 42;;
+- : string = "Total: 42"
+# int_of_string "42";;
+- : int = 42</code></pre>
+  <div class="prose">
+    <p>Like ints and floats, strings and numbers never mix by themselves. To put a number into a string, convert it with <code>string_of_int</code> (or <code>string_of_float</code>). OCaml's conversion functions are all named <i>result</i>_of_<i>input</i>, so <code>string_of_int</code> reads "a string, made from an int".</p>
+    <p>To show something on the screen, <b>print</b> it. <code>print_endline</code> prints a string and then moves to a new line:</p>
+  </div>
+<pre><code># print_endline "hello";;
+hello
+- : unit = ()</code></pre>
+  <div class="prose">
+    <p>Two lines came back. <code>hello</code> is what got printed. <code>- : unit = ()</code> is the value of the expression. Printing does something useful, but its answer is the boring value <code>()</code> of type <code>unit</code>. That is what <code>unit</code> is for.</p>
+    <p>To print numbers and text together, <code>Printf.printf</code> takes a <b>format string</b> with holes in it, then one value per hole. <code>%d</code> is a hole for an int, <code>%s</code> for a string, <code>%f</code> for a float, and <code>\n</code> means "new line":</p>
+  </div>
+<pre><code># Printf.printf "%d %s\n" 42 "apples";;
+42 apples
+- : unit = ()
+# Printf.printf "%s scored %d\n" "Ada" 90;;
+Ada scored 90
+- : unit = ()
+# Printf.printf "%.2f\n" 3.14159;;
+3.14
+- : unit = ()</code></pre>
+  <div class="prose">
+    <p><code>%.2f</code> prints a float with two digits after the point. OCaml checks the holes against the values. Put a float where <code>%d</code> expects an int and you get a type error, before anything prints.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-01-greet">
+    <h3>A greeting with ^</h3>
+    <p>Write <code>greet name</code> so that <code>greet "Ada"</code> is <code>"Hello, Ada!"</code>. The starter is close but misses two characters.</p>
+    <p class="muted">Spaces and punctuation have to be inside the quotes.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Reading type errors</h2>
+    <p>You will see type errors every day. They are not OCaml telling you off. They are OCaml telling you <em>exactly</em> where two pieces don't fit, before the program has done anything wrong. The skill is reading them calmly. They all have the same shape, so once you can read one you can read them all.</p>
+    <h3>Error 1: an int and a float</h3>
+  </div>
+<pre><code># 1 + 2.0;;
+Line 1, characters 4-7:
+1 | 1 + 2.0;;
+        ^^^
+Error: This expression has type "float" but an expression was expected of type
+         "int"</code></pre>
+  <div class="prose">
+    <p>Read it from the top. <b>Where:</b> line 1, and the <code>^^^</code> marks sit under <code>2.0</code>. That is the piece OCaml is complaining about. <b>What you gave:</b> "This expression has type float". The marked piece, <code>2.0</code>, is a float. <b>What the place needs:</b> "an expression was expected of type int". It sits next to <code>+</code>, and <code>+</code> only takes ints. The fix is either <code>1 + 2</code> or <code>1.0 +. 2.0</code>, depending on what you meant.</p>
+    <p>utop may mark the spot differently, for example by underlining the piece in the line you typed instead of printing <code>^^^</code> marks. The <code>Error:</code> text is the same in both, and so are warnings, so that's the part to read.</p>
+    <h3>Error 2: joining a string and a number</h3>
+  </div>
+<pre><code># "a" ^ 1;;
+Line 1, characters 6-7:
+1 | "a" ^ 1;;
+          ^
+Error: This expression has type "int" but an expression was expected of type
+         "string"</code></pre>
+  <div class="prose">
+    <p>The mark is under <code>1</code>. You gave an int. <code>^</code> joins strings, so the place needs a string. Fix: <code>"a" ^ string_of_int 1</code>.</p>
+    <h3>Error 3: printing a number with a string printer</h3>
+  </div>
+<pre><code># print_endline 5;;
+Line 1, characters 14-15:
+1 | print_endline 5;;
+                  ^
+Error: This expression has type "int" but an expression was expected of type
+         "string"</code></pre>
+  <div class="prose">
+    <p>Same pattern. <code>print_endline</code> prints strings only, so the spot after it expects a string, and you gave the int <code>5</code>. Fix: <code>print_endline (string_of_int 5)</code>, or use <code>Printf.printf "%d\n" 5</code>.</p>
+    <h3>Error 4: an if without an else</h3>
+    <p>This one defines a function <code>f</code> and uses <code>if</code>. You'll meet both properly in the next lesson. <code>if x &gt; 0 then 1</code> has no <code>else</code>.</p>
+  </div>
+<pre><code># let f x = if x &gt; 0 then 1;;
+Line 1, characters 24-25:
+1 | let f x = if x &gt; 0 then 1;;
+                            ^
+Error: This expression has type "int" but an expression was expected of type
+         "unit"
+       because it is in the result of a conditional with no else branch</code></pre>
+  <div class="prose">
+    <p>The mark is under the <code>1</code>, which is an int. But why would anything expect <code>unit</code>? The last line explains: an <code>if</code> is an expression, so it must have a value <em>whether or not</em> the condition holds. With no <code>else</code>, the missing branch can only produce <code>()</code>, so OCaml requires the <code>then</code> branch to produce <code>unit</code> too. Fix: add an <code>else</code>, as in <code>if x &gt; 0 then 1 else 0</code>.</p>
+    <h3>Error 5: the right sign, the wrong number</h3>
+  </div>
+<pre><code># 1 +. 2.0;;
+Line 1, characters 0-1:
+1 | 1 +. 2.0;;
+    ^
+Error: This expression has type "int" but an expression was expected of type
+         "float"
+  Hint: Did you mean "1."?</code></pre>
+  <div class="prose">
+    <p>This time you used the float sign <code>+.</code> but wrote the int <code>1</code>. OCaml even adds a hint: you probably meant <code>1.</code>, the float one. Read hints. They are often right.</p>
+  </div>
+
+  <div class="key">
+    <span class="label">The recipe for any type error</span>
+    <ol>
+      <li><b>Find the marks.</b> The <code>^^^</code> line points at one expression. Ignore the rest of the line for now.</li>
+      <li><b>"This expression has type X"</b> is what you gave: the type of the marked piece.</li>
+      <li><b>"but an expression was expected of type Y"</b> is what that place needs: the type the surrounding code (an operator, a function, an <code>if</code>) requires there.</li>
+      <li><b>Ask which side is wrong.</b> Sometimes the marked piece is wrong (convert it, or fix a typo). Sometimes the surrounding code is wrong (you used <code>+</code> where you meant <code>+.</code>).</li>
+    </ol>
+  </div>
+  <div class="trap">
+    <span class="label">The marks can point at the innocent piece</span>
+    <p>OCaml reads left to right. In <code>1 + 2.0</code> it saw <code>+</code> first, decided ints were wanted, and then blamed <code>2.0</code>. If you meant floats, the real mistake is the <code>+</code>. The marks show where OCaml <em>noticed</em> the clash, which is not always where you made it.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-01-label">
+    <h3>A shopping list line</h3>
+    <p>Write <code>label item qty</code> so that <code>label "eggs" 12</code> is <code>"eggs: 12"</code>. <code>item</code> is a string and <code>qty</code> is an int.</p>
+    <p class="muted">Try the obvious <code>item ^ ": " ^ qty</code> first and read the error with the recipe above.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Running a file</h2>
+    <p>utop is for trying things. Real programs live in files. Make a file called <code>hello.ml</code> (any plain text editor works, VS Code is a good choice) with these two lines:</p>
+  </div>
+<pre><code>let () = print_endline "Hello, world!"
+let () = Printf.printf "%d + %d = %d\n" 2 3 (2 + 3)</code></pre>
+  <div class="prose">
+    <p>Then, in the terminal, <code>cd</code> into the folder that holds it and run it with <code>ocaml</code>:</p>
+  </div>
+<pre><code>ocaml hello.ml</code></pre>
+  <div class="prose">
+    <p>It prints:</p>
+  </div>
+<pre><code>Hello, world!
+2 + 3 = 5</code></pre>
+  <div class="prose">
+    <p>Two differences from utop. There is no <code>;;</code>: in a file, each <code>let</code> starts a new definition, so OCaml can tell where one ends. And each line starts with <code>let () =</code>. Read it as "run this, and its answer must be <code>()</code>". Printing returns <code>()</code>, so it fits. If you write <code>let () = 5</code>, OCaml stops you with a type error, because 5 isn't <code>unit</code>. It is a small check that you didn't mean to compute something and throw it away.</p>
+    <p>Notice the brackets in <code>(2 + 3)</code>. Without them, OCaml would hand <code>2</code> to <code>printf</code> as the third value and then try to add 3 to whatever <code>printf</code> returned, which is a type error. Calling a function grabs its arguments before <code>+</code> gets a turn. The next lesson explains why.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Move around in a terminal with <code>pwd</code>, <code>ls</code> and <code>cd</code>.</li>
+      <li>Type expressions into utop, end them with <code>;;</code>, and read a reply as name, type and value.</li>
+      <li>Name values with <code>let</code>, and explain why shadowing a name doesn't change values made earlier.</li>
+      <li>Use the six basic types, and keep int arithmetic (<code>+</code>) and float arithmetic (<code>+.</code>) apart.</li>
+      <li>Join strings with <code>^</code>, convert numbers with <code>string_of_int</code>, and print with <code>print_endline</code> and <code>Printf.printf</code>.</li>
+      <li>Read a type error: the marks, what you gave, what the place needs.</li>
+      <li>Run a program from a file with <code>ocaml hello.ml</code>.</li>
+    </ul>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">What value does OCaml give for <code>7 / 2</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Both 7 and 2 are ints. What type does dividing two ints give?</p>
+    <p class="hint">An int can't hold a half. What happens to it?</p>
+    <div class="why"><p><code>7 / 2</code> is int division, so the answer is the int 3 and the half is thrown away. For 3.5 you need floats: <code>7.0 /. 2.0</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">utop replies <code>val total : int = 30</code>. Which part is the type?</p>
+    <div class="opts"><button data-k="a"><code>total</code></button><button data-k="b"><code>int</code></button><button data-k="c"><code>30</code></button></div>
+    <p class="hint">A reply has three parts: name, type and value. Which one comes after the colon?</p>
+    <div class="why"><p>Name <code>total</code>, then <code>:</code> and the type <code>int</code>, then <code>=</code> and the value 30.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">You type <code>let price = 10;;</code>, then <code>let total = price * 3;;</code>, then <code>let price = 99;;</code>. What is <code>total</code> now?</p>
+    <div class="opts"><button data-k="a">30</button><button data-k="b">297</button><button data-k="c">An error: <code>price</code> was already defined</button></div>
+    <p class="hint">Does the third line change the old <code>price</code>, or make a new name?</p>
+    <p class="hint">When was <code>total</code> worked out, and which <code>price</code> existed then?</p>
+    <div class="why"><p>The second <code>let price</code> makes a new name that shadows the old one. <code>total</code> was computed from the first <code>price</code>, which never changed, so it stays 30.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">OCaml says <code>Error: This expression has type "int" but an expression was expected of type "string"</code>, with the marks under a number. What does the place need?</p>
+    <div class="opts"><button data-k="a">An int</button><button data-k="b">Nothing, the number is fine and OCaml is wrong</button><button data-k="c">A string</button></div>
+    <p class="hint">"has type" is what you gave. "expected of type" is the other one.</p>
+    <div class="why"><p>"Expected of type string" is what the surrounding code needs. You gave an int, so convert it with <code>string_of_int</code>, or change the code around it.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="3.5 | 3.50">
+    <p class="q">What value does <code>float_of_int 7 /. 2.0</code> give? Type the number.</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Which happens first here, the conversion or the division?</p>
+    <p class="hint"><code>float_of_int 7</code> is <code>7.</code>, and <code>/.</code> is float division.</p>
+    <div class="why"><p>7 becomes the float <code>7.</code> before dividing, so <code>/.</code> keeps the half: 3.5. Compare <code>float_of_int (7 / 2)</code>, which is <code>3.</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Why does <code>if x &gt; 0 then 1</code> (with no <code>else</code>) give a type error?</p>
+    <div class="opts"><button data-k="a">OCaml has no <code>if</code> without <code>else</code> at all</button><button data-k="b">The <code>if</code> must have a value either way, and a missing <code>else</code> can only give <code>()</code>, so the <code>then</code> branch must be <code>unit</code> too</button><button data-k="c"><code>x &gt; 0</code> is not a bool</button></div>
+    <p class="hint">Everything is an expression with a value. What is the value when <code>x</code> is negative?</p>
+    <p class="hint">Look at the last line of error 4 again.</p>
+    <div class="why"><p>An <code>if</code> without <code>else</code> is allowed, but only when the <code>then</code> branch has type <code>unit</code> (for example, a print). Returning an int needs an <code>else</code> that also returns an int.</p></div>
+  </div>
+
+  <nav class="pager"><a href="../index.html">← home</a><a href="ml-02-functions.html">Functions and types →</a></nav>
+</main>
+
+<script>
+(() => {
+  const { h } = CC;
+  const lines = ['# let price = 10;;', '# let total = price * 3;;', '# let price = 99;;', '# total;;'];
+  const steps = [
+    { at: 0, names: [['price', '10', '']], caption: '<code>let price = 10</code> makes a name <code>price</code> for the value 10.' },
+    { at: 1, names: [['price', '10', ''], ['total', '30', '']], caption: '<code>total</code> is worked out right now, from the <code>price</code> that exists right now: 10 times 3 is 30. From here on, <code>total</code> is 30.' },
+    { at: 2, names: [['price', '10', 'hidden, still exists'], ['total', '30', ''], ['price', '99', 'new']], caption: 'A second <code>let price</code> makes a <b>new</b> name. The old <code>price</code> is still there, but nothing written after this line can see it. The new one hides it.' },
+    { at: 3, names: [['price', '10', 'hidden, still exists'], ['total', '30', ''], ['price', '99', '']], caption: 'Asking for <code>total</code> gives 30. Nothing changed it. Shadowing makes new names, it never changes old values.' },
+  ];
+  CC.stepper(document.getElementById('shadow'), steps, (s, body) => {
+    body.append(CC.code(lines.slice(0, s.at + 1).join('\n'), s.at));
+    body.append(h('div', { class: 'tablewrap' }, h('table', {},
+      h('tr', {}, h('th', { text: 'Name' }), h('th', { text: 'Value' }), h('th', { text: 'Note' })),
+      s.names.map(([n, v, note]) => h('tr', {}, h('td', {}, h('code', { text: n })), h('td', { text: v }), h('td', { text: note }))))));
+  });
+})();
+</script>
+</body>
+</html>

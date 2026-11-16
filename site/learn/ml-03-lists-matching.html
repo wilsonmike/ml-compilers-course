@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lists and Pattern Matching</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="A list holds many values of one type, in order. Pattern matching takes a value apart by its shape. Together with recursion they are the heart of everyday...">
+<link rel="canonical" href="https://sharpterminal.com/site/learn/ml-03-lists-matching">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Lists and Pattern Matching">
+<meta property="og:description" content="A list holds many values of one type, in order. Pattern matching takes a value apart by its shape. Together with recursion they are the heart of everyday OCaml, and the same three ideas will walk the...">
+<meta property="og:url" content="https://sharpterminal.com/site/learn/ml-03-lists-matching">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Learn OCaml|Lists and pattern matching" data-root="../">
+<main>
+  <p class="eyebrow">Learn OCaml · Lesson 3</p>
+  <h1>Lists and pattern matching</h1>
+  <p class="lede">A list holds many values of one type, in order. Pattern matching takes a value apart by its shape. Together with recursion they are the heart of everyday OCaml, and the same three ideas will walk the trees in your compiler.</p>
+
+  <div class="prose">
+    <h2>Lists</h2>
+    <p>A <b>list</b> is written with square brackets, and the elements are separated by <b>semicolons</b>:</p>
+  </div>
+<pre><code># [1; 2; 3];;
+- : int list = [1; 2; 3]
+# ["milk"; "eggs"; "bread"];;
+- : string list = ["milk"; "eggs"; "bread"]
+# [];;
+- : 'a list = []</code></pre>
+  <div class="prose">
+    <p>Read <code>int list</code> as "a list of ints". The empty list <code>[]</code> has type <code>'a list</code>, a list of anything, because there is nothing in it yet to say which type.</p>
+    <p>Every element of a list must have the <b>same type</b>. A list of ints can't hold a string:</p>
+  </div>
+<pre><code># [1; "two"];;
+Line 1, characters 4-9:
+1 | [1; "two"];;
+        ^^^^^
+Error: This expression has type "string" but an expression was expected of type
+         "int"</code></pre>
+  <div class="prose">
+    <p>Why so strict? Because then any code that takes an <code>int list</code> knows that <em>every</em> element is an int, and OCaml can check that code once, for all lists. You never have to ask "but what if this one is a string?". When you really do need a mix of kinds, you define a type that lists the kinds (lesson O.4), and the list holds that type.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Semicolons, not commas</span>
+    <p>Most languages write <code>[1, 2]</code>. In OCaml that is a list with <b>one</b> element, a pair. The comma makes a tuple (more on those below), so OCaml quietly builds something else, and you find out later from a type error somewhere else.</p>
+  </div>
+<pre><code># [1, 2];;
+- : (int * int) list = [(1, 2)]
+# [1, 2, 3];;
+- : (int * int * int) list = [(1, 2, 3)]</code></pre>
+  <div class="prose">
+    <p>Read the type: <code>(int * int) list</code>, a list of pairs. If you meant three ints, the type tells you right away. Make a habit of reading the type of every list you type in utop.</p>
+  </div>
+
+  <div class="prose">
+    <h2>How a list is built: ::</h2>
+    <p>Under the brackets, a list is a chain of small cells. Each cell holds one element and points at the rest of the list. The last cell points at the empty list <code>[]</code>. The operator <code>::</code> (say "cons", short for "construct") makes one new cell in front of an existing list:</p>
+  </div>
+<pre><code># 1 :: [2; 3];;
+- : int list = [1; 2; 3]
+# 1 :: 2 :: 3 :: [];;
+- : int list = [1; 2; 3]</code></pre>
+  <div class="prose">
+    <p><code>[1; 2; 3]</code> is only a nicer way to write <code>1 :: 2 :: 3 :: []</code>, which is <code>1 :: (2 :: (3 :: []))</code>. In memory it looks like this:</p>
+  </div>
+<pre><code>[1; 2; 3]
+
+ +---+---+    +---+---+    +---+---+
+ | 1 | o-+---&gt;| 2 | o-+---&gt;| 3 | o-+---&gt; []
+ +---+---+    +---+---+    +---+---+
+  head  rest</code></pre>
+  <div class="prose">
+    <p>Each box is one cell. The left half is the <b>head</b>, the element. The right half points to the <b>rest</b> of the list (also called the tail). To reach the third element, you follow two arrows. That is why a list is good for going through elements one by one from the front, and slow for "give me element number 5000".</p>
+    <p>Lists are <b>immutable</b>: once made, a cell never changes. So adding to the front doesn't touch the old list. It makes one new cell that points at it:</p>
+  </div>
+<pre><code># let a = [2; 3];;
+val a : int list = [2; 3]
+# let b = 1 :: a;;
+val b : int list = [1; 2; 3]
+# a;;
+- : int list = [2; 3]</code></pre>
+<pre><code>b ---&gt; +---+---+
+       | 1 | o-+--+
+       +---+---+  |
+                  v
+a ------------&gt; +---+---+    +---+---+
+                | 2 | o-+---&gt;| 3 | o-+---&gt; []
+                +---+---+    +---+---+</code></pre>
+  <div class="prose">
+    <p><code>b</code> and <code>a</code> <b>share</b> the cells for 2 and 3. That is safe only because nobody can change them, and it makes <code>::</code> fast: one new cell, however long the list is. You'll see this idea again in week 1, where many parts of a compiler's graph share the same nodes.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Tuples</h2>
+    <p>A <b>tuple</b> groups a fixed number of values, which may have different types. You write it with commas, usually in brackets:</p>
+  </div>
+<pre><code># (3, "apples");;
+- : int * string = (3, "apples")
+# ("Ada", 36, true);;
+- : string * int * bool = ("Ada", 36, true)</code></pre>
+  <div class="prose">
+    <p>The type <code>int * string</code> reads "an int and a string". The <code>*</code> here means "and", not multiplication. A list and a tuple differ in two ways: a list can have any length but one type, and a tuple has a fixed length but each position can have its own type. A shopping list is a list. One line on it, a quantity and an item, is a tuple.</p>
+    <p>To get the parts out, <code>fst</code> and <code>snd</code> work on pairs. More often you name the parts with a pattern:</p>
+  </div>
+<pre><code># let pair = (3, "apples");;
+val pair : int * string = (3, "apples")
+# fst pair;;
+- : int = 3
+# let (n, fruit) = pair;;
+val n : int = 3
+val fruit : string = "apples"</code></pre>
+  <div class="prose">
+    <p><code>let (n, fruit) = pair</code> says "<code>pair</code> has the shape of two things, call them <code>n</code> and <code>fruit</code>". That is your first <b>pattern</b>: a shape with names in it. The next section does the same thing for lists.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Pattern matching</h2>
+    <p>A list has exactly two possible shapes. Either it is empty, <code>[]</code>, or it is a first cell, <code>x :: rest</code>, with some element <code>x</code> in front of the <code>rest</code>. <code>match</code> checks which shape a value has and names the parts:</p>
+  </div>
+<pre><code>let describe l =
+  match l with
+  | [] -&gt; "empty"
+  | x :: rest -&gt; "starts with " ^ string_of_int x</code></pre>
+<pre><code># describe [];;
+- : string = "empty"
+# describe [7; 8];;
+- : string = "starts with 7"</code></pre>
+  <div class="prose">
+    <p>Each line starting with <code>|</code> is a <b>case</b>: a pattern, an arrow, and the result for that shape. OCaml tries the cases from top to bottom and uses the first one that fits. For <code>[7; 8]</code>, the pattern <code>x :: rest</code> fits with <code>x = 7</code> and <code>rest = [8]</code>, and those names exist only on the right of that arrow. Like <code>if</code>, a <code>match</code> is an expression, so every case must give the same type.</p>
+    <p>Now the best part. Leave a shape out:</p>
+  </div>
+<pre><code># let first l = match l with x :: rest -&gt; x;;
+Line 1, characters 14-41:
+1 | let first l = match l with x :: rest -&gt; x;;
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Warning 8 [partial-match]: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+[]
+
+val first : 'a list -&gt; 'a = &lt;fun&gt;</code></pre>
+  <div class="prose">
+    <p>OCaml checked every shape a list can have and found one you didn't handle. It even gives you an example: <code>[]</code>. "Exhaustive" means "covers everything". If you ignore the warning and later call <code>first []</code>, the program stops with a <code>Match_failure</code> error.</p>
+    <p>This warning is a gift. In most languages, forgetting the empty case is a crash you find when a user hits it. In OCaml you find it the moment you write the function. It gets even better with your own types in lesson O.4: add a new kind of value to a type, and OCaml lists every <code>match</code> in your program that forgot about it. In a compiler with dozens of operations, that is how you keep hundreds of functions in step.</p>
+  </div>
+  <div class="note">
+    <span class="label">Unused names</span>
+    <p>In <code>x :: rest -&gt; x</code>, the name <code>rest</code> is never used. Write <code>_</code> instead, as in <code>x :: _ -&gt; x</code>. <code>_</code> is a pattern that matches anything and names nothing. In a dune project an unused name is a warning that stops the build, so <code>_</code> is a habit worth starting now.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Recursion on lists</h2>
+    <p>Pattern matching and recursion fit lists perfectly. A list is either empty, or an element followed by a smaller list. So a function on lists says what to do with the empty list, and what to do with <code>x</code> given the answer for <code>rest</code>:</p>
+  </div>
+<pre><code>let rec length l =
+  match l with
+  | [] -&gt; 0
+  | _ :: rest -&gt; 1 + length rest
+
+let rec sum l =
+  match l with
+  | [] -&gt; 0
+  | x :: rest -&gt; x + sum rest</code></pre>
+<pre><code># length [5; 6; 7];;
+- : int = 3
+# sum [1; 2; 3];;
+- : int = 6</code></pre>
+  <div class="prose">
+    <p>Read <code>sum</code> aloud: "the sum of an empty list is 0. The sum of <code>x</code> followed by <code>rest</code> is <code>x</code> plus the sum of <code>rest</code>." Each call works on a shorter list, so the calls always reach <code>[]</code>. Step through it. Each step replaces one call by what its matching case says.</p>
+  </div>
+
+  <div class="fig" id="sum" data-title="sum [1; 2; 3], one step at a time"></div>
+
+  <div class="prose">
+    <p>The same shape builds new lists. <code>map</code> applies a function to every element. The answer for <code>x :: rest</code> is <code>f x</code> in front of the mapped rest:</p>
+  </div>
+<pre><code>let rec map f l =
+  match l with
+  | [] -&gt; []
+  | x :: rest -&gt; f x :: map f rest</code></pre>
+<pre><code># map (fun x -&gt; x * 10) [1; 2; 3];;
+- : int list = [10; 20; 30]</code></pre>
+  <div class="prose">
+    <p>Trace it the same way: <code>map f [1; 2; 3]</code> is <code>f 1 :: map f [2; 3]</code>, which is <code>10 :: 20 :: 30 :: []</code>. Its type is <code>('a -&gt; 'b) -&gt; 'a list -&gt; 'b list</code>: given a function from <code>'a</code> to <code>'b</code> and a list of <code>'a</code>, you get a list of <code>'b</code>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-03-my-map">
+    <h3>Your own map</h3>
+    <p>Write <code>my_map f l</code> yourself, without looking at the code above if you can. <code>my_map (fun x -&gt; x + 1) [1; 2; 3]</code> is <code>[2; 3; 4]</code>. The starter walks the list but builds nothing.</p>
+    <p class="muted">In the <code>x :: rest</code> case, what goes in front of the mapped rest?</p>
+  </div>
+
+  <div class="prose">
+    <h2>The List library</h2>
+    <p>You'll write <code>match</code> on lists often, but for the common jobs the <code>List</code> module already has a function. Each one is the recursion above, written once so you don't have to repeat it.</p>
+    <h3>map and filter</h3>
+  </div>
+<pre><code># List.map (fun x -&gt; x * 10) [1; 2; 3];;
+- : int list = [10; 20; 30]
+# List.map String.length ["hi"; "there"];;
+- : int list = [2; 5]
+# List.filter (fun x -&gt; x mod 2 = 0) [1; 2; 3; 4; 5; 6];;
+- : int list = [2; 4; 6]</code></pre>
+  <div class="prose">
+    <p><code>List.map f l</code> makes a new list with <code>f</code> applied to each element. <code>List.filter keep l</code> makes a new list with only the elements where <code>keep</code> says <code>true</code>. Neither changes <code>l</code>. They can't: lists are immutable.</p>
+    <h3>fold_left: combine everything into one value</h3>
+    <p><code>List.fold_left f start l</code> walks the list from the left, carrying one value along, called the <b>accumulator</b>. It starts as <code>start</code>. For each element <code>x</code>, the new accumulator is <code>f acc x</code>. At the end, the accumulator is the answer.</p>
+  </div>
+<pre><code># List.fold_left (fun acc x -&gt; acc + x) 0 [1; 2; 3; 4];;
+- : int = 10</code></pre>
+  <div class="tablewrap"><table>
+    <tr><th>Step</th><th><code>acc</code> before</th><th><code>x</code></th><th><code>acc + x</code></th></tr>
+    <tr><td>start</td><td>0</td><td></td><td></td></tr>
+    <tr><td>1</td><td>0</td><td>1</td><td>1</td></tr>
+    <tr><td>2</td><td>1</td><td>2</td><td>3</td></tr>
+    <tr><td>3</td><td>3</td><td>3</td><td>6</td></tr>
+    <tr><td>4</td><td>6</td><td>4</td><td>10</td></tr>
+    <tr><td>end</td><td>10</td><td></td><td>the answer</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>The accumulator can be anything you want to build up. Here it is "the biggest so far":</p>
+  </div>
+<pre><code># List.fold_left (fun acc x -&gt; if x &gt; acc then x else acc) 0 [3; 9; 4];;
+- : int = 9</code></pre>
+  <div class="tablewrap"><table>
+    <tr><th>Step</th><th><code>acc</code> before</th><th><code>x</code></th><th><code>x &gt; acc</code>?</th><th>new <code>acc</code></th></tr>
+    <tr><td>1</td><td>0</td><td>3</td><td>yes</td><td>3</td></tr>
+    <tr><td>2</td><td>3</td><td>9</td><td>yes</td><td>9</td></tr>
+    <tr><td>3</td><td>9</td><td>4</td><td>no</td><td>9</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>When you write a fold, ask two questions: what does <code>acc</code> mean (a total, a count, the best so far), and what should it be before any element has been seen?</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-03-count-positive">
+    <h3>Count the positives with fold_left</h3>
+    <p>Write <code>count_positive l</code>: how many elements of <code>l</code> are greater than 0. <code>count_positive [3; -1; 0; 5]</code> is 2. Use <code>List.fold_left</code>. The starter's function never changes the count.</p>
+    <p class="muted">What does <code>acc</code> mean here, and when should it go up?</p>
+  </div>
+
+  <div class="prose">
+    <h3>iter, rev, length and @</h3>
+  </div>
+<pre><code># List.iter print_endline ["milk"; "eggs"];;
+milk
+eggs
+- : unit = ()
+# List.rev [1; 2; 3];;
+- : int list = [3; 2; 1]
+# List.length [1; 2; 3];;
+- : int = 3
+# [1; 2] @ [3; 4];;
+- : int list = [1; 2; 3; 4]</code></pre>
+  <div class="prose">
+    <p><code>List.iter</code> calls a function on each element for what it does (here, printing), and gives back <code>()</code>. <code>List.rev</code> reverses. <code>List.length</code> counts, by walking the whole list, so don't call it inside a loop over the same list. <code>@</code> joins two lists.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Adding to the end is slow</span>
+    <p><code>a @ b</code> can't change the last cell of <code>a</code> to point at <code>b</code>, because cells never change. So it copies every cell of <code>a</code>. On a list of 10,000 elements, adding one element at the end copies 10,000 cells. Do that in a loop and the work grows with the square of the length. The usual fix: build the list backwards with <code>::</code> (one cell each), then call <code>List.rev</code> once at the end.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Maybe a value: option</h2>
+    <p>Some questions don't always have an answer. "Find the first number over 10" has none if every number is small. OCaml's answer to this is the <b>option</b> type:</p>
+  </div>
+<pre><code># List.find_opt (fun x -&gt; x &gt; 10) [3; 12; 40];;
+- : int option = Some 12
+# List.find_opt (fun x -&gt; x &gt; 100) [3; 12; 40];;
+- : int option = None</code></pre>
+  <div class="prose">
+    <p>An <code>int option</code> is either <code>Some n</code>, holding an int, or <code>None</code>, holding nothing. It is <em>not</em> an int. You can't add 1 to it. To use the int inside, you match on both shapes, and OCaml checks that you handled both:</p>
+  </div>
+<pre><code>let first_big l =
+  match List.find_opt (fun x -&gt; x &gt; 10) l with
+  | Some x -&gt; "found " ^ string_of_int x
+  | None -&gt; "none"</code></pre>
+<pre><code># first_big [3; 12];;
+- : string = "found 12"
+# first_big [3];;
+- : string = "none"</code></pre>
+  <div class="prose">
+    <p>Why not return a special "nothing" value, the way many languages use <code>null</code>? Because <code>null</code> pretends to be a normal value. Code that forgets to check for it compiles fine and crashes later, often far from the cause. In OCaml, "maybe nothing" has its own type. An <code>int</code> is always a real int, and when something might be missing, the type says <code>option</code> and the exhaustiveness check makes you deal with <code>None</code>.</p>
+    <p>Some library functions skip the option and raise an error instead. <code>List.find</code> raises <code>Not_found</code> when nothing matches, and <code>List.hd</code> (the first element) fails on an empty list:</p>
+  </div>
+<pre><code># List.find (fun x -&gt; x &gt; 100) [3; 12; 40];;
+Exception: Not_found.
+# List.hd [];;
+Exception: Failure "hd".</code></pre>
+  <div class="prose">
+    <p>Prefer the <code>_opt</code> versions while you are learning, so the type reminds you. Exceptions, and when they are the better choice, are in lesson O.4.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-03-last">
+    <h3>The last element, as an option</h3>
+    <p>Write <code>last l</code>: <code>Some</code> of the last element, or <code>None</code> for the empty list. <code>last [1; 2; 3]</code> is <code>Some 3</code>. The starter returns the first element.</p>
+    <p class="muted">A pattern can be <code>[x]</code>: a list with exactly one element. Where should that case go?</p>
+  </div>
+
+  <div class="prose">
+    <h2>Tail recursion</h2>
+    <p>Look again at <code>sum</code>: <code>x + sum rest</code>. The addition can't happen until <code>sum rest</code> comes back. So each call has to wait, and remember its <code>x</code>, while the next call runs. The computer keeps those waiting calls in a region of memory called the <b>call stack</b>, one <b>frame</b> per waiting call. For a list of n elements, n frames pile up before the first addition happens:</p>
+  </div>
+<pre><code>sum [1; 2; 3]
+
+  | sum []            returns 0          |   &lt;- top: running now
+  | 3 + sum []        waiting, holds 3   |
+  | 2 + sum [3]       waiting, holds 2   |
+  | 1 + sum [2; 3]    waiting, holds 1   |
+  +--------------------------------------+   one frame per element</code></pre>
+  <div class="prose">
+    <p>The stack has a size limit. OCaml 5 gives it a lot of room (up to about a gigabyte), so you need very deep recursion to reach it, but you can. Here is <code>sum_to</code> from lesson O.2 with a hundred million calls:</p>
+  </div>
+<pre><code># let rec sum_to n = if n = 0 then 0 else n + sum_to (n - 1);;
+val sum_to : int -&gt; int = &lt;fun&gt;
+# sum_to 100_000_000;;
+Stack overflow during evaluation (looping recursion?).</code></pre>
+  <div class="prose">
+    <p>(The underscores in <code>100_000_000</code> are only for reading. OCaml ignores them.) A list sum with a hundred million elements would fail in the same way. Older OCaml versions, and many other languages, hit the limit much sooner. Python, for example, stops at about a thousand nested calls.</p>
+    <p>The fix is to make the recursive call the <b>very last thing</b> the function does, with nothing left to do after it comes back. Then the current frame has nothing left to remember, and OCaml reuses it for the next call instead of piling up a new one. Such a call is a <b>tail call</b>, and a function whose recursive calls are all tail calls is <b>tail recursive</b>. To get there, you carry the running total down as an extra argument, an accumulator, the same idea as in <code>fold_left</code>:</p>
+  </div>
+<pre><code>let rec sum_acc acc l =
+  match l with
+  | [] -&gt; acc
+  | x :: rest -&gt; sum_acc (acc + x) rest</code></pre>
+  <div class="tablewrap"><table>
+    <tr><th>Call</th><th><code>acc</code></th><th><code>l</code></th><th>Next</th></tr>
+    <tr><td>1</td><td>0</td><td><code>[1; 2; 3]</code></td><td><code>sum_acc 1 [2; 3]</code></td></tr>
+    <tr><td>2</td><td>1</td><td><code>[2; 3]</code></td><td><code>sum_acc 3 [3]</code></td></tr>
+    <tr><td>3</td><td>3</td><td><code>[3]</code></td><td><code>sum_acc 6 []</code></td></tr>
+    <tr><td>4</td><td>6</td><td><code>[]</code></td><td>returns 6</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>No call waits for anything. Each one hands over the whole job, and the addition happens <em>before</em> the call, not after it. The stack holds one frame the whole time, and the hundred-million version finishes:</p>
+  </div>
+<pre><code># let rec sum_to_acc acc n = if n = 0 then acc else sum_to_acc (acc + n) (n - 1);;
+val sum_to_acc : int -&gt; int -&gt; int = &lt;fun&gt;
+# sum_to_acc 0 100_000_000;;
+- : int = 5000000050000000</code></pre>
+  <div class="prose">
+    <p>You call it with the starting accumulator, <code>sum_acc 0 l</code>. <code>List.fold_left</code> is tail recursive for the same reason, which is one more reason to use it. Don't rewrite every function this way. The plain version is easier to read and fine for the lists and trees in this course. Reach for an accumulator when the input can be very long.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-03-sum-tail">
+    <h3>A tail-recursive sum</h3>
+    <p>Write <code>sum_from acc l</code>: <code>acc</code> plus the sum of <code>l</code>, tail recursively. <code>sum_from 0 [1; 2; 3]</code> is 6 and <code>sum_from 10 []</code> is 10. One test uses a list of a million elements. The recursive case in the starter is already right.</p>
+    <p class="muted">When the list is empty, where is the answer?</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Write lists with semicolons, and spot <code>[1, 2]</code> by its type.</li>
+      <li>Build lists with <code>::</code>, and picture them as chains of shared, unchanging cells.</li>
+      <li>Group values of different types in tuples, and take them apart with <code>let (a, b) = ...</code>.</li>
+      <li>Take a list apart with <code>match</code> on <code>[]</code> and <code>x :: rest</code>, and read the exhaustiveness warning.</li>
+      <li>Write recursive functions on lists and trace them step by step.</li>
+      <li>Use <code>List.map</code>, <code>List.filter</code>, <code>List.fold_left</code>, <code>List.iter</code>, <code>List.rev</code> and <code>@</code>, and know why <code>@</code> at the end is slow.</li>
+      <li>Handle a maybe-missing value with <code>option</code>, <code>Some</code> and <code>None</code>.</li>
+      <li>Explain the call stack, and turn a recursion into a tail-recursive one with an accumulator.</li>
+    </ul>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">What is the type of <code>[1, 2, 3]</code>?</p>
+    <div class="opts"><button data-k="a"><code>int list</code></button><button data-k="b"><code>int * int * int</code></button><button data-k="c"><code>(int * int * int) list</code></button></div>
+    <p class="hint">What do commas make in OCaml? And what do the square brackets make?</p>
+    <p class="hint">How many elements does the list have?</p>
+    <div class="why"><p>The commas make one triple, and the brackets put it in a list. A list of one tuple: <code>(int * int * int) list</code>. For three ints, write <code>[1; 2; 3]</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="[0; 1; 2] | [0;1;2]">
+    <p class="q">After <code>let a = [1; 2]</code> and <code>let b = 0 :: a</code>, what is <code>b</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint"><code>::</code> puts one element in front of a list.</p>
+    <p class="hint">Answer in OCaml list syntax, with semicolons.</p>
+    <div class="why"><p><code>b</code> is <code>[0; 1; 2]</code>, and <code>a</code> is still <code>[1; 2]</code>. The new cell for 0 points at <code>a</code>'s cells, which are shared, not copied.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">You write a <code>match</code> on a list with only the case <code>x :: rest -&gt; x</code>. What does OCaml do?</p>
+    <div class="opts"><button data-k="a">Nothing, it compiles silently</button><button data-k="b">It warns that the match is not exhaustive, and shows <code>[]</code> as a missing case</button><button data-k="c">It refuses to run any code at all</button></div>
+    <p class="hint">How many shapes can a list have? Which one is missing?</p>
+    <div class="why"><p>Warning 8: "this pattern-matching is not exhaustive", with <code>[]</code> as the example. The function is still defined, and calling it on <code>[]</code> fails with <code>Match_failure</code>. In a dune project the warning stops the build.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="10">
+    <p class="q">What is <code>List.fold_left (fun acc x -&gt; acc + x * x) 0 [1; 3]</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Make a trace table. <code>acc</code> starts at 0. What is it after <code>x = 1</code>?</p>
+    <p class="hint">0 + 1 × 1, then that plus 3 × 3.</p>
+    <div class="why"><p><code>acc</code> goes 0, then 0 + 1 = 1, then 1 + 9 = 10. It is the sum of the squares.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">What is the type of <code>List.find_opt (fun x -&gt; x &gt; 10) [3; 12]</code>, and why can't you write <code>1 + List.find_opt (fun x -&gt; x &gt; 10) [3; 12]</code>?</p>
+    <div class="opts"><button data-k="a"><code>int option</code>, and an option is not an int, so you must match on <code>Some</code> and <code>None</code> first</button><button data-k="b"><code>int</code>, and you can write it</button><button data-k="c"><code>int list</code>, because it returns every match</button></div>
+    <p class="hint">What would the answer be if no element were over 10?</p>
+    <div class="why"><p>It returns <code>Some 12</code> here, and <code>None</code> when nothing matches. Its type is <code>int option</code>, so <code>+</code> rejects it. Matching on both shapes is how OCaml makes sure you handled "not found".</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Which version uses only one stack frame however long the list is?</p>
+    <div class="opts"><button data-k="a"><code>| x :: rest -&gt; x + sum rest</code></button><button data-k="b"><code>| x :: rest -&gt; sum_acc (acc + x) rest</code></button><button data-k="c">Both, OCaml optimizes every recursive call</button></div>
+    <p class="hint">In each version, is there anything left to do after the recursive call comes back?</p>
+    <p class="hint">In the first one, what still has to happen to the result of <code>sum rest</code>?</p>
+    <div class="why"><p>In the first, <code>x +</code> waits for the call to return, so every frame stays. In the second, the recursive call is the last thing that happens, a tail call, so OCaml reuses the frame.</p></div>
+  </div>
+
+  <nav class="pager"><a href="ml-02-functions.html">← Functions and types</a><a href="ml-04-your-own-types.html">Your own types →</a></nav>
+</main>
+
+<script>
+(() => {
+  const lines = [
+    ['sum [1; 2; 3]', 'Start with the call.'],
+    ['= 1 + sum [2; 3]', '<code>[1; 2; 3]</code> is not empty, so the case <code>x :: rest</code> matches, with <code>x = 1</code> and <code>rest = [2; 3]</code>. Its answer is <code>x + sum rest</code>.'],
+    ['= 1 + (2 + sum [3])', 'The <code>1 +</code> has to wait. Now <code>sum [2; 3]</code> matches <code>x :: rest</code> with <code>x = 2</code> and <code>rest = [3]</code>.'],
+    ['= 1 + (2 + (3 + sum []))', '<code>sum [3]</code> matches with <code>x = 3</code> and <code>rest = []</code>. Three additions are waiting now.'],
+    ['= 1 + (2 + (3 + 0))', '<code>sum []</code> matches the case <code>[]</code>, which answers 0 directly. This is the base case, so the calls stop here.'],
+    ['= 1 + (2 + 3)', 'Now the waiting additions can happen, innermost first: 3 + 0 is 3.'],
+    ['= 1 + 5', '2 + 3 is 5.'],
+    ['= 6', '1 + 5 is 6. That is <code>sum [1; 2; 3]</code>.'],
+  ];
+  const steps = lines.map(([, caption], i) => ({ i, caption }));
+  CC.stepper(document.getElementById('sum'), steps, (s, body) => {
+    body.append(CC.code(lines.slice(0, s.i + 1).map(([l]) => l).join('\n'), s.i));
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your own types in OCaml</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="So far every value had a type OCaml gave you: int, string, lists of them. This lesson shows you how to make your own. A record bundles named values together. A...">
+<link rel="canonical" href="https://sharpterminal.com/site/learn/ml-04-your-own-types">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Your own types in OCaml">
+<meta property="og:description" content="So far every value had a type OCaml gave you: int, string, lists of them. This lesson shows you how to make your own. A record bundles named values together. A variant says &quot;one of these choices&quot;...">
+<meta property="og:url" content="https://sharpterminal.com/site/learn/ml-04-your-own-types">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Learn OCaml|Your own types" data-root="../">
+<main>
+  <p class="eyebrow">Learn OCaml · Lesson 4</p>
+  <h1>Your own types</h1>
+  <p class="lede">So far every value had a type OCaml gave you: <code>int</code>, <code>string</code>, lists of them. This lesson shows you how to make your own. A record bundles named values together. A variant says "one of these choices". Put a variant inside itself and you get a tree, which is the shape of every program your compiler will read.</p>
+
+  <div class="prose">
+    <h2>Records: a bundle of named values</h2>
+    <p>Say you want to store a point on a grid. It has two numbers, an x and a y. You could use a pair <code>(3, 4)</code>, but then you have to remember which number is which. A <b>record</b> gives each part a name. First you describe the shape with <code>type</code>, then you build values of that shape.</p>
+  </div>
+<pre><code># type point = { x : int; y : int };;
+type point = { x : int; y : int; }
+# let p = { x = 3; y = 4 };;
+val p : point = {x = 3; y = 4}
+# p.x;;
+- : int = 3</code></pre>
+  <div class="prose">
+    <p>Read the first line as "a point has a field called <code>x</code> holding an int, and a field called <code>y</code> holding an int". A <b>field</b> is one named part of a record. Inside the type you write <code>:</code> and a type, and when you build a value you write <code>=</code> and a value. You read a field with a dot: <code>p.x</code> is 3.</p>
+    <p>Notice that you never told OCaml that <code>p</code> is a point. It saw the field names <code>x</code> and <code>y</code> and worked it out, the same way it works out that <code>3</code> is an int.</p>
+    <h3>Changing one field means making a copy</h3>
+    <p>Record fields can't be changed after you build the record. To get a point that is the same as <code>p</code> but with a different x, you build a new one with <code>with</code>:</p>
+  </div>
+<pre><code># let q = { p with x = 10 };;
+val q : point = {x = 10; y = 4}
+# p;;
+- : point = {x = 3; y = 4}</code></pre>
+  <div class="prose">
+    <p><code>{ p with x = 10 }</code> means "a new record, copying every field from <code>p</code> except <code>x</code>, which is 10". The old <code>p</code> is still there, unchanged. This is a big idea in OCaml, and you'll see it again with maps in lesson O.6: instead of changing a value, you make a new one and keep the old one too. Nobody else who holds <code>p</code> gets a surprise.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Every field, every time</span>
+    <p>When you build a record from scratch you must give every field. <code>{ x = 1 }</code> fails with <code>Error: Some record fields are undefined: "y"</code>. If you want most fields to stay the same, start from an existing record with <code>with</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Variants: one of these choices</h2>
+    <p>A record says "this AND this AND this". Sometimes you need "this OR this OR this" instead. A playing card's suit is hearts, or diamonds, or clubs, or spades. Never two at once, never something else. That is a <b>variant</b> type.</p>
+  </div>
+<pre><code># type suit = Hearts | Diamonds | Clubs | Spades;;
+type suit = Hearts | Diamonds | Clubs | Spades
+# let colour s = match s with Hearts | Diamonds -&gt; "red" | Clubs | Spades -&gt; "black";;
+val colour : suit -&gt; string = &lt;fun&gt;
+# colour Clubs;;
+- : string = "black"</code></pre>
+  <div class="prose">
+    <p>Each name between the bars is a <b>constructor</b>: a way to make a value of the type. <code>Hearts</code> is a value of type <code>suit</code>, and so is <code>Clubs</code>. Constructors always start with a capital letter. That is how OCaml tells them apart from ordinary names like <code>colour</code>.</p>
+    <p>You take a variant apart with <code>match</code>, the same tool you used on lists in lesson O.3. <code>Hearts | Diamonds -&gt; "red"</code> is one case that covers two constructors. Why is this better than using the strings <code>"hearts"</code> and <code>"clubs"</code>? Because a typo like <code>"heats"</code> is still a string, and nothing would warn you. <code>Heats</code> is not a constructor, so OCaml refuses it at once.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Variants that carry data</h2>
+    <p>A constructor can carry values with it. Here is a shape: either a circle, which needs a radius, or a rectangle, which needs a width and a height.</p>
+  </div>
+<pre><code># type shape = Circle of float | Rect of float * float;;
+type shape = Circle of float | Rect of float * float
+# let area s = match s with Circle r -&gt; 3.14159 *. r *. r | Rect (w, h) -&gt; w *. h;;
+val area : shape -&gt; float = &lt;fun&gt;
+# area (Rect (2.0, 3.0));;
+- : float = 6.
+# area (Circle 1.0);;
+- : float = 3.14159</code></pre>
+  <div class="prose">
+    <p><code>Circle of float</code> means "the <code>Circle</code> constructor carries one float". <code>Rect of float * float</code> means "<code>Rect</code> carries two floats". The <code>*</code> here is not multiplication. In a type, <code>*</code> means "and", so <code>float * float</code> is a pair of floats.</p>
+    <p>Look at what <code>match</code> does now. The case <code>Circle r</code> checks that the shape is a circle <em>and</em> gives the name <code>r</code> to the radius inside it, ready to use on the right of the arrow. <code>Rect (w, h)</code> does the same for both numbers. Checking which kind of value you have and pulling out its parts happen in one step. OCaml prints <code>6.</code> for the float six. The dot is how it shows you this is a float, not an int.</p>
+  </div>
+  <div class="trap">
+    <span class="label">A constructor needs its data</span>
+    <p><code>Circle</code> on its own is not a shape. OCaml says <code>Error: The constructor "Circle" expects 1 argument(s), but is applied here to 0 argument(s)</code>. Write <code>Circle 1.0</code>. And for two values, the parentheses and the comma are required: <code>Rect (2.0, 3.0)</code>, not <code>Rect 2.0 3.0</code>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-04-perimeter">
+    <h3>Perimeter of a shape</h3>
+    <p>The starter adds a third shape, <code>Square of float</code> (the length of one side). Write <code>perimeter : shape -&gt; float</code>, the distance around the shape. A circle's is 2 × π × r, a rectangle's is 2 × (w + h), and a square's is 4 × side. Use <code>Float.pi</code> for π.</p>
+    <p class="muted">One <code>match</code> case per constructor. Keep the type exactly as the starter has it, because the tests build shapes with it.</p>
+  </div>
+
+  <div class="prose">
+    <h2>A type that contains itself: expression trees</h2>
+    <p>Here is the most important type in this lesson. Think about the arithmetic <code>2 + 3 * 4</code>. Multiplication goes first, so this means "2, plus the result of 3 times 4". You can draw that as a tree: the <code>+</code> at the bottom takes two inputs, the number 2 and the result of a <code>*</code>, and that <code>*</code> takes 3 and 4.</p>
+    <p>An <b>expression</b> is a piece of arithmetic like this. Each expression is one of three things: a plain number, an addition of two smaller expressions, or a multiplication of two smaller expressions. Written in OCaml, that sentence becomes a type:</p>
+  </div>
+<pre><code># type expr = Num of int | Add of expr * expr | Mul of expr * expr;;
+type expr = Num of int | Add of expr * expr | Mul of expr * expr
+# let e = Add (Num 2, Mul (Num 3, Num 4));;
+val e : expr = Add (Num 2, Mul (Num 3, Num 4))</code></pre>
+  <div class="prose">
+    <p>The new thing is that <code>expr</code> appears inside its own definition. <code>Add of expr * expr</code> says an addition carries two expressions, and each of those can be another <code>Add</code>, a <code>Mul</code>, or a <code>Num</code>. A type that refers to itself like this is called <b>recursive</b>. It can describe arithmetic of any size, and it doesn't go on forever, because sooner or later every branch ends in a <code>Num</code>, which carries a plain int and nothing else.</p>
+    <p>The value <code>e</code> is the tree for <code>2 + 3 * 4</code>. Notice there are no precedence rules in it. The tree's shape already says the <code>Mul</code> happens inside the <code>Add</code>. Here it is drawn out, with the numbers on top and the final result at the bottom:</p>
+  </div>
+
+  <div class="fig" id="tree" data-title="Add (Num 2, Mul (Num 3, Num 4))"></div>
+
+  <div class="note">
+    <span class="label">Why this matters for the course</span>
+    <p>Your compiler's whole job is to read programs as trees like this one, look at them, and rewrite them. In week 1 the nodes are called UOps and they have more kinds than three, but every function you write on them looks like the <code>eval</code> below: match on the kind of node, handle its parts.</p>
+  </div>
+
+  <div class="prose">
+    <h3>Evaluating the tree</h3>
+    <p>To <b>evaluate</b> an expression means to work out its number. A recursive type calls for a recursive function, with one case per constructor:</p>
+  </div>
+<pre><code># let rec eval e =
+    match e with
+    | Num n -&gt; n
+    | Add (a, b) -&gt; eval a + eval b
+    | Mul (a, b) -&gt; eval a * eval b;;
+val eval : expr -&gt; int = &lt;fun&gt;
+# eval e;;
+- : int = 14</code></pre>
+  <div class="prose">
+    <p>Read each case out loud. "A number is worth itself." "An addition is worth the value of its left side plus the value of its right side." "A multiplication is the same with times." That is the whole definition of arithmetic, and it fits in five lines. <code>eval</code> calls itself on the smaller parts, and the <code>Num</code> case is where the calls stop. Step through it on the tree:</p>
+  </div>
+
+  <div class="fig" id="evalfig" data-title="eval (Add (Num 2, Mul (Num 3, Num 4)))"></div>
+
+  <div class="prose">
+    <p>Here is the same thing as a table. Each row is one call to <code>eval</code>. A call that is indented sits inside the call above it, and it has to finish before the outer call can.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Call</th><th>Case that matches</th><th>Returns</th></tr></thead>
+    <tbody>
+      <tr><td><code>eval (Add (Num 2, Mul (Num 3, Num 4)))</code></td><td><code>Add (a, b)</code></td><td>waits for both sides</td></tr>
+      <tr><td>&nbsp;&nbsp;&nbsp;<code>eval (Num 2)</code></td><td><code>Num n</code>, n = 2</td><td>2</td></tr>
+      <tr><td>&nbsp;&nbsp;&nbsp;<code>eval (Mul (Num 3, Num 4))</code></td><td><code>Mul (a, b)</code></td><td>waits for both sides</td></tr>
+      <tr><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>eval (Num 3)</code></td><td><code>Num n</code>, n = 3</td><td>3</td></tr>
+      <tr><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>eval (Num 4)</code></td><td><code>Num n</code>, n = 4</td><td>4</td></tr>
+      <tr><td>&nbsp;&nbsp;&nbsp;back in the <code>Mul</code></td><td></td><td>3 * 4 = 12</td></tr>
+      <tr><td>back in the <code>Add</code></td><td></td><td>2 + 12 = 14</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">
+    <span class="label">Which side goes first?</span>
+    <p>The trace does the left side first because it reads more easily. OCaml doesn't promise an order for the two sides of <code>eval a + eval b</code>, and in practice it often does the right one first. For a function like <code>eval</code>, which only computes a value and changes nothing, the order can't change the answer.</p>
+  </div>
+
+  <div class="prose">
+    <h2>The safety net: exhaustive matching</h2>
+    <p>Programs grow. Say you want negative numbers too, like <code>-(5)</code>. You add a fourth constructor, <code>Neg of expr</code>, and leave <code>eval</code> as it was:</p>
+  </div>
+<pre><code># type expr = Num of int | Add of expr * expr | Mul of expr * expr | Neg of expr;;
+type expr =
+    Num of int
+  | Add of expr * expr
+  | Mul of expr * expr
+  | Neg of expr
+# let rec eval e =
+  match e with
+  | Num n -&gt; n
+  | Add (a, b) -&gt; eval a + eval b
+  | Mul (a, b) -&gt; eval a * eval b;;
+Lines 2-5, characters 2-33:
+2 | ..match e with
+3 |   | Num n -&gt; n
+4 |   | Add (a, b) -&gt; eval a + eval b
+5 |   | Mul (a, b) -&gt; eval a * eval b..
+Warning 8 [partial-match]: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+Neg _
+
+val eval : expr -&gt; int = &lt;fun&gt;</code></pre>
+  <div class="prose">
+    <p>OCaml checked every <code>match</code> against the type and noticed that this one forgot a case. A match that covers every constructor is called <b>exhaustive</b>. The warning tells you three things: where the match is (lines 2 to 5), what is wrong (not exhaustive), and an example value it can't handle (<code>Neg _</code>, where <code>_</code> means "with anything inside").</p>
+    <p>It is only a warning, so <code>eval</code> still gets defined. If you ignore it and call <code>eval (Neg (Num 5))</code> anyway, the program stops with <code>Exception: Match_failure ("//toplevel//", 2, 2).</code> In a dune project, which you'll set up in lesson O.6, this warning is treated as an error, so the program won't even build until you fix it.</p>
+    <p>That is the safety net. In a big program you might have twenty functions that match on <code>expr</code>. Add a constructor and the compiler hands you a list of every one that needs a new case. You don't have to remember them.</p>
+  </div>
+  <div class="trap">
+    <span class="label">The catch-all <code>_</code> cuts the net</span>
+    <p>A case <code>| _ -&gt; ...</code> matches anything. It is tempting to end a match with <code>| _ -&gt; 0</code> to make a warning go away. Do that in <code>eval</code> and the warning disappears, and so does the help. <code>eval (Neg (Num 5))</code> now quietly returns <code>0</code>, and so will every constructor you add next month. A wrong answer with no warning is the hardest kind of bug to find. Use <code>_</code> only when you really mean "every other case, including future ones, behaves the same".</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-04-eval">
+    <h3>Evaluate an expression tree</h3>
+    <p>The starter's <code>expr</code> has five constructors: <code>Num</code>, <code>Add</code>, <code>Sub</code> (subtraction, left minus right), <code>Mul</code>, and <code>Neg</code> (minus one expression). Its <code>eval</code> ends in a catch-all, so it answers 0 for most trees. Finish <code>eval</code> so every tree gets its real value. For example <code>eval (Neg (Sub (Num 2, Num 9)))</code> is 7.</p>
+    <p class="muted">Delete the <code>| _ -&gt; 0</code> line first and read the warning. Keep the type exactly as it is: the tests build trees with it.</p>
+  </div>
+
+  <div class="prose">
+    <h2>When there might be no answer: option and result</h2>
+    <p>You met <b>option</b> in lesson O.3. A value of type <code>int option</code> is either <code>Some</code> of an int or <code>None</code>. Now you can see what it really is: a variant with two constructors, one carrying data and one not. OCaml's library defines it the same way you defined <code>shape</code>.</p>
+  </div>
+<pre><code># List.find_opt (fun x -&gt; x &gt; 10) [3; 12; 7];;
+- : int option = Some 12
+# List.find_opt (fun x -&gt; x &gt; 100) [3; 12; 7];;
+- : int option = None
+# int_of_string_opt "42";;
+- : int option = Some 42
+# int_of_string_opt "forty";;
+- : int option = None</code></pre>
+  <div class="prose">
+    <p>Option is right when "no answer" needs no explanation. If you look for something and it isn't there, <code>None</code> says it all. But sometimes the caller needs to know <em>why</em> it failed. For that OCaml has <b>result</b>, another variant with two constructors: <code>Ok</code> carries the answer, and <code>Error</code> carries a description of what went wrong.</p>
+    <p>Here is a function that reads an age typed by a person. Two things can go wrong, and the message says which:</p>
+  </div>
+<pre><code># let parse_age s =
+    match int_of_string_opt s with
+    | None -&gt; Error "not a number"
+    | Some n -&gt; if n &lt; 0 then Error "negative age" else Ok n;;
+val parse_age : string -&gt; (int, string) result = &lt;fun&gt;
+# parse_age "31";;
+- : (int, string) result = Ok 31
+# parse_age "abc";;
+- : (int, string) result = Error "not a number"
+# parse_age "-4";;
+- : (int, string) result = Error "negative age"</code></pre>
+  <div class="prose">
+    <p>Read the type <code>(int, string) result</code> as "either Ok with an int, or Error with a string". The caller takes it apart with <code>match</code>, and because the match must be exhaustive, the caller can't forget the error case:</p>
+  </div>
+<pre><code># let describe s =
+    match parse_age s with
+    | Ok n -&gt; "age " ^ string_of_int n
+    | Error msg -&gt; "bad input: " ^ msg;;
+val describe : string -&gt; string = &lt;fun&gt;
+# describe "abc";;
+- : string = "bad input: not a number"</code></pre>
+
+  <div class="exercise small" data-ex="lo-04-safe-div">
+    <h3>Division that reports its error</h3>
+    <p>Dividing by zero in OCaml stops the program. Write <code>safe_div : int -&gt; int -&gt; (int, string) result</code> that returns <code>Ok (a / b)</code> normally, and <code>Error "division by zero"</code> when <code>b</code> is 0.</p>
+    <p class="muted">Check <code>b</code> before you divide. The error message must be exactly <code>"division by zero"</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Exceptions: errors you don't expect</h2>
+    <p>The third way to report a problem is an <b>exception</b>. An exception doesn't return a value at all. It stops the current function, and the one that called it, and so on, until some code catches it. If nothing catches it, the whole program stops. You have already seen a few:</p>
+  </div>
+<pre><code># 1 / 0;;
+Exception: Division_by_zero.
+# List.find (fun x -&gt; x &gt; 100) [3; 12; 7];;
+Exception: Not_found.
+# int_of_string "forty";;
+Exception: Failure "int_of_string".</code></pre>
+  <div class="prose">
+    <p>You can raise your own. <code>failwith "message"</code> raises the <code>Failure</code> exception with your message. <code>raise Not_found</code> raises the standard "I looked and it isn't there" exception. Both have any type you like, so they fit in any branch:</p>
+  </div>
+<pre><code># failwith "boom";;
+Exception: Failure "boom".
+# let get_first l = match l with x :: _ -&gt; x | [] -&gt; raise Not_found;;
+val get_first : 'a list -&gt; 'a = &lt;fun&gt;
+# get_first [];;
+Exception: Not_found.</code></pre>
+  <div class="prose">
+    <p>To catch an exception, wrap the risky code in <code>try ... with</code>. The part after <code>with</code> is written like the cases of a <code>match</code>, but it matches exceptions:</p>
+  </div>
+<pre><code># let first_big l = try List.find (fun x -&gt; x &gt; 100) l with Not_found -&gt; 0;;
+val first_big : int list -&gt; int = &lt;fun&gt;
+# first_big [3; 500; 7];;
+- : int = 500
+# first_big [3; 12];;
+- : int = 0</code></pre>
+  <div class="prose">
+    <p>If the code inside <code>try</code> finishes normally, its value is the answer. If it raises <code>Not_found</code>, the <code>Not_found -&gt; 0</code> case runs instead. Any other exception passes straight through and keeps going up.</p>
+    <p>Notice what the type of <code>List.find</code> doesn't tell you: that it can fail. <code>find_opt</code> puts the failure in the type, as an option, and the compiler makes the caller deal with it. <code>find</code> leaves it out, and you only find out when it happens. That difference is the whole reason to choose between them.</p>
+
+    <h3>When to use which</h3>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Tool</th><th>Use it when</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td><code>option</code></td><td>"Not there" is a normal answer and needs no explanation.</td><td>Looking up a word in a dictionary.</td></tr>
+      <tr><td><code>result</code></td><td>Failure is expected and the caller needs to know why, to tell a person or decide what to do.</td><td>Reading a number someone typed. Checking a program for mistakes.</td></tr>
+      <tr><td>exception</td><td>It "can't happen" unless there's a bug, or it is so rare that checking at every step would bury the real code.</td><td>An index that your own logic says is always valid. A file the program can't run without.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="trap">
+    <span class="label">An exception nobody catches ends the program</span>
+    <p>If you use <code>List.find</code> or <code>Hashtbl.find</code> on something that might be missing, and nothing catches <code>Not_found</code>, the program stops with <code>Exception: Not_found</code> and no hint of which lookup failed. When the missing case is normal, reach for the <code>_opt</code> version and match on it.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Define a record type, build a record, read its fields, and copy it with one field changed using <code>{ r with ... }</code>.</li>
+      <li>Define a variant type, with or without data on each constructor, and take it apart with <code>match</code>.</li>
+      <li>Write a recursive type for a tree, like <code>expr</code>, and a recursive function over it with one case per constructor.</li>
+      <li>Read an exhaustiveness warning and know why a catch-all <code>_</code> can hide bugs.</li>
+      <li>Choose between option, result and exceptions, and raise and catch an exception.</li>
+    </ul>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="3">
+    <p class="q"><code>p</code> is <code>{ x = 3; y = 4 }</code> and <code>let r = { p with y = 0 }</code>. What is <code>r.x</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Which fields does <code>with</code> copy from <code>p</code>?</p>
+    <p class="hint">Only <code>y</code> is given a new value. Every other field comes from <code>p</code>.</p>
+    <div class="why"><p><code>{ p with y = 0 }</code> copies every field of <code>p</code> except <code>y</code>. So <code>r.x</code> is <code>p.x</code>, which is 3, and <code>r</code> is <code>{x = 3; y = 0}</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">With <code>type shape = Circle of float | Rect of float * float</code>, which of these is a value of type <code>shape</code>?</p>
+    <div class="opts"><button data-k="a"><code>Circle</code></button><button data-k="b"><code>Rect (2.0, 3.0)</code></button><button data-k="c"><code>Rect 2.0 3.0</code></button></div>
+    <p class="hint">Each constructor needs the data its type says it carries.</p>
+    <p class="hint"><code>Rect</code> carries <code>float * float</code>, a pair. How do you write a pair?</p>
+    <div class="why"><p>A pair is written with parentheses and a comma, so <code>Rect (2.0, 3.0)</code> is right. <code>Circle</code> alone is missing its radius, and <code>Rect 2.0 3.0</code> passes two separate values instead of one pair. Both are errors.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="15">
+    <p class="q">What is <code>eval (Mul (Add (Num 1, Num 2), Num 5))</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Draw the tree. What is at the bottom, and what are its two inputs?</p>
+    <p class="hint">The <code>Mul</code> needs the value of <code>Add (Num 1, Num 2)</code> first.</p>
+    <div class="why"><p>The inner <code>Add</code> is 1 + 2 = 3, then the <code>Mul</code> is 3 * 5 = 15. This tree is <code>(1 + 2) * 5</code>. Trees don't need parentheses because their shape already says what goes first.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">You add <code>| Neg of expr</code> to <code>expr</code>. Your <code>eval</code> ends with <code>| _ -&gt; 0</code>. What happens?</p>
+    <div class="opts">
+      <button data-k="a">The compiler warns that <code>Neg</code> isn't handled</button>
+      <button data-k="b"><code>eval (Neg (Num 5))</code> raises <code>Match_failure</code></button>
+      <button data-k="c">No warning, and <code>eval (Neg (Num 5))</code> returns 0</button>
+    </div>
+    <p class="hint">Does the <code>_</code> case match a <code>Neg</code>?</p>
+    <p class="hint">If a match already has a case for everything, is it exhaustive?</p>
+    <div class="why"><p><code>_</code> matches every value, including <code>Neg</code>, so the match is exhaustive and the compiler has nothing to warn about. You get a wrong answer, 0 instead of -5, with no sign that anything is off. That's the catch-all trap.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">A program reads a date that a person typed. It can be malformed in several ways, and you want to show the person what was wrong. Which return type fits best?</p>
+    <div class="opts">
+      <button data-k="a"><code>date option</code></button>
+      <button data-k="b"><code>(date, string) result</code></button>
+      <button data-k="c">return a <code>date</code> and raise an exception on bad input</button>
+    </div>
+    <p class="hint">Is bad input expected here, or a bug?</p>
+    <p class="hint">Does the caller need to know <em>why</em> it failed?</p>
+    <div class="why"><p>People mistype dates all the time, so failure is expected, and the message has to say what was wrong. <code>result</code> carries that message in <code>Error</code>, and the type forces the caller to handle it. An option would lose the reason, and an exception hides the possibility of failure from the type.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="None">
+    <p class="q">What does <code>int_of_string_opt "7x"</code> return?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Is <code>"7x"</code> a whole number?</p>
+    <p class="hint">The <code>_opt</code> version never raises. It returns an option.</p>
+    <div class="why"><p><code>None</code>. The text isn't a valid int, and the <code>_opt</code> version reports that with <code>None</code>. <code>int_of_string "7x"</code>, without <code>_opt</code>, would raise <code>Failure "int_of_string"</code> instead.</p></div>
+  </div>
+
+  <nav class="pager"><a href="ml-03-lists-matching.html">← Lists and pattern matching</a><a href="ml-05-mutation.html">Arrays, tables and mutation →</a></nav>
+</main>
+
+<script>
+(() => {
+  const base = [
+    { id: 'n2', op: 'Num 2' }, { id: 'n3', op: 'Num 3' }, { id: 'n4', op: 'Num 4' },
+    { id: 'mul', op: 'Mul', src: ['n3', 'n4'] }, { id: 'add', op: 'Add', src: ['n2', 'mul'] }];
+  const tree = [
+    { caption: 'Each box is one constructor. The lines show what each one carries. <code>Mul</code> carries <code>Num 3</code> and <code>Num 4</code>. <code>Add</code> carries <code>Num 2</code> and the whole <code>Mul</code>.', at: null },
+    { caption: 'Every branch ends in a <code>Num</code>, the one constructor that carries no smaller <code>expr</code>. That is why the tree stops.', at: ['n2', 'n3', 'n4'] },
+  ];
+  const figT = document.getElementById('tree');
+  CC.stepper(figT, tree, (s, body) => body.append(CC.graph(base.map(n => ({ ...n, cls: s.at && s.at.includes(n.id) ? 'hit' : '' })))));
+
+  const steps = [
+    { at: 'add', vals: {}, caption: '<code>eval (Add (Num 2, Mul (Num 3, Num 4)))</code>. The <code>Add (a, b)</code> case matches, with <code>a = Num 2</code> and <code>b = Mul (Num 3, Num 4)</code>. To add, it first needs <code>eval a</code> and <code>eval b</code>.' },
+    { at: 'n2', vals: { n2: 2 }, caption: '<code>eval (Num 2)</code>. The <code>Num n</code> case matches with <code>n = 2</code>, and it returns 2 right away. No more calls on this side.' },
+    { at: 'mul', vals: { n2: 2 }, caption: 'Now <code>eval (Mul (Num 3, Num 4))</code>. The <code>Mul (a, b)</code> case matches. It also needs both of its sides first.' },
+    { at: 'n3', vals: { n2: 2, n3: 3 }, caption: '<code>eval (Num 3)</code> returns 3.' },
+    { at: 'n4', vals: { n2: 2, n3: 3, n4: 4 }, caption: '<code>eval (Num 4)</code> returns 4.' },
+    { at: 'mul', vals: { n2: 2, n3: 3, n4: 4, mul: 12 }, caption: 'Both sides of the <code>Mul</code> are known, so it returns <code>3 * 4 = 12</code>.' },
+    { at: 'add', vals: { n2: 2, n3: 3, n4: 4, mul: 12, add: 14 }, caption: 'Both sides of the <code>Add</code> are known, so it returns <code>2 + 12 = 14</code>. That is the 14 utop printed.' },
+  ];
+  CC.stepper(document.getElementById('evalfig'), steps, (s, body) => {
+    body.append(CC.graph(base.map(n => ({ ...n, val: s.vals[n.id], cls: n.id === s.at ? 'hit' : s.vals[n.id] != null ? 'new' : '' }))));
+  });
+})();
+</script>
+</body>
+</html>

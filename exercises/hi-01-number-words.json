@@ -1,0 +1,45 @@
+{
+ "id": "hi-01-number-words",
+ "lang": "ocaml",
+ "title": "A coat check for words",
+ "show": "fun l -> \"[\" ^ String.concat \"; \" (List.map string_of_int l) ^ \"]\"",
+ "starter": "let number_words (words : string list) : int list =\n  List.mapi (fun i _ -> i) words\n",
+ "tests": [
+  {
+   "expr": "number_words [\"to\"; \"be\"; \"or\"; \"not\"; \"to\"; \"be\"]",
+   "expect": "[0; 1; 2; 3; 0; 1]",
+   "sample": true
+  },
+  {
+   "expr": "number_words [\"a\"; \"a\"; \"a\"]",
+   "expect": "[0; 0; 0]",
+   "sample": true
+  },
+  {
+   "expr": "number_words []",
+   "expect": "[]"
+  },
+  {
+   "expr": "number_words [\"b\"; \"a\"; \"b\"; \"c\"; \"a\"]",
+   "expect": "[0; 1; 0; 2; 1]"
+  },
+  {
+   "expr": "number_words [\"A\"; \"a\"]",
+   "expect": "[0; 1]"
+  },
+  {
+   "expr": "let _ = number_words [\"p\"; \"q\"; \"r\"] in number_words [\"r\"; \"p\"]",
+   "expect": "[0; 1]"
+  },
+  {
+   "expr": "List.filteri (fun i _ -> i >= 997) (number_words (List.init 1000 (fun i -> string_of_int (i mod 3))))",
+   "expect": "[1; 2; 0]"
+  }
+ ],
+ "hints": [
+  "Keep a table from word to ticket number. For each word, look it up first: if it's there, that's its ticket.",
+  "A word you haven't seen gets the next number, which is how many words the table holds before you add it: `Hashtbl.length table`.",
+  "Make the table inside `number_words`, so every call starts empty. `List.map` from the standard library visits the list left to right, so it can do the lookups in order."
+ ],
+ "explain": "The table maps each word to the number it got the first time. A new word gets `Hashtbl.length table` as its number, which counts 0, 1, 2 in order of first appearance, and a repeated word finds its old number. That is hash consing with a word as the key, and the table is created per call so two calls never share tickets."
+}

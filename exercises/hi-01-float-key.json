@@ -1,0 +1,44 @@
+{
+ "id": "hi-01-float-key",
+ "lang": "ocaml",
+ "title": "A key for a float",
+ "show": "string_of_bool",
+ "starter": "let float_key (x : float) = x\n",
+ "tests": [
+  {
+   "expr": "float_key 0.0 = float_key (-0.0)",
+   "expect": "false",
+   "sample": true
+  },
+  {
+   "expr": "float_key nan = float_key nan",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "float_key 1.5 = float_key 1.5",
+   "expect": "true"
+  },
+  {
+   "expr": "float_key 1.0 = float_key 2.0",
+   "expect": "false"
+  },
+  {
+   "expr": "float_key infinity = float_key neg_infinity",
+   "expect": "false"
+  },
+  {
+   "expr": "float_key (0.1 +. 0.2) = float_key 0.3",
+   "expect": "false"
+  },
+  {
+   "expr": "let t = Hashtbl.create 8 in List.iter (fun x -> Hashtbl.replace t (float_key x) ()) [0.0; -0.0; nan; 1.0; nan; 0.0]; Hashtbl.length t = 4",
+   "expect": "true"
+  }
+ ],
+ "hints": [
+  "The float itself fails twice: `0.0 = -0.0` is true and `nan = nan` is false. You want something that compares by the bits instead.",
+  "`Int64.bits_of_float x` returns the 64 bits of `x` as an `int64`. Two int64 values compare like ordinary numbers."
+ ],
+ "explain": "`Int64.bits_of_float` turns the float into its 64 bits. The two zeros differ in the sign bit, so their keys differ, and every `nan` value in OCaml has the same bits, so its key equals itself. An `int64` compares and hashes like a whole number, so a `Hashtbl` keyed on it behaves."
+}

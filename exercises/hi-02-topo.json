@@ -1,0 +1,49 @@
+{
+ "id": "hi-02-topo",
+ "lang": "ocaml",
+ "title": "A cooking order without recursion",
+ "show": "fun l -> \"[\" ^ String.concat \"; \" l ^ \"]\"",
+ "starter": "let graph (pairs : (string * string list) list) : (string, string list) Hashtbl.t =\n  let g = Hashtbl.create 16 in\n  List.iter (fun (k, v) -> Hashtbl.replace g k v) pairs;\n  g\n\nlet topo (g : (string, string list) Hashtbl.t) (root : string) : string list =\n  [ root ]\n",
+ "tests": [
+  {
+   "expr": "topo (graph [(\"pizza\", [\"dough\"; \"sauce\"]); (\"dough\", [\"flour\"; \"water\"; \"salt\"]); (\"sauce\", [\"tomatoes\"; \"salt\"])]) \"pizza\"",
+   "expect": "[flour; water; salt; dough; tomatoes; sauce; pizza]",
+   "sample": true
+  },
+  {
+   "expr": "topo (graph []) \"egg\"",
+   "expect": "[egg]",
+   "sample": true
+  },
+  {
+   "expr": "topo (graph [(\"a\", [\"b\"; \"b\"])]) \"a\"",
+   "expect": "[b; a]"
+  },
+  {
+   "expr": "topo (graph [(\"a\", [\"b\"]); (\"c\", [\"a\"])]) \"a\"",
+   "expect": "[b; a]"
+  },
+  {
+   "expr": "topo (graph [(\"d\", [\"b\"; \"c\"]); (\"b\", [\"a\"]); (\"c\", [\"a\"])]) \"d\"",
+   "expect": "[a; b; c; d]"
+  },
+  {
+   "expr": "topo (graph [(\"a\", [\"b\"; \"c\"]); (\"b\", [\"c\"])]) \"a\"",
+   "expect": "[c; b; a]"
+  },
+  {
+   "expr": "[string_of_int (List.length (topo (graph (List.init 40 (fun i -> (\"x\" ^ string_of_int (i + 1), [\"x\" ^ string_of_int i; \"x\" ^ string_of_int i])))) \"x40\"))]",
+   "expect": "[41]"
+  },
+  {
+   "expr": "let r = topo (graph (List.init 100000 (fun i -> (string_of_int i, [string_of_int (i + 1)])))) \"0\" in [string_of_int (List.length r); List.hd r; List.nth r 100000]",
+   "expect": "[100001; 100000; 0]"
+  }
+ ],
+ "hints": [
+  "Keep a stack of `(item, ready)` pairs as a list, starting with `[(root, false)]`, and loop while it isn't empty. Pop by taking the head.",
+  "When an item pops without its note: if you've started it already, skip it. Otherwise mark it, then push `(item, true)` and, on top of that, its parts with `false`, the first part at the very top.",
+  "When an item pops with its note, all its parts are written, so add it to the output. Build the output backwards with `::` and reverse it at the end."
+ ],
+ "explain": "The stack holds the work a recursive walk would keep on the call stack. An item is marked when it is first expanded, so a shared part is expanded once, and it is written only when it pops again with its note, after all its parts: that is post-order. The parts are pushed with the first one on top, so they come out left to right. Nothing recurses, so the 100,000-deep chain is a loop of 200,000 steps."
+}

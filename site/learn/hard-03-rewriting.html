@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rewriting Until Nothing Changes</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Most of what a compiler does to make a program smaller is one small move, repeated: find a shape it recognizes and replace it with something simpler. This page...">
+<link rel="canonical" href="https://sharpterminal.com/site/learn/hard-03-rewriting">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Rewriting Until Nothing Changes">
+<meta property="og:description" content="Most of what a compiler does to make a program smaller is one small move, repeated: find a shape it recognizes and replace it with something simpler. This page builds that move slowly, from one rule...">
+<meta property="og:url" content="https://sharpterminal.com/site/learn/hard-03-rewriting">
+<meta name="twitter:card" content="summary">
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css">
+<script src="../assets/course.js"></script>
+</head>
+<body data-crumbs="Hard ideas|Rewriting until nothing changes" data-root="../">
+<main>
+  <p class="eyebrow">Hard ideas · 3</p>
+  <h1>Rewriting until nothing changes</h1>
+  <p class="lede">Most of what a compiler does to make a program smaller is one small move, repeated: find a shape it recognizes and replace it with something simpler. This page builds that move slowly, from one rule on one node to a loop that runs until no rule fits anywhere.</p>
+
+  <div class="note">
+    <span class="label">Before you start</span>
+    <p>You need pattern matching: <span class="only-python"><code>match</code> with class patterns, from <a href="py-04-your-own-types.html">P.4</a></span><span class="only-ocaml"><code>match</code> on variants, from <a href="ml-03-lists-matching.html">O.3</a> and <a href="ml-04-your-own-types.html">O.4</a></span>. <a href="hard-01-sharing.html">H.1</a> and <a href="hard-02-walking-graphs.html">H.2</a> help with the last section.</p>
+  </div>
+
+  <div class="prose">
+    <h2>A rule is a pattern and a replacement</h2>
+    <p>Think of tidying a sentence. "Find <em>do not</em>, write <em>don't</em>." That instruction has two halves: what to look for, and what to put in its place. A <b>rewrite rule</b> is the same thing for expressions:</p>
+  </div>
+<pre><code>x + 0      →  x
+x * 1      →  x
+m + n      →  the number m + n       when m and n are both numbers
+m * n      →  the number m * n       when m and n are both numbers</code></pre>
+  <div class="prose">
+    <p>The left side is the <b>pattern</b>. The right side is the <b>replacement</b>. In a pattern, a letter like <code>x</code> is a <b>pattern variable</b>: it matches <em>anything</em>, a single number, a name, or a whole sub-expression, and it remembers what it matched so the replacement can use it. <code>0</code> and <code>1</code> match only those exact numbers. The last two rules, which compute a result from two known numbers, are called <b>constant folding</b>.</p>
+    <p>Every rule must keep the meaning. <code>x + 0</code> has the same value as <code>x</code> for every whole number <code>x</code>, so the rule is safe for integers. (For floats it isn't: <code>-0.0 + 0</code> is <code>0.0</code>, not <code>-0.0</code>. <a href="hard-04-numbers-like-c.html">H.4</a> explains <code>-0.0</code>.)</p>
+
+    <h2>Matching one node</h2>
+    <p>A rule <b>matches</b> a node when the node has the pattern's shape. Matching looks at one node and, at most, the children named in the pattern. It doesn't search the whole expression. That's the walk's job, in the next section.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>node</th><th>does <code>x + 0</code> match?</th><th><code>x</code> is</th><th>result</th></tr></thead>
+    <tbody>
+      <tr><td><code>y + 0</code></td><td>yes</td><td><code>y</code></td><td><code>y</code></td></tr>
+      <tr><td><code>(a * b) + 0</code></td><td>yes</td><td><code>a * b</code></td><td><code>a * b</code></td></tr>
+      <tr><td><code>0 + y</code></td><td>no, the 0 is on the wrong side</td><td></td><td>unchanged</td></tr>
+      <tr><td><code>y * 0</code></td><td>no, the op is <code>*</code></td><td></td><td>unchanged</td></tr>
+      <tr><td><code>y + (1 - 1)</code></td><td>no, the right side is not the number 0 (yet)</td><td></td><td>unchanged</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>The last row matters: a rule sees structure, not value. <code>1 - 1</code> is zero, but it isn't <em>the number 0</em> until something folds it. In code, one function tries every rule on one node. It returns the replacement when a rule fires, and "nothing" when none does. Here are the four rules above, plus one more that the next sections need: move a number from the left of a <code>+</code> to the right.</p>
+  </div>
+<pre class="only-python"><code>from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Num:
+    n: int
+
+@dataclass(frozen=True)
+class Var:
+    name: str
+
+@dataclass(frozen=True)
+class Add:
+    a: object
+    b: object
+
+@dataclass(frozen=True)
+class Mul:
+    a: object
+    b: object
+
+def rule(e):
+    match e:
+        case Add(x, Num(0)):
+            return x
+        case Mul(x, Num(1)):
+            return x
+        case Add(Num(m), Num(n)):
+            return Num(m + n)
+        case Mul(Num(m), Num(n)):
+            return Num(m * n)
+        case Add(Num(m), x):
+            return Add(x, Num(m))
+    return None</code></pre>
+<pre class="only-ocaml"><code>type e = Num of int | Var of string | Add of e * e | Mul of e * e
+
+let rule e =
+  match e with
+  | Add (x, Num 0) -&gt; Some x
+  | Mul (x, Num 1) -&gt; Some x
+  | Add (Num m, Num n) -&gt; Some (Num (m + n))
+  | Mul (Num m, Num n) -&gt; Some (Num (m * n))
+  | Add (Num m, x) -&gt; Some (Add (x, Num m))
+  | _ -&gt; None</code></pre>
+<pre class="only-python"><code>&gt;&gt;&gt; rule(Add(Var("y"), Num(0)))
+Var(name='y')
+&gt;&gt;&gt; print(rule(Mul(Var("y"), Num(2))))
+None</code></pre>
+<pre class="only-ocaml"><code># rule (Add (Var "y", Num 0));;
+- : e option = Some (Var "y")
+# rule (Mul (Var "y", Num 2));;
+- : e option = None</code></pre>
+  <div class="prose">
+    <p>Cases are tried top to bottom, and the first match wins. That order is doing real work in the last rule. <code>Add(Num(m), x)</code> would also match <code>2 + 3</code>, but the folding rule above it catches that first, so the swap only ever fires when the right side is <em>not</em> a number. Keep that in mind for the section on stopping.</p>
+  </div>
+  <div class="trap">
+    <span class="label">A rule returns "nothing" when it doesn't fire</span>
+    <p>Don't return the node unchanged to mean "no rule fired". Then the code that calls <code>rule</code> can't tell "nothing happened" from "a rule produced this", and the loop below has no way to stop. <span class="only-python">Return <code>None</code>.</span><span class="only-ocaml">Return <code>None</code>, and <code>Some r</code> when a rule fires.</span></p>
+  </div>
+
+  <div class="prose">
+    <h2>Bottom-up through a tree</h2>
+    <p>A rule works on one node. To simplify a whole expression, you walk it and offer each node to <code>rule</code>. The order matters. Go <b>bottom-up</b>: rewrite a node's children first, then the node. That way, when the walk reaches a node, its children are already as simple as they'll get in this pass, and a rule like <code>x + 0</code> can see a 0 that folding a child has produced. Step through <code>(x + 1 * 0) * (0 + 1)</code>.</p>
+  </div>
+
+  <div class="fig" id="bottomup" data-title="one bottom-up pass over (x + 1 * 0) * (0 + 1)"></div>
+
+<pre class="only-python"><code>def rewrite_once(e):
+    match e:
+        case Add(a, b):
+            e = Add(rewrite_once(a), rewrite_once(b))
+        case Mul(a, b):
+            e = Mul(rewrite_once(a), rewrite_once(b))
+    new = rule(e)
+    return e if new is None else new</code></pre>
+<pre class="only-ocaml"><code>let rec rewrite_once e =
+  let e =
+    match e with
+    | Add (a, b) -&gt; Add (rewrite_once a, rewrite_once b)
+    | Mul (a, b) -&gt; Mul (rewrite_once a, rewrite_once b)
+    | Num _ | Var _ -&gt; e
+  in
+  match rule e with Some r -&gt; r | None -&gt; e</code></pre>
+  <div class="prose">
+    <p><code>rewrite_once</code> rebuilds the node from its rewritten children, then tries the rules on the rebuilt node, once. A leaf (a number or a name) has no children and no rule matches it, so it comes back as it went in.</p>
+
+    <h2>Why one pass isn't enough</h2>
+    <p>Sometimes a rule's result is itself something a rule could simplify, but the pass has already moved past that spot. Take <code>(0 + x) * (3 + -2)</code>:</p>
+  </div>
+
+  <div class="fig" id="passes" data-title="(0 + x) * (3 + -2), pass by pass"></div>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>pass</th><th>expression at the start</th><th>rules that fired</th><th>expression at the end</th><th>changed?</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>(0 + x) * (3 + -2)</code></td><td>number to the right, fold, <code>x * 1</code></td><td><code>x + 0</code></td><td>yes</td></tr>
+      <tr><td>2</td><td><code>x + 0</code></td><td><code>x + 0</code></td><td><code>x</code></td><td>yes</td></tr>
+      <tr><td>3</td><td><code>x</code></td><td>none</td><td><code>x</code></td><td>no, so stop</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>In pass 1, moving the 0 to the right <em>created</em> <code>x + 0</code>, and the <code>x * 1</code> rule then lifted that <code>x + 0</code> up to the top. No node in pass 1 was offered <code>x + 0</code> after it existed. Rewrites create new chances for other rewrites, so you can't know in advance how many passes you'll need.</p>
+  </div>
+<pre class="only-python"><code>&gt;&gt;&gt; e = Mul(Add(Num(0), Var("x")), Add(Num(3), Num(-2)))
+&gt;&gt;&gt; rewrite_once(e)
+Add(a=Var(name='x'), b=Num(n=0))</code></pre>
+<pre class="only-ocaml"><code># let e = Mul (Add (Num 0, Var "x"), Add (Num 3, Num (-2)));;
+val e : e = Mul (Add (Num 0, Var "x"), Add (Num 3, Num (-2)))
+# rewrite_once e;;
+- : e = Add (Var "x", Num 0)</code></pre>
+
+  <div class="prose">
+    <h2>The fixed-point loop</h2>
+    <p>So repeat the pass until a pass changes nothing. Sanding a table works this way: you sand, run your hand over it, and sand again until your hand finds nothing left to fix. The expression where one more pass changes nothing is a <b>fixed point</b> (also written fixpoint) of the pass.</p>
+  </div>
+<pre class="only-python"><code>def simplify(e):
+    while True:
+        new = rewrite_once(e)
+        if new == e:
+            return e
+        e = new</code></pre>
+<pre class="only-ocaml"><code>let rec simplify e =
+  let e' = rewrite_once e in
+  if e' = e then e else simplify e'</code></pre>
+<pre class="only-python"><code>&gt;&gt;&gt; simplify(e)
+Var(name='x')</code></pre>
+<pre class="only-ocaml"><code># simplify e;;
+- : e = Var "x"</code></pre>
+  <div class="prose">
+    <p>The comparison <span class="only-python"><code>new == e</code></span><span class="only-ocaml"><code>e' = e</code></span> is equality, which walks both trees. That is fine for these small examples. In your compiler, nodes are hash consed, so "did anything change?" is the identity check <span class="only-python"><code>new is e</code></span><span class="only-ocaml"><code>e' == e</code></span>, one step (<a href="../week1/03-rewrites-and-folding.html">lesson 1.3</a>).</p>
+    <p>A pass can also repeat <em>at one node</em>: after a rule fires, try the rules again on the result before moving up. <a href="../week1/03-rewrites-and-folding.html">Lesson 1.3</a> does that, and it saves whole passes. Both reach the same fixed point here.</p>
+  </div>
+
+  <div class="exercise small" data-ex="hi-03-fixpoint" data-ex-py="hi-03-fixpoint-py">
+    <h3>Repeat until nothing changes</h3>
+    <p>Write <code>fixpoint f x</code>. Apply <code>f</code> to <code>x</code>, then to the result, and so on, until applying it gives back an equal value. Return that value and the number of times <code>f</code> changed something, as a pair. Halving 100 with <code>fun n -&gt; n / 2</code> goes 50, 25, 12, 6, 3, 1, 0, and then <code>0 / 2</code> is still 0, so <code>fixpoint (fun n -&gt; n / 2) 100</code> is <code>(0, 7)</code>.</p>
+    <p class="muted">A recursive function with a counter, or a loop with two refs. Compare with <code>=</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Will it stop?</h2>
+    <p>"Repeat until nothing changes" only ends if things eventually stop changing. Here is a rule that sounds harmless, "addition doesn't care about order, so swap":</p>
+  </div>
+<pre><code>x + y  →  y + x</code></pre>
+  <div class="fig" id="loop" data-title="x + y → y + x, applied over and over"></div>
+  <div class="prose">
+    <p>The output matches the pattern again, every time. The loop never reaches a fixed point, and your compiler hangs. The cure is to make every rule <b>make progress</b>: name something that each rule makes strictly smaller, so it can't go on forever.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>rule</th><th>what gets smaller</th></tr></thead>
+    <tbody>
+      <tr><td><code>x + 0 → x</code>, <code>x * 1 → x</code></td><td>the number of nodes, by two</td></tr>
+      <tr><td><code>m + n → number</code>, <code>m * n → number</code></td><td>the number of nodes, by two</td></tr>
+      <tr><td><code>m + x → x + m</code>, only when <code>x</code> is not a number</td><td>the number of <code>+</code> nodes with a number on the left, by one</td></tr>
+      <tr><td><code>x + y → y + x</code>, always</td><td>nothing. It loops.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>The guarded swap is safe because its output has the number on the right, where the swap no longer matches. A rule that only puts things into one fixed order like this is called <b>canonicalization</b>, and it's how a compiler makes <code>3 + x</code> and <code>x + 3</code> meet.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Two rules can loop together</span>
+    <p>Each rule can be fine alone and still loop as a pair. "Move numbers to the right" plus a rule elsewhere that "moves numbers to the left" in some case will undo each other forever. When you add a rule, check its output against every other rule's pattern. While developing, give the loop a pass limit, say 1000, and raise an error past it, so a loop shows up as a message instead of a hang.</p>
+  </div>
+
+  <div class="exercise small" data-ex="hi-03-bool-simplify" data-ex-py="hi-03-bool-simplify-py">
+    <h3>Simplify true and false</h3>
+    <p>The starter has expressions over <code>T</code> (true), <code>F</code> (false), names, <code>Not</code>, <code>And</code> and <code>Or</code>, and a finished <code>rule</code> function with the usual laws (<code>x and T</code> is <code>x</code>, <code>not (not x)</code> is <code>x</code>, and so on). Its <code>simplify</code> makes one pass from the top down, so it misses chances: <code>And (Not (Not T), Var "p")</code> comes out as <code>(T and p)</code> instead of <code>p</code>.</p>
+    <p>Rewrite <code>simplify</code> so it reaches the fixed point. Leave <code>rule</code> as it is.</p>
+    <p class="muted">Bottom-up: simplify the children, rebuild the node, then apply <code>rule</code> until it returns <code>None</code>. Or keep the pass and add the loop from this page around it. Either works.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Keeping the result shared</h2>
+    <p>So far the expressions were trees. Your compiler's graphs are shared DAGs (<a href="hard-01-sharing.html">H.1</a>). <code>rewrite_once</code> as written walks a DAG like a tree: a shared node is rewritten once for every path to it, and each time it builds a <em>new</em> copy of the result. The sharing is gone, and on the doubling chain the work explodes. Step through what goes wrong and how to fix it.</p>
+  </div>
+
+  <div class="fig" id="share" data-title="rewriting s * s, where s = 2 + x"></div>
+
+  <div class="prose">
+    <p>The fix has two parts, both from earlier pages:</p>
+    <ul>
+      <li><b>A memo from old node to new node</b> (<a href="hard-02-walking-graphs.html">H.2</a>), keyed by identity. A shared node is rewritten once. Every parent that reaches it again gets the answer from the memo.</li>
+      <li><b>Build every result through the hash-consing table</b> (<a href="hard-01-sharing.html">H.1</a>), including the nodes that rules make. If a rewrite produces a node that already exists, you get the existing one back, so two parts that become equal become the <em>same</em> node.</li>
+    </ul>
+    <p>With both, a pass costs one step per distinct node, and the result is as shared as it can be. <a href="../week1/03-rewrites-and-folding.html">Lesson 1.3</a> has the course's version of this loop, walking the graph in topological order.</p>
+
+    <h2>Where this shows up in the course</h2>
+    <ul>
+      <li><a href="../week0/03-compilers-and-irs.html">Lesson 0.3</a> shows a first rewrite, <code>x * 1 → x</code>, and which float rewrites are unsafe.</li>
+      <li><a href="../week1/03-rewrites-and-folding.html">Lesson 1.3</a>: your simplifier. Rules, constant folding that must agree exactly with the interpreter, canonicalization, termination, and the shared version.</li>
+      <li><a href="../week1/04-symbolic.html">Lesson 1.4</a> adds rules that reason about ranges of values.</li>
+      <li><a href="../week3/05-rendering-loops.html">Lesson 3.5</a> and later weeks use a rewrite engine to reshape the program, not only to shrink it.</li>
+    </ul>
+
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Read a rule as a pattern and a replacement, and say what each pattern variable matched.</li>
+      <li>Write a function that tries every rule on one node and says when none fires.</li>
+      <li>Walk an expression bottom-up, rewriting children before their parent.</li>
+      <li>Explain why one pass isn't enough, and loop until a pass changes nothing.</li>
+      <li>Check that a rule makes progress, and spot a rule, or a pair of rules, that loops.</li>
+      <li>Say how a memo and the hash-consing table keep a rewritten graph shared.</li>
+    </ul>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Does the pattern <code>x * 1</code> match the node <code>(a + b) * 1</code>? If so, what is <code>x</code>?</p>
+    <div class="opts">
+      <button data-k="a">No, <code>x</code> must be a single name</button>
+      <button data-k="b">Yes, <code>x</code> is <code>a</code></button>
+      <button data-k="c">Yes, <code>x</code> is <code>a + b</code></button>
+    </div>
+    <p class="hint">A pattern variable matches anything, including a whole sub-expression.</p>
+    <div class="why"><p>The node is a <code>*</code> whose right child is the number 1, so it matches, and <code>x</code> is the whole left child, <code>a + b</code>. The replacement is <code>a + b</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="x">
+    <p class="q">With this page's rules, what does <code>simplify</code> return for <code>(x * 1) + (2 * 0)</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Bottom-up: the children first. What do <code>x * 1</code> and <code>2 * 0</code> become?</p>
+    <p class="hint">Then the parent is <code>x + 0</code>.</p>
+    <div class="why"><p><code>x * 1</code> becomes <code>x</code>, <code>2 * 0</code> folds to <code>0</code>, and the parent <code>x + 0</code> becomes <code>x</code>, all in one pass. A second pass changes nothing.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Why does <code>simplify</code> repeat <code>rewrite_once</code> instead of calling it once?</p>
+    <div class="opts">
+      <button data-k="a">To double-check that the first pass was right</button>
+      <button data-k="b">Because a rewrite can create a new match at a spot the pass has already gone past</button>
+      <button data-k="c">Because each pass applies only one rule in the whole expression</button>
+    </div>
+    <p class="hint">Look at pass 1 of <code>(0 + x) * (3 + -2)</code>. Which node existed only after the pass had moved on?</p>
+    <div class="why"><p>Moving the 0 to the right created <code>x + 0</code>, and a later rule lifted it to the top after the walk had passed it. Only another pass offers it to the rules.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">How many passes does <code>simplify</code> run on <code>(0 + x) * (3 + -2)</code>, counting the last one that changes nothing?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Look at the pass table. The loop only stops after a pass that changes nothing.</p>
+    <div class="why"><p>Three: pass 1 gives <code>x + 0</code>, pass 2 gives <code>x</code>, and pass 3 changes nothing, which is how the loop knows to stop.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">You add the rule <code>x * y → y * x</code> with no condition. What happens?</p>
+    <div class="opts">
+      <button data-k="a">The loop never reaches a fixed point</button>
+      <button data-k="b">Every multiply gets its operands sorted</button>
+      <button data-k="c">It fires once per node and then stops</button>
+    </div>
+    <p class="hint">After the swap, does the result still match the pattern?</p>
+    <div class="why"><p>The output matches the pattern again, so it fires forever. Guard it so it only fires toward one fixed order, for example only when the left side is a number and the right side is not.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Rewriting a shared DAG with the tree-style <code>rewrite_once</code>, what goes wrong?</p>
+    <div class="opts">
+      <button data-k="a">The answer is wrong</button>
+      <button data-k="b">Rules can't match shared nodes</button>
+      <button data-k="c">A shared node is rewritten once per path, and each time into a separate copy</button>
+    </div>
+    <p class="hint">How many times does a tree walk visit a node with two parents?</p>
+    <div class="why"><p>The value stays correct, but the work grows with the number of paths and the result loses its sharing. A memo from old node to new node, and building results through the hash-consing table, fix both.</p></div>
+  </div>
+
+  <nav class="pager"><a href="hard-02-walking-graphs.html">← Walking a graph once</a><a href="hard-04-numbers-like-c.html">Numbers that behave like C →</a></nav>
+</main>
+
+<script>
+(() => {
+  const { graph, stepper } = CC;
+  const N = (id, op, src, cls) => ({ id, op, src: src || [], cls: cls || '' });
+
+  const bu = [
+    { caption: 'The tree for <code>(x + 1 * 0) * (0 + 1)</code>. Bottom-up means a node is offered to the rules only after all of its children have been. Leaves match no rule.',
+      nodes: [N('x', 'x'), N('one', '1'), N('zero', '0'), N('m', '*', ['one', 'zero']), N('a', '+', ['x', 'm']), N('z', '0'), N('o', '1'), N('p', '+', ['z', 'o']), N('r', '*', ['a', 'p'])] },
+    { caption: 'The first node whose children are done is <code>1 * 0</code>. Both sides are numbers, so <b>fold</b> it to <code>0</code>.',
+      nodes: [N('x', 'x'), N('one', '1', [], 'hit'), N('zero', '0', [], 'hit'), N('m', '*', ['one', 'zero'], 'hit'), N('a', '+', ['x', 'm']), N('z', '0'), N('o', '1'), N('p', '+', ['z', 'o']), N('r', '*', ['a', 'p'])] },
+    { caption: 'Now <code>x + 0</code>. Its right child became 0 a moment ago, and <code>x + 0 → x</code> matches.',
+      nodes: [N('x', 'x'), N('c0', '0', [], 'new'), N('a', '+', ['x', 'c0'], 'hit'), N('z', '0'), N('o', '1'), N('p', '+', ['z', 'o']), N('r', '*', ['a', 'p'])] },
+    { caption: 'The <code>+</code> is replaced by <code>x</code>. Next, the right subtree: <code>0 + 1</code>. <code>x + 0</code> doesn\'t match (the 0 is on the left), but folding does: it becomes <code>1</code>.',
+      nodes: [N('x', 'x', [], 'new'), N('z', '0', [], 'hit'), N('o', '1', [], 'hit'), N('p', '+', ['z', 'o'], 'hit'), N('r', '*', ['x', 'p'])] },
+    { caption: 'Last, the root: <code>x * 1</code>. Its children are done, and <code>x * 1 → x</code> matches.',
+      nodes: [N('x', 'x'), N('c1', '1', [], 'new'), N('r', '*', ['x', 'c1'], 'hit')] },
+    { caption: 'One pass, four rewrites, and the result is <code>x</code>. Every rewrite used a child that an earlier rewrite in the same pass had produced.',
+      nodes: [N('x', 'x', [], 'new')] },
+  ];
+  stepper(document.getElementById('bottomup'), bu, (s, body) => body.append(graph(s.nodes)));
+
+  const ps = [
+    { caption: 'Pass 1 starts on <code>(0 + x) * (3 + -2)</code>.',
+      nodes: [N('z', '0'), N('x', 'x'), N('a', '+', ['z', 'x']), N('t', '3'), N('m2', '-2'), N('b', '+', ['t', 'm2']), N('r', '*', ['a', 'b'])] },
+    { caption: 'Pass 1, left child: <code>0 + x</code>. <code>x + 0</code> doesn\'t match, but "number to the right" does. It becomes <code>x + 0</code>. The pass does not look at this node again.',
+      nodes: [N('x', 'x'), N('z', '0'), N('a', '+', ['x', 'z'], 'new'), N('t', '3'), N('m2', '-2'), N('b', '+', ['t', 'm2'], 'hit'), N('r', '*', ['a', 'b'])] },
+    { caption: 'Pass 1, right child: <code>3 + -2</code> folds to <code>1</code>.',
+      nodes: [N('x', 'x'), N('z', '0'), N('a', '+', ['x', 'z']), N('one', '1', [], 'new'), N('r', '*', ['a', 'one'], 'hit')] },
+    { caption: 'Pass 1, root: <code>(x + 0) * 1</code> matches <code>x * 1</code>, with <code>x</code> standing for the whole left child. The result is <code>x + 0</code>, and pass 1 is over.',
+      nodes: [N('x', 'x'), N('z', '0'), N('a', '+', ['x', 'z'], 'hit')] },
+    { caption: 'Pass 2: <code>x + 0 → x</code>. Pass 1 created this chance but had already gone past it.',
+      nodes: [N('x', 'x', [], 'new')] },
+    { caption: 'Pass 3: no rule matches <code>x</code>. Nothing changed, so this is the fixed point.',
+      nodes: [N('x', 'x')] },
+  ];
+  stepper(document.getElementById('passes'), ps, (s, body) => body.append(graph(s.nodes)));
+
+  const ab = [N('x', 'x'), N('y', 'y'), N('p', '+', ['x', 'y'])], ba = [N('x', 'x'), N('y', 'y'), N('p', '+', ['y', 'x'])];
+  const lp = [
+    { caption: 'Start with <code>x + y</code>. The pattern <code>x + y</code> matches any addition.', nodes: ab },
+    { caption: 'Swap: <code>y + x</code>. A change, so the loop runs another pass.', nodes: ba.map(n => n.id === 'p' ? { ...n, cls: 'new' } : n) },
+    { caption: 'The pattern matches <code>y + x</code> too. Swap: <code>x + y</code>, which is where you started.', nodes: ab.map(n => n.id === 'p' ? { ...n, cls: 'new' } : n) },
+    { caption: 'Swap again: <code>y + x</code>. Every pass changes something, so "repeat until nothing changes" repeats forever.', nodes: ba.map(n => n.id === 'p' ? { ...n, cls: 'bad' } : n) },
+  ];
+  stepper(document.getElementById('loop'), lp, (s, body) => body.append(graph(s.nodes)));
+
+  const sh = [
+    { caption: 'A shared DAG: <code>s = 2 + x</code>, and the result is <code>s * s</code>. The rule "number to the right" matches <code>s</code>.',
+      nodes: [N('two', '2'), N('x', 'x'), N('s', '+', ['two', 'x'], 'hit'), N('m', '*', ['s', 's'])] },
+    { caption: '<b>Tree-style.</b> The walk reaches <code>s</code> once through each arrow and rewrites it twice. Each time it builds a fresh <code>x + 2</code>. Two copies: the sharing is lost, and the work doubled.',
+      nodes: [N('x', 'x'), N('two', '2'), N('s1', '+', ['x', 'two'], 'new'), N('s2', '+', ['x', 'two'], 'new'), N('m', '*', ['s1', 's2'])] },
+    { caption: '<b>With a memo and the table.</b> The first visit rewrites <code>s</code> and records "old s → new node". The second arrow finds the answer in the memo. The new <code>x + 2</code> was built through the hash-consing table, so even a rebuild would get the same node back. One node, still shared.',
+      nodes: [N('x', 'x'), N('two', '2'), N('s', '+', ['x', 'two'], 'new'), N('m', '*', ['s', 's'])] },
+  ];
+  stepper(document.getElementById('share'), sh, (s, body) => body.append(graph(s.nodes)));
+})();
+</script>
+</body>
+</html>
