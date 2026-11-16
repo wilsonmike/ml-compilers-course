@@ -84,6 +84,7 @@ an executable `mlc` script on macOS and Linux).
 | `tools/build_helpers.py`, `tools/build_static.py` | generate the test guides and the exercise data for the hosted site |
 | `tools/check.py` | every check, in one command (below) |
 | `site/vendor/codemirror/` | CodeMirror 5.65.16 (MIT), vendored so nothing loads from a CDN |
+| `site/vendor/fonts/` | the Geist and Geist Mono fonts (SIL Open Font License, `OFL.txt`), served from the site itself |
 | `_reference/` | **spoilers.** The reference compiler, the exercise answers, and the mutation harness. |
 
 ## Checking a change
@@ -112,7 +113,8 @@ what `tools/check.py` uses.
 ## Contributing
 
 Fixes to lessons, tests, and specs are welcome. Run `python tools/check.py` before a pull request, and
-`python tools/build_seo.py` if you added or renamed a page.
+`python tools/build_seo.py` if you added or renamed a page or changed `site/assets/course.css` or `course.js` (it stamps
+their version into every page, so browsers can cache them for a year and still get each change).
 
 ## License
 

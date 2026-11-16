@@ -18,6 +18,14 @@ def digest(folder):
     for f in sorted(fs): h.update(f.encode()); h.update(open(os.path.join(d, f), 'rb').read())
   return h.hexdigest()
 
+def heads():
+  h = hashlib.sha256()
+  for d, _, fs in sorted(os.walk(os.path.join(ROOT, 'site'))):
+    for f in sorted(fs):
+      if f.endswith('.html'): h.update(f.encode()); h.update(open(os.path.join(d, f), 'rb').read())
+  for f in ('sitemap.xml', 'robots.txt', 'llms.txt'): h.update(open(os.path.join(ROOT, f), 'rb').read())
+  return h.hexdigest()
+
 def main():
   ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
   ap.add_argument('--full', action='store_true'); ap.add_argument('--ocaml')
@@ -41,6 +49,9 @@ def main():
   subprocess.run([PY, 'tools/build_static.py'], cwd=ROOT, capture_output=True)
   results.append(('site/data/ex is up to date', 0 if digest(data) == before else 1,
                   'it was stale: tools/build_static.py has now rebuilt it, so commit the change', 0))
+  pages = heads(); subprocess.run([PY, 'tools/build_seo.py'], cwd=ROOT, capture_output=True)
+  results.append(('page heads and asset versions are up to date', 0 if heads() == pages else 1,
+                  'they were stale: tools/build_seo.py has now rebuilt them, so commit the change', 0))
   bad = 0
   for name, rc, out, dt in results:
     print(f"{'ok  ' if rc == 0 else 'FAIL'}  {name}" + (f"  ({dt:.0f} s)" if dt >= 1 else ''))

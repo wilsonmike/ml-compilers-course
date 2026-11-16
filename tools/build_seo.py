@@ -3,7 +3,7 @@
 #   sitemap.xml, robots.txt, llms.txt   at the repo root
 #   a <!-- seo --> block in each page head: description, canonical URL, Open Graph tags
 # Run after adding, renaming or rewording a page: python tools/build_seo.py
-import html, pathlib, re
+import hashlib, html, pathlib, re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASE = 'https://sharpterminal.com'
@@ -44,6 +44,17 @@ def info(p):
   title = re.search(r'<title>(.*?)</title>', src, re.S)
   return src, text(title.group(1)), text(h1.group(1)) if h1 else text(title.group(1)), text(lede.group(1)) if lede else ''
 
+ASSETS = ROOT / 'site' / 'assets'
+VERSION = {n: hashlib.sha256((ASSETS / n).read_bytes()).hexdigest()[:10] for n in ('course.css', 'course.js')}
+PRELOAD = ('geist-latin.woff2', 'geist-mono-latin.woff2')
+
+def up(p):
+  return '../' * (len(p.relative_to(ROOT / 'site').parts) - 1)
+
+def stamp(src):
+  return re.sub(r'((?:href|src)="(?:\.\./)*assets/(course\.(?:css|js)))(?:\?v=[0-9a-f]+)?"',
+                lambda m: f'{m.group(1)}?v={VERSION[m.group(2)]}"', src)
+
 def seo_block(p, title, desc):
   a = lambda s: html.escape(s, quote=True)
   u = url(p)
@@ -56,7 +67,8 @@ def seo_block(p, title, desc):
     f'<meta property="og:description" content="{a(clip(desc, 200))}">\n'
     f'<meta property="og:url" content="{u}">\n'
     '<meta name="twitter:card" content="summary">\n'
-    '<!-- /seo -->\n')
+    + ''.join(f'<link rel="preload" href="{up(p)}vendor/fonts/{f}" as="font" type="font/woff2" crossorigin>\n' for f in PRELOAD)
+    + '<!-- /seo -->\n')
 
 pages = sorted(ROOT.glob('site/**/*.html'), key=lambda p: (not (p.name == 'index.html' and p.parent.name == 'site'), p.as_posix()))
 groups = {}
@@ -65,6 +77,7 @@ for p in pages:
   block = seo_block(p, title, lede)
   src = re.sub(r'<!-- seo: .*?<!-- /seo -->\n', '', src, flags=re.S)
   src = re.sub(r'(<title>.*?</title>\n)', lambda m: m.group(1) + block, src, count=1, flags=re.S)
+  src = stamp(src)
   p.write_text(src, encoding='utf-8', newline='\n')
   groups.setdefault(p.parent.name, []).append((p, h1, lede))
 
