@@ -5,19 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Quiz Review</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Every quiz from a week on one page. Answer them again before the lab, or bring back only the ones you didn&#x27;t get right the first time.">
+<meta name="description" content="Questions you&#x27;ve answered come back here on a schedule, so they stick. You can also go through every quiz from a week, or only the ones you missed.">
 <link rel="canonical" href="https://sharpterminal.com/site/resources/review">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Quiz Review">
-<meta property="og:description" content="Every quiz from a week on one page. Answer them again before the lab, or bring back only the ones you didn&#x27;t get right the first time.">
+<meta property="og:description" content="Questions you&#x27;ve answered come back here on a schedule, so they stick. You can also go through every quiz from a week, or only the ones you missed.">
 <meta property="og:url" content="https://sharpterminal.com/site/resources/review">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=a742b62d77">
-<script src="../assets/course.js?v=eb6dd68116"></script>
+<link rel="stylesheet" href="../assets/course.css?v=06043d0383">
+<script src="../assets/course.js?v=6d0b43a0c1"></script>
 <style>
   .review-bar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin: 0 0 var(--s5); }
   .review-bar .seg button { padding: 4px var(--s3); }
@@ -29,20 +29,21 @@
 <body data-root="../">
 <main>
   <h1>Quiz review</h1>
-  <p class="lede">Every quiz from a week on one page. Answer them again before the lab, or bring back only the ones you didn't get right the first time.</p>
+  <p class="lede">Questions you've answered come back here on a schedule, so they stick. You can also go through every quiz from a week, or only the ones you missed.</p>
 
-  <div class="note">
+  <div class="note" id="missed-note">
     <span class="label">How "missed" works</span>
     <p>A quiz counts as missed when you answered it wrong first, or used Show answer, in a lesson or here. Answer it right on the first try and it drops off the list. The list lives in this browser only.</p>
   </div>
 
   <div class="review-bar">
-    <label for="week" class="muted">Week</label>
-    <select id="week" class="sel"></select>
     <div class="seg" role="group" aria-label="Which quizzes">
+      <button type="button" data-mode="due">Due today</button>
       <button type="button" data-mode="all">All</button>
       <button type="button" data-mode="missed">Only missed</button>
     </div>
+    <label for="week" class="muted">Week</label>
+    <select id="week" class="sel"></select>
     <button type="button" class="btn" id="shuffle">Shuffle</button>
   </div>
   <p class="score"></p>
@@ -54,7 +55,7 @@
   const weeks = NAV.filter(g => /^Week \d/.test(g.title)).concat(NAV.filter(g => /^(Learn|Hard)/.test(g.title)));
   const params = new URLSearchParams(location.search);
   let week = Math.min(Math.max(parseInt(params.get('week') || '1', 10) || 0, 0), weeks.length - 1);
-  let mode = params.get('mode') === 'missed' ? 'missed' : 'all';
+  let mode = ['missed', 'due', 'all'].includes(params.get('mode')) ? params.get('mode') : (params.has('week') ? 'all' : 'due');
   let shuffle = params.get('shuffle') === '1';
   const sel = document.getElementById('week'), box = document.getElementById('quizzes');
   weeks.forEach((g, i) => sel.append(h('option', { value: String(i), text: g.title })));
@@ -65,9 +66,12 @@
   document.getElementById('shuffle').onclick = () => { shuffle = !shuffle; go(); };
   document.getElementById('shuffle').textContent = shuffle ? 'In lesson order' : 'Shuffle';
 
+  if (mode === 'due') { sel.hidden = true; document.querySelector('label[for=week]').hidden = true; document.getElementById('missed-note').hidden = true; }
   async function load() {
-    const groups = [];
-    for (const [href, title, n] of weeks[week].items) {
+    const allDue = CC.dueQuizzes(), due = new Set(allDue.slice(0, CC.REVIEW_MAX)), groups = [];
+    const all = NAV.flatMap(g => g.items).filter(i => i[2]);
+    const pages = mode === 'due' ? all.filter(([href]) => [...due].some(q => q.startsWith(href + '#'))) : weeks[week].items;
+    for (const [href, title, n] of pages) {
       try {
         const html = await fetch('../' + href).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
         const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -76,11 +80,29 @@
       } catch (e) { groups.push({ href, title, n, qs: [], err: e.message }); }
     }
     let items = groups.flatMap(g => g.qs.map(q => ({ g, q })));
+    if (mode === 'due') {
+      const found = new Set(items.map(({ q }) => q.dataset.qid));
+      groups.filter(g => !g.err).forEach(g => due.forEach(q => { if (q.startsWith(g.href + '#') && !found.has(q)) CC.forget(q); }));
+      items = items.filter(({ q }) => due.has(q.dataset.qid) && !q.closest(CC.track() === 'python' ? '.only-ocaml' : '.only-python'));
+    }
     if (mode === 'missed') items = items.filter(({ q }) => store.get('cc-missed:' + q.dataset.qid));
     if (shuffle) for (let i = items.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [items[i], items[j]] = [items[j], items[i]]; }
     box.replaceChildren();
     if (groups.some(g => g.err)) box.append(h('p', { class: 'empty', text: 'Some lessons could not be loaded. The review page needs the course server: python tools/serve.py' }));
-    if (!items.length) { box.append(h('p', { class: 'empty', text: mode === 'missed' ? 'Nothing missed in this week. Try "All", or another week.' : 'No quizzes found.' })); document.querySelector('.score').textContent = ''; return; }
+    if (!items.length) { box.append(h('p', { class: 'empty', text: mode === 'due' ? 'Nothing is due today. Answer quizzes in the lessons and they will come back here when it is time.' : mode === 'missed' ? 'Nothing missed in this week. Try "All", or another week.' : 'No quizzes found.' })); document.querySelector('.score').textContent = ''; return; }
+    if (mode === 'due') {
+      if (allDue.length > due.size) box.append(h('p', { class: 'muted', text: `Here are the ${due.size} that have waited longest, out of ${allDue.length} due. The rest come up next time, so a short session every day or two keeps the pile small.` }));
+      const end = h('div', { class: 'note review-done', hidden: '' });
+      const when = d => { const days = Math.round((new Date(d + 'T12:00:00') - new Date(CC.today() + 'T12:00:00')) / 864e5); return days <= 1 ? 'tomorrow' : `in ${days} days`; };
+      document.addEventListener('cc-progress', () => {
+        if (!end.hidden || box.querySelectorAll('.quiz:not(.done)').length) return;
+        const nr = CC.nextReview(), nx = CC.pathNext(), left = CC.dueQuizzes().length;
+        end.replaceChildren(h('span', { class: 'label', text: 'Review done' }),
+          h('p', {}, left ? `${left} more ${left === 1 ? 'question is' : 'questions are'} due. ` : '', left ? h('span', {}, h('a', { href: '?mode=due', text: 'Do another round' }), '.') : (nr ? `The next questions come back ${when(nr)}.` : ''),
+            nx ? h('span', {}, left || nr ? ' Or carry on with ' : 'Carry on with ', h('a', { href: '../' + nx[0], text: `${nx[2]} ${nx[1]}` }), '.') : ''));
+        end.hidden = false; end.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+      setTimeout(() => box.append(end));
+    }
     let last = null;
     for (const { g, q } of items) {
       if (shuffle || g !== last) box.append(h('p', { class: 'from' }, `${g.n || ''} `, h('a', { href: '../' + g.href, text: g.title })));

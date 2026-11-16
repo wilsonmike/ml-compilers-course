@@ -114,6 +114,44 @@ const CC = (() => {
   const TOUCH = matchMedia('(pointer: coarse)').matches || /[?&]touch=1/.test(location.search);
   if (TOUCH) document.documentElement.classList.add('touch');
 
+  const today = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const addDays = (n, d = new Date()) => { const x = new Date(d); x.setDate(x.getDate() + n); return today(x); };
+  const readJSON = (k, d) => { try { const v = JSON.parse(store.get(k)); return v == null ? d : v; } catch { return d; } };
+  const keysWith = prefix => { const out = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(prefix)) out.push(k); } } catch {} return out; };
+  const changed = () => document.dispatchEvent(new Event('cc-progress'));
+  function studied() { const ds = readJSON('cc-days', []), t = today(); if (ds[ds.length - 1] !== t) { ds.push(t); store.set('cc-days', JSON.stringify(ds.slice(-400))); } }
+  const isDone = href => !!store.get('cc-done:' + href);
+  function setDone(href, on) { if (on) { if (!isDone(href)) store.set('cc-done:' + href, today()); studied(); } else { try { localStorage.removeItem('cc-done:' + href); } catch {} } changed(); }
+  const GAPS = [1, 3, 7, 16, 35, 90];
+  function schedule(qid, ok) {
+    const r = readJSON('cc-q:' + qid, null);
+    studied();
+    if (ok && r && r.due > today()) return;
+    const b = ok ? Math.min((r ? r.b : 0) + 1, GAPS.length - 1) : 0;
+    store.set('cc-q:' + qid, JSON.stringify({ b, due: addDays(GAPS[b]) }));
+  }
+  const REVIEW_MAX = 10;
+  const dueQuizzes = () => keysWith('cc-q:').map(k => [k.slice(5), readJSON(k, {}).due || '9']).filter(([, d]) => d <= today()).sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)).map(([q]) => q);
+  const nextReview = () => keysWith('cc-q:').map(k => readJSON(k, {}).due).filter(d => d && d > today()).sort()[0] || null;
+  const forget = qid => { try { localStorage.removeItem('cc-q:' + qid); } catch {} };
+
+  const langLesson = () => (track() === 'python' ? 'week0/07-python.html' : 'week0/06-ocaml.html');
+  const onTrack = ([href]) => !/^week0\/0[67]-/.test(href) || href === langLesson();
+  const weeksFrom = n => NAV.filter(g => { const m = /^Week (\d+)/.exec(g.title); return m && +m[1] >= n; });
+  const langName = () => (track() === 'python' ? 'Python' : 'OCaml');
+  const PATHS = {
+    new: { name: 'I’m new to programming', short: 'new to programming', about: () => `Learn ${langName()} from the start, then four hard ideas slowly, then week 0 and the compiler.`,
+      groups: () => [NAV.find(g => g.track === track()), NAV.find(g => g.title.startsWith('Hard ideas')), ...weeksFrom(0)] },
+    coder: { name: 'I can already program', short: 'can already program', about: () => 'Start at week 0 (C, memory, IRs and matrix math), then build the compiler week by week.',
+      groups: () => weeksFrom(0) },
+    expert: { name: 'I know C and compilers', short: 'know C and compilers', about: () => `Set up ${langName()} in lesson ${track() === 'python' ? '0.7' : '0.6'}, then go straight to week 1.`,
+      groups: () => [{ title: 'Week 0 · Prerequisites', items: NAV.flatMap(g => g.items).filter(([href]) => href === langLesson()) }, ...weeksFrom(1)] },
+  };
+  const pathId = () => (PATHS[store.get('cc-path')] ? store.get('cc-path') : null);
+  const pathItems = id => PATHS[id].groups().flatMap(g => g.items.filter(onTrack).map(i => [...i, g.title]));
+  const nextUp = (id, after) => { const items = pathItems(id), i = after ? items.findIndex(x => x[0] === after) : -1;
+    return items.slice(i + 1).find(x => !isDone(x[0])) || (after ? null : items.find(x => !isDone(x[0]))) || null; };
+
   // ---- runner (tools/serve.py) ----
   let runnerP = null;
   const runner = () => runnerP ||= (location.protocol.startsWith('http')
@@ -124,19 +162,33 @@ const CC = (() => {
   function frame() {
     const b = document.body, root = ROOT(), cur = here(), main = document.querySelector('main');
     const prog = href => { try { return JSON.parse(store.get('cc-prog:' + href) || 'null'); } catch { return null; } };
-    const item = ([href, title, n]) => { const p = prog(href);
-      return h('li', {}, h('a', { href: root + href, class: cur && cur[1][0] === href ? 'on' : null, 'aria-current': cur && cur[1][0] === href ? 'page' : null },
-        n ? h('span', { class: 'n', text: n }) : null, h('span', { text: title }),
-        p && p.s > 0 ? h('span', { class: 'prog' + (p.s >= p.t ? ' done' : ''), text: p.s >= p.t ? '✓' : `${p.s}/${p.t}` }) : null)); };
+    const item = ([href, title, n]) => h('li', {}, h('a', { href: root + href, 'data-href': n ? href : null, class: cur && cur[1][0] === href ? 'on' : null, 'aria-current': cur && cur[1][0] === href ? 'page' : null },
+      n ? h('span', { class: 'n', text: n }) : null, h('span', { text: title }), n ? h('span', { class: 'prog' }) : null));
+    const top = h('ul', { class: 'top' });
     const nav = h('nav', { 'aria-label': 'Lessons' }, NAV.filter(g => !g.track || g.track === track() || (cur && cur[0] === g)).map(g => {
-      if (g.title === 'Start here') return h('ul', { class: 'top' }, g.items.map(item));
+      if (g.title === 'Start here') { top.append(...g.items.map(item)); return top; }
       const gk = 'cc-grp:' + g.title, closed = store.get(gk) === '0';
       const grp = h('div', { class: 'grp' + (closed ? ' closed' : '') });
       grp.append(h('button', { type: 'button', 'aria-expanded': String(!closed), onclick: () => {
         const c = grp.classList.toggle('closed'); grp.firstChild.setAttribute('aria-expanded', String(!c)); store.set(gk, c ? '0' : '1'); } },
-        h('span', { class: 'chev', 'aria-hidden': 'true' }, h('svg', { width: 10, height: 10, viewBox: '0 0 10 10' }, h('path', { d: 'M2 3.5l3 3 3-3', stroke: 'currentColor', 'stroke-width': 1.5, fill: 'none' }))), g.title));
+        h('span', { class: 'chev', 'aria-hidden': 'true' }, h('svg', { width: 10, height: 10, viewBox: '0 0 10 10' }, h('path', { d: 'M2 3.5l3 3 3-3', stroke: 'currentColor', 'stroke-width': 1.5, fill: 'none' }))),
+        h('span', { text: g.title }), h('span', { class: 'gcount' })));
       grp.append(h('ul', {}, g.items.map(item)));
       return grp; }));
+    const paintSide = () => {
+      nav.querySelectorAll('a[data-href]').forEach(a => { const href = a.dataset.href, p = prog(href), m = a.querySelector('.prog');
+        const all = p && p.t && p.s >= p.t, d = isDone(href) || all;
+        m.className = 'prog' + (d ? ' done' : ''); m.textContent = d ? '✓' : p && p.s > 0 ? `${p.s}/${p.t}` : '';
+        m.title = d ? 'Done' : p && p.s > 0 ? `${p.s} of ${p.t} exercises solved` : ''; });
+      nav.querySelectorAll('.grp').forEach(g => { const ls = [...g.querySelectorAll('a[data-href]')].filter(a => onTrack([a.dataset.href]));
+        const k = ls.filter(a => a.querySelector('.prog.done')).length, c = g.querySelector('.gcount');
+        c.textContent = k ? `${k}/${ls.length}` : ''; c.title = k ? `${k} of ${ls.length} lessons done` : ''; });
+      top.querySelectorAll('.extra').forEach(x => x.remove());
+      const pid = pathId(), nx = pid && nextUp(pid), due = dueQuizzes().length;
+      if (nx && !(cur && cur[1][0] === nx[0])) top.append(h('li', { class: 'extra' }, h('a', { href: root + nx[0], title: 'The next lesson on your path' }, h('span', { class: 'n', text: '→' }), h('span', { text: `Next: ${nx[2]} ${nx[1]}` }))));
+      if (due) top.append(h('li', { class: 'extra' }, h('a', { href: root + 'resources/review.html?mode=due', title: 'Quiz questions due for review' }, h('span', { class: 'n', text: '↺' }), h('span', { text: 'Review' }), h('span', { class: 'prog', text: String(due) })))); };
+    paintSide();
+    document.addEventListener('cc-progress', paintSide);
     const search = h('input', { type: 'search', placeholder: 'Search lessons', 'aria-label': 'Search lessons', oninput: () => {
       const q = search.value.trim().toLowerCase();
       nav.querySelectorAll('li').forEach(li => (li.hidden = q && !li.textContent.toLowerCase().includes(q)));
@@ -167,15 +219,97 @@ const CC = (() => {
     if (main) { if (!main.id) main.id = 'main'; main.tabIndex = -1; b.prepend(h('a', { class: 'skip', href: '#' + main.id, text: 'Skip to content' })); }
     const onLink = side.querySelector('nav a.on');
     if (onLink && side.scrollHeight > side.clientHeight) side.scrollTop = onLink.getBoundingClientRect().top - side.getBoundingClientRect().top - side.clientHeight / 3;
+    const you = document.getElementById('you'); if (you) homePanel(you);
     if (main) toc(main, page);
-    document.querySelectorAll('[data-prog]').forEach(a => { const p = prog(a.dataset.prog);
-      a.append(h('span', { class: 'p' + (p && p.s >= p.t && p.t ? ' done' : ''), text: p && p.s ? (p.s >= p.t ? 'Done' : `${p.s}/${p.t}`) : '' })); });
+    document.querySelectorAll('[data-prog]').forEach(a => { const p = prog(a.dataset.prog), d = isDone(a.dataset.prog) || (p && p.t && p.s >= p.t);
+      a.append(h('span', { class: 'p' + (d ? ' done' : ''), text: d ? 'Done' : p && p.s ? `${p.s}/${p.t}` : '' })); });
+    if (main && cur && cur[1][2]) lessonTools(main, cur);
     // the drawer is modal on small screens: lock the page behind it, close on Escape or on navigation
     const setOpen = open => { app.classList.toggle('open', open); wrap.inert = open; menu.setAttribute('aria-expanded', String(open)); if (open) (side.querySelector('nav a.on') || side.querySelector('nav a'))?.focus(); };
-    menu.onclick = () => setOpen(true); scrim.onclick = () => setOpen(false);
+    const desk = matchMedia('(min-width: 901px)');
+    const paintMenu = () => { const off = app.classList.contains('side-off'), l = desk.matches ? (off ? 'Show lessons' : 'Hide lessons') : 'Open lessons';
+      menu.setAttribute('aria-label', l); menu.title = desk.matches ? `${l} (${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'}+\\)` : l;
+      if (desk.matches) menu.setAttribute('aria-expanded', String(!off)); };
+    const toggleSide = () => { const off = app.classList.toggle('side-off'); store.set('cc-side', off ? '0' : '1'); paintMenu(); };
+    if (store.get('cc-side') === '0') app.classList.add('side-off');
+    paintMenu(); desk.addEventListener('change', paintMenu);
+    menu.onclick = () => (desk.matches ? toggleSide() : setOpen(true)); scrim.onclick = () => setOpen(false);
     side.addEventListener('click', e => { if (e.target.closest('a')) setOpen(false); });
+    addEventListener('keydown', e => { if (e.key === '\\' && (e.ctrlKey || e.metaKey) && desk.matches) { e.preventDefault(); toggleSide(); } });
     addEventListener('keydown', e => { if (e.key === 'Escape' && app.classList.contains('open')) { setOpen(false); menu.focus(); } });
     matchMedia('(min-width: 901px)').addEventListener('change', e => e.matches && setOpen(false));
+  }
+
+  const onPage = q => !q.closest(track() === 'python' ? '.only-ocaml' : '.only-python');
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('z') ? 'zes' : 's'}`;
+
+  function lessonTools(main, cur) {
+    const href = cur[1][0], root = ROOT();
+    const words = (main.textContent || '').split(/\s+/).filter(Boolean).length;
+    const nq = [...main.querySelectorAll('.quiz')].filter(onPage).length, nx = main.querySelectorAll('.exercise[data-ex]').length;
+    const figs = main.querySelectorAll('.fig, figure, table').length, lab = /^Lab:/.test(cur[1][1]);
+    const mins = Math.max(10, Math.round((words / 140 + figs * 1.5 + nq + nx * 6) / 5) * 5);
+    const state = h('span', { class: 'state' });
+    const meta = h('p', { class: 'lesson-meta' }, h('span', { text: lab ? `About ${mins} min to read, then the build` : `About ${mins} min` }), nq ? h('span', { text: plural(nq, 'quiz') }) : null, nx ? h('span', { text: plural(nx, 'exercise') }) : null, state);
+    (main.querySelector('.lede') || main.querySelector('h1')).after(meta);
+    const pager = main.querySelector('nav.pager');
+    const fin = h('div', { class: 'finish' });
+    const paint = () => {
+      const d = isDone(href), pid = pathId(), nx1 = pid && nextUp(pid, href), pn = pager && pager.querySelector('a:last-child:not(:first-child)');
+      const nxt = nx1 && !(pn && new URL(pn.href, location.href).pathname.replace(/\.html$/, '') === new URL(root + nx1[0], location.href).pathname.replace(/\.html$/, '')) ? nx1 : null;
+      state.textContent = d ? '✓ Done' : ''; state.hidden = !d;
+      fin.replaceChildren(...(d
+        ? [h('span', { class: 'ok', text: '✓ Lesson done' }), nxt ? h('a', { href: root + nxt[0], text: `Next on your path: ${nxt[2]} ${nxt[1]} →` }) : null,
+           h('button', { type: 'button', class: 'linkish', text: 'Undo', onclick: () => setDone(href, false) })]
+        : [h('button', { type: 'button', class: 'btn', text: 'Mark lesson as done', onclick: () => setDone(href, true) }),
+           nq ? h('span', { class: 'muted', text: 'It also counts as done once you’ve answered every quiz.' }) : null]).filter(Boolean));
+    };
+    if (pager) pager.before(fin); else main.append(fin);
+    paint(); document.addEventListener('cc-progress', paint);
+  }
+
+  function homePanel(el) {
+    const root = ROOT(), pid = pathId(), acts = document.querySelector('main .actions');
+    if (acts) { acts.dataset.html ||= acts.innerHTML; const nx0 = pid && nextUp(pid);
+      if (nx0) acts.replaceChildren(h('a', { class: 'btn primary', href: root + nx0[0], text: `Continue with ${nx0[2]} ${nx0[1]}` }));
+      else acts.innerHTML = acts.dataset.html; }
+    const heading = t => { const x = h('h2', { id: 'progress', text: t }); const a = document.querySelector('.toc a[href="#progress"]'); if (a) a.textContent = t; return x; };
+    if (!pid) {
+      el.replaceChildren(heading('Where do you want to start?'),
+        h('p', { text: 'Pick the one that sounds most like you. It sets the order of lessons and what comes next. You can change it any time.' }),
+        h('p', { class: 'pick-lang' }, h('label', { for: 'pick-lang', text: 'You’ll write code in' }), (() => { const x = trackSelect('sel'); x.id = 'pick-lang'; return x; })(),
+          h('span', { class: 'muted', text: 'Python is the usual choice. OCaml is there if you’d like it.' })),
+        h('ul', { class: 'paths' }, Object.entries(PATHS).map(([k, p]) => { const items = pathItems(k);
+          return h('li', {}, h('button', { type: 'button', onclick: () => { store.set('cc-path', k); homePanel(el); changed(); } },
+            h('span', { class: 't', text: p.name }), h('span', { class: 'd', text: p.about() }),
+            h('span', { class: 'c', text: `${items.length} lessons, starting with ${items[0][2]} ${items[0][1]}` }))); })));
+      return;
+    }
+    const items = pathItems(pid), done = items.filter(x => isDone(x[0])).length, nx = nextUp(pid);
+    const days = new Set(readJSON('cc-days', [])), now = new Date(), dow = (now.getDay() + 6) % 7, t = today();
+    const week = [...Array(7)].map((_, i) => addDays(i - dow));
+    const thisWeek = week.filter(d => days.has(d)).length, lastWeek = [...Array(7)].map((_, i) => addDays(i - dow - 7)).filter(d => days.has(d)).length;
+    const due = dueQuizzes().length, fresh = !done && !days.size && !due && !keysWith('cc-q:').length;
+    el.replaceChildren(...[heading('Your progress'),
+      h('div', { class: 'you' + (fresh ? ' fresh' : '') },
+        nx ? h('a', { class: 'you-next', href: root + nx[0] }, h('span', { class: 'label', text: 'Next up' }), h('span', { class: 't', text: `${nx[2]} ${nx[1]}` }), h('span', { class: 'd', text: nx[3] }))
+           : h('div', { class: 'you-next' }, h('span', { class: 'label', text: 'Path finished' }), h('span', { class: 't', text: 'You’ve done every lesson on this path.' })),
+        h('div', { class: 'you-cell' }, h('span', { class: 'label', text: 'Your path' }),
+          h('span', { class: 'v', text: `${done} of ${items.length} lessons` }),
+          h('span', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(items.length), 'aria-valuenow': String(done), 'aria-label': 'Lessons done on your path' },
+            h('span', { style: `width:${(100 * done / items.length).toFixed(1)}%` }))),
+        h('div', { class: 'you-cell' }, h('span', { class: 'label', text: 'This week' }),
+          h('span', { class: 'days', role: 'img', 'aria-label': `Studied ${plural(thisWeek, 'day')} this week` }, week.map((d, i) =>
+            h('span', { class: 'day' + (days.has(d) ? ' on' : '') + (d === t ? ' now' : '') + (d > t ? ' later' : ''), title: d, text: 'MTWTFSS'[i] }))),
+          h('span', { class: 'd', text: (thisWeek ? `${plural(thisWeek, 'day')} so far` : 'Nothing yet this week') + (lastWeek ? `, ${lastWeek} last week` : '') })),
+        h('div', { class: 'you-cell you-rev' }, h('span', { class: 'label', text: 'Review' }),
+          due ? h('span', { class: 'v', text: `${plural(due, 'question')} due` }) : h('span', { class: 'v', text: 'Nothing due' }),
+          due ? h('a', { class: 'btn primary', href: root + 'resources/review.html?mode=due', text: due > REVIEW_MAX ? `Review ${REVIEW_MAX} now, about ${REVIEW_MAX / 2} min` : `Review now, about ${Math.max(1, Math.ceil(due / 2))} min` })
+              : h('span', { class: 'd', text: 'Quiz questions come back after 3 days if you got them right, the next day if not, and then at longer gaps.' }))),
+      fresh ? h('p', { class: 'muted', text: 'Your progress, the days you study and the questions to review will show up here once you start.' }) : null,
+      h('p', { class: 'muted you-foot' }, `Your path: ${PATHS[pid].short}. `,
+        h('button', { type: 'button', class: 'linkish', text: 'Change path', onclick: () => { try { localStorage.removeItem('cc-path'); } catch {} homePanel(el); changed(); } }),
+        ' · Progress is saved in this browser only.')].filter(Boolean));
   }
 
   // "On this page": every h2, with the one you're reading highlighted
@@ -299,16 +433,20 @@ const CC = (() => {
   function quizzes(root = document) {
     const all = [...root.querySelectorAll('.quiz')]; let first = 0, done = 0;
     const page = here(); const pageKey = page ? page[1][0] : location.pathname;
+    const lessonKey = root === document && page && page[1][2] ? page[1][0] : null;
     all.forEach(q => { if (!q.dataset.qid) q.dataset.qid = quizId(pageKey, q); });
     // the score counts only quizzes on the reader's language track (ids above still index every quiz, so they stay stable)
     const n = all.filter(q => !q.closest(track() === 'python' ? '.only-ocaml' : '.only-python')).length;
-    const tally = () => document.querySelectorAll('.score').forEach(s => (s.textContent = `${first} / ${n} first try` + (done < n ? ` · ${n - done} to go` : '')));
+    const before = new Set(lessonKey ? all.filter(q => store.get('cc-q:' + q.dataset.qid)).map(q => q.dataset.qid) : []);
+    const tally = () => { const left = all.filter(q => onPage(q) && !q.classList.contains('done') && !before.has(q.dataset.qid)).length;
+      document.querySelectorAll('.score').forEach(s => (s.textContent = `${first} / ${n} first try` + (left ? ` · ${left} to go` : done < n ? ' · the rest answered on an earlier visit' : ''))); };
     all.forEach(q => {
       const hints = [...q.querySelectorAll('.hint')]; let tries = 0, seen = 0, nudged = false;
       const msg = h('span', { class: 'qmsg', 'aria-live': 'polite' });
       const hintB = hints.length ? h('button', { class: 'btn', type: 'button', text: hints.length > 1 ? `Hint 1 of ${hints.length}` : 'Hint' }) : null;
       const showB = h('button', { class: 'btn quiet', type: 'button', text: 'Show answer' });
       const bar = h('div', { class: 'qactions' }, hintB, showB, msg);
+      if (before.has(q.dataset.qid)) { msg.textContent = 'You answered this before. Try it again from memory.'; msg.className = 'qmsg'; }
       const why0 = q.querySelector('.why'); if (why0) why0.before(bar); else q.append(bar);
       const mc = !!q.dataset.answer, opts = [...q.querySelectorAll('.opts button')];
       const inp = q.querySelector('.fill input'), checkB = q.querySelector('.fill button');
@@ -317,12 +455,14 @@ const CC = (() => {
         if (q.classList.contains('done')) return;
         q.classList.add('done'); done++; if (how === 'first') first++;
         try { if (how === 'first') localStorage.removeItem('cc-missed:' + q.dataset.qid); else localStorage.setItem('cc-missed:' + q.dataset.qid, '1'); } catch {}
+        schedule(q.dataset.qid, how === 'first');
         opts.forEach(o => { o.disabled = true; if (o.dataset.k === q.dataset.answer) o.classList.add('right'); });
         if (inp) { inp.disabled = checkB.disabled = true; if (how === 'shown') inp.value = q.dataset.fill.split('|')[0].trim(); inp.classList.toggle('good', how !== 'shown'); }
         bar.remove(); hints.forEach(x => x.classList.add('shown'));
         const w = q.querySelector('.why') || q.appendChild(h('div', { class: 'why' }));
         w.prepend(h('span', { class: 'verdict ' + (how === 'shown' ? 'shown' : 'ok'), text: how === 'first' ? 'Right.' : how === 'later' ? `Right, on try ${tries + 1}.` : 'Answer shown.' }));
         tally();
+        if (lessonKey && !isDone(lessonKey) && all.filter(onPage).every(x => store.get('cc-q:' + x.dataset.qid))) setDone(lessonKey, true); else changed();
       };
       const miss = text => { tries++; msg.textContent = text; msg.className = 'qmsg no'; };
       opts.forEach(b => { b.type = 'button'; b.onclick = () => {
@@ -381,10 +521,7 @@ const CC = (() => {
     const pick = e => (track() === 'python' && e.dataset.exPy) || e.dataset.ex;
     const ids = els.map(pick), page = here(), pageKey = page && 'cc-prog:' + page[1][0];
     const record = () => { if (!pageKey) return; const s = ids.filter(i => store.get('cc-solved:' + i)).length, t = ids.length;
-      store.set(pageKey, JSON.stringify({ s, t }));
-      const a = document.querySelector('.side a.on'); if (!a || !s) return;   // keep the sidebar count live, once something is solved
-      const p = a.querySelector('.prog') || a.appendChild(h('span', { class: 'prog' }));
-      p.className = 'prog' + (s >= t ? ' done' : ''); p.textContent = s >= t ? '✓' : `${s}/${t}`; };
+      store.set(pageKey, JSON.stringify({ s, t })); changed(); };   // keep the sidebar count live, once something is solved
     record();
     const r = await runner();
     for (const el of els) {
@@ -448,7 +585,7 @@ const CC = (() => {
         catch (e) { res = { ok: false, error: 'The runner stopped responding. Is tools/serve.py still running?' }; }
         runB.disabled = subB.disabled = false;
         out.replaceChildren(...render(res, submit));
-        if (submit && res.ok && res.passed === res.total) { store.set('cc-solved:' + id, '1'); solved.hidden = false; record(); }
+        if (submit && res.ok && res.passed === res.total) { store.set('cc-solved:' + id, '1'); solved.hidden = false; studied(); record(); }
       }
       runB.onclick = () => run(false); subB.onclick = () => run(true);
       // Compare shows the answer's code, so the first time it asks once, as Show answer does.
@@ -554,5 +691,6 @@ const CC = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); });
-  return { h, graph, parseUir, stepper, code, NAV, quizzes, quizId, store };
+  const pathNext = () => { const pid = pathId(); return pid ? nextUp(pid) : null; };
+  return { h, graph, parseUir, stepper, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, REVIEW_MAX };
 })();
