@@ -67,6 +67,10 @@ def seo_block(p, title, desc):
     f'<meta property="og:description" content="{a(clip(desc, 200))}">\n'
     f'<meta property="og:url" content="{u}">\n'
     '<meta name="twitter:card" content="summary">\n'
+    f'<link rel="icon" href="{up(p)}assets/icon.svg" type="image/svg+xml">\n'
+    f'<link rel="apple-touch-icon" href="{up(p)}assets/apple-touch-icon.png">\n'
+    '<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">\n'
+    '<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">\n'
     + ''.join(f'<link rel="preload" href="{up(p)}vendor/fonts/{f}" as="font" type="font/woff2" crossorigin>\n' for f in PRELOAD)
     + (course_ld(u, desc) if p.name == 'index.html' and p.parent.name == 'site' else '')
     + '<!-- /seo -->\n')

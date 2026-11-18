@@ -111,7 +111,7 @@ const CC = (() => {
       TRACKS.map(([v, t]) => h('option', { value: v, text: t })));
     s.value = track(); return s;
   }
-  const TOUCH = matchMedia('(pointer: coarse)').matches || /[?&]touch=1/.test(location.search);
+  const TOUCH = matchMedia('(any-pointer: coarse)').matches || /[?&]touch=1/.test(location.search);
   if (TOUCH) document.documentElement.classList.add('touch');
 
   const today = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
