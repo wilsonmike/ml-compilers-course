@@ -3,7 +3,7 @@
 #   sitemap.xml, robots.txt, llms.txt   at the repo root
 #   a <!-- seo --> block in each page head: description, canonical URL, Open Graph tags
 # Run after adding, renaming or rewording a page: python tools/build_seo.py
-import hashlib, html, pathlib, re
+import hashlib, html, json, pathlib, re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASE = 'https://sharpterminal.com'
@@ -68,7 +68,19 @@ def seo_block(p, title, desc):
     f'<meta property="og:url" content="{u}">\n'
     '<meta name="twitter:card" content="summary">\n'
     + ''.join(f'<link rel="preload" href="{up(p)}vendor/fonts/{f}" as="font" type="font/woff2" crossorigin>\n' for f in PRELOAD)
+    + (course_ld(u, desc) if p.name == 'index.html' and p.parent.name == 'site' else '')
     + '<!-- /seo -->\n')
+
+def course_ld(u, desc):
+  data = [{'@context': 'https://schema.org', '@type': 'WebSite', 'name': NAME, 'url': u},
+          {'@context': 'https://schema.org', '@type': 'Course', 'name': NAME, 'description': clip(desc, 300), 'url': u,
+           'inLanguage': 'en', 'isAccessibleForFree': True, 'educationalLevel': 'Beginner to advanced',
+           'teaches': 'Building a machine learning compiler: graph IRs, rewrites, loops, memory, rendering C and CUDA, fast CPU and GPU kernels',
+           'provider': {'@type': 'Organization', 'name': 'sharpterminal.com', 'url': BASE + '/'},
+           'offers': {'@type': 'Offer', 'category': 'Free', 'price': 0, 'priceCurrency': 'USD'},
+           'hasCourseInstance': {'@type': 'CourseInstance', 'courseMode': 'Online'},
+           'license': REPO + '/blob/main/LICENSE-CONTENT.md'}]
+  return f'<script type="application/ld+json">{json.dumps(data, ensure_ascii=False)}</script>\n'
 
 pages = sorted(ROOT.glob('site/**/*.html'), key=lambda p: (not (p.name == 'index.html' and p.parent.name == 'site'), p.as_posix()))
 groups = {}

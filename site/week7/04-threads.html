@@ -30,7 +30,7 @@
 <main>
 <p class="eyebrow">Week 7 · Lesson 4</p>
 <h1>Threads: iterations at the same time</h1>
-<p class="lede">A desktop processor has several cores, each able to run its own loop. If the iterations of a loop don't depend on each other, they can run on different cores at once. The hard part isn't starting threads, it's proving that no two iterations step on each other's memory.</p>
+<p class="lede">A desktop processor has several cores, each able to run its own loop. If the iterations of a loop don't depend on each other, they can run on different cores at once. The hard part isn't starting threads. It's proving that no two iterations step on each other's memory.</p>
 
 <div class="prose">
 <h2>axis=thread</h2>
@@ -57,7 +57,7 @@
 
 <div class="prose">
 <h2>Private allocs</h2>
-<p>The GEMM's 32 accumulators are an alloc used only inside the thread loop. Shared between threads, they'd race. So the spec makes them <b>private</b>: an alloc whose every load and store is inside one thread loop gets a fresh copy, all zeros, at the start of every iteration. In C that's simply an array declared inside the thread's function.</p>
+<p>The GEMM's 32 accumulators are an alloc used only inside the thread loop. Shared between threads, they'd race. So the spec makes them <b>private</b>: an alloc whose every load and store is inside one thread loop gets a fresh copy, all zeros, at the start of every iteration. In C that's an array declared inside the thread's function.</p>
 <p>That's a real semantic difference, and <code>run</code> implements it too. In a plain loop an alloc keeps its contents from one iteration to the next, so an accumulator keeps a running total. In a thread loop each iteration starts from zero. The tests <code>loop_alloc_carries_over</code> and <code>thread_private_alloc_fresh</code> run the same program both ways and get different answers.</p>
 <p>Any other alloc, say one that is also loaded after the loop, is <b>shared</b>, and the slice rule applies to it exactly as to a buffer. Every iteration storing to element 0 is rejected (<code>err_thread_alloc_shared</code>), and iteration <code>r</code> storing to element <code>r</code> is fine (<code>thread_alloc_indexed_by_r</code>).</p>
 

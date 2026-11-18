@@ -25,7 +25,7 @@
   <p class="lede">Week 3 adds loops. A <code>range</code> is a loop counter, an <code>end</code> repeats an effect for every value of it, and your compiler learns to place each value at the right loop depth and print <code>for</code> loops. This page recaps the week, collects the rules worth memorizing, and walks the lab one step at a time.</p>
 
   <h2>The week in one page</h2>
-  <h3><a href="../week3/01-ranges.html">3.1 Ranges and end</a></h3>
+  <h3><a href="../week3/01-ranges.html">3.1 Ranges and ends</a></h3>
   <p><code>%i = range 4</code> is a loop counter that takes the values 0, 1, 2, 3, named by its statement. <code>end %s %i</code> runs the effect <code>%s</code> once for every value of <code>%i</code>. Every node has a set of open ranges: the ranges it depends on that no <code>end</code> has closed yet. Asserts, calls and range bounds may not depend on an open range.</p>
   <h3><a href="../week3/02-memory-in-loops.html">3.2 Memory in loops</a></h3>
   <p>A value is computed inside every loop whose range it uses, and no deeper. A load is the one exception: if the innermost loop holding every use of it stores into the version it reads, the load moves into that loop and sees the current contents on each iteration. That is the accumulator. A use counts as inside a loop only if it is placed there itself.</p>
@@ -68,7 +68,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
     <li><strong>Never moving loads into loops.</strong> An accumulator load whose only use is inside the k loop is then read once, and each iteration overwrites the sum instead of adding to it. Caught by <code>r_conv1d_padded</code> and <code>r_conv1d_valid</code>.</li>
     <li><strong>Moving a load to its deepest use instead of the loop holding all of its uses.</strong> A load used both inside and after a loop must run once, before it. Caught by <code>split_use_across_asserts</code>.</li>
     <li><strong>Deciding load placement from one assert at a time.</strong> Where a load runs depends on every use in the program, so <code>run</code> and <code>render</code> must agree. Caught by <code>split_use_across_asserts</code> and <code>r_split_use_across_asserts</code>.</li>
-    <li><strong>Off-by-one loops.</strong> Printing <code>&lt;=</code>, starting at 1, or running one extra trip. Caught by <code>r_conv2d_valid</code>, <code>r_bounds_from_ranges</code> and <code>bounds_from_ranges</code>.</li>
+    <li><strong>Off-by-one loops.</strong> Printing <code>&lt;=</code>, starting at 1 or running one extra trip. Caught by <code>r_conv2d_valid</code>, <code>r_bounds_from_ranges</code> and <code>bounds_from_ranges</code>.</li>
     <li><strong>Running a zero-trip loop once.</strong> <code>range 0</code> and negative bounds run zero times. Caught by <code>zero_trip</code> and <code>negative_trip</code>.</li>
     <li><strong>Running a loop backwards.</strong> f32 sums depend on the order: <code>1e8 + 1 + -1e8 + 1</code> is 1.0 left to right. Caught by <code>reduce_sum_f32_order</code> and <code>prefix_sum</code>.</li>
     <li><strong>Too-tight or missing range bounds.</strong> A range's interval must be <code>[0, n-1]</code>, no tighter, or an overrunning view slips through. Caught by <code>err_range_overrun</code> and <code>err_wrong_stride</code>.</li>
@@ -186,18 +186,18 @@ python _reference/uirc.py render FILE                            # the oracle's 
   <ul>
     <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a> and its <a href="https://docs.tinygrad.org/">documentation</a>. RANGE and END come from tinygrad's IR, and its codegen places values by their ranges just as lesson 3.5 does.</li>
     <li><a href="https://en.wikipedia.org/wiki/Loop-invariant_code_motion">Loop-invariant code motion</a>. The classic name for what placement gives you for free: values that don't depend on a loop leave it.</li>
-    <li><a href="https://en.wikipedia.org/wiki/Loop_nest_optimization">Loop nest optimization</a>. Tiling and interchange, the transformations that make a looped matmul fast (week 6 onward).</li>
+    <li><a href="https://en.wikipedia.org/wiki/Loop_nest_optimization">Loop nest optimization</a>. Tiling and interchange, the transformations that make a looped matmul fast (week 7 onward).</li>
     <li><a href="https://siboehm.com/articles/22/Fast-MMM-on-CPU">Fast multidimensional matrix multiplication on CPU from scratch</a>. Takes exactly this week's triple loop and speeds it up step by step.</li>
     <li><a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">What Every Programmer Should Know About Memory</a> (Drepper). Why loop order changes speed but not results. Read the cache chapters.</li>
     <li><a href="https://cs231n.github.io/convolutional-networks/">CS231n: Convolutional Neural Networks</a>. The convolution arithmetic of lesson 3.4, with pictures, from the machine learning side.</li>
     <li class="only-python"><a href="https://docs.python.org/3/library/collections.html">collections</a>. <code>defaultdict</code> and <code>Counter</code>, the two containers that make grouping nodes by loop short.</li>
     <li class="only-ocaml"><a href="https://ocaml.org/manual/latest/api/Set.Make.html">Set.Make</a>. Immutable sets of range ids, with the union and subset tests that placement needs.</li>
-    <li><a href="languages.html">Python and OCaml, deeper</a>. This week's idioms in your language: sets of ranges, bucketing nodes by loop, and emitting nested loops.</li>
+    <li><a href="languages.html">Python and OCaml, deeper</a>. This week's idioms in your language: sets of ranges, bucketing nodes by loop and emitting nested loops.</li>
   </ul>
   <h3>Challenges</h3>
   <ol>
     <li><strong>Loop order without changing results.</strong> Write the 2×3 by 3×2 matmul twice, once with the k loop innermost and once with j innermost. Check with the oracle that both leave identical bits. Then explain why an f32 matmul would change bits if you moved k outermost and accumulated partial sums differently.</li>
-    <li><strong>A strided view.</strong> Write a loop that copies every other element of an 8-element buffer into a 4-element one. Prove the offsets in bounds in your head first, then confirm the oracle accepts it, and that changing the stride to 3 is rejected.</li>
+    <li><strong>A strided view.</strong> Write a loop that copies every other element of an 8-element buffer into a 4-element one. Prove the offsets in bounds in your head first, then confirm that the oracle accepts it and rejects a stride of 3.</li>
     <li><strong>A 2D running max.</strong> For a 3×4 buffer, write each row's running maximum into an output of the same shape, with a reset per row. Compare your expected values (computed by hand or in Python) with <code>python _reference/uirc.py run</code>.</li>
   </ol>
 </main>

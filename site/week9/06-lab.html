@@ -23,7 +23,7 @@
 <main>
 <p class="eyebrow">Week 9 · Lesson 6</p>
 <h1>The week 9 lab</h1>
-<p class="lede">Teach your compiler registers and tensor cores. It reads <code>i8</code>, runs <code>mma</code> and warp loops, checks their rules, renders them for the CPU and as <code>wmma</code> calls, and keeps per-thread memory in registers. You're done when every week 9 test passes, in the emulator or on a GPU, weeks 1 to 8 still pass, and you've written 10 tests of your own.</p>
+<p class="lede">Teach your compiler registers and tensor cores. It reads <code>i8</code>, runs <code>mma</code> and warp loops, checks their rules, renders them for the CPU and as <code>wmma</code> calls, and keeps per-thread memory in registers. You're done when every week 9 test passes in the emulator or on a GPU, weeks 1 to 8 still pass and you've written 10 tests of your own.</p>
 
 <div class="prose">
 <h2>The command-line contract</h2>
@@ -31,18 +31,18 @@
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 9 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td>The <code>i8</code> dtype for buffers, allocs and casts, <code>mma</code> as an effect, and <code>axis=warp</code> as a plain loop. New static errors (exit 2): i8 data out of range, i8 literals or arithmetic, <code>dtype=i8</code> on any op but <code>buffer</code>, <code>alloc</code> and <code>cast</code> (so <code>param</code> and <code>bitcast</code> too), a cast to i8 from f32 or bool, an mma with a bad dtype, stride, alignment or bounds, a warp bound that isn't a literal from 1 to 32, a warp loop outside a global loop, a warp or local loop inside a phase, an mma outside a warp loop or a store inside one in a kernel, block sizes that disagree, and warps whose C tiles overlap.</td></tr>
+<tr><td><code>your.exe run FILE</code></td><td>The <code>i8</code> dtype for buffers, allocs and casts, <code>mma</code> as an effect, and <code>axis=warp</code> as a plain loop. New static errors (exit 2): i8 data out of range, i8 literals or arithmetic, <code>dtype=i8</code> on any op but <code>buffer</code>, <code>alloc</code> and <code>cast</code> (so <code>param</code> and <code>bitcast</code> too), a cast to i8 from f32 or bool, an mma with a bad dtype, stride, alignment or bounds, a warp bound that isn't a literal from 1 to 32, a warp loop outside a global loop, a warp or local loop inside a phase, an mma outside a warp loop or a store inside one in a kernel, block sizes that disagree and warps whose C tiles overlap.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>A warp loop is a plain loop. An mma is 256 dot products of length 16, in <code>uint32_t</code> so it wraps. <code>i8</code> is <code>int8_t</code>.</td></tr>
-<tr><td><code>your.exe render-cuda FILE</code></td><td>A warp loop is a phase on <code>threadIdx.x / 32</code>, an mma is <code>wmma</code> calls and <code>__syncwarp()</code>, shared arrays are <code>__align__(32)</code>, and per-thread memory is a plain array in each thread.</td></tr>
+<tr><td><code>your.exe render-cuda FILE</code></td><td>A warp loop is a phase on <code>threadIdx.x / 32</code>, an mma is <code>wmma</code> calls and <code>__syncwarp()</code>, shared arrays are <code>__align__(32)</code> and per-thread memory is a plain array in each thread.</td></tr>
 </tbody></table></div>
 
 <div class="prose">
 <h2>How the tests are graded</h2>
 <ul>
-<li><b>Run tests</b> check the semantics of <code>i8</code>, <code>mma</code> and warp loops, and every rule. Each <code>err_</code> test breaks exactly one rule. <code>mma_wraps</code> checks the sums wrap like <code>add</code>, and <code>per_thread_read_neighbor</code> checks that an alloc read across threads still means shared memory.</li>
-<li><b>Render tests</b> (<code>r_</code>) compare your C's buffers with the interpreter. <code>r_mma_reads_before_overwrite</code> checks your schedule runs an mma before a store that overwrites its A.</li>
-<li><b>CUDA tests</b> (<code>c_</code>) run your <code>render-cuda</code> on a GPU or in the emulator and compare every buffer, bit for bit: an int8 GEMM, a register-tiled f32 GEMM, a convolution, flash attention, and smaller ones for each rule. <code>c_shared_not_per_thread</code> fails if you put memory in registers that a later phase reads across threads.</li>
-<li><b>Speed tests</b> time your CUDA against the reference's on the GPU: <code>s_cuda_gemm_registers</code> (0.8 of its speed), <code>s_cuda_mma_gemm</code> (0.5), <code>s_cuda_flash_attention</code> (0.8) and <code>s_cuda_conv3x3</code> (0.5). The first and third need per-thread memory in registers, the second needs tensor cores. Without a GPU they only check that your CUDA builds. On a GPU their expected bits come from the reference's C, since the inputs are too big to interpret.</li>
+<li><b>Run tests</b> check the semantics of <code>i8</code>, <code>mma</code> and warp loops, and every rule. Each <code>err_</code> test breaks exactly one rule. <code>mma_wraps</code> checks that the sums wrap like <code>add</code>, and <code>per_thread_read_neighbor</code> checks that an alloc read across threads still means shared memory.</li>
+<li><b>Render tests</b> (<code>r_</code>) compare your C's buffers with the interpreter. <code>r_mma_reads_before_overwrite</code> checks that your schedule runs an mma before a store that overwrites its A.</li>
+<li><b>CUDA tests</b> (<code>c_</code>) run your <code>render-cuda</code> on a GPU or in the emulator and compare every buffer, bit for bit: an int8 GEMM, a register-tiled f32 GEMM, a convolution, flash attention and smaller ones for each rule. <code>c_shared_not_per_thread</code> fails if you put memory in registers that a later phase reads across threads.</li>
+<li><b>Speed tests</b> time your CUDA against the reference's on the GPU: <code>s_cuda_gemm_registers</code> (0.8 of its speed), <code>s_cuda_mma_gemm</code> (0.5), <code>s_cuda_flash_attention</code> (0.8) and <code>s_cuda_conv3x3</code> (0.5). The first and third need per-thread memory in registers, and the second needs tensor cores. Without a GPU they only check that your CUDA builds. On a GPU their expected bits come from the reference's C, since the inputs are too big to interpret.</li>
 </ul>
 
 <h2>Running the suite</h2>
@@ -61,7 +61,7 @@ python _reference/uirc.py render-cuda tests/week9/render/c_mma_from_global.uir  
 <ol class="build">
 <li><h3>i8</h3><p>Parse <code>dtype=i8</code> on buffers, allocs and casts, check data ranges, wrap on cast, and reject everything else.</p><p class="check">Checkpoint: <code>i8_cast_wraps</code>, <code>i8_to_f32</code> and the <code>err_i8_*</code> tests pass, and <code>c_i8_kernel</code> passes in the emulator.</p></li>
 <li><h3>mma in run</h3><p>Parse it, check dtypes, strides, bounds and alignment, and execute it. Treat it as a load of A, B and C and a store into C everywhere your compiler orders memory: one effect per version, and loads before overwriting stores.</p><p class="check">Checkpoint: the <code>mma_*</code> run tests and <code>err_mma_*</code> pass.</p></li>
-<li><h3>Warp loops</h3><p>Accept <code>axis=warp</code>, check where it may be, the block size, and that kernels put mma in warp loops and stores in local loops. Add the tile's two digits to the mixed-radix rule.</p><p class="check">Checkpoint: every run test passes.</p></li>
+<li><h3>Warp loops</h3><p>Accept <code>axis=warp</code>, check where it may be, the block size and that kernels put mma in warp loops and stores in local loops. Add the tile's two digits to the mixed-radix rule.</p><p class="check">Checkpoint: every run test passes.</p></li>
 <li><h3>Render for the CPU</h3><p>Warp loops as plain loops, mma as loops in <code>uint32_t</code>.</p><p class="check">Checkpoint: the <code>r_</code> tests pass.</p></li>
 <li><h3>render-cuda: tensor cores</h3><p>Warp phases on <code>threadIdx.x / 32</code>, mma as <code>wmma</code>, aligned shared arrays.</p><p class="check">Checkpoint: <code>c_mma_from_global</code>, <code>c_one_warp</code>, <code>c_32_warps</code> and <code>c_mma_gemm</code> pass in the emulator.</p></li>
 <li><h3>render-cuda: registers</h3><p>Find the per-thread allocs with your week 7 slice check, declare them in each thread, and index them by the offset minus <code>t·S</code>.</p><p class="check">Checkpoint: every <code>c_</code> test passes in the emulator, including <code>c_shared_not_per_thread</code>.</p></li>
@@ -85,7 +85,7 @@ python _reference/uirc.py render-cuda tests/week9/render/c_mma_from_global.uir  
 
 <div class="key">
 <span class="label">The AI policy, still</span>
-<p>An AI assistant may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why would my flash kernel be slower with the same bits?" is a fine question. "Write my wmma emitter" is not.</p>
+<p>An AI assistant may <strong>explain concepts, draw diagrams and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why would my flash kernel be slower with the same bits?" is a fine question. "Write my wmma emitter" is not.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -107,7 +107,7 @@ python _reference/uirc.py render-cuda tests/week9/render/c_mma_from_global.uir  
 <div class="opts">
 <button data-k="a">Forgot to zero shared memory</button>
 <button data-k="b">Used tensor cores where it shouldn't</button>
-<button data-k="c">Put an alloc in registers whose later phase reads another thread's slice</button>
+<button data-k="c">Put an alloc in registers when a later phase reads another thread's slice of it</button>
 </div>
 <p class="hint">Lesson 9.1, "When it isn't per-thread".</p>
 <div class="why"><p>The rule needs every access, loads included, at <code>t·S + e</code> with <code>e</code> inside the slice. A read of <code>(t + 1)·S + e</code> needs memory the block shares, so the alloc must stay in shared memory.</p></div>

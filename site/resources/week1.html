@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Week 1 Study Guide</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Week 1 builds the core everything else stands on: the hash-consed UOp, a type checker, an interpreter, and a rewrite engine that simplifies programs. This page...">
+<meta name="description" content="Week 1 builds the core everything else stands on: the hash-consed UOp, a type checker, an interpreter and a rewrite engine that simplifies programs. This page...">
 <link rel="canonical" href="https://sharpterminal.com/site/resources/week1">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Week 1 Study Guide">
-<meta property="og:description" content="Week 1 builds the core everything else stands on: the hash-consed UOp, a type checker, an interpreter, and a rewrite engine that simplifies programs. This page recaps it, collects the rules worth...">
+<meta property="og:description" content="Week 1 builds the core everything else stands on: the hash-consed UOp, a type checker, an interpreter and a rewrite engine that simplifies programs. This page recaps it, collects the rules worth...">
 <meta property="og:url" content="https://sharpterminal.com/site/resources/week1">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -22,7 +22,7 @@
 <body data-root="../">
 <main>
   <h1>Week 1 study guide</h1>
-  <p class="lede">Week 1 builds the core everything else stands on: the hash-consed UOp, a type checker, an interpreter, and a rewrite engine that simplifies programs. This page recaps it, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+  <p class="lede">Week 1 builds the core everything else stands on: the hash-consed UOp, a type checker, an interpreter and a rewrite engine that simplifies programs. This page recaps it, collects the rules worth memorizing, and walks the lab one step at a time.</p>
 
   <h2>The week in one page</h2>
   <h3><a href="../week1/01-the-uop.html">1.1 The UOp</a></h3>
@@ -49,7 +49,7 @@
       <tr><td><code>xor</code></td><td>i32 or bool</td><td>same</td><td>bitwise / logical</td></tr>
       <tr><td><code>cmplt</code></td><td>i32 or f32</td><td>bool</td><td>any NaN gives false</td></tr>
       <tr><td><code>where c a b</code></td><td>bool, then same</td><td>a's</td><td>strict: both branches evaluated</td></tr>
-      <tr><td><code>cast a dtype=D</code></td><td>any but void</td><td>D</td><td>f32→i32 truncates, and NaN, inf, or out of range is a runtime error</td></tr>
+      <tr><td><code>cast a dtype=D</code></td><td>any but void</td><td>D</td><td>f32→i32 truncates, and NaN, inf or out of range is a runtime error</td></tr>
       <tr><td><code>recip</code></td><td>f32</td><td>f32</td><td><code>recip 0.0 = inf</code>, <code>recip -0.0 = -inf</code></td></tr>
       <tr><td><code>assert a b</code></td><td>same</td><td>void</td><td>f32 by value: <code>0.0 == -0.0</code>, NaN equals NaN</td></tr>
     </tbody>
@@ -89,13 +89,13 @@ python _reference/uirc.py run FILE                               # what should t
     <li><strong>Type checking lazily.</strong> A bad line no assert uses still makes the program invalid. Caught by <code>err_type_static</code> and <code>err_call_missing_arg_unused</code>.</li>
     <li><strong>Checking asserts out of order, or stopping at the wrong error.</strong> Caught by <code>fail_first_in_order</code>, <code>fail_before_error</code> and <code>error_before_fail</code>.</li>
     <li><strong>Simplifying f32 like i32.</strong> <code>x * 0.0 → 0.0</code> and <code>x + 0.0 → x</code> are wrong. Caught by <code>trap_mul_zero_f32</code> and <code>trap_add_zero_f32</code>.</li>
-    <li><strong>Letting an uncaught exception decide your exit code.</strong> <span class="only-ocaml">In OCaml, <code>Fatal error: exception Division_by_zero</code> exits 2 but has no <code>invalid:</code> line</span><span class="only-python">In Python, a <code>ZeroDivisionError</code> traceback exits 1, which looks like a failed assert with no <code>assert failed:</code> line</span>, so every invalid test fails. Catch your exceptions, print a diagnosis starting <code>invalid:</code>, and exit 2.</li>
+    <li><strong>Letting an uncaught exception decide your exit code.</strong> <span class="only-ocaml">In OCaml, <code>Fatal error: exception Division_by_zero</code> exits 2 but has no <code>invalid:</code> line</span><span class="only-python">In Python, a <code>ZeroDivisionError</code> traceback exits 1, which looks like a failed assert with no <code>assert failed:</code> line</span>, so every invalid test fails. Catch your exceptions, print a diagnosis starting <code>invalid:</code> and exit 2.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
   <p>Build in this order, and don't move on until the check passes. Each check is a tiny program: save it, run it through your compiler and through the oracle (<code>python _reference/uirc.py run FILE</code>), and compare exit codes.</p>
   <ol>
-    <li><strong>Parse and print.</strong> Done when you can print every statement back in .uir form. Check: <code>%a = add 2 3</code> / <code>%t = assert %a 5</code> should exit 0. If a later test reports a parse error, look at literals first: <code>1.</code>, <code>.5</code> and <code>1E5</code> are floats, <code>+1</code> and <code>0x10</code> are not.</li>
+    <li><strong>Parse and print.</strong> Done when you can print every statement back in .uir form. Check: <code>%a = add 2 3</code> / <code>%t = assert %a 5</code> should exit 0. If a later test reports a parse error, look at literals first: <code>1.</code>, <code>.5</code> and <code>1E5</code> are floats, but <code>+1</code> and <code>0x10</code> are not.</li>
     <li><strong>The hash-consed UOp.</strong> Done when building the same node twice gives back the identical node. Check: the suite's <code>dag_sharing_300</code> runs in milliseconds. If it hangs, your table key hashes or compares whole subtrees instead of child ids or identities.</li>
     <li><strong>Types.</strong> Done when every type error is reported before anything runs. Check: <code>%a = add 1 1.0</code> / <code>%t = assert 1 1</code> must exit 2 with an <code>invalid:</code> line, even though no assert uses <code>%a</code>.</li>
     <li><strong>Interpreter.</strong> Done when asserts pass and fail correctly. Check: <code>%a = div -7 2</code> / <code>%t = assert %a -3</code> / <code>%b = mod -7 2</code> / <code>%u = assert %b -1</code> exits 0. If it exits 1, your division floors.</li>
@@ -104,7 +104,7 @@ python _reference/uirc.py run FILE                               # what should t
     <li><strong>Symbolic rules and bounds.</strong> Done when <code>cmplt (mod (max %x 0) 10) 10</code> simplifies to <code>true</code> but <code>cmplt (mod (max %x 0) 10) 9</code> does not (written as separate statements). If the second also folds, your comparison is off by one.</li>
   </ol>
   <div class="trap"><span class="label">When a test fails and none of this fits</span>
-    <p>Rerun it alone with <code>-k NAME -v</code>, copy the test file, delete lines until it still fails, and compare with the oracle on the smallest version. The <a href="debugging.html">debugging guide</a> walks through it.</p>
+    <p>Rerun it alone with <code>-k NAME -v</code>, copy the test file, delete lines as long as it still fails and compare with the oracle on the smallest version. The <a href="debugging.html">debugging guide</a> walks through it.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -173,7 +173,7 @@ python _reference/uirc.py run FILE                               # what should t
   <ul>
     <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a> and its <a href="https://docs.tinygrad.org/">documentation</a>. The UOp, rewrite rules and symbolic simplification here follow tinygrad's design, and reading its pattern matcher shows the production version.</li>
     <li><a href="https://gist.github.com/geohot/4768597d9dc536446ee2d5de1f29e89d">The 10-411 technical syllabus</a>. The source this course is built from.</li>
-    <li><a href="https://en.wikipedia.org/wiki/Hash_consing">Hash consing</a>. The idea, its history, and where else it's used.</li>
+    <li><a href="https://en.wikipedia.org/wiki/Hash_consing">Hash consing</a>. The idea, its history and where else it's used.</li>
     <li><a href="https://en.wikipedia.org/wiki/Interval_arithmetic">Interval arithmetic</a>. The math behind bounds analysis, including why it's always safe but sometimes loose.</li>
     <li><a href="https://floating-point-gui.de/">The Floating-Point Guide</a>, then <a href="https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html">What Every Computer Scientist Should Know About Floating-Point Arithmetic</a> (Goldberg). Short first, thorough second: why f32 rewrites are so restricted.</li>
     <li><a href="https://craftinginterpreters.com/">Crafting Interpreters</a>. A free book on parsing and tree-walking interpreters, a gentle companion to lessons 1.2 and 1.3.</li>

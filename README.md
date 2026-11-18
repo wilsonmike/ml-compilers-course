@@ -5,7 +5,7 @@ of [10-411, Compilers for Machine Learning](https://10-411.com/)
 ([technical syllabus](https://gist.github.com/geohot/4768597d9dc536446ee2d5de1f29e89d)).
 **Independent. Not affiliated with CMU or George Hotz.**
 
-The original course assumes strong C, a systems course, and some GPU experience. This one adds a week 0 that teaches
+The original course assumes strong C, a systems course and some GPU experience. This one adds a week 0 that teaches
 those, and puts a diagram before every idea.
 
 ## Status: weeks 0 to 9
@@ -24,7 +24,7 @@ those, and puts a diagram before every idea.
 | 8 | GPUs: blocks and threads, shared memory, rendering CUDA | 6 | 42 | [uir-week8.md](spec/uir-week8.md) |
 | 9 | GPUs, part 2: registers, fast GEMMs, tensor cores, convolutions, flash attention | 6 | 53 | [uir-week9.md](spec/uir-week9.md) |
 
-494 quizzes with hints and answers, 202 graded exercises (67 of them in Python), and 795 compiler tests. `_reference/mutants.py` plants 253 plausible bugs in the reference compiler, one at a time, and each one must
+494 quizzes with hints and answers, 202 graded exercises (67 of them in Python) and 795 compiler tests. `_reference/mutants.py` plants 253 plausible bugs in the reference compiler, one at a time, and each one must
 make some test fail. A few of them, like a CUDA kernel that runs each block on a single thread, are only caught on a real GPU. `--checks` also
 switches off each of its 163 validations and simplifier rules: 123 are caught, and the other 40 are backed up by a
 second check that rejects the same program, or can't be reached by a valid one. The `.uir` format is our own until the official 10-411 one
@@ -47,13 +47,13 @@ You write your compiler in one of two languages, picked under Language in the si
 floor division, f32 rounding). Lesson 0.6 teaches OCaml from scratch. Exercises and the few instructions that differ
 follow the track you pick.
 
-Every lesson has LeetCode-style exercises in your language, C, or .uir. Type in the editor (Vim, Emacs, or Sublime
+Every lesson has LeetCode-style exercises in your language, C or .uir. Type in the editor (Vim, Emacs or Sublime
 keys, picked in the sidebar). **Run** checks the examples and **Submit** runs the hidden tests, on your machine.
 Python exercises need nothing extra. C needs `clang` or `gcc`, and OCaml exercises need `ocaml` on PATH. Without a
 local OCaml you can use `--ocaml "docker run --rm -i ocaml/opam:alpine-ocaml-5.2 ocaml"`. The runner only listens on
 127.0.0.1 and refuses requests from other sites.
 
-The lessons also read fine on the hosted site or straight from disk. There the exercises show their examples, hints,
+The lessons also read fine on the hosted site or straight from disk. There the exercises show their examples, hints
 and answers, and running code needs the local runner.
 
 ## Grading your compiler
@@ -75,7 +75,7 @@ an executable `mlc` script on macOS and Linux).
 
 | path | what |
 |---|---|
-| `site/` | the lessons, quizzes, and study resources. No build step, no dependencies. |
+| `site/` | the lessons, quizzes and study resources. No build step, no dependencies. |
 | `spec/` | the .uir format and semantics for each week |
 | `tests/weekN/` | the compiler tests: `run` tests with a `# expect:` header, `simplify` tests with a `# simplify:` header, and `render` tests from week 2 |
 | `exercises/` | lesson exercises: starter code and tests (see `exercises/README.md`) |
@@ -112,7 +112,7 @@ what `tools/check.py` uses.
 
 ## Contributing
 
-Fixes to lessons, tests, and specs are welcome. Run `python tools/check.py` before a pull request, and
+Fixes to lessons, tests and specs are welcome. Run `python tools/check.py` before a pull request, and
 `python tools/build_seo.py` if you added or renamed a page or changed `site/assets/course.css` or `course.js` (it stamps
 their version into every page, so browsers can cache them for a year and still get each change).
 

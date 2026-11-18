@@ -33,7 +33,7 @@
   <div class="prose">
     <h2>One recipe, used twice</h2>
     <p>Picture a cookbook. The pizza needs tomato sauce, and so does the pasta. The writer could print the sauce recipe twice, once inside each dish. Or the writer could print it once, on page 12, and have both dishes say "see page 12". The second book is shorter, and if you fix a mistake in the sauce, you fix it in one place.</p>
-    <p>Expressions have the same choice. Take <code>(a + b) * (a + b)</code>. Each box in the drawing below is a <b>node</b>. The arrows go from a node to the node that uses it. A node that a node reads from is its <b>child</b>, and the node reading it is its <b>parent</b>. The nodes with no children (<code>a</code> and <code>b</code>) are <b>leaves</b>.</p>
+    <p>Expressions have the same choice. Take <code>(a + b) * (a + b)</code>. Each box in the drawing below is a <b>node</b>. The arrows go from a node to the node that uses it. A node that another node reads from is that node's <b>child</b>, and the node reading it is its <b>parent</b>. The nodes with no children (<code>a</code> and <code>b</code>) are <b>leaves</b>.</p>
     <p>A <b>tree</b> gives every use its own copy, so <code>a + b</code> appears twice. A <b>DAG</b> lets two arrows leave the same node, so <code>a + b</code> appears once and <code>*</code> points at it twice. DAG stands for directed acyclic graph: the arrows have a direction, and following them never brings you back where you started. Step through it.</p>
   </div>
 
@@ -64,7 +64,7 @@
     </tbody>
   </table></div>
   <div class="prose">
-    <p>Thirty levels is over two billion tree nodes and 31 DAG nodes. You can check the tree column with a few lines of code. This function only counts, it doesn't build anything:</p>
+    <p>Thirty levels is over two billion tree nodes and 31 DAG nodes. You can check the tree column with a few lines of code. This function only counts. It doesn't build anything:</p>
   </div>
 <pre class="only-python"><code>&gt;&gt;&gt; def tree_size(k):
 ...     if k == 0:
@@ -95,7 +95,7 @@ val chain : int -&gt; e = &lt;fun&gt;
 # match chain 30 with Add (a, b) -&gt; a == b | X -&gt; false;;
 - : bool = true</code></pre>
   <div class="prose">
-    <p>That loop made 30 tuples, not two billion. The danger comes later: any code that walks this value as if it were a tree does two billion steps. <a href="hard-02-walking-graphs.html">H.2</a> is about walking it once.</p>
+    <p>That code made 30 new values, not two billion. The danger comes later: any code that walks this value as if it were a tree does two billion steps. <a href="hard-02-walking-graphs.html">H.2</a> is about walking it once.</p>
   </div>
   <div class="trap">
     <span class="label">Printing a shared value prints the tree</span>
@@ -150,7 +150,7 @@ val c : int list = [1; 2]
     <p>Why care? Comparing two separately built copies of <code>x30</code> with equality walks both trees, two billion steps. If you could promise that equal nodes are always the <em>same</em> node, the cheap identity check would answer the equality question too. That promise is the next idea.</p>
 
     <h2>Hash consing: a coat check for nodes</h2>
-    <p>At a theatre coat check, you hand over a coat and get a ticket with a number. Now imagine a coat check that also remembers every coat it has seen. You hand over a coat. The attendant looks it up first. If an identical coat is already on the rack, you get <em>that</em> ticket back, and nothing new goes on the rack. Only a coat it has never seen gets a new hook and the next number.</p>
+    <p>At a theater coat check, you hand over a coat and get a ticket with a number. Now imagine a coat check that also remembers every coat it has seen. You hand over a coat. The attendant looks it up first. If an identical coat is already on the rack, you get <em>that</em> ticket back, and nothing new goes on the rack. Only a coat it has never seen gets a new hook and the next number.</p>
     <p><b>Hash consing</b> is that coat check, for nodes. You keep one table. Before you make a node, you build its <b>key</b>, a small description of it:</p>
     <ul>
       <li>the op, like <code>"+"</code>,</li>
@@ -220,7 +220,7 @@ val table : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
       <li><b>-0.0</b>, a negative zero. It is equal to <code>0.0</code> but it is a different value: in C, <code>1.0 / -0.0</code> is minus infinity.</li>
       <li><b>nan</b>, "not a number", the result of something undefined like <code>0.0 / 0.0</code>. It is not equal to anything, not even itself.</li>
     </ul>
-    <p>A table that compares keys with equality gets these wrong. The two zeros turn into one key<span class="only-python">, and a nan key may never be found again</span><span class="only-ocaml">. (A nan key does work in OCaml's <code>Hashtbl</code>, because it matches keys with <code>compare</code>, which treats nan as equal to itself. <code>nan = nan</code> is still false.)</span>:</p>
+    <p>A table that compares keys with equality gets these wrong. The two zeros turn into one key<span class="only-python">, and a nan key may never be found again:</span><span class="only-ocaml">. (A nan key does work in OCaml's <code>Hashtbl</code>, because it matches keys with <code>compare</code>, which treats nan as equal to itself. <code>nan = nan</code> is still false.)</span></p>
   </div>
 <pre class="only-python"><code>&gt;&gt;&gt; d = {0.0: "plus zero"}
 &gt;&gt;&gt; d[-0.0] = "minus zero"

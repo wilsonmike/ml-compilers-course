@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rendering C</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name, and print each one as a C statement...">
+<meta name="description" content="Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name and print each one as a C statement...">
 <link rel="canonical" href="https://sharpterminal.com/site/week2/04-rendering-c">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Rendering C">
-<meta property="og:description" content="Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name, and print each one as a C statement that means exactly what the .uir op means...">
+<meta property="og:description" content="Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name and print each one as a C statement that means exactly what the .uir op means...">
 <meta property="og:url" content="https://sharpterminal.com/site/week2/04-rendering-c">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -23,7 +23,7 @@
 <main>
 <p class="eyebrow">Week 2 · Lesson 4</p>
 <h1>Rendering C</h1>
-<p class="lede">Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name, and print each one as a C statement that means exactly what the .uir op means. That last part is harder than it sounds, because C has undefined behavior and .uir doesn't.</p>
+<p class="lede">Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name and print each one as a C statement that means exactly what the .uir op means. That last part is harder than it sounds, because C has undefined behavior and .uir doesn't.</p>
 
 <div class="prose">
 <h2>Three jobs: schedule, name, print</h2>
@@ -46,7 +46,7 @@
 
 <div class="trap">
 <span class="label">Reading the old version is legal</span>
-<p>A program may load from <code>%b</code> after <code>%b1</code> exists. That isn't a bug, it's a swap. The renderer just has to hoist that load above the store. If your scheduler emits stores as soon as their value is ready, a swap silently becomes a copy.</p>
+<p>A program may load from <code>%b</code> after <code>%b1</code> exists. That isn't a bug. It's how a swap works. The renderer just has to hoist that load above the store. If your scheduler emits stores as soon as their value is ready, a swap silently becomes a copy.</p>
 </div>
 
 <div class="prose">
@@ -79,7 +79,7 @@ one rounding:  fmaf(a, b, c) gives 0x1p-24</code></pre>
 
 <h3>Literals that mean exactly one float</h3>
 <p>A constant in your graph is an exact f32. Printing it in decimal invites trouble: <code>printf("%g", FLT_MAX)</code> prints <code>3.40282e+38</code>, and C reads that back as a different float. <code>%.9g</code> is enough digits for any f32, but there's a cleaner way: a <strong>hex float</strong> writes the bits directly. <code>0.1f</code> is <code>0x1.99999ap-4f</code>, a mantissa in hex and a power of two. Trailing zeros are fine (<code>0x1.99999a0000000p-4f</code> is the same number).</p>
-<p>Three values have no literal: use <code>NAN</code>, <code>INFINITY</code>, and <code>(-INFINITY)</code> from <code>&lt;math.h&gt;</code>. Negative zero needs its sign: <code>-0x0p+0f</code>. The oracle prints zeros as <code>0x0.0p+0f</code> and <code>-0x0.0p+0f</code>, the same two values written with a <code>.0</code>.</p>
+<p>Three values have no literal: use <code>NAN</code>, <code>INFINITY</code> and <code>(-INFINITY)</code> from <code>&lt;math.h&gt;</code>. Negative zero needs its sign: <code>-0x0p+0f</code>. The oracle prints zeros as <code>0x0.0p+0f</code> and <code>-0x0.0p+0f</code>, the same two values written with a <code>.0</code>.</p>
 </div>
 
 <div class="exercise small" data-ex="w2-04-f32-literal" data-ex-py="w2-04-f32-literal-py">
@@ -89,7 +89,7 @@ one rounding:  fmaf(a, b, c) gives 0x1p-24</code></pre>
 
 <div class="prose">
 <h3>max is not fmaxf</h3>
-<p>C has <code>fmaxf</code>, and it's the wrong function. <code>fmaxf(NAN, 1.0f)</code> returns <code>1.0f</code>: C's rule is "ignore a NaN". .uir's <code>max</code> returns NaN if either side is NaN, and returns <code>+0.0</code> for <code>max(-0.0, 0.0)</code> in either order. So write a small helper function in the C you print, test it against those cases, and call it for every f32 <code>max</code>. That's allowed: the C may call <code>&lt;math.h&gt;</code> and non-recursive helpers defined in the same file, and nothing else.</p>
+<p>C has <code>fmaxf</code>, and it's the wrong function. <code>fmaxf(NAN, 1.0f)</code> returns <code>1.0f</code>: C's rule is "ignore a NaN". .uir's <code>max</code> returns NaN if either side is NaN, and returns <code>+0.0</code> for <code>max(-0.0, 0.0)</code> in either order. So write a small helper function in the C you print, test it against those cases and call it for every f32 <code>max</code>. That's allowed: the C may call <code>&lt;math.h&gt;</code> and non-recursive helpers defined in the same file, and nothing else.</p>
 </div>
 
 <div class="prose">

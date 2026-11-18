@@ -34,7 +34,11 @@ def describe(path):
     elif l == 'cuda': kind = 'cuda'
     elif l == 'cuda: invalid': kind = 'cuda: invalid'
     elif l.startswith('cuda speed:'): kind = 'cuda, speed ' + l.split(':', 1)[1].strip()
-  why = next((l for l in lines if not re.match(r'(expect|simplify|render check|time|max_bytes|speed|cuda speed):|render$|cuda$|cuda: invalid$', l)), '')
+  head = []
+  for l in open(path, encoding='utf-8').read().split('\n'):
+    if not l.startswith('#'): break
+    head.append(l[1:].strip())
+  why = ' '.join(l for l in head if l and not re.match(r'(expect|simplify|render check|time|max_bytes|speed|cuda speed):|render$|cuda$|cuda: invalid$', l))
   return kind, why
 
 def page(week, rows):
@@ -62,7 +66,7 @@ def page(week, rows):
   <h1>Week {week} test guide</h1>
   <p class="lede">A test failed and you don't know why? Find it here: what it checks, and the plausible bugs that are known to fail it. Then read the matching part of the <a href="../../spec/uir-week{week}.md">week {week} spec</a>.</p>
   <div class="note"><span class="label">How to use this</span>
-    <p>Run <code>python tools/test.py --compiler PATH --week {week} -v</code>, copy the failing test's name, and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
+    <p>Run <code>python tools/test.py --compiler PATH --week {week} -v</code>, copy the failing test's name and search below. "Bugs known to fail it" lists mistakes that were planted in the reference compiler and caught by this test, so one of them is a good first guess. It's not a complete list, and the <a href="debugging.html">debugging guide</a> covers what to do when none fit.</p>
   </div>
   <input class="filter" type="search" placeholder="Filter by test name, kind, or words" aria-label="Filter tests" oninput="for (const r of document.querySelectorAll('.guide tbody tr')) r.hidden = !r.textContent.toLowerCase().includes(this.value.toLowerCase())">
   <div class="tablewrap bleed">

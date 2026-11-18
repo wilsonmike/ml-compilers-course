@@ -33,18 +33,18 @@
 
 <div class="prose">
 <h2>What a tensor core does</h2>
-<p>Every SM of the 4060 Ti has four tensor cores next to its ordinary float units. The instruction they run is a <b>matrix multiply-accumulate</b>, <b>mma</b>: <code>C = C + A·B</code>, with A, B and C small tiles. It's a warp instruction. The tile is spread across the registers of the warp's 32 threads, called a <b>fragment</b>, and all 32 threads issue it together. In CUDA's <code>wmma</code> interface the tiles we use are 16×16×16, and one <code>mma_sync</code> is 16·16·16 = 4,096 multiply-adds.</p>
-<p>The inputs are narrow: 16-bit floats, 8-bit floats, 8-bit integers. Narrow inputs are what make the units small enough to put four per SM, and it's why ML models are so often run in 16 or 8 bits.</p>
+<p>Every SM of the 4060 Ti has four tensor cores next to its ordinary float units. The instruction they run is a <b>matrix multiply-accumulate</b>, <b>mma</b>: <code>C = C + A·B</code>, with A, B and C small tiles. It's a warp instruction. Each tile is spread across the registers of the warp's 32 threads as a <b>fragment</b>, and all 32 threads issue the instruction together. In CUDA's <code>wmma</code> interface the tiles we use are 16×16×16, and one <code>mma_sync</code> is 16·16·16 = 4,096 multiply-adds.</p>
+<p>The inputs are narrow: 16-bit floats, 8-bit floats, 8-bit integers. Narrow inputs are what make the units small enough to put four per SM, and they're why ML models are so often run in 16 or 8 bits.</p>
 
 <h2>Why int8</h2>
-<p>A float tensor core doesn't round like the interpreter. It multiplies the inputs exactly, but how it adds sixteen products together, how many bits it keeps along the way and how it rounds, is not IEEE arithmetic step by step, and it differs from one GPU generation to the next. A grader that compares bits can't use it.</p>
-<p>Integers have no rounding. The product of two 8-bit integers fits in 16 bits, and a sum of them in 32-bit integers is exact as long as it doesn't overflow, in any order. So the tensor cores give exactly the interpreter's answer. That's why .uir's tensor-core op takes <code>i8</code> inputs and an <code>i32</code> accumulator. It's also real: int8 matrix multiplies are how many models are served after quantization.</p>
+<p>A float tensor core doesn't round like the interpreter. It multiplies the inputs exactly, but it doesn't add the sixteen products together in IEEE arithmetic step by step. How many bits it keeps along the way and how it rounds differ from one GPU generation to the next. A grader that compares bits can't use it.</p>
+<p>Integers have no rounding. The product of two 8-bit integers fits in 16 bits, and a sum of them in 32-bit integers is exact in any order, as long as it doesn't overflow. So the tensor cores give exactly the interpreter's answer. That's why .uir's tensor-core op takes <code>i8</code> inputs and an <code>i32</code> accumulator. It's also real: int8 matrix multiplies are how many models are served after quantization.</p>
 
 <h2>In .uir</h2>
 <p>Three additions, all in <a href="../../spec/uir-week9.md">the week 9 spec</a>:</p>
 <ul>
 <li><b><code>i8</code></b>, a dtype for memory. Buffers and allocs hold it, <code>load</code> and <code>store</code> move it, and <code>cast</code> converts it. To compute, cast to <code>i32</code>. Casting an <code>i32</code> to <code>i8</code> keeps the low 8 bits, so 200 becomes -56.</li>
-<li><b><code>mma C A B lda=.. ldb=.. ldc=..</code></b>, an effect like <code>store</code>. Each operand is memory or a scalar view where a 16×16 tile starts, and <code>lda</code>, <code>ldb</code>, <code>ldc</code> are the tiles' row strides ("ld" is short for leading dimension, the usual name in matrix libraries). It adds <code>A·B</code> into <code>C</code>, in <code>i32</code>, wrapping on overflow like <code>add</code>.</li>
+<li><b><code>mma C A B lda=.. ldb=.. ldc=..</code></b>, an effect like <code>store</code>. Each operand is memory or a scalar view where a 16×16 tile starts, and <code>lda</code>, <code>ldb</code> and <code>ldc</code> are the tiles' row strides ("ld" is short for leading dimension, the usual name in matrix libraries). It adds <code>A·B</code> into <code>C</code>, in <code>i32</code>, wrapping on overflow like <code>add</code>.</li>
 <li><b><code>axis=warp</code></b>, a phase run by whole warps: warp <code>w</code> runs iteration <code>w</code>, so a warp loop of 4 makes a block of 128 threads. Inside a kernel, an <code>mma</code> must be in a warp loop, and a store can't be.</li>
 </ul>
 <p>Here's a 32×32 product, two blocks of two warps, each warp making one 16×16 tile of C from two tiles of <code>k</code>. The whole program is the test <code>c_mma_from_global</code>:</p>
@@ -57,10 +57,10 @@
 %v14 = end %v13 %w
 %v15 = end %v14 %g
 %C1 = after %C %v15</code></pre>
-<p>The race rule of <a href="../week8/02-global-and-local.html">lesson 8.2</a> holds for warps too, with one extra: an mma writes a whole tile, so its offset gets two more digits, the tile's rows (<code>ldc</code>, up to 15) and its columns (1, up to 15). Here warp <code>w</code>'s tile starts at <code>16w</code> and its rows add up to <code>15·32</code>: digits 32, 16 and 1, and <code>32 &gt; 16 + 15</code>, so the two warps' tiles never touch.</p>
+<p>The race rule of <a href="../week8/02-global-and-local.html">lesson 8.2</a> holds for warps too, with one addition: an mma writes a whole tile, so its offset gets two more digits, the tile's rows (<code>ldc</code>, up to 15) and its columns (1, up to 15). Here warp <code>w</code>'s tile starts at <code>16w</code> and its rows add up to <code>15·32</code>: digits 32, 16 and 1, and <code>32 &gt; 16 + 15</code>, so the two warps' tiles never touch.</p>
 
 <h2>Alignment and tile-major order</h2>
-<p>The tensor cores load a tile from an address that's a multiple of 32 bytes. So the spec requires every term of A's and B's offsets to be a multiple of 32 elements (they're bytes), and every term of C's a multiple of 8 (32 bytes of <code>i32</code>). That rules out the obvious layout. In a row-major int8 matrix, the tile in columns 16 to 31 starts 16 bytes in.</p>
+<p>The tensor cores load a tile from an address that's a multiple of 32 bytes. So the spec requires every term of A's and B's offsets to be a multiple of 32 elements (an i8 element is one byte), and every term of C's a multiple of 8 (32 bytes of <code>i32</code>). That rules out the obvious layout. In a row-major int8 matrix, the tile in columns 16 to 31 starts 16 bytes in.</p>
 <p>The fix is to store the matrix <b>tile-major</b>: tile after tile, each tile's 256 bytes together. Every tile then starts at a multiple of 256. The example above reads A and B stored that way. The GEMM kernels in the tests read ordinary row-major matrices and rearrange each slice into tile-major order as they copy it into shared memory.</p>
 </div>
 

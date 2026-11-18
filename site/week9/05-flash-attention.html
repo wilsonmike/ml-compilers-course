@@ -98,7 +98,7 @@ end:           o = [0.368, 1] / 1.368 = [0.269, 0.731]</code></pre>
 %v118 = store %v110 %mnew           # mx[t] = mnew
 %v119 = store %v111 %v117           # l[t] = l * corr + pj
 %d2 = range 8 axis=upcast           # then acc[t*8 + d] = acc[t*8 + d] * corr + pj * V[j][d]</code></pre>
-<p>Everything a thread keeps across keys, <code>qr</code>, <code>acc</code>, <code>mx</code> and <code>l</code>, is at <code>t·S + e</code>: per-thread memory, so registers, with <code>e</code> a literal from the upcast loops. In <code>s_cuda_flash_attention</code>, with <code>D = 32</code>, that's 66 floats a thread. In shared memory instead, the same kernel takes 1.39 ms for 16 heads, against 0.82 ms in registers, and <code>s_cuda_flash_attention</code> asks for at least 0.8 of the reference's speed.</p>
+<p>Everything a thread keeps across keys, <code>qr</code>, <code>acc</code>, <code>mx</code> and <code>l</code>, is at <code>t·S + e</code>: per-thread memory, so it lives in registers, with <code>e</code> a literal from the upcast loops. In <code>s_cuda_flash_attention</code>, with <code>D = 32</code>, that's 66 floats a thread. In shared memory instead, the same kernel takes 1.39 ms for 16 heads, against 0.82 ms in registers, and <code>s_cuda_flash_attention</code> asks for at least 0.8 of the reference's speed.</p>
 
 <h2>Same math, different bits</h2>
 <p>Flash attention computes the same softmax as the three-kernel version, but not the same bits: it rescales its sums as it goes, so it rounds at different points. That's fine in .uir, where a program means exactly its own operations. The tests check the flash program's bits against the interpreter running the flash program.</p>

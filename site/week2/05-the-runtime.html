@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Runtime</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Rendering gives you C source. A runtime turns that source into answers: write it to a file next to a generated main, compile it, run the program, and read the...">
+<meta name="description" content="Rendering gives you C source. A runtime turns that source into answers: write it to a file next to a generated main, compile it, run the program and read the...">
 <link rel="canonical" href="https://sharpterminal.com/site/week2/05-the-runtime">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="The Runtime">
-<meta property="og:description" content="Rendering gives you C source. A runtime turns that source into answers: write it to a file next to a generated main, compile it, run the program, and read the buffers back out of its output, bit for...">
+<meta property="og:description" content="Rendering gives you C source. A runtime turns that source into answers: write it to a file next to a generated main, compile it, run the program and read the buffers back out of its output, bit for...">
 <meta property="og:url" content="https://sharpterminal.com/site/week2/05-the-runtime">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -23,11 +23,11 @@
 <main>
 <p class="eyebrow">Week 2 · Lesson 5</p>
 <h1>The runtime</h1>
-<p class="lede">Rendering gives you C source. A runtime turns that source into answers: write it to a file next to a generated <code>main</code>, compile it, run the program, and read the buffers back out of its output, bit for bit.</p>
+<p class="lede">Rendering gives you C source. A runtime turns that source into answers: write it to a file next to a generated <code>main</code>, compile it, run the program and read the buffers back out of its output, bit for bit.</p>
 
 <div class="prose">
 <h2>Why bother this week</h2>
-<p>Week 2's <code>run</code> may still interpret the graph. The grader only sees its exit code and stderr. But from week 6 on your kernels get timed, and an interpreter that walks the graph per element can't compete with compiled C. The plan for the rest of the course is that your compiler compiles, and the C does the work. This week you build the plumbing while the programs are still small enough to check by hand.</p>
+<p>Week 2's <code>run</code> may still interpret the graph. The grader only sees its exit code and stderr. But from week 6 on, your kernels get timed, and an interpreter that walks the graph per element can't compete with compiled C. The plan for the rest of the course is that your compiler compiles, and the C does the work. This week you build the plumbing while the programs are still small enough to check by hand.</p>
 <p>A runtime has five steps. Step through them with one program: add <code>0.2</code> to the first element of an f32 buffer.</p>
 </div>
 
@@ -35,7 +35,7 @@
 
 <div class="prose">
 <h2>Generating main</h2>
-<p>The kernel only does the work. The program you compile also needs a <code>main</code> that sets up the buffers, calls <code>kernel</code>, and prints the results. Your compiler writes that <code>main</code> too, from the same graph:</p>
+<p>The kernel only does the work. The program you compile also needs a <code>main</code> that sets up the buffers, calls <code>kernel</code> and prints the results. Your compiler writes that <code>main</code> too, from the same graph:</p>
 <ul>
 <li>One array per <code>buffer</code>, sized from the op and filled from its <code>data</code> (or zeros). <code>static</code> arrays keep large buffers off the stack.</li>
 <li>A call to <code>kernel</code> with the arrays in slot order.</li>
@@ -51,12 +51,12 @@
 
 <div class="prose">
 <h2>Calling the C compiler from your compiler</h2>
-<p>You need three things from the standard library: somewhere to put files, a way to run a command, and a way to read a file back.</p>
+<p>You need three things from the standard library: somewhere to put files, a way to run a command and a way to read a file back.</p>
 </div>
 <div class="prose only-python">
 <ul>
 <li><code>tempfile.TemporaryDirectory()</code> creates a fresh, empty directory. Used as <code>with tempfile.TemporaryDirectory() as d:</code>, it deletes the directory and everything in it when the block ends, even if something inside raises. <code>os.path.join(d, "kernel.c")</code> builds paths inside it.</li>
-<li><code>subprocess.run</code> runs a command given as a list of arguments, so paths with spaces need no quoting. <code>capture_output=True</code> collects stdout and stderr, <code>text=True</code> decodes them to strings, and <code>timeout=</code> stops a program that runs too long.</li>
+<li><code>subprocess.run</code> runs a command given as a list of arguments, so paths with spaces need no quoting. <code>capture_output=True</code> collects stdout and stderr, <code>text=True</code> decodes them to strings and <code>timeout=</code> stops a program that runs too long.</li>
 <li>The result's <code>.returncode</code> is the exit code, and <code>.stdout</code> and <code>.stderr</code> hold the output.</li>
 </ul>
 <pre><code>r = subprocess.run(["clang", "-O2", "my file.c", "-o", "a.out"], capture_output=True, text=True, timeout=30)
@@ -78,7 +78,7 @@ if r.returncode != 0:
 
 <div class="note">
 <span class="label">Why a separate program, not a shared library</span>
-<p>The fastest-looking design compiles the kernel into a <code>.so</code> or <code>.dll</code>, loads it into your compiler's process, and calls it directly. <span class="only-ocaml">In OCaml that means the <code>ctypes</code> and <code>ctypes-foreign</code> packages, libffi, and describing every C type from OCaml.</span><span class="only-python">In Python that means the <code>ctypes</code> module, describing every argument's C type, and keeping buffers alive while C uses them.</span> It works, but it's a lot of machinery, and a crashing kernel takes your compiler down with it. A separate program costs a few milliseconds of process startup and gives you isolation and plain-text output for free. Start there. You can always switch later.</p>
+<p>The fastest-looking design compiles the kernel into a <code>.so</code> or <code>.dll</code>, loads it into your compiler's process and calls it directly. <span class="only-ocaml">In OCaml that means the <code>ctypes</code> and <code>ctypes-foreign</code> packages, libffi and describing every C type from OCaml.</span><span class="only-python">In Python that means the <code>ctypes</code> module, describing every argument's C type and keeping buffers alive while C uses them.</span> It works, but it's a lot of machinery, and a crashing kernel takes your compiler down with it. A separate program costs a few milliseconds of process startup and gives you isolation and plain-text output for free. Start there. You can always switch later.</p>
 </div>
 
 <div class="trap">
@@ -89,13 +89,13 @@ if r.returncode != 0:
 
 <div class="prose">
 <h2>Reading results back exactly</h2>
-<p>The program's output is text like <code>0 3e99999a</code>: a slot, a space, and 32 bits. Turn each line back into a float by its bits, never by parsing a decimal. <span class="only-ocaml"><code>Int32.of_string ("0x" ^ bits)</code> reads the hex (even with the top bit set, <code>0x80000000</code> becomes <code>Int32.min_int</code>), and <code>Int32.float_of_bits</code> reinterprets it.</span><span class="only-python"><code>int(bits, 16)</code> reads the hex as a number from 0 to 2<sup>32</sup> − 1, <code>struct.pack("&lt;I", ...)</code> turns it into 4 bytes, and <code>struct.unpack("&lt;f", ...)[0]</code> reinterprets them as a float.</span> Watch for Windows line endings: lines end in <code>\r\n</code> there.</p>
+<p>The program's output is text like <code>0 3e99999a</code>: a slot, a space and 32 bits. Turn each line back into a float by its bits, never by parsing a decimal. <span class="only-ocaml"><code>Int32.of_string ("0x" ^ bits)</code> reads the hex (even with the top bit set, <code>0x80000000</code> becomes <code>Int32.min_int</code>), and <code>Int32.float_of_bits</code> reinterprets it.</span><span class="only-python"><code>int(bits, 16)</code> reads the hex as a number from 0 to 2<sup>32</sup> − 1, <code>struct.pack("&lt;I", ...)</code> turns it into 4 bytes and <code>struct.unpack("&lt;f", ...)[0]</code> reinterprets them as a float.</span> Watch for Windows line endings: lines end in <code>\r\n</code> there.</p>
 </div>
 
 <h2>Code it</h2>
 <div class="exercise" data-ex="w2-05-read-slot" data-ex-py="w2-05-read-slot-py">
 <h3>Read a buffer back from the harness</h3>
-<p>The compiled program prints one line per f32 element: the slot number, a space, and the element's 32 bits as 8 hex digits, like <code>0 3f800000</code>. Write <span class="only-ocaml"><code>read_slot : string -&gt; int -&gt; float list</code></span><span class="only-python"><code>read_slot(out: str, k: int) -&gt; list[float]</code></span>, returning slot <code>k</code>'s values in output order. Lines may end in <code>\r\n</code>, blank lines can appear, and a slot that never appears gives <code>[]</code>.</p>
+<p>The compiled program prints one line per f32 element: the slot number, a space and the element's 32 bits as 8 hex digits, like <code>0 3f800000</code>. Write <span class="only-ocaml"><code>read_slot : string -&gt; int -&gt; float list</code></span><span class="only-python"><code>read_slot(out: str, k: int) -&gt; list[float]</code></span>, returning slot <code>k</code>'s values in output order. Lines may end in <code>\r\n</code>, blank lines can appear and a slot that never appears gives <code>[]</code>.</p>
 </div>
 
 <h2>Check yourself</h2>

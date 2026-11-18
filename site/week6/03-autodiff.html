@@ -90,8 +90,8 @@
 <p>t's two shares are one node, <code>%c2</code>, because hash consing merges equal nodes, but x still adds it twice, once per share. Nothing is simplified: <code>mul 1.0 %x</code> stays in the graph. Here x is a scalar, so every literal is too. When an op's result has a shape, each literal in its rule (the <code>-1.0</code> in recip's share, say) is first expanded to that shape, because ALU ops don't broadcast. The seed <code>1.0</code> is always a scalar, like y.</p>
 
 <h2>Which nodes take part</h2>
-<p>Only nodes on a path from x to y. A node that doesn't depend on x can't pass anything back to x, so the walk skips it. Skipping isn't just faster. A node off the path may be an op with no rule (a <code>reduce op=mul</code> of some unrelated data, say), and that's fine as long as x doesn't reach it. The walk also stops at x: x's own operands don't matter, because x is what you're differentiating against.</p>
-<p>What can be on the path is limited. Gradients don't go through <code>call</code>, <code>load</code>, <code>store</code> or loops, so a program like that is invalid. That's the syllabus's rule: autodiff works on pure graphs. x itself may be a <code>load</code>, though. The weights of a model are.</p>
+<p>Only nodes on a path from x to y. A node that doesn't depend on x can't pass anything back to x, so the walk skips it. Skipping isn't just faster. A node off the path may be an op with no rule (a <code>reduce op=mul</code> of some unrelated data, say), and that's fine as long as x doesn't reach it. The walk also stops at x: x's own operands don't matter, because x is what you're differentiating with respect to.</p>
+<p>What can be on the path is limited. Gradients don't go through <code>call</code>, <code>load</code>, <code>store</code> or loops, so a gradient whose path contains one is invalid. That's the syllabus's rule: autodiff works on pure graphs. x itself may be a <code>load</code>, though. The weights of a model are.</p>
 </div>
 
 <div class="exercise small" data-ex="w6-03-backprop" data-ex-py="w6-03-backprop-py">
@@ -101,13 +101,13 @@
 
 <div class="prose">
 <h2>detach: "treat this as a constant"</h2>
-<p><code>detach x</code> has the value of x and passes no gradient. <code>gradient (mul x (detach x)) x</code> is x, not 2x: the detached copy counts as a constant. It's how you stop a gradient on purpose. Lesson 6.5 uses it on the max subtracted for a stable softmax, whose gradient cancels out in exact math. In f32 the cancelling terms round, so the bits can differ without the detach.</p>
+<p><code>detach x</code> has the value of x and passes no gradient. <code>gradient (mul x (detach x)) x</code> is x, not 2x: the detached copy counts as a constant. It's how you stop a gradient on purpose. Lesson 6.5 uses it on the max subtracted for a stable softmax, whose gradient cancels out in exact math. In f32 the canceling terms round, so the bits can differ without the detach.</p>
 
 <h2>When gradient is invalid</h2>
 <ul>
 <li>The loss isn't an f32 scalar, or x isn't an f32 value (a buffer, an i32).</li>
 <li>x is a literal. <code>gradient %y 2.0</code> would mean every <code>2.0</code> in the program, because equal literals are one hash-consed node.</li>
-<li>Either depends on an open range: no gradients inside hand-written loops.</li>
+<li>The loss or x depends on an open range: no gradients inside hand-written loops.</li>
 <li>A <code>call</code>, <code>load</code> or <code>store</code> lies on a path from x to y, or an op with no rule does (<code>reduce op=mul</code>).</li>
 </ul>
 <p>If y doesn't depend on x at all, that's not an error. The gradient is zeros of x's shape.</p>
@@ -175,7 +175,7 @@
 <button data-k="b">Equal literals are one hash-consed node, so "the 2.0" is every 2.0 in the program</button>
 <button data-k="c">x must be a vector</button>
 </div>
-<p class="hint">How many nodes does <code>add %a 2.0</code> and <code>mul %b 2.0</code> make for the literal?</p>
+<p class="hint">How many nodes do <code>add %a 2.0</code> and <code>mul %b 2.0</code> make for the literal?</p>
 <div class="why"><p>One. A gradient with respect to it would mix every use of 2.0 together, which is never what anyone means. If you want a variable, load it or <code>stage</code> it.</p></div>
 </div>
 

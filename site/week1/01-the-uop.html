@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The UOp</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes, and an argument. Programs are graphs of these. This lesson is...">
+<meta name="description" content="Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes and an argument. Programs are graphs of these. This lesson is...">
 <link rel="canonical" href="https://sharpterminal.com/site/week1/01-the-uop">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="The UOp">
-<meta property="og:description" content="Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes, and an argument. Programs are graphs of these. This lesson is about why that&#x27;s enough, and the trick...">
+<meta property="og:description" content="Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes and an argument. Programs are graphs of these. This lesson is about why that&#x27;s enough, and the trick...">
 <meta property="og:url" content="https://sharpterminal.com/site/week1/01-the-uop">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -29,7 +29,7 @@
 <main>
   <p class="eyebrow">Week 1 · Lesson 1</p>
   <h1>The UOp: one node type for everything</h1>
-  <p class="lede">Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes, and an argument. Programs are graphs of these. This lesson is about why that's enough, and the trick (hash consing) that makes it fast.</p>
+  <p class="lede">Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes and an argument. Programs are graphs of these. This lesson is about why that's enough, and the trick (hash consing) that makes it fast.</p>
 
   <div class="note">
     <span class="label">Want it slower?</span>
@@ -91,7 +91,7 @@
   <p class="prose">Build the cache yourself, on a toy node type in your language. The key is the op plus the <em>ids</em> of the sources. Each source is already unique, so its id stands for its whole subgraph, and the lookup never looks inside it.</p>
   <div class="exercise" data-ex="w1-01-hashcons" data-ex-py="w1-01-hashcons-py">
     <h3>Hash cons a toy node</h3>
-    <p>Write <code>create ()</code>. It returns a <code>make</code> function with its own private table. <code>make op src</code> must return the <strong>same</strong> node (the same object: <span class="only-ocaml"><code>==</code></span><span class="only-python"><code>is</code></span>) when it has already built a node with that op and those exact source nodes. Otherwise it builds a new node whose <code>id</code> is the next number: 0, 1, 2, and so on.</p>
+    <p>Write <code>create ()</code>. It returns a <code>make</code> function with its own private table. <code>make op src</code> must return the <strong>same</strong> node (the same object: <span class="only-ocaml"><code>==</code></span><span class="only-python"><code>is</code></span>) when it has already built a node with that op and those exact source nodes. Otherwise it builds a new node whose <code>id</code> is the next number: 0, 1, 2 and so on.</p>
     <p>Two different <code>create ()</code> calls must not share a table. Source order matters: an <code>"add"</code> of <code>x</code> then <code>y</code> and an <code>"add"</code> of <code>y</code> then <code>x</code> are different nodes.</p>
     <p class="muted only-ocaml">The shape: <code>let create () = let tbl = Hashtbl.create 16 in let next = ref 0 in fun op src -&gt; ...</code>. The table lives inside each <code>create ()</code> call, and the function it returns can see it. Key the <code>Hashtbl</code> on <code>(op, list of source ids)</code>.</p>
     <p class="muted only-python">The shape: inside <code>create()</code>, make a dict and a counter, then define <code>make</code> and return it. Each <code>create()</code> call gets its own dict, and the <code>make</code> it returns can see it. Key the dict on <code>(op, tuple of source ids)</code>, and compare nodes with <code>is</code>, not <code>==</code>.</p>
@@ -135,7 +135,7 @@
   </div>
   <div class="tablewrap"><table>
     <tr><th>node</th><th>dtype</th><th>shape</th><th>rule</th></tr>
-    <tr><td><code>add a b</code></td><td>a's</td><td><code>()</code></td><td>a and b must share a dtype, rank 0 (no axes: a single value)</td></tr>
+    <tr><td><code>add a b</code></td><td>a's</td><td><code>()</code></td><td>a and b must share a dtype and be rank 0 (no axes: a single value)</td></tr>
     <tr><td><code>cmplt a b</code></td><td>bool</td><td><code>()</code></td><td>compares, so the result is always bool</td></tr>
     <tr><td><code>stack a0 .. a(n-1)</code></td><td>a0's</td><td><code>(n,)</code></td><td>adds a leading axis</td></tr>
     <tr><td><code>index x i</code></td><td>x's</td><td><code>()</code></td><td>pops x's leading axis</td></tr>
@@ -201,7 +201,7 @@
     <p class="q">What dtype is <code>cmplt 1 2</code>?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">A comparison answers a yes or no question, whatever it compares.</p>
-    <div class="why"><p>Comparisons always produce <code>bool</code>, whatever their operands are. Its value is <code>true</code>.</p></div>
+    <div class="why"><p>Comparisons always produce <code>bool</code>, whatever their operands are. The value of <code>cmplt 1 2</code> is <code>true</code>.</p></div>
   </div>
 
   <div class="quiz" data-answer="b">

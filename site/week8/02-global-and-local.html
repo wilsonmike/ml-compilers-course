@@ -46,7 +46,7 @@
 <ul>
 <li>A local loop sits inside a global loop, possibly inside plain loops in its body, and never inside another local loop.</li>
 <li>Every local loop of one global loop has the same bound, because a kernel has one block size.</li>
-<li>No thread, global or local loop inside a global loop's body, other than its own local loops.</li>
+<li>A global loop's body holds no thread loop, no other global loop and no local loop other than its own.</li>
 <li>Every store inside a global loop is inside a local loop. A store outside one would run once on every thread.</li>
 </ul>
 </div>
@@ -58,7 +58,7 @@
 
 <div class="prose">
 <h2>Why week 7's slice rule isn't enough</h2>
-<p>Week 7's rule (<a href="../week7/04-threads.html">lesson 7.4</a>) gave each thread-loop iteration a slice <code>r·S</code> to <code>r·S + S - 1</code>, with one parallel index. Now there are two at once, the block and the thread, and real kernels mix them up. The 512×512 GEMM in the speed test writes element</p>
+<p>Week 7's rule (<a href="../week7/04-threads.html">lesson 7.4</a>) gave each thread-loop iteration a slice <code>r·S</code> to <code>r·S + S - 1</code>, with one parallel index. Now there are two at once, the block and the thread, and real kernels combine them. The 512×512 GEMM in the speed test writes element</p>
 <pre><code>(16·by + ty)·512 + 16·bx + tx        by = g div 32, bx = g mod 32,  ty = t div 16, tx = t mod 16</code></pre>
 <p>The grid is one global loop of 1024 blocks, read as a 32×32 grid of tiles: <code>by</code> is a tile's row and <code>bx</code> its column. The 256 threads of a block are read as 16×16 the same way. So thread <code>t</code> of block <code>g</code> isn't writing one contiguous slice: block <code>g</code> owns a 16×16 square, spread across 16 rows. We need a rule that sees that.</p>
 
@@ -84,7 +84,7 @@
 <li>Coefficients are positive. <code>7 - t</code> walks backwards through memory, which is perfectly safe, but the rule doesn't try to prove it.</li>
 <li>The offset has to pin down the parallel index: the index itself, or both its <code>div k</code> and its <code>mod k</code> by the same <code>k</code>. <code>o[0]</code> written by every block is the plainest race there is. A lone <code>t mod 4</code> is a quieter one: with 8 threads the digits pass, yet threads 0 and 4 write the same element. (A <code>mod k</code> with <code>k</code> larger than the index's largest value is the index itself, so it counts.)</li>
 </ul>
-<p>It applies to every store, and every load of memory the same code also stores into. Memory that's only read can be read anywhere: the GEMM's A and B are read by many blocks at once, which is fine.</p>
+<p>The rule applies to every store, and to every load of memory the same code also stores into. Memory that's only read can be read anywhere: the GEMM's A and B are read by many blocks at once, which is fine.</p>
 </div>
 
 <div class="fig" id="radix" data-title="Which threads write each element (block, thread)"></div>

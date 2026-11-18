@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Week 8 Lab</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU, and...">
+<meta name="description" content="Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU and writes...">
 <link rel="canonical" href="https://sharpterminal.com/site/week8/06-lab">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Week 8 Lab">
-<meta property="og:description" content="Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU, and writes CUDA with render-cuda. You&#x27;re done...">
+<meta property="og:description" content="Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU and writes CUDA with render-cuda. You&#x27;re done when...">
 <meta property="og:url" content="https://sharpterminal.com/site/week8/06-lab">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -23,7 +23,7 @@
 <main>
 <p class="eyebrow">Week 8 · Lesson 6</p>
 <h1>The week 8 lab</h1>
-<p class="lede">Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU, and writes CUDA with <code>render-cuda</code>. You're done when every week 8 test passes, in the emulator or on a GPU, weeks 1 to 7 still pass, and you've written 10 tests of your own.</p>
+<p class="lede">Teach your compiler blocks and threads. It checks the global and local rules, gives each block fresh shared memory, renders global loops for the CPU and writes CUDA with <code>render-cuda</code>. You're done when every week 8 test passes in the emulator or on a GPU, weeks 1 to 7 still pass and you've written 10 tests of your own.</p>
 
 <div class="prose">
 <h2>The command-line contract</h2>
@@ -31,9 +31,9 @@
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 8 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td><code>axis=global</code> and <code>axis=local</code> run as plain loops, except that a block's shared memory starts at zero for every value of the global index. New static errors (exit 2): a local bound that isn't a literal from 1 to 1024, a local loop outside a global loop or inside another local loop, local loops of different sizes in one global loop, another parallel loop inside a global loop, a store outside a local loop, and an offset that breaks the mixed-radix rule.</td></tr>
+<tr><td><code>your.exe run FILE</code></td><td><code>axis=global</code> and <code>axis=local</code> run as plain loops, except that a block's shared memory starts at zero for every value of the global index. New static errors (exit 2): a local bound that isn't a literal from 1 to 1024, a local loop outside a global loop or inside another local loop, local loops of different sizes in one global loop, another parallel loop inside a global loop, a store outside a local loop and an offset that breaks the mixed-radix rule.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>A global loop renders like a week 7 thread loop, with its shared memory declared in the outlined function. Local loops are plain loops.</td></tr>
-<tr><td><code>your.exe render-cuda FILE</code></td><td>New. Prints CUDA: a <code>__global__</code> function per global loop, <code>__shared__</code> arrays zeroed by the threads, each phase as a block on <code>threadIdx.x</code> followed by <code>__syncthreads()</code>, and a host <code>kernel</code> that calls <code>UIR_LAUNCH</code>. Exits 2 if the program isn't in kernel form.</td></tr>
+<tr><td><code>your.exe render-cuda FILE</code></td><td>New. Prints CUDA: a <code>__global__</code> function per global loop, <code>__shared__</code> arrays zeroed by the threads, each phase as a block on <code>threadIdx.x</code> followed by <code>__syncthreads()</code> and a host <code>kernel</code> that calls <code>UIR_LAUNCH</code>. Exits 2 if the program isn't in kernel form.</td></tr>
 </tbody></table></div>
 
 <div class="prose">
@@ -51,7 +51,7 @@
 python tools/test.py --compiler "C:/path/to/your.exe" --week 8 --cuda-docker nvidia/cuda:12.6.3-devel-ubuntu22.04
 python tools/test.py --compiler "C:/path/to/your.exe" --week 8 -k c_reverse -v     # one group, with details
 python _reference/uirc.py render-cuda tests/week8/render/c_reverse_shared.uir --week=8   # the reference's CUDA, to compare</code></pre>
-<p><code>--week=8</code> makes the reference print what a week 8 compiler would. Without it you get week 9's output, which keeps some shared memory in registers. The speed test's reference is also the week 8 output. Then run weeks 1 to 7 again, one <code>--week</code> at a time. The speed test reads <code>data/a512.f32</code> and <code>data/b512.f32</code> next to it, 1 MB each. Lesson 8.5 covers where to get a GPU, and you don't need one until the last step.</p>
+<p><code>--week=8</code> makes the reference print what a week 8 compiler would. Without it you get week 9's output, which keeps some shared memory in registers. The speed test's reference is also the week 8 output. Then run weeks 1 to 7 again, one <code>--week</code> at a time. The speed test reads <code>data/a512.f32</code> and <code>data/b512.f32</code>, 1 MB each, from <code>tests/week8/render/</code>. Lesson 8.5 covers where to get a GPU, and you don't need one until the last step.</p>
 
 <h2>Write your 10 tests</h2>
 <p>Ten tests in <code>path/to/your-repo/tests/week8/</code>, checked with <code>python tools/test.py --check-tests path/to/your-repo/tests/week8</code>. Good targets: an offset with <code>div</code> and <code>mod</code> digits that just fits, and one where a coefficient is one too small. A vector store whose size pushes it into a neighbor's slot. A later phase reading another thread's slot, and the same read in the same phase. Shared memory read before any phase writes it. A CUDA test with two kernels where the second reads what the first wrote.</p>
@@ -62,7 +62,7 @@ python _reference/uirc.py render-cuda tests/week8/render/c_reverse_shared.uir --
 <li><h3>Parse the new axes</h3><p>Accept <code>global</code> and <code>local</code>, check local bounds, and run both as plain loops.</p><p class="check">Checkpoint: weeks 1 to 7 pass, and the week 8 run tests that expect a result pass, except <code>block_shared_starts_at_zero</code>.</p></li>
 <li><h3>Shared memory</h3><p>An alloc whose every load and store is inside one global loop is shared. Re-zero it for each value of the global index in <code>run</code>, exactly like week 7's private allocs.</p><p class="check">Checkpoint: <code>block_shared_starts_at_zero</code> and <code>plain_loop_alloc_carries_over</code> both pass.</p></li>
 <li><h3>Shape rules</h3><p>Where local loops may be, one block size per kernel, no other parallel loops inside, no stores outside local loops.</p><p class="check">Checkpoint: <code>err_local_*</code>, <code>err_thread_in_global</code> and <code>err_store_outside_local</code> exit 2.</p></li>
-<li><h3>The mixed-radix rule</h3><p>Split each offset into terms, find the digits and their largest values, sort, and compare. Do it per phase with the local index, then per kernel with the global index, skipping shared memory. Check the offset pins down the parallel index (the index itself, or its <code>div k</code> and <code>mod k</code>), and that every access to a buffer is the same expression.</p><p class="check">Checkpoint: every run test passes.</p></li>
+<li><h3>The mixed-radix rule</h3><p>Split each offset into terms, find the digits and their largest values, sort, and compare. Do it per phase with the local index, then per kernel with the global index, skipping shared memory. Check that the offset pins down the parallel index (the index itself, or its <code>div k</code> and <code>mod k</code>), and that every access to a buffer is the same expression.</p><p class="check">Checkpoint: every run test passes.</p></li>
 <li><h3>Render for the CPU</h3><p>Treat a global loop as a thread loop and its shared allocs as private ones. Your week 7 outlining does the rest.</p><p class="check">Checkpoint: the <code>r_</code> tests pass.</p></li>
 <li><h3>render-cuda</h3><p>Start from your C emitter. Emit one <code>__global__</code> function per top-level global loop with its free buffers as parameters, then the shared arrays and their zeroing, then each phase. Add <code>__device__</code> to your helpers and emit the host <code>kernel</code>.</p><p class="check">Checkpoint: every <code>c_</code> test passes in the emulator.</p></li>
 <li><h3>On a GPU</h3><p>Run the suite with <code>nvcc</code> or <code>--cuda-docker</code>. If a test passes in the emulator and fails on the GPU, or the other way around, look for a missing barrier or unzeroed shared memory first.</p><p class="check">Checkpoint: everything passes on the GPU, including <code>s_cuda_gemm_512</code>.</p></li>
@@ -83,7 +83,7 @@ python _reference/uirc.py render-cuda tests/week8/render/c_reverse_shared.uir --
 
 <div class="key">
 <span class="label">The AI policy, still</span>
-<p>An AI assistant may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why does my reverse pass in the emulator but fail on the GPU?" is a fine question. "Write my render-cuda" is not.</p>
+<p>An AI assistant may <strong>explain concepts, draw diagrams and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why does my reverse pass in the emulator but fail on the GPU?" is a fine question. "Write my render-cuda" is not.</p>
 </div>
 
 <h2>Check yourself</h2>

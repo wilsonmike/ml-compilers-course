@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Debugging Your Compiler</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A red test is information. This page is the routine: read what the grader says, find out what the test is for, shrink it until the bug has nowhere to hide, and...">
+<meta name="description" content="A red test is information. This page is the routine: read what the grader says, find out what the test is for, shrink it until the bug has nowhere to hide and...">
 <link rel="canonical" href="https://sharpterminal.com/site/resources/debugging">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Debugging Your Compiler">
-<meta property="og:description" content="A red test is information. This page is the routine: read what the grader says, find out what the test is for, shrink it until the bug has nowhere to hide, and compare with the oracle.">
+<meta property="og:description" content="A red test is information. This page is the routine: read what the grader says, find out what the test is for, shrink it until the bug has nowhere to hide and compare with the oracle.">
 <meta property="og:url" content="https://sharpterminal.com/site/resources/debugging">
 <meta name="twitter:card" content="summary">
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -22,7 +22,7 @@
 <body data-root="../">
 <main>
   <h1>Debugging your compiler</h1>
-  <p class="lede">A red test is information. This page is the routine: read what the grader says, find out what the test is for, shrink it until the bug has nowhere to hide, and compare with the oracle.</p>
+  <p class="lede">A red test is information. This page is the routine: read what the grader says, find out what the test is for, shrink it until the bug has nowhere to hide and compare with the oracle.</p>
 
   <h2>1. Read the grader's output</h2>
   <p>Run the suite with <code>-v</code> so every failure prints its details, and <code>-k</code> to run only the tests whose path contains a word:</p>
@@ -45,7 +45,7 @@ python tools/test.py --compiler YOUR_COMPILER --week 1 -k div -v</code></pre>
     <tbody>
       <tr><td>0</td><td>every assert passed</td><td>anything</td></tr>
       <tr><td>1</td><td>an assert failed</td><td>exactly one line <code>assert failed: %name</code>, naming the first failing assert in file order</td></tr>
-      <tr><td>2</td><td>invalid program: parse error, type error, or a runtime error an assert depends on</td><td>a line starting with <code>invalid:</code></td></tr>
+      <tr><td>2</td><td>invalid program: parse error, type error or a runtime error an assert depends on</td><td>a line starting with <code>invalid:</code></td></tr>
     </tbody>
   </table>
   </div>
@@ -129,7 +129,7 @@ python _reference/uirc.py render FILE     # the oracle's C for a week 2+ program
       <tr><td>your kernel crashed (exit code nonzero)</td><td>signed overflow, <code>INT_MIN / -1</code>, a shift outside 0..31: the sanitizer turns undefined behavior into a crash</td><td>wrap i32 <code>add</code>, <code>mul</code> and <code>shl</code> through <code>uint32_t</code>, and guard <code>div</code> and <code>mod</code> against <code>-1</code></td></tr>
       <tr><td>didn't finish in time</td><td>on Windows a plain <code>INT_MIN / -1</code> can hang instead of trapping</td><td>the same <code>-1</code> guard</td></tr>
       <tr><td>rendered C over 20,000 bytes</td><td>unrolled vectors</td><td>emit a <code>for</code> loop per rank-1 store and per reduce</td></tr>
-      <tr><td>f32 off in the last bits</td><td>a decimal literal that doesn't round-trip, the wrong fold order, or <code>a * b + c</code> fused into one rounding</td><td>print f32 constants as hex floats (<code>%a</code> style, <code>0x1.8p+1f</code>), and fold reduces left to right from the first element</td></tr>
+      <tr><td>f32 off in the last bits</td><td>a decimal literal that doesn't round-trip, the wrong fold order or <code>a * b + c</code> fused into one rounding</td><td>print f32 constants as hex floats (<code>%a</code> style, <code>0x1.8p+1f</code>), and fold reduces left to right from the first element</td></tr>
       <tr><td>wrong element, right neighbors</td><td>an off-by-one in an index or loop bound</td><td>check <code>&lt;</code> vs <code>&lt;=</code> and where offsets add</td></tr>
     </tbody>
   </table>
@@ -159,8 +159,8 @@ uint32_t bits_of(float x) { uint32_t u; memcpy(&amp;u, &amp;x, 4); return u; }
       <pre><code>python _reference/uirc.py render FILE &gt; ref.c
 YOUR_COMPILER render FILE &gt; mine.c
 git diff --no-index ref.c mine.c</code></pre></li>
-    <li>Look for loops left un-unrolled. An upcast loop must be written out once per iteration, with the index as a literal. Left as a <code>for</code> loop, its accumulators stay in memory instead of registers.</li>
-    <li>Then look for missing <code>restrict</code> on the buffer pointers, a thread loop that isn't outlined into a <code>uir_parallel_for</code> call, and a private alloc declared outside the outlined function, where every thread shares it.</li>
+    <li>Look for loops that should be unrolled but aren't. An upcast loop must be written out once per iteration, with the index as a literal. Left as a <code>for</code> loop, its accumulators stay in memory instead of registers.</li>
+    <li>Then look for missing <code>restrict</code> on the buffer pointers, a thread loop that isn't outlined into a <code>uir_parallel_for</code> call and a private alloc declared outside the outlined function, where every thread shares it.</li>
   </ol>
   <p>On a machine with fewer than 4 hardware threads, the speed tests with thread loops only check bits.</p>
 
@@ -171,10 +171,10 @@ git diff --no-index ref.c mine.c</code></pre></li>
     <thead><tr><th>symptom</th><th>usual cause</th><th>fix</th></tr></thead>
     <tbody>
       <tr><td><code>the emulated kernel didn't finish: a thread waiting at a __syncthreads() the others never reach?</code></td><td>a <code>__syncthreads()</code> that only some threads of the block run</td><td>put barriers between phases, at the top level of the kernel, where every thread reaches them</td></tr>
-      <tr><td>a wrong element that comes and goes, or only in <code>c_reverse_shared_1024</code></td><td>a missing <code>__syncthreads()</code>: a later phase reads a slot before the thread that writes it got there</td><td>emit a barrier after every phase, including the last</td></tr>
+      <tr><td>a wrong element that comes and goes, or only in <code>c_reverse_shared_1024</code></td><td>a missing <code>__syncthreads()</code>: a later phase reads a slot before the thread that writes it gets there</td><td>emit a barrier after every phase, including the last</td></tr>
       <tr><td>a wrong element in <code>c_block_shared_fresh</code> or <code>c_shared_dirty_then_fresh</code></td><td>unzeroed shared memory: a block sees what an earlier block or kernel left there</td><td>have the threads clear each <code>__shared__</code> array at the start of the kernel, then <code>__syncthreads()</code></td></tr>
       <tr><td>an <code>mma</code> test passes in the emulator and fails on the GPU</td><td>a wmma load or store from an address that isn't a multiple of 32 bytes. The spec already checks the offsets, so it's usually a shared array declared without alignment. The emulator doesn't check alignment.</td><td>declare shared memory <code>__shared__ __align__(32)</code></td></tr>
-      <tr><td>any other disagreement between the emulator and the GPU</td><td>a missing barrier or unzeroed shared memory, first</td><td>check the two rows above it before anything else</td></tr>
+      <tr><td>any other disagreement between the emulator and the GPU</td><td>a missing barrier or unzeroed shared memory, first</td><td>check the two rows above before anything else</td></tr>
       <tr><td><code>your CUDA failed to build or run:</code> with <code>Value 'native' is not defined for option 'gpu-architecture'</code> or <code>Unsupported gpu architecture 'compute_89'</code></td><td>an <code>nvcc</code> too old for <code>-arch=native</code> or for your card. RTX 40-series cards need CUDA 11.8 or newer.</td><td>install CUDA 11.8 or newer (12.x preferred), or use <code>--cuda-docker nvidia/cuda:12.6.3-devel-ubuntu22.04</code> (lesson 8.5)</td></tr>
       <tr><td>week 9 <code>mma</code> tests don't build on the GPU</td><td>a GPU older than sm_72, such as Kaggle's P100, has no int8 tensor cores</td><td>use a T4 or newer, or the emulator</td></tr>
       <tr><td><code>render-cuda should exit 2 (the program isn't in kernel form)</code></td><td>work outside a global loop, or a kernel that uses values from outside it</td><td>check kernel form (lesson 8.4) before printing anything</td></tr>
@@ -234,12 +234,12 @@ python _reference/uirc.py render-cuda FILE &gt; ref.cu</code></pre>
   <p>Whoever helps you, a classmate or an AI assistant, needs the same four things:</p>
   <ol>
     <li>The smallest program that fails (section 3), not the whole test.</li>
-    <li>What you expected, what you got, and what the oracle says.</li>
+    <li>What you expected, what you got and what the oracle says.</li>
     <li>The rule from the spec you think applies.</li>
     <li>What you already tried.</li>
   </ol>
   <div class="note"><span class="label">An AI assistant in your repo</span>
-    <p>The <code>AGENTS.md</code> from <code>templates/</code> sets the rule for your compiler repo: an AI assistant may explain concepts, draw diagrams, run the oracle, and ask you questions that lead to the bug, but it doesn't write or edit your compiler code. Ask "why would this give -4?" rather than "fix my div".</p>
+    <p>The <code>AGENTS.md</code> from <code>templates/</code> sets the rule for your compiler repo: an AI assistant may explain concepts, draw diagrams, run the oracle and ask you questions that lead to the bug, but it doesn't write or edit your compiler code. Ask "why would this give -4?" rather than "fix my div".</p>
   </div>
 
   <h2>11. When the test itself looks wrong</h2>
@@ -247,7 +247,7 @@ python _reference/uirc.py render-cuda FILE &gt; ref.cu</code></pre>
   <ol>
     <li>Read the spec section again, slowly. Most "wrong tests" are a rule that says something subtler than it first seemed.</li>
     <li>Run the oracle on the test. The grader compares you to the oracle, not to the header, so the oracle's answer is what you're held to.</li>
-    <li>If the spec and the oracle disagree, that's a real bug in the course. Write it up with the smallest program that shows it, the spec sentence, and what the oracle does, and report it to whoever maintains your copy of the course.</li>
+    <li>If the spec and the oracle disagree, that's a real bug in the course. Write it up with the smallest program that shows it, the spec sentence and what the oracle does, and report it to whoever maintains your copy of the course.</li>
   </ol>
 </main>
 </body>
