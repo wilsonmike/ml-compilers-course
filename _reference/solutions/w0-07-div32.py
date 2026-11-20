@@ -1,7 +1,4 @@
-def div32(a: int, b: int) -> int | None:
+def div32(a: int, b: int) -> int:
     if b == 0:
-        return None
-    q = abs(a) // abs(b)
-    if (a < 0) != (b < 0):
-        q = -q
-    return ((q + 2**31) & 0xFFFFFFFF) - 2**31
+        return -1
+    return (a // b + 2**31) % 2**32 - 2**31

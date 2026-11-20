@@ -2,11 +2,12 @@
 """Course test runner. Run from the course repo root.
 
   python tools/test.py --compiler PATH/TO/your.exe --week 1 [-k substr] [-v] [--jobs N]
-  python tools/test.py --check-tests DIR           # check YOUR tests' headers against the oracle
+  python tools/test.py --check-tests DIR --week 1  # check YOUR tests' file names against the oracle
   python tools/test.py --self-check --week 1       # check the course suite against the oracle
 
-Your compiler is run as `COMPILER run FILE`, `COMPILER simplify FILE` (spec/uir-week1.md) and, from
-week 2, `COMPILER render FILE` (spec/uir-week2.md).
+Your compiler is run as `COMPILER FILE` and must print one line, `OUTCOME FILE` (spec/uir-week1.md). Some tests
+also run `COMPILER simplify FILE` (week 1) or, from week 2, `COMPILER render FILE` (spec/uir-week2.md).
+A test's file name says what it expects: mismatch_, rejected_ and overbudget_ prefixes, MATCH otherwise.
 The oracle (_reference/) is imported to grade simplify output. Running it is fine; reading it spoils the course.
 """
 import sys, os, re, glob, math, random, shlex, argparse, subprocess, importlib.util, itertools, tempfile, threading, shutil, struct
@@ -19,7 +20,7 @@ ORACLE = [sys.executable, os.path.join(ROOT, '_reference', 'uirc.py')]
 TIMEOUT = 10
 
 def headers(text):
-  h = dict(re.findall(r"^#\s*(expect|simplify|time|max_bytes|speed):\s*(.+?)\s*$", text, re.M))
+  h = dict(re.findall(r"^#\s*(simplify|time|max_bytes|speed):\s*(.+?)\s*$", text, re.M))
   if 'simplify' in h: h['max_ops'] = int(re.search(r"max_ops=(\d+)", h['simplify']).group(1))
   if re.search(r"^#\s*render\s*$", text, re.M): h['render'] = True
   if re.search(r"^#\s*cuda\s*$", text, re.M): h['cuda'] = True       # week 8: render-cuda, checked on a GPU or the emulator
@@ -34,10 +35,10 @@ def url_files(text):
   # relative url= paths a program reads: the grader copies them next to the neutral test file
   return [u for u in re.findall(r"\burl=([^ \t\r\n#]+)", text) if not u.startswith('https://')]
 
-def oracle_run(text, base=None):
-  try: O.run(text, base); return 'pass', None
-  except O.AssertFail as e: return 'assert_fail', str(e)
-  except O.UIRError as e: return 'invalid', str(e)
+OUTCOMES = ('MATCH', 'MISMATCH', 'REJECTED', 'OVERBUDGET')
+def expected(path):
+  name = os.path.basename(path)
+  return next((o for o in OUTCOMES[1:] if name.startswith(o.lower() + '_')), 'MATCH')
 
 def call(cmd, sub, text, base=None, timeout=TIMEOUT):
   # tests run under a neutral file name, so a compiler can't read the expected outcome off "err_*.uir"
@@ -49,25 +50,22 @@ def call(cmd, sub, text, base=None, timeout=TIMEOUT):
       if '..' not in parts and os.path.isfile(src):
         dst = os.path.join(d, *parts); os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copyfile(src, dst)
     try:
-      p = subprocess.run(cmd + [sub, path], capture_output=True, timeout=timeout)
+      p = subprocess.run(cmd + ([sub] if sub else []) + [path], capture_output=True, timeout=timeout)
       dec = lambda b: b.decode('utf-8', 'replace').replace(chr(13) + chr(10), chr(10))   # Windows CRLF
       return p.returncode, dec(p.stdout), dec(p.stderr)
     except subprocess.TimeoutExpired: return 'timeout', '', f'timed out after {timeout:g}s'
     except OSError as e: return 'error', '', str(e)
 
-CODE = {'pass': 0, 'assert_fail': 1, 'invalid': 2}
-ASSERT_LINE = re.compile(r"^assert failed: %([A-Za-z0-9_]+)[ \t]*$", re.M | re.A)
-
-def grade_run(cmd, text, base=None):
-  want, msg = oracle_run(text, base)
-  rc, _, err = call(cmd, 'run', text, base)
-  tail = f"\n    stderr: {err.strip()[:300]}" if err.strip() else ""
-  if rc != CODE[want]: return f"expected exit {CODE[want]} ({want}), got {rc}" + (f"\n    oracle: {msg}" if msg else "") + tail
-  if want == 'invalid' and not re.search(r"^invalid:", err, re.M):
-    return "exit 2 is right, but stderr needs a line starting 'invalid:' (an uncaught exception isn't a diagnosis)" + tail
-  if want == 'assert_fail':
-    named = ASSERT_LINE.findall(err)
-    if named != [msg.split('%', 1)[1]]: return f"exit 1 is right, but stderr must have exactly one line '{msg}'" + tail
+def grade_outcome(cmd, text, base, want):
+  _, why = O.outcome(text, base)
+  rc, out, err = call(cmd, None, text, base)
+  tail = (f"\n    oracle: {why}" if why else "") + (f"\n    stderr: {err.strip()[:300]}" if err.strip() else "")
+  lines = [l for l in out.split('\n') if l.strip()]
+  if rc == 'timeout': return err + tail
+  m = re.fullmatch(r"(MATCH|MISMATCH|REJECTED|OVERBUDGET) (.+)", lines[0].rstrip()) if len(lines) == 1 else None
+  if not m: return f"expected one line '{want} FILE' on stdout, got {out.strip()[:200]!r}" + tail
+  if m.group(1) != want: return f"expected {want}, got {m.group(1)}" + tail
+  if not m.group(2).endswith('case.uir'): return f"print the file path as it was given, got {m.group(2)!r}"
   return None
 
 # ---- simplify grading: ops counted on your text, then equivalence on edge-case inputs ----
@@ -87,9 +85,16 @@ def rand_value(dt, rng):
   if r < .25: return O.f32(rng.choice([-1, 1]) * rng.uniform(0, 1.2e-38))      # subnormals and tiny normals
   return O.f32(rng.uniform(-1e6, 1e6) * rng.choice([1, 1e-30, 1e30]))
 
+def pool(dt, lim, rng):
+  if lim is None: return EDGE[dt] + ([rand_value(dt, rng) for _ in range(8)] if dt != 'bool' else [])
+  lo, hi = lim
+  if dt == 'bool': return [v for v in (False, True) if lo <= v <= hi]
+  xs = [v for v in EDGE[dt] if lo <= v <= hi] + [lo, hi, lo + 1, hi - 1, (lo + hi) // 2] + [rng.randint(lo, hi) for _ in range(8)]
+  return sorted({v for v in xs if lo <= v <= hi})
+
 def cases(slots, rng):
   # every slot sees every edge value: full cross product for <= 2 slots, a rotation for more
-  pools = [EDGE[dt] + ([rand_value(dt, rng) for _ in range(8)] if dt != 'bool' else []) for dt, _ in slots]
+  pools = [pool(dt, lim, rng) for dt, _, lim in slots]
   if len(pools) <= 2: return [list(c) for c in itertools.product(*[range(len(p)) for p in pools])], pools
   rows = []
   for s, p in enumerate(pools):
@@ -109,16 +114,13 @@ def same(a, b):
 
 def text_ops(out):
   # ops as written: every reachable "%name = op" statement except const/param. Duplicates count.
-  defs = {}
-  for line in out.split('\n'):
-    m = re.match(r"[ \t]*%([A-Za-z0-9_]+)[ \t]*=[ \t]*([a-z_][a-z0-9_]*)(.*)", line.split('#', 1)[0], re.A)
-    if m: defs[m.group(1)] = (m.group(2), re.findall(r"%([A-Za-z0-9_]+)", m.group(3), re.A))
+  defs = {name: (op, refs) for name, _, _, op, refs in O.parse_raw(out)[0]}
   seen, todo = set(), ['out']
   while todo:
     n = todo.pop()
     if n in seen or n not in defs: continue
     seen.add(n); todo.extend(defs[n][1])
-  return sum(defs[n][0] not in ('const', 'param') for n in seen)
+  return sum(defs[n][0] not in (None, 'param') for n in seen)
 
 def grade_simplify(cmd, text, max_ops):
   rc, out, err = call(cmd, 'simplify', text)
@@ -131,16 +133,15 @@ def grade_simplify(cmd, text, max_ops):
   n = text_ops(out)
   if n > max_ops: return f"{n} ops in your output, the target is <= {max_ops}\n    output:\n{indent(out)}"
   params = O.free_params(orig)
-  slots = [(params[s].dtype, params[s].shape) if s in params else ('i32', ()) for s in range(max(params) + 1)] if params else []
+  def limits(p): return (O.bounds(p, {})) if len(p.src) > 1 else None
+  slots = [(params[s].dtype, params[s].shape, limits(params[s])) if s in params else ('i32', (), None) for s in range(max(params) + 1)] if params else []
   rows, pools = cases(slots, random.Random(411))
   for row in rows or [[]]:
-    args = [build_arg(dt, sh, pools[s], row[s]) for s, (dt, sh) in enumerate(slots)]
-    try: want = O.evaluate(O.build('call', [orig] + args, {}), None)
-    except O.UIRError: continue                     # original errors here: any answer is fine
+    args = [build_arg(dt, sh, pools[s], row[s]) for s, (dt, sh, _) in enumerate(slots)]
+    want = O.evaluate(O.build('call', [orig] + args, {}), None)
     try: c = O.build('call', [new] + args, {})
     except O.UIRError as e: return f"your %out's params don't match the original's: {e}\n    output:\n{indent(out)}"
-    try: got = O.evaluate(c, None)
-    except O.UIRError as e: return f"your %out errors where the original doesn't: {e}\n    args: {show(args)}"
+    got = O.evaluate(c, None)
     if not same(want, got): return f"wrong value: original gives {want!r}, yours gives {got!r}\n    args: {show(args)}\n    output:\n{indent(out)}"
   return None
 
@@ -509,7 +510,7 @@ def grade(cmd, f):
     text = O.read_text(f); h = headers(text); base = os.path.dirname(f)
     if h.get('cuda'): return grade_cuda(cmd, text, base, h)
     if h.get('render'): return grade_render(cmd, text, base, h)
-    return grade_simplify(cmd, text, h['max_ops']) if 'max_ops' in h else grade_run(cmd, text, base)
+    return grade_simplify(cmd, text, h['max_ops']) if 'max_ops' in h else grade_outcome(cmd, text, base, expected(f))
   except Exception as e:                            # one broken case fails that case, never the whole run
     return f"grader error on this test: {type(e).__name__}: {e}"
 
@@ -531,10 +532,9 @@ def check_tests(fs):
       elif 'max_ops' in h:
         try: O.parse(text)[0]['out']; r = grade_simplify(ORACLE, text, h['max_ops'])
         except (O.UIRError, KeyError) as e: r = f"simplify test must parse and define %out: {e}"
-      elif 'expect' not in h: r = "missing '# expect: pass|assert_fail|invalid' header"
       else:
-        got, msg = oracle_run(text, os.path.dirname(f))
-        r = None if got == h['expect'].split()[0] else f"header says {h['expect']}, oracle says {got}" + (f" ({msg})" if msg else "")
+        got, msg = O.outcome(text, os.path.dirname(f))
+        r = None if got == expected(f) else f"the file name says {expected(f)}, the oracle says {got}" + (f" ({msg})" if msg else "")
     except Exception as e: r = f"couldn't check: {type(e).__name__}: {e}"
     if r: bad += 1; print(f"BAD  {os.path.relpath(f)}\n    {r}")
   print(f"\n{len(fs) - bad} / {len(fs)} tests agree with the oracle")
@@ -552,6 +552,7 @@ def main():
   sys.setrecursionlimit(100000); threading.stack_size(64 * 1024 * 1024)   # oracle evaluation of nested calls recurses
   global CUDA_DOCKER
   if a.cuda_docker: CUDA_DOCKER = a.cuda_docker
+  O.WEEK = a.week
   if a.check_tests:
     fs = sorted(glob.glob(os.path.join(a.check_tests, '**', '*.uir'), recursive=True))
     if not fs: sys.exit(f"no .uir files in {a.check_tests}")

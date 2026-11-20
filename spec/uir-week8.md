@@ -3,7 +3,7 @@
 Week 8 writes kernels the way a GPU runs them: a grid of **blocks**, each a group of **threads** that share a
 small, fast memory and can wait for each other. Two new loop axes describe that, and a new command, `render-cuda`,
 turns such a program into CUDA. As in week 7, axes never change a result: every program still means the same as
-its plain loops, so `run` and `render` (C for the CPU) work everywhere, GPU or not. Everything in weeks 1 to 7 still
+its plain loops, so `./compile` and `render` (C for the CPU) work everywhere, GPU or not. Everything in weeks 1 to 7 still
 holds. The course schedule names GPUs and hardware accelerators for this week, and the syllabus names the axis types
 GLOBAL and LOCAL and the address spaces GLOBAL, LOCAL and ALU. The rest is our design, provisional until the
 official format is published.
@@ -52,8 +52,8 @@ The phase check covers one `local` loop with the block's other indices fixed. Th
 `global` body with `g` as the parallel index, skipping the block's shared memory (next point).
 
 **Shared memory.** An alloc whose every load and store is inside one global loop is the block's shared memory:
-each block starts with its own copy, all zeros (`run` re-zeroes it for every value of `g`, as week 7 does for
-thread loops). An alloc used in more than one global loop, or outside one, is not shared memory: `run` and `render`
+each block starts with its own copy, all zeros (`./compile` re-zeroes it for every value of `g`, as week 7 does for
+thread loops). An alloc used in more than one global loop, or outside one, is not shared memory: `./compile` and `render`
 treat it like a buffer, under the same rules, and `render-cuda` exits 2 because it has nowhere to live on the GPU.
 
 ## 3. `render`
@@ -91,4 +91,4 @@ are `__device__` functions. Floating point matches the CPU bit for bit, because 
   timed with CUDA events, best of 3, interleaved): at least X times its speed. Without a GPU they only check that
   your CUDA builds.
 * `# cuda: invalid` tests are valid programs that aren't in kernel form: `render-cuda` must exit 2.
-* `run` and `render` tests are as before.
+* Run and render tests are as before.

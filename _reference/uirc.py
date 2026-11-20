@@ -3,14 +3,17 @@
 import sys, os, re, math, struct, random, threading, itertools, hashlib
 
 class UIRError(Exception): pass          # invalid program -> exit 2
-class AssertFail(Exception): pass        # a failing assert -> exit 1
+
+WEEK = 9
+LIMITS = {1: (4096, 100, 300, 1000000)}
 
 INT_MIN, INT_MAX = -2**31, 2**31 - 1
 def wrap(x): return (x - INT_MIN) % 2**32 + INT_MIN
 def f32(x):
   try: return struct.unpack('f', struct.pack('f', x))[0]
   except OverflowError: return math.copysign(math.inf, x)   # pack only raises when the f32 rounding is inf
-def tdiv(a, b): return abs(a) // abs(b) * (1 if (a < 0) == (b < 0) else -1)   # C truncates toward zero
+def fdiv(a, b): return -1 if b == 0 else a // b
+def fmod(a, b): return a if b == 0 else a % b
 def fbits(x): return struct.pack('f', x)                     # hashable identity: keeps -0.0 and nan stable
 def argkey(a):
   # hash-cons key for an arg: floats by bit pattern at any depth (data=[-0.0] must not merge with data=[0.0])
@@ -85,6 +88,7 @@ def multiple_of(x, k):
   return False
 
 def const(v, dtype): return UOp('const', (), f32(float(v)) if dtype == 'f32' else v, dtype, ())
+VOID = UOp('stack', (), None, 'void', ())
 
 def toposort(root, into_bodies=False, seen=None):
   # iterative post-order. CALL bodies are closed, so by default we don't walk into src[0].
@@ -104,8 +108,7 @@ def free_params(body):
   ps = {}
   for u in toposort(body):
     if u.op == 'param':
-      if u.arg in ps and (ps[u.arg].dtype, ps[u.arg].shape) != (u.dtype, u.shape): raise UIRError(f"param {u.arg} used with two types")
-      ps[u.arg] = u
+      if ps.setdefault(u.arg, u) is not u: raise UIRError(f"slot {u.arg} has two different param nodes in one body")
   return ps
 
 # ---------------- type rules: build() checks and constructs ----------------
@@ -244,21 +247,29 @@ def build(op, src, attrs):
     need(n >= 1, "needs a body")
     body, args = src[0], src[1:]
     need(not any(u.op in MEM or u.op in ('load', 'store') for u in toposort(body, into_bodies=True)), "memory can't be used inside a call body")
+    if WEEK == 1: need(not body.shape and all(not a.shape for a in args), "week 1 call arguments and returns are scalars")
     for slot, p in free_params(body).items():
-      need(slot < len(args), f"no arg for param {slot}")
-      need((args[slot].dtype, args[slot].shape) == (p.dtype, p.shape), f"arg {slot} type mismatch")
+      need(slot < len(args), f"no argument for slot {slot}")
+      need((args[slot].dtype, args[slot].shape) == (p.dtype, p.shape), f"argument {slot} is {args[slot].dtype}{list(args[slot].shape)}, the param is {p.dtype}{list(p.shape)}")
+      if len(p.src) > 1:
+        (lo, hi), (pl, ph) = bounds(args[slot], {}), bounds(p, {})
+        need(pl <= lo and hi <= ph, f"argument {slot} has bounds [{lo}, {hi}], which don't fit the param's limits [{pl}, {ph}]")
     return UOp('call', src, None, body.dtype, body.shape)
   if op == 'stack':
-    need(n >= 1, "needs operands")
+    if n == 0: return VOID
     need(len({s.shape for s in src}) == 1, "stack operands must share one shape")
-    need(len({s.dtype for s in src}) == 1, "dtype mismatch")
+    need(len({s.dtype for s in src}) == 1, "stack operands must share one dtype")
+    if WEEK == 1: need(not src[0].shape, "week 1 shapes have rank 0 or 1, so stack takes scalars")
     return UOp('stack', src, None, src[0].dtype, (n,) + src[0].shape)
   if op == 'index':
     need(n >= 2 and n - 1 <= len(src[0].shape), "index X j0 ...: at most one index per axis")
     need(all(j.dtype == 'i32' and j.shape == () for j in src[1:]), "indices are i32 scalars")
+    for k, (j, d) in enumerate(zip(src[1:], src[0].shape)):
+      lo, hi = bounds(j, {})
+      need(0 <= lo and hi <= d - 1, f"index {k} has bounds [{lo}, {hi}], which don't fit an axis of size {d}")
     return UOp('index', src, None, src[0].dtype, src[0].shape[n - 1:])
   if op == 'cast':
-    need(n == 1 and attrs.get('dtype') in ('bool', 'i32', 'f32', 'i8'), "cast a dtype=D")
+    need(n == 1 and attrs.get('dtype') in DTYPES(), "cast a dtype=D")
     need(attrs['dtype'] != 'i8' or src[0].dtype in ('i32', 'i8'), "cast to i8 takes an i32 (it keeps the low 8 bits)")
     return UOp('cast', src, None, attrs['dtype'], src[0].shape)
   if op == 'recip':
@@ -268,9 +279,12 @@ def build(op, src, attrs):
     need(n == 3 and src[0].dtype == 'bool' and src[1].dtype == src[2].dtype, "where bool a b")
     return UOp('where', src, None, src[1].dtype, src[1].shape)
   if op == 'assert':
-    need(n == 2 and src[0].dtype == src[1].dtype and src[0].shape == src[1].shape, "assert a b, same type")
+    need(n == 2 and src[0].dtype == src[1].dtype and src[0].shape == src[1].shape, "assert x expected: same dtype and shape")
+    def literal_value(e): return e.op == 'const' or (e.op == 'stack' and all(literal_value(x) for x in e.src))
+    need(literal_value(src[1]), "the expected value must be a literal or a stack of literals")
+    if WEEK == 1: need(not src[0].shape, "the program returns a scalar in week 1")
     return UOp('assert', src, None, 'void', ())
-  ok = {'add': NUM, 'mul': NUM, 'max': NUM, 'cmplt': NUM, 'xor': ('i32', 'bool'), 'shl': ('i32',), 'div': ('i32',), 'mod': ('i32',)}
+  ok = {'add': NUM + ('bool',), 'mul': NUM + ('bool',), 'max': NUM + ('bool',), 'cmplt': NUM + ('bool',), 'xor': ('i32', 'bool'), 'shl': ('i32',), 'div': ('i32',), 'mod': ('i32',)}
   need(op in ok, "unknown op")
   need(n == 2 and src[0].dtype == src[1].dtype, "two operands of the same dtype")
   need(src[0].dtype in ok[op], f"bad dtype {src[0].dtype}")
@@ -284,8 +298,8 @@ def do_cast(v, frm, to):
   if to == 'bool': return v != 0
   if frm == 'bool': return int(v) if to == 'i32' else float(v)
   if to == 'f32': return f32(float(v))
-  if math.isnan(v) or math.isinf(v) or not (INT_MIN <= math.trunc(v) <= INT_MAX): raise UIRError(f"cast {v} to i32 out of range")
-  return math.trunc(v)
+  if math.isnan(v): return 0
+  return INT_MIN if v <= INT_MIN else INT_MAX if v >= INT_MAX else math.trunc(v)
 
 CANON_NAN = 0x7fc00000                          # bitcast of any NaN gives this i32 (spec week 6)
 def do_bitcast(v, frm, to):
@@ -303,7 +317,8 @@ def alu(op, dtypes, vs, out):
   dt = dtypes[0]
   if op == 'recip': return math.copysign(math.inf, a) if a == 0 else f32(1.0 / a)
   if op == 'cmplt': return a < b
-  if op == 'xor': return a != b if dt == 'bool' else wrap(a ^ b)
+  if dt == 'bool': return bool(alu(op, ['i32', 'i32'], [int(a), int(b)], 'i32'))
+  if op == 'xor': return wrap(a ^ b)
   if op == 'max':
     if dt == 'f32' and (math.isnan(a) or math.isnan(b)): return math.nan
     if a == b == 0 and dt == 'f32': return a if math.copysign(1, a) > 0 else b   # max(-0.0, 0.0) is +0.0 either way
@@ -313,12 +328,8 @@ def alu(op, dtypes, vs, out):
     return math.nan if math.isnan(r) else f32(r)
   if op == 'add': return wrap(a + b)
   if op == 'mul': return wrap(a * b)
-  if op == 'shl':
-    if not 0 <= b <= 31: raise UIRError("shl out of range")
-    return wrap(a << b)
-  if b == 0: raise UIRError(f"{op} by zero")
-  q = wrap(tdiv(a, b))
-  return q if op == 'div' else wrap(a - q * b)
+  if op == 'shl': return wrap(a << (b % 32))
+  return wrap(fdiv(a, b) if op == 'div' else fmod(a, b))
 
 # ---------------- interpreter ----------------
 
@@ -461,7 +472,7 @@ _BODY = {}
 def math_body(op):
   """The exact definition of each math op, as a graph of core ops on one f32 scalar, param 0."""
   if op in _BODY: return _BODY[op]
-  x = UOp('param', (), 0, 'f32', ())
+  x = UOp('param', (VOID,), 0, 'f32', ())
   I = lambda v: const(v, 'i32')
   if op == 'exp2':
     nan = isnan_(x)
@@ -657,20 +668,188 @@ def blob(url, sha, dt, n, base):
 # ---------------- parser ----------------
 
 # exact lexical grammar (spec section 1). ASCII only.
-INT_RE = re.compile(r"-?[0-9]+", re.A)
+INT_RE = re.compile(r"-?[0-9]+|0x[0-9a-fA-F]+", re.A)
 FLOAT_RE = re.compile(r"-?(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|-?[0-9]+[eE][-+]?[0-9]+", re.A)
-NAME_RE = re.compile(r"%([A-Za-z0-9_]+)[ \t]*=[ \t]*([a-z_][a-z0-9_]*)(.*)", re.A)
-ATTRS = {'mma': {'lda', 'ldb', 'ldc'}, 'range': {'axis'}, 'const': {'dtype'}, 'param': {'dtype', 'shape'}, 'cast': {'dtype'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data', 'url', 'sha256'}, 'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
-TOK = re.compile(r"[A-Za-z_]+=\[[^\]]*\]|[^ \t]+")
+DEF_RE = re.compile(r"%([A-Za-z0-9_]+)[ \t\r\n]*=", re.A)
+REF_RE = re.compile(r"%([A-Za-z0-9_]+)", re.A)
+WORD_RE = re.compile(r"[^ \t\r\n\[\]#%]+")
+ATTR_RE = re.compile(r"([a-z_][a-z0-9_]*)=(.*)", re.A | re.S)
+OPS1 = {'param', 'call', 'stack', 'index', 'cast', 'add', 'mul', 'max', 'div', 'mod', 'xor', 'shl', 'cmplt', 'where', 'assert'}
+OPS = OPS1 | ALU | SUGAR | {'buffer', 'alloc', 'shrink', 'load', 'store', 'after', 'range', 'end', 'mma', 'gradient',
+                           'expand', 'reduce', 'reshape', 'permute', 'pad', 'stage'}
+ATTRS1 = {'param': {'slot', 'dtype', 'addrspace'}, 'cast': {'dtype'}}
+ATTRS = {**ATTRS1, 'mma': {'lda', 'ldb', 'ldc'}, 'range': {'axis'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data', 'url', 'sha256'},
+         'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
+def DTYPES(): return ('i32', 'bool') if WEEK == 1 else ('i32', 'bool', 'f32', 'i8')
 
 def literal(t):
   if t in ('true', 'false'): return const(t == 'true', 'bool')
-  if t in ('inf', '-inf', 'nan'): return const(float(t), 'f32')
   if INT_RE.fullmatch(t):
-    if not INT_MIN <= int(t) <= INT_MAX: raise UIRError(f"{t} does not fit in i32")
-    return const(int(t), 'i32')
+    v = int(t, 16) if t.startswith('0x') else int(t)
+    if not INT_MIN <= v <= INT_MAX: raise UIRError(f"{t} does not fit in i32")
+    return const(v, 'i32')
+  if WEEK == 1: return None
+  if t in ('inf', '-inf', 'nan'): return const(float(t), 'f32')
   if FLOAT_RE.fullmatch(t): return const(float(t), 'f32')   # decimal -> f64 -> f32 (spec: rounded twice, on purpose)
   return None
+
+def lex(text):
+  out, i, n, line = [], 0, len(text), 1
+  def err(m): raise UIRError(f"line {line}: {m}")
+  while i < n:
+    c = text[i]
+    if c in ' \t\r\n': line += c == '\n'; i += 1; continue
+    if c == '#':
+      j = text.find('\n', i); i = n if j < 0 else j; continue
+    if ord(c) > 127: err("non-ASCII character outside a comment")
+    if c in '[]': out.append((c, c, line)); i += 1; continue
+    if c == '%':
+      m = DEF_RE.match(text, i) or REF_RE.match(text, i)
+      if not m: err("% must be followed by a name of ASCII letters, digits or underscores")
+      out.append(('DEF' if m.group(0).endswith('=') else 'REF', m.group(1), line))
+      line += m.group(0).count('\n'); i = m.end(); continue
+    m = WORD_RE.match(text, i); w = m.group(0); i = m.end()
+    if (a := ATTR_RE.fullmatch(w)):
+      k, v = a.groups()
+      if v == '' and WEEK > 1 and i < n and text[i] == '[':
+        j = text.find(']', i)
+        if j < 0: err(f"attribute {k}= has no closing ]")
+        v = text[i:j + 1]; line += v.count('\n'); i = j + 1
+      if v == '': err(f"attribute {k}= has no value (no spaces inside an attribute)")
+      out.append(('ATTR', (k, v), line)); continue
+    try: lit_ = literal(w)
+    except UIRError as e: err(str(e))
+    if lit_ is not None: out.append(('LIT', lit_, line)); continue
+    if w == 'const': err("write a constant as its literal, not with const")
+    if w in OPS and (WEEK > 1 or w in OPS1): out.append(('OP', w, line)); continue
+    err(f"unknown op {w}" if re.fullmatch(r"[a-z][a-z0-9_]*", w) else f"{w!r} is not a literal, an op or an attribute")
+  out.append(('EOF', None, line))
+  return out
+
+class Raw:
+  __slots__ = ('op', 'src', 'attrs', 'lit', 'line', 'name')
+  def __init__(self, op, src, attrs, lit, line, name): self.op, self.src, self.attrs, self.lit, self.line, self.name = op, src, attrs, lit, line, name
+
+def parse_raw(text):
+  toks, p, names, binds, nodes = lex(text), 0, {}, [], {}
+  def tok(): return toks[p]
+  def node(op, src, attrs, lit, line, name=None):
+    key = (op, tuple(id(x) for x in src), attrs, None if lit is None else (lit.dtype, argkey(lit.arg)), name)
+    if key not in nodes: nodes[key] = Raw(op, tuple(src), attrs, lit, line, name)
+    return nodes[key]
+  def atom(refs):
+    nonlocal p
+    kind, v, ln = tok()
+    if kind == 'REF':
+      if v not in names: raise UIRError(f"line {ln}: %{v} is not defined above")
+      p += 1; refs.append(v); return names[v]
+    if kind == 'LIT': p += 1; return node('const', (), (), v, ln)
+    if kind == '[':
+      p += 1; items = []
+      while tok()[0] != ']':
+        if tok()[0] not in ('REF', 'LIT', '['): raise UIRError(f"line {tok()[2]}: expected an operand or ] inside [ ]")
+        items.append(atom(refs))
+      p += 1; return node('stack', items, (), None, ln)
+    raise UIRError(f"line {ln}: expected an operand")
+  while tok()[0] != 'EOF':
+    kind, name, ln = tok()
+    if kind != 'DEF': raise UIRError(f"line {ln}: expected a definition like %name =")
+    if name in names: raise UIRError(f"line {ln}: %{name} is defined twice")
+    p += 1; refs = []
+    if tok()[0] == 'OP':
+      op = tok()[1]; p += 1; src, attrs = [], {}
+      while tok()[0] in ('REF', 'LIT', '['): src.append(atom(refs))
+      while tok()[0] == 'ATTR':
+        k, v = tok()[1]
+        if k not in (ATTRS1 if WEEK == 1 else ATTRS).get(op, set()): raise UIRError(f"line {tok()[2]}: {op} has no attribute {k}")
+        if k in attrs: raise UIRError(f"line {tok()[2]}: attribute {k} given twice")
+        attrs[k] = v; p += 1
+      if tok()[0] in ('REF', 'LIT', '['): raise UIRError(f"line {tok()[2]}: operands come before attributes")
+      own = name if op in ('range', 'alloc', 'buffer') else None
+      u = node(op, src, tuple(sorted(attrs.items())), None, ln, own)
+    else:
+      op = None
+      if tok()[0] not in ('REF', 'LIT', '['): raise UIRError(f"line {tok()[2]}: expected an op or an operand after %{name} =")
+      u = atom(refs)
+    if tok()[0] not in ('DEF', 'EOF'):
+      k, v, l = tok()
+      what = lit(v) if k == 'LIT' else f"%{v}" if k == 'REF' else f"{v[0]}={v[1]}" if k == 'ATTR' else v
+      raise UIRError(f"line {l}: unexpected {what}: a binding is %name = op operands attributes, or %name = operand")
+    names[name] = u; binds.append((name, u, ln, op, refs))
+  if not binds: raise UIRError("a program needs at least one binding")
+  return binds, list(nodes.values())
+
+def literal_list(u):
+  if u.op == 'const': return u.arg
+  if u.op != 'stack': return None
+  xs = [literal_list(x) for x in u.src]
+  return None if any(x is None for x in xs) else xs
+
+def build_param(src, attrs, need):
+  need(1 <= len(src) <= 2, "param SHAPE [LIMITS] slot=k dtype=t addrspace=ALU")
+  dims = literal_list(src[0])
+  need(src[0].op == 'stack' and dims is not None and all(type(d) is int and d >= 1 for d in dims), "the shape must be [] or a list of positive integer literals")
+  need(all(k in attrs for k in ('slot', 'dtype', 'addrspace')), "param needs slot=, dtype= and addrspace=")
+  need(re.fullmatch(r"[0-9]+", attrs['slot'], re.A) is not None, "slot is an unsigned decimal")
+  dt = attrs['dtype']
+  need(dt in DTYPES() and dt != 'i8', f"bad dtype {dt}")
+  need(attrs['addrspace'] == 'ALU', "a param lives in addrspace=ALU")
+  if WEEK == 1: need(dims == [], "week 1 params are scalars: shape []")
+  if len(src) > 1:
+    lim = src[1]
+    need(dt in ('i32', 'bool'), "limits are for i32 and bool params")
+    need(lim.op == 'stack' and len(lim.src) == 2 and all(x.op == 'const' and x.dtype == dt for x in lim.src), f"limits are [lo hi], two {dt} literals")
+    need(int(lim.src[0].arg) <= int(lim.src[1].arg), "limits need lo <= hi")
+  return UOp('param', tuple(src), int(attrs['slot']), dt, tuple(dims))
+
+def build_storage(r, src, attrs, base, need):
+  op, name = r.op, r.name
+  need(len(src) == 1 and src[0].op == 'const' and src[0].dtype == 'i32' and src[0].arg >= 1, f"{op} N: a size N >= 1")
+  n, dt = src[0].arg, attrs.get('dtype')
+  need(dt is not None, f"{op} needs dtype=")
+  if op == 'alloc': return UOp('alloc', (), ('alloc', n, name), dt, (n,))   # each alloc is its own storage
+  need(re.fullmatch(r"[0-9]+", attrs.get('slot', ''), re.A) is not None, "buffer needs slot=N")
+  if 'url' in attrs or 'sha256' in attrs:
+    need('url' in attrs and 'sha256' in attrs, "url= and sha256= go together")
+    need('data' not in attrs, "a buffer takes data= or url=, not both")
+    data = blob(attrs['url'], attrs['sha256'], dt, n, base)
+  elif 'data' in attrs:
+    toks = attrs['data'].strip('[]').split()
+    need(len(toks) == n, f"data has {len(toks)} values, the buffer has {n}")
+    vals = []
+    for t in toks:
+      c = literal(t)
+      if dt == 'i8' and c is not None and c.dtype == 'i32' and -128 <= c.arg <= 127: c = const(c.arg, 'i8')
+      need(c is not None and c.dtype == dt, f"data value {t} isn't a{'n' if dt == 'i8' else ''} {dt} literal")
+      vals.append(c.arg)
+    data = tuple(vals)
+  else: data = (ZERO[dt],) * n
+  return UOp('buffer', (), ('buffer', int(attrs['slot']), n, data, name), dt, (n,))   # each statement is its own buffer, so duplicate slots are caught
+
+def typecheck(nodes, base=None):
+  T = {}
+  for r in nodes:
+    def need(cond, msg, r=r):
+      if not cond: raise UIRError(f"{r.op}: {msg}")
+    try:
+      src, attrs = [T[id(x)] for x in r.src], dict(r.attrs)
+      if 'dtype' in attrs: need(attrs['dtype'] in DTYPES(), f"bad dtype {attrs['dtype']}")
+      if attrs.get('dtype') == 'i8': need(r.op in ('buffer', 'alloc', 'cast'), "i8 is for memory: buffers, allocs and casts")
+      if r.op == 'const': u = r.lit
+      elif r.op == 'param': u = build_param(src, attrs, need)
+      elif r.op in ('buffer', 'alloc'): u = build_storage(r, src, attrs, base, need)
+      else: u = build(r.op, src, {**attrs, '_name': r.name or ''})
+    except UIRError as e: raise UIRError(f"line {r.line}: {e}") from None
+    T[id(r)] = u
+  return T
+
+def parse(text, base=None):
+  # base: the directory relative url= paths are read from (the program's own folder)
+  binds, nodes = parse_raw(text)
+  T = typecheck(nodes, base)
+  names = {name: T[id(r)] for name, r, _, _, _ in binds}
+  check_memory(names)
+  return names, [name for name, _, _, _, _ in binds]
 
 SHAPE_OPS = {'expand', 'reduce', 'reshape', 'permute', 'pad', 'stage', 'vshrink'}
 def prod(t):
@@ -688,81 +867,8 @@ def dims_attr(v, allow_empty=False):
 
 def shape_attr(v):
   m = re.fullmatch(r"\[[ \t]*([0-9]+)[ \t]*\]", v, re.A)
-  if not m or int(m.group(1)) < 1: raise UIRError(f"shape must be [k] with k >= 1 in week 1, got {v}")
+  if not m or int(m.group(1)) < 1: raise UIRError(f"shape must be [k] with k >= 1, got {v}")
   return (int(m.group(1)),)
-
-def parse(text, base=None):
-  # base: the directory relative url= paths are read from (the program's own folder)
-  names, order = {}, []
-  for lineno, line in enumerate(text.split('\n'), 1):
-    line = line.rstrip('\r').split('#', 1)[0].strip(' \t')
-    if not line: continue
-    try:
-      m = NAME_RE.fullmatch(line)
-      if not m: raise UIRError("expected %name = op ...")
-      name, op, rest = m.groups()
-      if name in names: raise UIRError(f"%{name} defined twice")
-      attrs, src = {}, []
-      for t in TOK.findall(rest):
-        if '=' in t:
-          k, v = t.split('=', 1)
-          if k not in ATTRS.get(op, set()): raise UIRError(f"{op} has no attribute {k!r}")
-          if k in attrs: raise UIRError(f"attribute {k} given twice")
-          attrs[k] = v
-        elif attrs: raise UIRError("operands come before attributes")
-        else: src.append(t)
-      if 'dtype' in attrs and attrs['dtype'] not in ('bool', 'i32', 'f32', 'i8'): raise UIRError(f"bad dtype {attrs['dtype']}")
-      if attrs.get('dtype') == 'i8' and op not in ('buffer', 'alloc', 'cast'): raise UIRError("i8 is for memory: buffers, allocs and casts")
-      if op in ('buffer', 'alloc'):
-        if len(src) != 1 or not re.fullmatch(r"[0-9]+", src[0], re.A) or int(src[0]) < 1: raise UIRError(f"{op} N: a size N >= 1")
-        n, dt = int(src[0]), attrs.get('dtype')
-        if dt is None: raise UIRError(f"{op} needs dtype=")
-        if op == 'alloc': u = UOp('alloc', (), ('alloc', n, name), dt, (n,))   # each alloc is its own storage
-        else:
-          if not re.fullmatch(r"[0-9]+", attrs.get('slot', ''), re.A): raise UIRError("buffer needs slot=N")
-          if 'url' in attrs or 'sha256' in attrs:
-            if 'url' not in attrs or 'sha256' not in attrs: raise UIRError("url= and sha256= go together")
-            if 'data' in attrs: raise UIRError("a buffer takes data= or url=, not both")
-            data = blob(attrs['url'], attrs['sha256'], dt, n, base)
-          elif 'data' in attrs:
-            toks = attrs['data'].strip('[]').split()
-            if len(toks) != n: raise UIRError(f"data has {len(toks)} values, the buffer has {n}")
-            vals = []
-            for t in toks:
-              c = literal(t)
-              if dt == 'i8' and c is not None and c.dtype == 'i32' and -128 <= c.arg <= 127: c = const(c.arg, 'i8')
-              if c is None or c.dtype != dt: raise UIRError(f"data value {t} isn't a{'n' if dt == 'i8' else ''} {dt} literal")
-              vals.append(c.arg)
-            data = tuple(vals)
-          else: data = (ZERO[dt],) * n
-          u = UOp('buffer', (), ('buffer', int(attrs['slot']), n, data, name), dt, (n,))   # each statement is its own buffer, so duplicate slots are caught
-      elif op in ('const', 'param'):
-        if len(src) != 1: raise UIRError(f"{op} takes one literal")
-        dt = attrs.get('dtype')
-        if op == 'param':
-          if not re.fullmatch(r"[0-9]+", src[0], re.A) or dt is None: raise UIRError("param N dtype=D")
-          u = UOp('param', (), int(src[0]), dt, shape_attr(attrs['shape']) if 'shape' in attrs else ())
-        else:
-          c = literal(src[0])
-          if c is None: raise UIRError(f"bad literal {src[0]}")
-          if dt is not None and dt != c.dtype:
-            if c.dtype == 'f32': raise UIRError("a float literal can't be const i32/bool")
-            c = const(do_cast(c.arg, c.dtype, dt), dt)
-          u = c
-      else:
-        args = []
-        for t in src:
-          if t.startswith('%'):
-            if t[1:] not in names: raise UIRError(f"undefined {t}")
-            args.append(names[t[1:]])
-          elif (c := literal(t)) is not None: args.append(c)
-          else: raise UIRError(f"bad operand {t}")
-        u = build(op, args, {**attrs, '_name': name})
-      free_params(u)          # one slot used with two types is a static error, called or not
-      names[name] = u; order.append(name)
-    except UIRError as e: raise UIRError(f"line {lineno}: {e}") from None
-  check_memory(names)
-  return names, order
 
 def all_nodes(names):
   seen, out = set(), []
@@ -1152,38 +1258,99 @@ def assert_value(u, names):
   vals, _ = execute(linearize([r], uni))
   return vals[id(r)]
 
-def run(text, base=None):
-  names, order = parse(text, base)
-  for n in order:
-    u = names[n]
-    if u.op == 'assert' and not assert_value(u, names): raise AssertFail(f"assert failed: %{n}")
+def cost(root):
+  memo = {}
+  def C(f):
+    if id(f) in memo: return memo[id(f)]
+    total = 0
+    for u in toposort(f):
+      if u.op in ('const', 'param', 'assert'): continue
+      elif u.op == 'call': total += 1 + C(u.src[0])
+      elif u.op == 'index' or u is VOID: total += 1
+      else: total += prod(u.shape)
+    memo[id(f)] = total
+    return total
+  return C(root)
+
+def check_test(binds, T):
+  last = T[id(binds[-1][1])]
+  if last.op != 'assert': raise UIRError("a test ends with its assert")
+  if sum(op == 'assert' for _, _, _, op, _ in binds) != 1: raise UIRError("a test has exactly one assert")
+  reach, todo = set(), [binds[-1][1]]
+  while todo:
+    r = todo.pop()
+    if id(r) not in reach: reach.add(id(r)); todo += r.src
+  for n, r, ln, _, _ in binds:
+    if id(r) not in reach: raise UIRError(f"line {ln}: %{n} isn't reachable from the assert")
+  for u in toposort(last):
+    if u.op == 'param': raise UIRError(f"param slot={u.arg} is used outside any call")
+  return last
+
+def outcome(data, base=None):
+  lim = LIMITS.get(WEEK)
+  if isinstance(data, str): data = data.encode('utf-8')
+  if lim and len(data) > lim[0]: return 'OVERBUDGET', f"{len(data)} bytes, the limit is {lim[0]}"
+  try:
+    binds, nodes = parse_raw(data.decode('utf-8'))
+  except UnicodeDecodeError: return 'REJECTED', "not UTF-8 text"
+  except UIRError as e: return 'REJECTED', str(e)
+  edges = sum(len(r.src) for r in nodes)
+  if lim and (len(nodes) >= lim[1] or edges >= lim[2]): return 'OVERBUDGET', f"{len(nodes)} nodes and {edges} source edges, the limits are {lim[1]} and {lim[2]}"
+  try:
+    T = typecheck(nodes, base)
+    check_memory({n: T[id(r)] for n, r, _, _, _ in binds})
+    root = check_test(binds, T)
+  except UIRError as e: return 'REJECTED', str(e)
+  if lim and (c := cost(root)) >= lim[3]: return 'OVERBUDGET', f"static cost {c}, the limit is {lim[3]}"
+  names = {n: T[id(r)] for n, r, _, _, _ in binds}
+  return ('MATCH', None) if assert_value(root, names) else ('MISMATCH', f"%{binds[-1][0]}: the values differ")
 
 # ---------------- simplifier: bottom up greedy rewrite to a fixpoint ----------------
 
+def full_range(dt): return (0, 1) if dt == 'bool' else (-128, 127) if dt == 'i8' else (INT_MIN, INT_MAX)
+def normal(lo, hi, dt):
+  if dt == 'bool': return (0, 0) if lo == hi == 0 else (1, 1) if lo > 0 or hi < 0 else (0, 1)
+  full = full_range(dt)
+  return (lo, hi) if full[0] <= lo and hi <= full[1] else full
+def hull(xs): return (min(xs), max(xs))
+
 def bounds(u, memo):
-  # conservative [lo, hi] for i32 and bool (as 0/1). None means "unknown, full range".
   if id(u) in memo: return memo[id(u)]
-  full = (INT_MIN, INT_MAX) if u.dtype == 'i32' else (-128, 127) if u.dtype == 'i8' else (0, 1)
-  def b(s): return bounds(s, memo)
-  r = full
-  if u.op == 'const' and u.dtype in ('i32', 'bool'): r = (int(u.arg), int(u.arg))
-  elif u.dtype == 'bool': r = (0, 1)
-  elif u.op in ('add', 'mul', 'max', 'div'):
-    (a0, a1), (b0, b1) = b(u.src[0]), b(u.src[1])
-    if u.op == 'add': c = [a0 + b0, a1 + b1]
-    elif u.op == 'mul': c = [x * y for x in (a0, a1) for y in (b0, b1)]
-    elif u.op == 'max': c = [max(a0, b0), max(a1, b1)]
-    else: c = [tdiv(x, y) for x in (a0, a1) for y in (b0, b1)] if (b0 > 0 or b1 < 0) else None
-    if c is not None and INT_MIN <= min(c) and max(c) <= INT_MAX: r = (min(c), max(c))   # only if no wrap
-  elif u.op == 'mod' and u.src[1].op == 'const' and u.src[1].arg > 0:
-    (a0, a1), m = b(u.src[0]), u.src[1].arg
-    r = (0, min(m - 1, a1)) if a0 >= 0 else (-(m - 1), m - 1)
-  elif u.op == 'cast' and u.src[0].dtype == 'bool': r = (0, 1)
-  elif u.op == 'range': r = (0, max(b(u.src[0])[1] - 1, 0))
-  elif u.op == 'where':
-    (a0, a1), (b0, b1) = b(u.src[1]), b(u.src[2]); r = (min(a0, b0), max(a1, b1))
-  elif u.op == 'index' and u.src[0].op == 'stack':
-    bs = [b(s) for s in u.src[0].src]; r = (min(x for x, _ in bs), max(y for _, y in bs))
+  op, s, dt = u.op, u.src, u.dtype
+  def b(x): return bounds(x, memo)
+  r = full_range(dt)
+  if dt not in ('i32', 'bool', 'i8'): pass
+  elif op == 'const': r = (int(u.arg), int(u.arg))
+  elif op == 'param':
+    if len(s) > 1: r = (int(s[1].src[0].arg), int(s[1].src[1].arg))
+  elif op == 'call': r = b(s[0])
+  elif op == 'stack': r = hull([v for x in s for v in b(x)])
+  elif op == 'index': r = b(s[0])
+  elif op == 'cast' and s[0].dtype in ('i32', 'bool', 'i8'): r = normal(*b(s[0]), dt)
+  elif op in ('add', 'mul', 'max', 'div', 'mod', 'xor', 'shl'):
+    (a0, a1), (c0, c1) = b(s[0]), b(s[1])
+    if op == 'add': r = normal(a0 + c0, a1 + c1, dt)
+    elif op == 'mul': r = normal(*hull([x * y for x in (a0, a1) for y in (c0, c1)]), dt)
+    elif op == 'max': r = normal(max(a0, c0), max(a1, c1), dt)
+    elif op == 'div':
+      if c0 == c1: r = normal(*hull([fdiv(a0, c0), fdiv(a1, c0)]), dt)
+    elif op == 'mod':
+      if c0 == c1 == 0: r = (a0, a1)
+      elif c0 == c1:
+        if fdiv(a0, c0) == fdiv(a1, c0): r = hull([fmod(a0, c0), fmod(a1, c0)])
+        else: r = (0, c0 - 1) if c0 > 0 else (c0 + 1, 0)
+    elif op == 'xor':
+      if a0 == a1 and c0 == c1: r = normal(a0 ^ c0, a0 ^ c0, dt)
+    else:
+      ks = range(32) if c1 - c0 >= 31 else {k % 32 for k in range(c0, c1 + 1)}
+      r = normal(*hull([x << k for x in (a0, a1) for k in ks]), dt)
+  elif op == 'cmplt':
+    (a0, a1), (c0, c1) = b(s[0]), b(s[1])
+    r = (1, 1) if a1 < c0 else (0, 0) if a0 >= c1 else (0, 1)
+  elif op == 'where':
+    p = b(s[0])
+    r = b(s[1]) if p == (1, 1) else b(s[2]) if p == (0, 0) else hull(b(s[1]) + b(s[2]))
+  elif op == 'range': r = (0, max(b(s[0])[1] - 1, 0))
   memo[id(u)] = r
   return r
 
@@ -1204,9 +1371,7 @@ def rewrite_one(u, bm):
   op, s, dt = u.op, u.src, u.dtype
   if op == 'call': return substitute(s[0], s[1:])
   if op == 'index' and s[0].op == 'stack' and isc(s[1]) and 0 <= s[1].arg < len(s[0].src): return s[0].src[s[1].arg]
-  if op in ALU and all(isc(x) for x in s) and dt != 'i8':
-    try: return const(alu(op, [x.dtype for x in s], [x.arg for x in s], dt), dt)
-    except UIRError: return None          # keep the error in the program
+  if op in ALU and all(isc(x) for x in s) and dt != 'i8': return const(alu(op, [x.dtype for x in s], [x.arg for x in s], dt), dt)
   if op in COMM and isc(s[0]) and not isc(s[1]): return UOp(op, (s[1], s[0]), None, dt, ())
   if len(s) == 2: x, y = s
   if op == 'where':
@@ -1223,6 +1388,8 @@ def rewrite_one(u, bm):
     if op == 'xor' and x is y: return zero(dt)
     if op == 'div' and isc(y, 1): return x
     if op == 'mod' and isc(y, 1): return const(0, 'i32')
+    if op == 'div' and isc(y, 0): return const(-1, 'i32')
+    if op == 'mod' and isc(y, 0): return x
     if op in ('add', 'mul') and isc(y) and x.op == op and isc(x.src[1]):   # (x+c1)+c2: i32 is a ring, wrap is fine
       return UOp(op, (x.src[0], const(alu(op, ['i32'] * 2, [x.src[1].arg, y.arg], 'i32'), 'i32')), None, 'i32', ())
   if dt in ('i32', 'bool') and op in ('cmplt', 'max', 'mod', 'div') and s[0].dtype == 'i32':
@@ -1262,12 +1429,15 @@ def render(root, name='out'):
   lines, names = [], {}
   for u in toposort(root, into_bodies=True):
     if u.op == 'const': names[id(u)] = lit(u); continue
+    if u.op == 'stack' and all(names[id(s)][0] != '%' for s in u.src):
+      names[id(u)] = '[' + ' '.join(names[id(s)] for s in u.src) + ']'
+      if u is not root: continue
     nm = f"%{name}" if u is root else f"%t{len(lines)}"
-    if u.op == 'param': rhs = f"param {u.arg} dtype={u.dtype}" + (f" shape=[{u.shape[0]}]" if u.shape else "")
-    else:
-      rhs = ' '.join([u.op] + [names[id(s)] for s in u.src]) + (f" dtype={u.dtype}" if u.op in ('cast', 'bitcast') else '')
+    if u.op == 'param': rhs = ' '.join(['param'] + [names[id(s)] for s in u.src] + [f"slot={u.arg}", f"dtype={u.dtype}", "addrspace=ALU"])
+    elif u.op == 'stack' and u is root and names[id(u)][0] == '[': rhs = names[id(u)]
+    else: rhs = ' '.join([u.op] + [names[id(s)] for s in u.src]) + (f" dtype={u.dtype}" if u.op in ('cast', 'bitcast') else '')
     names[id(u)] = nm; lines.append(f"{nm} = {rhs}")
-  if root.op == 'const': lines.append(f"%{name} = const {lit(root)}")
+  if root.op == 'const': lines.append(f"%{name} = {lit(root)}")
   return '\n'.join(lines) + '\n'
 
 # ---------------- render C (week 2) ----------------
@@ -1296,6 +1466,24 @@ C_HELPERS = """static inline float f32_max(float a, float b) {
   return a > b ? a : b;
 }
 static inline int32_t f32_bits(float x) { int32_t i; if (isnan(x)) return 0x7fc00000; memcpy(&i, &x, 4); return i; }
+static inline int32_t i32_div(int32_t a, int32_t b) {
+  if (b == 0) return -1;
+  if (b == -1) return (int32_t)(0u - (uint32_t)a);
+  int32_t q = a / b;
+  return (q * b != a && (a < 0) != (b < 0)) ? q - 1 : q;
+}
+static inline int32_t i32_mod(int32_t a, int32_t b) {
+  if (b == 0) return a;
+  if (b == -1) return 0;
+  int32_t r = a % b;
+  return (r != 0 && (r < 0) != (b < 0)) ? r + b : r;
+}
+static inline int32_t f32_to_i32(float x) {
+  if (isnan(x)) return 0;
+  if (x >= 2147483648.0f) return INT32_MAX;
+  if (x <= -2147483648.0f) return INT32_MIN;
+  return (int32_t)x;
+}
 static inline float bits_f32(int32_t i) { float x; memcpy(&x, &i, 4); return x; }
 """
 
@@ -1540,17 +1728,18 @@ def render_c(names, target='c', week=None):
       elif op == 'where': e = f"({a[0]} ? {a[1]} : {a[2]})"
       elif op == 'cast':
         fr = u.src[0].dtype
-        e = a[0] if fr == u.dtype else f"({a[0]} != 0)" if u.dtype == 'bool' else f"(({t}){a[0]})"
+        e = a[0] if fr == u.dtype else f"({a[0]} != 0)" if u.dtype == 'bool' else f"f32_to_i32({a[0]})" if (fr, u.dtype) == ('f32', 'i32') else f"(({t}){a[0]})"
       elif op == 'recip': e = f"(1.0f / {a[0]})"
       elif op == 'cmplt': e = f"({a[0]} < {a[1]})"
       elif op == 'xor': e = f"({a[0]} != {a[1]})" if u.dtype == 'bool' else f"({a[0]} ^ {a[1]})"
       elif op == 'max': e = f"f32_max({a[0]}, {a[1]})" if u.dtype == 'f32' else f"({a[0]} > {a[1]} ? {a[0]} : {a[1]})"
       elif op in ('add', 'mul') and u.dtype == 'f32': e = f"({a[0]} {'+' if op == 'add' else '*'} {a[1]})"
-      elif op in ('add', 'mul', 'shl'):              # wrap through uint32_t: signed overflow is UB in C
-        e = f"(int32_t)((uint32_t){a[0]} {dict(add='+', mul='*', shl='<<')[op]} (uint32_t){a[1]})"
-      elif op in ('div', 'mod') and u.src[1].op == 'const' and u.src[1].arg not in (0, -1): e = f"({a[0]} {'/' if op == 'div' else '%'} {a[1]})"   # a constant divisor can't be -1
-      elif op == 'div': e = f"({a[1]} == -1 ? (int32_t)(0u - (uint32_t){a[0]}) : {a[0]} / {a[1]})"   # INT_MIN / -1 is UB
-      elif op == 'mod': e = f"({a[1]} == -1 ? 0 : {a[0]} % {a[1]})"
+      elif op in ('add', 'mul'):                     # wrap through uint32_t: signed overflow is UB in C
+        e = f"(int32_t)((uint32_t){a[0]} {'+' if op == 'add' else '*'} (uint32_t){a[1]})"
+      elif op == 'shl': e = f"(int32_t)((uint32_t){a[0]} << ((uint32_t){a[1]} & 31u))"
+      elif op in ('div', 'mod') and u.src[1].op == 'const' and u.src[1].arg > 0 and bounds(u.src[0], {})[0] >= 0:
+        e = f"({a[0]} {'/' if op == 'div' else '%'} {a[1]})"
+      elif op in ('div', 'mod'): e = f"i32_{op}({a[0]}, {a[1]})"
       else: raise UIRError(f"render: can't render {op} here")
       lines.append(f"{pad}{t} {v} = {e};"); name[id(u)] = v; ctype[v] = t
   emit(block, 1)
@@ -1564,27 +1753,35 @@ def render_c(names, target='c', week=None):
   return ("#include <stdint.h>\n#include <stdbool.h>\n#include <string.h>\n#include <math.h>\n\n" + C_HELPERS + par +
           ''.join('\n' + f for f in fns) + f"\nvoid kernel({params}) {{\n" + ''.join(f"{l}\n" for l in lines) + "}\n")
 
-def count_ops(root): return sum(u.op not in ('const', 'param') for u in toposort(root, into_bodies=True))
+def count_ops(root): return sum(u.op not in ('const', 'param') and literal_list(u) is None for u in toposort(root, into_bodies=True))
 
-def read_text(path):
+def read_bytes(path):
   b = open(path, 'rb').read()
-  if b.startswith(b'\xff\xfe') or b.startswith(b'\xfe\xff'): return b.decode('utf-16')   # PowerShell 5.1 ">" writes UTF-16
-  return b.decode('utf-8-sig')
+  if b.startswith(b'\xff\xfe') or b.startswith(b'\xfe\xff'): return b.decode('utf-16').encode('utf-8')   # PowerShell 5.1 ">" writes UTF-16
+  return b[3:] if b.startswith(b'\xef\xbb\xbf') else b
+def read_text(path): return read_bytes(path).decode('utf-8')
 
 def main(argv):
-  week = next((int(a[7:]) for a in argv if re.fullmatch(r"--week=[0-9]+", a)), None)
+  global WEEK
+  for a in argv[1:]:
+    if re.fullmatch(r"--week=[0-9]+", a): WEEK = int(a[7:])
   argv = [a for a in argv if not re.fullmatch(r"--week=[0-9]+", a)]
-  if len(argv) != 3 or argv[1] not in ('run', 'simplify', 'render', 'render-cuda'):
-    print("usage: uirc.py run|simplify|render|render-cuda FILE [--week=N]", file=sys.stderr); return 2
+  usage = "usage: uirc.py [--week=N] FILE...   or   uirc.py [--week=N] simplify|render|render-cuda FILE"
+  if len(argv) < 2: print(usage, file=sys.stderr); return 2
+  if argv[1] not in ('simplify', 'render', 'render-cuda'):
+    for f in argv[1:]:
+      try: data = read_bytes(f)
+      except OSError: print(f"REJECTED {f}"); continue
+      print(f"{outcome(data, os.path.dirname(os.path.abspath(f)))[0]} {f}")
+    return 0
+  if len(argv) != 3: print(usage, file=sys.stderr); return 2
   try:
-    text, base = read_text(argv[2]), os.path.dirname(os.path.abspath(argv[2]))
-    if argv[1] == 'run': run(text, base); return 0
+    text, base = read_bytes(argv[2]).decode('utf-8'), os.path.dirname(os.path.abspath(argv[2]))
     if argv[1] == 'render': sys.stdout.write(render_c(parse(text, base)[0])); return 0
-    if argv[1] == 'render-cuda': sys.stdout.write(render_c(parse(text, base)[0], 'cuda', week)); return 0
+    if argv[1] == 'render-cuda': sys.stdout.write(render_c(parse(text, base)[0], 'cuda', WEEK)); return 0
     names, _ = parse(text, base)
     if 'out' not in names: raise UIRError("simplify needs %out")
     sys.stdout.write(render(simplify(names['out']))); return 0
-  except AssertFail as e: print(e, file=sys.stderr); return 1
   except UIRError as e: print(f"invalid: {e}", file=sys.stderr); return 2
   except (UnicodeDecodeError, OSError) as e: print(f"invalid: can't read {argv[2]}: {e}", file=sys.stderr); return 2
   except RecursionError: print("invalid: nesting too deep", file=sys.stderr); return 2

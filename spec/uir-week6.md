@@ -45,7 +45,7 @@ Split `x` into a nearest integer `n` and a remainder `f` in `[-0.5, 0.5]`. Then 
 `2^h · 2^k`, each in [-75, 64]: subnormal results and results just below `2^128` both come out right.
 
 ```
-%x   = param 0 dtype=f32
+%x   = param [] slot=0 dtype=f32 addrspace=ALU
 %lo  = cmplt %x inf
 %hi  = cmplt -inf %x
 %h1  = where %hi false true
@@ -95,7 +95,7 @@ Write `x = m · 2^e` with `m` in `[0.707, 1.414]`, read straight from the bits. 
 `|s| ≤ 0.172`, so five terms are plenty. Subnormal inputs are scaled up by `2^23` first.
 
 ```
-%x   = param 0 dtype=f32
+%x   = param [] slot=0 dtype=f32 addrspace=ALU
 %p0  = cmplt 0.0 %x
 %fin = cmplt %x inf
 %ok  = where %p0 %fin false            # 0 < x < inf
@@ -143,7 +143,7 @@ Write `x = m · 2^e` with `m` in `[0.707, 1.414]`, read straight from the bits. 
 A first guess from `exp2` and `log2`, then one Newton step, `y = (y + x / y) / 2`.
 
 ```
-%x   = param 0 dtype=f32
+%x   = param [] slot=0 dtype=f32 addrspace=ALU
 %p0  = cmplt 0.0 %x
 %fin = cmplt %x inf
 %ok  = where %p0 %fin false
@@ -168,7 +168,7 @@ part and a small correction. Fold the result into `[-π/2, π/2]` with `sin(π -
 the Taylor series up to `r^13`.
 
 ```
-%x   = param 0 dtype=f32
+%x   = param [] slot=0 dtype=f32 addrspace=ALU
 %nx  = mul %x -1.0
 %ax  = max %x %nx
 %fin = cmplt %ax inf                   # finite (false for nan)
@@ -229,7 +229,7 @@ operand's shape (`expand c shape=[...]`) when the operand isn't a scalar.
 `(...)` above is shorthand for a separate statement. `floor`:
 
 ```
-%x   = param 0 dtype=f32
+%x   = param [] slot=0 dtype=f32 addrspace=ALU
 %nx  = mul %x -1.0
 %ax  = max %x %nx
 %lt  = cmplt %ax 8388608.0

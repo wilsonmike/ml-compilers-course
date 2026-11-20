@@ -1,0 +1,17 @@
+# where a load runs depends on every use: %x is also used after the loop, so it is loaded once, before
+# the loop overwrites the buffer. Every iteration sees the pre-loop 10, and so does the final add
+%b  = buffer 1 dtype=i32 slot=0 data=[10]
+%v0 = shrink %b 0 shape=[]
+%x  = load %v0
+%i  = range 3
+%z  = mul %i 0
+%v  = shrink %b %z shape=[]
+%xz = add %x %z
+%y  = add %xz 1
+%s  = store %v %y
+%e  = end %s %i
+%b1 = after %b %e
+%r  = load %b1
+%r0 = index %r 0
+%rx = stack %r0 %x
+%t  = assert %rx [11 10]

@@ -3,7 +3,7 @@
 Week 9 makes GPU kernels fast. Two things carry most of the speed of a real GEMM, convolution or attention kernel:
 keeping each thread's working set in **registers**, and the **tensor cores**, units that multiply small matrices in
 one step. This week adds a rule that lets `render-cuda` use registers, and three things for tensor cores: the `i8`
-dtype, the `warp` axis and the `mma` op. As always, none of it changes a result: `run` and `render` still work
+dtype, the `warp` axis and the `mma` op. As always, none of it changes a result: `./compile` and `render` still work
 everywhere, and `render-cuda` must still give the interpreter's bits. Everything in weeks 1 to 8 still holds. The
 course schedule names tensor cores, upcasting, fast GEMMs, convolutions and flash attention for this week. The rest
 is our design, provisional until the official format is published.
@@ -39,8 +39,8 @@ A fourth dtype, for memory: 8-bit two's complement, -128 to 127.
   or `bool` is exact.
 * There are no i8 literals or `const`s, and arithmetic and comparisons don't take i8: cast to `i32` to compute. Ops
   that only move values (`where`, `stack`, `index`, `assert` and the shape ops) take it like any dtype.
-* Only `buffer`, `alloc` and `cast` accept `dtype=i8`. Any other op given it exits 2, `param` and `bitcast`
-  included. A cast to i8 from `f32` or `bool` exits 2 too.
+* Only `buffer`, `alloc` and `cast` accept `dtype=i8`. Any other op given it is rejected, `param` and `bitcast`
+  included. A cast to i8 from `f32` or `bool` is rejected too.
 
 ### `mma`
 
@@ -53,18 +53,18 @@ A fourth dtype, for memory: 8-bit two's complement, -128 to 127.
 * `C` is `i32` memory, `A` and `B` are `i8` memory. Each is a buffer or alloc version, or a scalar view
   (`shrink ... shape=[]`) whose offset is where the tile starts.
 * `lda`, `ldb` and `ldc` are each tile's row stride: row `i` of `A`'s tile starts `i * lda` elements after its first
-  element. Each is a positive literal multiple of 16 (16, 32, 48, ...). Zero exits 2.
+  element. Each is a positive literal multiple of 16 (16, 32, 48, ...). Zero is rejected.
 * For `i` and `j` from 0 to 15, `C[i][j] = C[i][j] + A[i][0]*B[0][j] + ... + A[i][15]*B[15][j]`, in `i32` with
   wraparound (the order doesn't matter: products of i8 values fit, and wrapping addition is associative).
 * `after %C %e` names the new version of `C`, and `end` repeats an `mma` as it does a store. Like a load, the `mma`
   reads the versions of `A`, `B` and `C` it names, so a later store into one of them waits for it.
-* Static rules (exit 2):
+* Static rules (REJECTED, and `render` exits 2):
   * every tile is provably inside its memory: offset `>= 0`, and offset + `15 * ld + 16` at most the memory's size;
   * every term of the `A` and `B` offsets is a provable multiple of 32, and every term of the `C` offset a provable
     multiple of 8. That's 32 bytes, the alignment the tensor cores load from. A term is a **provable multiple** of
     `k` when it is a literal divisible by `k`, an `add` of two provable multiples, or a `mul` with at least one
     factor a provable multiple. Nothing smarter: `mul (mul k 2) 16` is a multiple of 32 in fact, but neither factor
-    is, so it exits 2. Write `mul k 32`.
+    is, so it's rejected. Write `mul k 32`.
 * Inside a week 7 `thread` loop, an `mma` follows the slice rule like a store, with `size` the whole tile:
   `15 * ld + 16` elements. That covers its `C`, and its `A` or `B` when the loop also writes that memory.
 
@@ -90,7 +90,7 @@ and every `local` and `warp` loop of one kernel must agree on the block size.
   or store of the same memory are different layouts even at the same offset, and so are two tiles with different
   row strides.
 
-`run` executes a warp loop as an ordinary loop, as always.
+`./compile` executes a warp loop as an ordinary loop, as always.
 
 ## 3. `render`
 

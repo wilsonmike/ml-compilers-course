@@ -84,10 +84,10 @@ inside an `M*K` buffer when `i < M` and `k < K`.
 
 ## 4. Commands
 
-`run` and `render` keep their week 2 contracts. `render` may now emit `for` loops (and only `for`
+`./compile` and `render` keep their week 2 contracts. `render` may now emit `for` loops (and only `for`
 loops: still no `while`, `do`, `goto` or recursion). Values that don't depend on a range should be computed
 outside it; the grader doesn't measure this in week 3, but week 6 will time your kernels.
 
 ## 5. Test headers
 
-Same as week 2: `# expect: ...` for run tests, `# render` for render tests.
+Same as week 2: file-name prefixes for run tests, `# render` for render tests.

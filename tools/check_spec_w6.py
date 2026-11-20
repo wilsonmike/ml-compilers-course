@@ -12,7 +12,7 @@ for name, block in re.findall(r"### (\w+)\n.*?```\n(.*?)```", text, re.S):
   if root is not O.math_body(name): print(f"BAD  {name}: the spec's body is not the oracle's"); bad += 1
   else: print(f"ok   {name}")
 floor = re.search(r"`floor`:\n\n```\n(.*?)```", text, re.S).group(1)
-x = O.UOp('param', (), 0, 'f32', ())
+x = O.UOp('param', (O.VOID,), 0, 'f32', ())
 if O.parse(floor)[0]['r'] is not O.floor_(x): print("BAD  floor"); bad += 1
 else: print("ok   floor")
 sys.exit(1 if bad else 0)

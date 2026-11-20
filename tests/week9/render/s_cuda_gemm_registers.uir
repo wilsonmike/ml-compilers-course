@@ -2,28 +2,28 @@
 # time: 120
 # a 768x768 f32 GEMM with 4x4 register tiles: at least 0.8 of the reference's speed. Its sums must live in
 # registers: in shared memory the same kernel runs at about 0.67
-%A = buffer 589824 dtype=f32 slot=0 url=data/a768.f32 sha256=adbdb064138354ba6817080a8d25696c5e0a8ceb9fb99caad3c3bcbe5310f1b8
-%B = buffer 589824 dtype=f32 slot=1 url=data/b768.f32 sha256=481612a2428ee8721106a9723dd605fd54cbe074d4e8b251473c27ac144a0d5b
-%C = buffer 589824 dtype=f32 slot=2
-%As = alloc 1024 dtype=f32
-%Bs = alloc 1024 dtype=f32
+%A   = buffer 589824 dtype=f32 slot=0 url=data/a768.f32 sha256=adbdb064138354ba6817080a8d25696c5e0a8ceb9fb99caad3c3bcbe5310f1b8
+%B   = buffer 589824 dtype=f32 slot=1 url=data/b768.f32 sha256=481612a2428ee8721106a9723dd605fd54cbe074d4e8b251473c27ac144a0d5b
+%C   = buffer 589824 dtype=f32 slot=2
+%As  = alloc 1024 dtype=f32
+%Bs  = alloc 1024 dtype=f32
 %acc = alloc 4096 dtype=f32
-%g = range 144 axis=global
-%by = div %g 12
-%bx = mod %g 12
-%kt = range 48
+%g   = range 144 axis=global
+%by  = div %g 12
+%bx  = mod %g 12
+%kt  = range 48
 # phase 1: copy the 64x16 A tile and the 16x64 B tile into shared memory, 4 elements of each per thread
-%t = range 256 axis=local
-%q = range 4 axis=upcast
-%v1 = mul %by 49152
-%v2 = mul %q 12288
-%v3 = div %t 16
-%v4 = mul %v3 768
-%v5 = mul %kt 16
-%v6 = mod %t 16
-%v7 = add %v1 %v2
-%v8 = add %v7 %v4
-%v9 = add %v8 %v5
+%t   = range 256 axis=local
+%q   = range 4 axis=upcast
+%v1  = mul %by 49152
+%v2  = mul %q 12288
+%v3  = div %t 16
+%v4  = mul %v3 768
+%v5  = mul %kt 16
+%v6  = mod %t 16
+%v7  = add %v1 %v2
+%v8  = add %v7 %v4
+%v9  = add %v8 %v5
 %v10 = add %v9 %v6
 %v11 = mul %q 256
 %v12 = add %v11 %t
@@ -48,14 +48,14 @@
 %v31 = load %v30
 %v32 = store %v29 %v31
 %v33 = end %v16 %v32 %q
-%e1 = end %v33 %t
+%e1  = end %v33 %t
 %v34 = after %As %e1
 %v35 = after %Bs %e1
 # phase 2: thread t = (ty, tx) adds As[ty*4 + i][kk] * Bs[kk][tx*4 + j] into its acc, for its 4x4 piece
-%t2 = range 256 axis=local
-%kk = range 16
-%i = range 4 axis=upcast
-%j = range 4 axis=upcast
+%t2  = range 256 axis=local
+%kk  = range 16
+%i   = range 4 axis=upcast
+%j   = range 4 axis=upcast
 %v36 = div %t2 16
 %v37 = mod %t2 16
 %v38 = mul %v36 64
@@ -86,9 +86,9 @@
 %ekt = end %e1 %v62 %kt
 %v63 = after %acc %ekt
 # phase 3: each thread writes its 4x4 piece of C
-%t3 = range 256 axis=local
-%i3 = range 4 axis=upcast
-%j3 = range 4 axis=upcast
+%t3  = range 256 axis=local
+%i3  = range 4 axis=upcast
+%j3  = range 4 axis=upcast
 %v64 = div %t3 16
 %v65 = mod %t3 16
 %v66 = mul %t3 16
@@ -113,4 +113,4 @@
 %v85 = end %v84 %i3
 %v86 = end %v85 %t3
 %v87 = end %ekt %v86 %g
-%C1 = after %C %v87
+%C1  = after %C %v87

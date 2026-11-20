@@ -8,7 +8,7 @@
 It compiles and runs code you type into the lesson editors, so it only listens on 127.0.0.1 and only
 accepts requests from its own pages (Host check + a custom header that cross-site pages can't send).
 """
-import os, sys, re, json, glob, shlex, shutil, secrets, argparse, tempfile, subprocess, importlib.util
+import threading, os, sys, re, json, glob, shlex, shutil, secrets, argparse, tempfile, subprocess, importlib.util
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -137,7 +137,14 @@ def run_uir_buffers(ex, code, tests):
     except O.UIRError as e: res.append(f"error: {e}")
   return None, res, ''
 
+UIR_LOCK = threading.Lock()
 def run_uir(ex, code, tests, cfg):
+  with UIR_LOCK:
+    m = re.match(r"w([0-9])-", ex['id'])
+    O.WEEK = int(m.group(1)) if m and m.group(1) != '0' else 9
+    return run_uir_week(ex, code, tests, cfg)
+
+def run_uir_week(ex, code, tests, cfg):
   if ex.get('mode') == 'buffers': return run_uir_buffers(ex, code, tests)
   # the program must define %out over params; each test calls it with args
   try:

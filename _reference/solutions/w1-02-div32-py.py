@@ -1,9 +1,5 @@
-def wrap32(x: int) -> int:
-    return (x + 2**31) % 2**32 - 2**31
-
-
-def div32(a: int, b: int) -> int | None:
+def divmod32(a: int, b: int) -> tuple[int, int]:
     if b == 0:
-        return None
-    q = abs(a) // abs(b)  # magnitudes: floor and truncation agree here
-    return wrap32(q if (a < 0) == (b < 0) else -q)
+        return (-1, a)
+    q = a // b
+    return ((q + 2**31) % 2**32 - 2**31, a % b)

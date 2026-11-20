@@ -24,10 +24,10 @@ def bugs_by_test():
 
 def describe(path):
   lines = [l[1:].strip() for l in open(path, encoding='utf-8').read().split('\n') if l.startswith('#')]
-  kind = 'run'
+  name = os.path.basename(path)
+  kind = 'run: ' + next((o for o in ('MISMATCH', 'REJECTED', 'OVERBUDGET') if name.startswith(o.lower() + '_')), 'MATCH')
   for l in lines:
-    if l.startswith('expect:'): kind = 'run: ' + l.split(':', 1)[1].strip()
-    elif l.startswith('simplify:'): kind = 'simplify, ' + l.split(':', 1)[1].strip()
+    if l.startswith('simplify:'): kind = 'simplify, ' + l.split(':', 1)[1].strip()
     elif l == 'render': kind = 'render'
     elif l.startswith('render check:'): kind = 'render, ' + l.split(':', 1)[1].strip()
     elif l.startswith('speed:'): kind = 'render, speed ' + l.split(':', 1)[1].strip()

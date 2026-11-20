@@ -20,14 +20,14 @@ axis types LOOP, UPCAST and THREAD. The rest is our design, provisional until th
 | `upcast` | the same loop, unrolled: one copy of the body per value of `r` | the bound is a literal from 1 to 32 |
 | `thread` | iterations may run at the same time, on different threads | section 2 |
 
-`run` executes every axis as an ordinary loop, in order. The only semantic difference is private allocs (section 2).
+`./compile` executes every axis as an ordinary loop, in order. The only semantic difference is private allocs (section 2).
 An axis never changes the order of operations inside an iteration, so a program's results are bit for bit the same
 whatever its axes say.
 
 ## 2. Thread loops
 
 Iterations of a thread loop may run in any order, at the same time. Two iterations must therefore never touch the
-same memory unless both only read it. The rules, checked statically (exit 2 when they fail):
+same memory unless both only read it. The rules, checked statically (REJECTED when they fail):
 
 * **No nesting.** A thread loop can't be inside another thread loop. It may be inside an ordinary loop.
 * **Each iteration owns a slice.** Every store in the loop body, and every load of memory the body also stores into,
@@ -43,7 +43,7 @@ same memory unless both only read it. The rules, checked statically (exit 2 when
   same `S`. Write offsets in this expanded form: `(ib*4 + i)*N + j` must be written as `ib*(4N) + i*N + j`.
 * **Read-only memory is free.** Loads of memory the body never stores into may be anywhere.
 * **Private allocs.** An alloc whose every load and store is inside one thread loop is private to it: every
-  iteration starts with its own copy, all zeros. (`run` re-zeroes it at the start of each iteration. In an ordinary
+  iteration starts with its own copy, all zeros. (`./compile` re-zeroes it at the start of each iteration. In an ordinary
   loop, an alloc keeps its contents from one iteration to the next.) Any other alloc is shared, and follows the same
   rules as a buffer.
 
@@ -67,7 +67,7 @@ The harness splits `0 .. n-1` into one contiguous chunk per hardware thread, wit
 
 ## 4. Grading
 
-`run` and `render` tests work as before. Unrolled code is large, so render tests with upcast loops raise the C size
+Run and render tests work as before. Unrolled code is large, so render tests with upcast loops raise the C size
 limit with `# max_bytes:`.
 
 New: `# speed: X`. The grader renders the program with your compiler and with the reference compiler, builds both

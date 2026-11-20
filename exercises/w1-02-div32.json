@@ -1,49 +1,58 @@
 {
  "id": "w1-02-div32",
  "lang": "ocaml",
- "title": "i32 division, exactly",
- "show": "(function None -> \"error\" | Some q -> string_of_int q)",
- "starter": "(* a and b are i32 values held in OCaml ints. Return Some q, the quotient\n   truncated toward zero (like C) and wrapped to 32 bits, or None if b = 0. *)\nlet div32 (a : int) (b : int) : int option =\n  Some (a / b)\n",
+ "title": "div and mod, exactly",
+ "show": "(fun (q, r) -> string_of_int q ^ \" \" ^ string_of_int r)",
+ "starter": "let divmod32 (a : int) (b : int) : int * int =\n  (a / b, a mod b)\n",
  "tests": [
   {
-   "expr": "div32 (-7) 2",
-   "expect": "-3",
+   "expr": "divmod32 (-7) 2",
+   "expect": "-4 1",
    "sample": true
   },
   {
-   "expr": "div32 7 0",
-   "expect": "error",
+   "expr": "divmod32 7 0",
+   "expect": "-1 7",
    "sample": true
   },
   {
-   "expr": "div32 7 (-2)",
-   "expect": "-3"
+   "expr": "divmod32 7 (-2)",
+   "expect": "-4 -1"
   },
   {
-   "expr": "div32 (-7) (-2)",
-   "expect": "3"
+   "expr": "divmod32 (-7) (-2)",
+   "expect": "3 -1"
   },
   {
-   "expr": "div32 (-2147483648) (-1)",
-   "expect": "-2147483648"
+   "expr": "divmod32 (-2147483648) (-1)",
+   "expect": "-2147483648 0"
   },
   {
-   "expr": "div32 2147483647 1",
-   "expect": "2147483647"
+   "expr": "divmod32 2147483647 1",
+   "expect": "2147483647 0"
   },
   {
-   "expr": "div32 0 5",
-   "expect": "0"
+   "expr": "divmod32 0 5",
+   "expect": "0 0"
   },
   {
-   "expr": "div32 (-1) 2",
-   "expect": "0"
+   "expr": "divmod32 (-1) 2",
+   "expect": "-1 1"
+  },
+  {
+   "expr": "divmod32 (-5) 0",
+   "expect": "-1 -5"
+  },
+  {
+   "expr": "divmod32 (-8) 4",
+   "expect": "-2 0"
   }
  ],
  "hints": [
-  "OCaml's `/` on `int` already truncates toward zero, like C. So what's left to handle?",
-  "Two cases: dividing by zero, and the one quotient that doesn't fit in 32 bits.",
-  "`INT_MIN / -1` is `2147483648` in OCaml's 63-bit ints. Wrap the result back to 32 bits with `Int32.of_int` then `Int32.to_int`."
+  "OCaml's `/` and `mod` truncate, like C: `-7 / 2` is -3 and `-7 mod 2` is -1. .uir floors: -4 and 1.",
+  "Answer `(-1, a)` for `b = 0`. Otherwise floor the quotient: subtract 1 from `a / b` when `a mod b <> 0` and the signs of a and b differ. Then the remainder is `a - b * q`.",
+  "Compute the remainder from the unwrapped quotient, then wrap both with `Int32.to_int (Int32.of_int x)`. `INT_MIN / -1` is the one quotient that needs it."
  ],
- "explain": "OCaml's integer division truncates toward zero, matching C, so the only work is the edges: `b = 0` returns `None`, and the result is wrapped to 32 bits so `INT_MIN / -1` comes back as `INT_MIN` instead of the 63-bit `2147483648`."
+ "explain": "The reference handles `b = 0` first, floors the truncating quotient by stepping down when there's a remainder and the signs differ, computes the remainder as `a - b * q` in OCaml's 63-bit ints, and only then wraps both to 32 bits. That order gives `INT_MIN mod -1 = 0` for free.",
+ "prompt": "<p>Write <code>divmod32 a b</code>, returning .uir's <code>div</code> and <code>mod</code> as a pair. The quotient is <code>floor(a / b)</code>, wrapped to 32 bits; the remainder is <code>a - b * floor(a / b)</code>. When <code>b</code> is 0 the pair is <code>(-1, a)</code>.</p>"
 }

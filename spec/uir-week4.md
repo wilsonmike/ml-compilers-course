@@ -31,7 +31,7 @@ Rank-1 values may not depend on an open range from a hand-written week 3 loop.
 
 ## 3. Rangeify and materialization
 
-`run` can evaluate rank-1 values directly. `render` must not unroll them: a rank-1 value of size
+`./compile` can evaluate rank-1 values directly. `render` must not unroll them: a rank-1 value of size
 4096 has to become a loop. Rangeify gives every element an index:
 
 * an elementwise op at index `i` is the op applied to its operands at index `i`
@@ -54,7 +54,7 @@ a case where it isn't.
 
 ## 4. Commands and grading
 
-`run` and `render` keep their contracts. Render tests now include large sizes, and the grader requires
+`./compile` and `render` keep their contracts. Render tests now include large sizes, and the grader requires
 the rendered C to be **at most 20,000 bytes**, so unrolling a 4096-element vector fails. `render` may
 use `for` loops whenever the program has a `range`, a `reduce`, `expand` or `stage`, an elementwise op
 on a rank-1 value, or any rank-1 value with more than 32 elements. Programs with none of these (week 2
@@ -65,4 +65,4 @@ an `after` inside the loop changes no buffer. Week 6 will start timing kernels; 
 
 ## 5. Test headers
 
-Same as weeks 2 and 3: `# expect: ...` for run tests, `# render` for render tests.
+Same as weeks 2 and 3: file-name prefixes for run tests, `# render` for render tests.
