@@ -25,14 +25,14 @@ const CC = (() => {
       ['learn/ml-01-first-steps.html', 'First steps in OCaml', 'O.1'], ['learn/ml-02-functions.html', 'Functions and types', 'O.2'],
       ['learn/ml-03-lists-matching.html', 'Lists and pattern matching', 'O.3'], ['learn/ml-04-your-own-types.html', 'Your own types', 'O.4'],
       ['learn/ml-05-mutation.html', 'Arrays, tables and mutation', 'O.5'], ['learn/ml-06-modules-projects.html', 'Modules, maps and projects', 'O.6']] },
-    { title: 'Hard ideas, slowly', items: [
-      ['learn/hard-01-sharing.html', 'Sharing nodes', 'H.1'], ['learn/hard-02-walking-graphs.html', 'Walking a graph once', 'H.2'],
-      ['learn/hard-03-rewriting.html', 'Rewriting until nothing changes', 'H.3'], ['learn/hard-04-numbers-like-c.html', 'Numbers that behave like C', 'H.4']] },
     { title: 'Week 0 · Prerequisites', items: [
       ['week0/01-c-and-pointers.html', 'C and pointers', '0.1'], ['week0/02-memory-and-caches.html', 'Memory and caches', '0.2'],
       ['week0/03-compilers-and-irs.html', 'Compilers and IRs', '0.3'], ['week0/04-tensors-and-shapes.html', 'Tensors and shapes', '0.4'],
       ['week0/05-matmul.html', 'Matrix multiply', '0.5'], ['week0/06-ocaml.html', 'OCaml crash course', '0.6'],
       ['week0/07-python.html', 'Python for this course', '0.7']] },
+    { title: 'Hard ideas, slowly', items: [
+      ['learn/hard-01-sharing.html', 'Sharing nodes', 'H.1'], ['learn/hard-02-walking-graphs.html', 'Walking a graph once', 'H.2'],
+      ['learn/hard-03-rewriting.html', 'Rewriting until nothing changes', 'H.3'], ['learn/hard-04-numbers-like-c.html', 'Numbers that behave like C', 'H.4']] },
     { title: 'Week 1 · UOps and rewrites', items: [
       ['week1/01-the-uop.html', 'The UOp', '1.1'], ['week1/02-uir-and-interpreting.html', '.uir and interpreting', '1.2'],
       ['week1/03-rewrites-and-folding.html', 'Rewrites and folding', '1.3'], ['week1/04-symbolic.html', 'Symbolic simplification', '1.4'],
@@ -112,8 +112,17 @@ const CC = (() => {
     options.forEach(([v, t]) => g.append(h('button', { type: 'button', 'data-v': v, text: t, onclick: () => pick(v) })));
     g.paint(current); return g;
   }
+  function setTrack(v) {
+    if (v === track()) return;
+    store.set('cc-track', v);
+    if (!document.getElementById('you')) { location.reload(); return; }
+    document.documentElement.dataset.track = v;
+    document.querySelectorAll('.seg[data-pick="track"]').forEach(g => g.paint(v));
+    document.dispatchEvent(new Event('cc-progress'));
+  }
   function trackSelect() {
-    return segPick('Language you write your compiler in', TRACKS, track(), v => { if (v !== track()) { store.set('cc-track', v); location.reload(); } });
+    const g = segPick('Language you write your compiler in', TRACKS, track(), setTrack);
+    g.dataset.pick = 'track'; return g;
   }
   const TOUCH = matchMedia('(any-pointer: coarse)').matches || /[?&]touch=1/.test(location.search);
   if (TOUCH) document.documentElement.classList.add('touch');
@@ -139,15 +148,17 @@ const CC = (() => {
   const nextReview = () => keysWith('cc-q:').map(k => readJSON(k, {}).due).filter(d => d && d > today()).sort()[0] || null;
   const forget = qid => { try { localStorage.removeItem('cc-q:' + qid); } catch {} };
 
+  const LANG_LESSON = { 'week0/06-ocaml.html': 'ocaml', 'week0/07-python.html': 'python' };
   const langLesson = () => (track() === 'python' ? 'week0/07-python.html' : 'week0/06-ocaml.html');
-  const onTrack = ([href]) => !/^week0\/0[67]-/.test(href) || href === langLesson();
+  const onTrack = ([href]) => !LANG_LESSON[href] || href === langLesson();
   const weeksFrom = n => NAV.filter(g => { const m = /^Week (\d+)/.exec(g.title); return m && +m[1] >= n; });
+  const hardIdeas = () => NAV.find(g => g.title.startsWith('Hard ideas'));
   const langName = () => (track() === 'python' ? 'Python' : 'OCaml');
   const PATHS = {
-    new: { name: 'I’m new to programming', short: 'new to programming', about: () => `Learn ${langName()} from the start, then four hard ideas slowly, then week 0 and the compiler.`,
-      groups: () => [NAV.find(g => g.track === track()), NAV.find(g => g.title.startsWith('Hard ideas')), ...weeksFrom(0)] },
-    coder: { name: 'I can already program', short: 'can already program', about: () => 'Start at week 0 (C, memory, IRs and matrix math), then build the compiler week by week.',
-      groups: () => weeksFrom(0) },
+    new: { name: 'I’m new to programming', short: 'new to programming', about: () => `Learn ${langName()} from scratch, then week 0, then build the compiler.`,
+      groups: () => [NAV.find(g => g.track === track()), weeksFrom(0)[0], hardIdeas(), ...weeksFrom(1)] },
+    coder: { name: 'I can already program', short: 'can already program', about: () => 'Start at week 0 with C, memory and matrix math, then build the compiler.',
+      groups: () => [weeksFrom(0)[0], hardIdeas(), ...weeksFrom(1)] },
     expert: { name: 'I know C and compilers', short: 'know C and compilers', about: () => `Set up ${langName()} in lesson ${track() === 'python' ? '0.7' : '0.6'}, then go straight to week 1.`,
       groups: () => [{ title: 'Week 0 · Prerequisites', items: NAV.flatMap(g => g.items).filter(([href]) => href === langLesson()) }, ...weeksFrom(1)] },
   };
@@ -166,13 +177,14 @@ const CC = (() => {
   function frame() {
     const b = document.body, root = ROOT(), cur = here(), main = document.querySelector('main');
     const prog = href => { try { return JSON.parse(store.get('cc-prog:' + href) || 'null'); } catch { return null; } };
-    const item = ([href, title, n]) => h('li', {}, h('a', { href: root + href, 'data-href': n ? href : null, class: cur && cur[1][0] === href ? 'on' : null, 'aria-current': cur && cur[1][0] === href ? 'page' : null },
+    const offTrack = href => (cur && cur[1][0] === href ? null : LANG_LESSON[href] ? 'only-' + LANG_LESSON[href] : null);
+    const item = ([href, title, n]) => h('li', { class: offTrack(href) }, h('a', { href: root + href, 'data-href': n ? href : null, class: cur && cur[1][0] === href ? 'on' : null, 'aria-current': cur && cur[1][0] === href ? 'page' : null },
       n ? h('span', { class: 'n', text: n }) : null, h('span', { text: title }), n ? h('span', { class: 'prog' }) : null));
     const top = h('ul', { class: 'top' });
-    const nav = h('nav', { 'aria-label': 'Lessons' }, NAV.filter(g => !g.track || g.track === track() || (cur && cur[0] === g)).map(g => {
+    const nav = h('nav', { 'aria-label': 'Lessons' }, NAV.map(g => {
       if (g.title === 'Start here') { top.append(...g.items.map(item)); return top; }
       const gk = 'cc-grp:' + g.title, closed = store.get(gk) === '0';
-      const grp = h('div', { class: 'grp' + (closed ? ' closed' : '') });
+      const grp = h('div', { class: 'grp' + (closed ? ' closed' : '') + (g.track && !(cur && cur[0] === g) ? ' only-' + g.track : '') });
       grp.append(h('button', { type: 'button', 'aria-expanded': String(!closed), onclick: () => {
         const c = grp.classList.toggle('closed'); grp.firstChild.setAttribute('aria-expanded', String(!c)); store.set(gk, c ? '0' : '1'); } },
         h('span', { class: 'chev', 'aria-hidden': 'true' }, h('svg', { width: 10, height: 10, viewBox: '0 0 10 10' }, h('path', { d: 'M2 3.5l3 3 3-3', stroke: 'currentColor', 'stroke-width': 1.5, fill: 'none' }))),
@@ -223,7 +235,7 @@ const CC = (() => {
     if (main) { if (!main.id) main.id = 'main'; main.tabIndex = -1; b.prepend(h('a', { class: 'skip', href: '#' + main.id, text: 'Skip to content' })); }
     const onLink = side.querySelector('nav a.on');
     if (onLink && side.scrollHeight > side.clientHeight) side.scrollTop = onLink.getBoundingClientRect().top - side.getBoundingClientRect().top - side.clientHeight / 3;
-    const you = document.getElementById('you'); if (you) homePanel(you);
+    const you = document.getElementById('you'); if (you) { homePanel(you); document.addEventListener('cc-progress', () => homePanel(you)); }
     if (main) toc(main, page);
     document.querySelectorAll('[data-prog]').forEach(a => { const p = prog(a.dataset.prog), d = isDone(a.dataset.prog) || (p && p.t && p.s >= p.t);
       a.append(h('span', { class: 'p' + (d ? ' done' : ''), text: d ? 'Done' : p && p.s ? `${p.s}/${p.t}` : '' })); });
@@ -247,8 +259,18 @@ const CC = (() => {
   const onPage = q => !q.closest(track() === 'python' ? '.only-ocaml' : '.only-python');
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('z') ? 'zes' : 's'}`;
 
+  function pagerFor(pager, href) {
+    const root = ROOT(), pid = pathId(), every = NAV.flatMap(g => g.items.filter(i => i[2]).map(i => [...i, g.title]));
+    const seq = [pid && pathItems(pid), pathItems('new'), every].find(s => s && s.some(x => x[0] === href));
+    const i = seq.findIndex(x => x[0] === href), prev = seq[i - 1], next = seq[i + 1];
+    pager.replaceChildren(
+      h('a', { href: root + (prev ? prev[0] : 'index.html'), text: prev ? `← ${prev[2]} ${prev[1]}` : '← Course home' }),
+      h('a', { href: root + (next ? next[0] : 'index.html'), text: next ? `${next[2]} ${next[1]} →` : 'Course home →' }));
+  }
+
   function lessonTools(main, cur) {
     const href = cur[1][0], root = ROOT();
+    const pg = main.querySelector('nav.pager'); if (pg) pagerFor(pg, href);
     const words = (main.textContent || '').split(/\s+/).filter(Boolean).length;
     const nq = [...main.querySelectorAll('.quiz')].filter(onPage).length, nx = main.querySelectorAll('.exercise[data-ex]').length;
     const figs = main.querySelectorAll('.fig, figure, table').length, lab = /^Lab:/.test(cur[1][1]);
@@ -272,21 +294,34 @@ const CC = (() => {
     paint(); document.addEventListener('cc-progress', paint);
   }
 
+  const TRACK_CARDS = {
+    python: { logo: 'assets/logo-python.svg', about: 'The quickest start. Spend your time on the compiler, not on a new language.' },
+    ocaml: { logo: 'assets/logo-ocaml.svg', about: 'Pattern matching and a type checker that catch compiler bugs early.' } };
+  function trackCards() {
+    const root = ROOT(), cur = track();
+    return h('div', { class: 'tracks', role: 'group', 'aria-label': 'Language you write your compiler in' }, TRACKS.map(([v, name]) => {
+      const on = v === cur;
+      return h('button', { type: 'button', class: 'track' + (on ? ' on' : ''), 'aria-pressed': String(on), 'data-key': 'track-' + v, onclick: () => setTrack(v) },
+        h('img', { class: 'logo', src: root + TRACK_CARDS[v].logo, alt: '', width: 40, height: 40 }),
+        h('span', { class: 'tt' }, h('span', { class: 't', text: name }), h('span', { class: 'd', text: TRACK_CARDS[v].about })),
+        h('span', { class: 'pick', text: on ? '✓ Selected' : `Choose ${name}` })); }));
+  }
+
   function homePanel(el) {
-    const root = ROOT(), pid = pathId(), acts = document.querySelector('main .actions');
-    if (acts) { acts.dataset.html ||= acts.innerHTML; const nx0 = pid && nextUp(pid);
-      if (nx0) acts.replaceChildren(h('a', { class: 'btn primary', href: root + nx0[0], text: `Continue with ${nx0[2]} ${nx0[1]}` }));
-      else acts.innerHTML = acts.dataset.html; }
+    const root = ROOT(), pid = pathId(), act = document.activeElement, back = act && el.contains(act) ? act.dataset.key : null;
     const heading = t => { const x = h('h2', { id: 'progress', text: t }); const a = document.querySelector('.toc a[href="#progress"]'); if (a) a.textContent = t; return x; };
+    const refocus = (...keys) => { const k = keys.find(k => el.querySelector(`[data-key="${k}"]`)); if (k) el.querySelector(`[data-key="${k}"]`).focus(); };
+    const lang = (title) => [h('h3', { class: 'step', text: title }), trackCards(),
+      h('p', { class: 'muted tracks-note', text: 'Both tracks teach the language from scratch, share every other lesson and pass the same tests. You can switch later.' })];
     if (!pid) {
-      el.replaceChildren(heading('Where do you want to start?'),
-        h('p', { text: 'Pick the one that sounds most like you. It sets the order of lessons and what comes next. You can change it any time.' }),
-        h('p', { class: 'pick-lang' }, h('span', { text: 'You’ll write code in' }), trackSelect(),
-          h('span', { class: 'muted', text: 'Python is the usual choice. OCaml is there if you’d like it.' })),
+      el.replaceChildren(heading('Start here'),
+        ...lang('1. Pick the language you’ll write your compiler in'),
+        h('h3', { class: 'step', text: '2. Pick where you’re starting from' }),
         h('ul', { class: 'paths' }, Object.entries(PATHS).map(([k, p]) => { const items = pathItems(k);
-          return h('li', {}, h('button', { type: 'button', onclick: () => { store.set('cc-path', k); homePanel(el); changed(); } },
+          return h('li', {}, h('button', { type: 'button', 'data-key': 'path-' + k, onclick: () => { store.set('cc-path', k); changed(); } },
             h('span', { class: 't', text: p.name }), h('span', { class: 'd', text: p.about() }),
-            h('span', { class: 'c', text: `${items.length} lessons, starting with ${items[0][2]} ${items[0][1]}` }))); })));
+            h('span', { class: 'c', text: `${items.length} lessons. You start with ${items[0][2]} ${items[0][1]}.` }))); })));
+      if (back) refocus(back, 'path-new');
       return;
     }
     const items = pathItems(pid), done = items.filter(x => isDone(x[0])).length, nx = nextUp(pid);
@@ -296,7 +331,7 @@ const CC = (() => {
     const due = dueQuizzes().length, fresh = !done && !days.size && !due && !keysWith('cc-q:').length;
     el.replaceChildren(...[heading('Your progress'),
       h('div', { class: 'you' + (fresh ? ' fresh' : '') },
-        nx ? h('a', { class: 'you-next', href: root + nx[0] }, h('span', { class: 'label', text: 'Next up' }), h('span', { class: 't', text: `${nx[2]} ${nx[1]}` }), h('span', { class: 'd', text: nx[3] }))
+        nx ? h('a', { class: 'you-next', href: root + nx[0], 'data-key': 'next' }, h('span', { class: 'label', text: 'Next up' }), h('span', { class: 't', text: `${nx[2]} ${nx[1]}` }), h('span', { class: 'd', text: nx[3] }))
            : h('div', { class: 'you-next' }, h('span', { class: 'label', text: 'Path finished' }), h('span', { class: 't', text: 'You’ve done every lesson on this path.' })),
         h('div', { class: 'you-cell' }, h('span', { class: 'label', text: 'Your path' }),
           h('span', { class: 'v', text: `${done} of ${items.length} lessons` }),
@@ -310,10 +345,11 @@ const CC = (() => {
           due ? h('span', { class: 'v', text: `${plural(due, 'question')} due` }) : h('span', { class: 'v', text: 'Nothing due' }),
           due ? h('a', { class: 'btn primary', href: root + 'resources/review.html?mode=due', text: due > REVIEW_MAX ? `Review ${REVIEW_MAX} now, about ${REVIEW_MAX / 2} min` : `Review now, about ${Math.max(1, Math.ceil(due / 2))} min` })
               : h('span', { class: 'd', text: 'Quiz questions come back after 3 days if you got them right, the next day if not, and then at longer gaps.' }))),
-      fresh ? h('p', { class: 'muted', text: 'Your progress, the days you study and the questions to review will show up here once you start.' }) : null,
       h('p', { class: 'muted you-foot' }, `Your path: ${PATHS[pid].short}. `,
-        h('button', { type: 'button', class: 'linkish', text: 'Change path', onclick: () => { try { localStorage.removeItem('cc-path'); } catch {} homePanel(el); changed(); } }),
-        ' · Progress is saved in this browser only.')].filter(Boolean));
+        h('button', { type: 'button', class: 'linkish', 'data-key': 'change', text: 'Change path', onclick: () => { try { localStorage.removeItem('cc-path'); } catch {} changed(); } }),
+        ' · Progress is saved in this browser only.'),
+      ...lang('Your language')].filter(Boolean));
+    if (back) refocus(back, 'next');
   }
 
   // "On this page": every h2, with the one you're reading highlighted

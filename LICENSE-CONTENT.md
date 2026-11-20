@@ -27,6 +27,10 @@ Everything that runs is under the MIT license in [`LICENSE`](LICENSE). That cove
 CodeMirror 5.65.16 in `site/vendor/codemirror/` is MIT licensed by Marijn Haverbeke and others. Its license file is
 kept with it.
 
+The Python logo in `site/assets/logo-python.svg` is a trademark of the Python Software Foundation. The OCaml logo in
+`site/assets/logo-ocaml.svg` comes from the OCaml project's [logo repository](https://github.com/ocaml/ocaml-logo).
+Both are used only to name the two languages you can write your compiler in, and neither project endorses this course.
+
 ## Not affiliated
 
 This course is independent. It is inspired by the public syllabus of 10-411, Compilers for Machine Learning, and is
