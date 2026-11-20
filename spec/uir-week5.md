@@ -25,14 +25,14 @@ parameters; the rest is our design, provisional until the official format is pub
 | `shrink x o0 ... o(r-1) [s0 ...]` | none | rank-r value, r offsets (i32 scalars) | that shape | `x[i0 + o0, ..., ik + ok]` |
 | `expand x [d0 d1 ...]` | none | a scalar, or a value of the same rank | that shape | `x` with each size-1 axis read at 0 |
 | `stack a0 ... a(n-1)` | none | values of one shape | `(n,) + shape` | `a_{i0}[i1, ...]` |
-| `index x j0 ... j(m-1)` | none | rank ≥ m, i32 scalars | drops m leading axes | `x[j0, ..., j(m-1), i0, ...]`, each `j` in range at run time |
+| `index x j0 ... j(m-1)` | none | rank ≥ m, i32 scalars | drops m leading axes | `x[j0, ..., j(m-1), i0, ...]`, each `j` provably in range (week 1's rule) |
 | `reduce x` | `op` (`add`, `mul`, `max`), `pop=m` (default 1) | rank ≥ m | drops m leading axes | a left fold over the m leading axes, in row-major order, starting from the first element |
 
 `shrink` on a value is a different op from `shrink` on memory (week 2): the first operand decides.
 Its offsets may be any i32 expression (symbolic), and as with views they must be **provably** in range:
 for every axis, `o_k`'s interval must satisfy `lo ≥ 0` and `hi + s_k ≤ x.shape[k]`.
 
-`pads` must be ≥ 0. To cut, use `shrink`.
+The pad amounts must be ≥ 0. To cut, use `shrink`.
 
 ## 3. Composite ops
 

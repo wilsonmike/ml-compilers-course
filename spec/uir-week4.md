@@ -11,7 +11,7 @@ official format is published. Shapes are still rank 0 or 1 (rank 2 arrives in we
 ## 1. What changes
 
 * **ALU ops accept rank-1 operands** of the same shape `(n,)` and work elementwise. There is still no
-  implicit broadcasting: `add %v 1.0` with `%v` of shape `(4,)` is a type error. Broadcast with `expand`.
+  implicit broadcasting: `add %v 1.0` with `%v` of shape `(4,)` is rejected. Broadcast with `expand`.
 * `load` of a whole buffer, or of a `[k]` view, gives a rank-1 value (as in week 2), and `store` of a
   rank-1 value writes all of it.
 
@@ -19,7 +19,7 @@ official format is published. Shapes are still rank 0 or 1 (rank 2 arrives in we
 
 | op | attributes | operands | result | notes |
 |---|---|---|---|---|
-| `expand x [n]` | none | a scalar, then the shape (week 5 widens this to any value whose size-1 axes grow) | `(n,)` | Every element equals `x`. Growing an axis that isn't size 1 is always an error. |
+| `expand x [n]` | none | a scalar, then the shape (week 5 widens this to any value whose size-1 axes grow) | `(n,)` | Every element equals `x`. Growing an axis that isn't size 1 is always rejected. |
 | `reduce x` | `op` (required: `add`, `mul` or `max`) | a rank-1 value `(n,)` | `()` | A left fold: `x[0] op x[1] op ... op x[n-1]`, in that order, starting from `x[0]`. |
 | `stage x` | none | any value | same as `x` | Same value. Tells the compiler to **materialize** `x`: compute it once into a temp buffer, and read the buffer wherever `x` is used. |
 

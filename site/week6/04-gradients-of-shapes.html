@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s4); }
   .grid { display: grid; gap: 3px; justify-content: start; }
@@ -46,8 +46,8 @@
 <thead><tr><th>op</th><th>its gradient, sent back to the operand</th></tr></thead>
 <tbody>
 <tr><td><code>reshape</code></td><td><code>reshape g</code> back to the operand's shape. Row-major order doesn't change, so nothing else does either.</td></tr>
-<tr><td><code>permute order=p</code></td><td><code>permute g</code> by the inverse order: <code>inv[p[k]] = k</code></td></tr>
-<tr><td><code>pad pads=[l0 r0 ...]</code></td><td><code>shrink g l0 l1 ...</code>: the padding zeros were constants, so their gradient is dropped</td></tr>
+<tr><td><code>permute x p</code></td><td><code>permute g</code> by the inverse order: <code>inv[p[k]] = k</code></td></tr>
+<tr><td><code>pad x [l0 r0 ...]</code></td><td><code>shrink g l0 l1 ...</code> with x's shape: the padding zeros were constants, so their gradient is dropped</td></tr>
 <tr><td><code>shrink x o0 ...</code></td><td><code>pad g</code> with zeros around the window: elements outside it didn't affect y</td></tr>
 <tr><td><code>stack a0 ... an</code></td><td><code>index g j</code> to <code>aj</code></td></tr>
 <tr><td><code>index x j</code></td><td><code>g</code> padded back to <code>x</code>'s shape, at position <code>j</code></td></tr>
@@ -58,7 +58,7 @@
 <p>Shrink and index need literal offsets for their gradients, because the pad that undoes them needs constant pad widths. A shrink at a computed offset is fine in a program, but you can't differentiate through it.</p>
 
 <h2>expand and reduce are partners</h2>
-<p><code>expand</code> copies one value into many places. Each copy affects y, so the original receives the gradient of every copy, added up. The gradient of an expand is a <b>sum</b> over the axes it grew. The spec makes that concrete: permute the grown axes to the front (in increasing order, the rest after), <code>reduce op=add pop=</code> how many there were, then reshape to the operand's shape.</p>
+<p><code>expand</code> copies one value into many places. Each copy affects y, so the original receives the gradient of every copy, added up. The gradient of an expand is a <b>sum</b> over the axes it grew. The spec makes that concrete: permute the grown axes to the front (in increasing order, the rest after), <code>reduce op=add</code> with <code>pop=</code> set to how many there were, then reshape to the operand's shape.</p>
 <p>It works the other way too. <code>reduce op=add</code> makes one number out of many, and each of the many contributed with weight 1. So every input gets the full gradient of the sum: the gradient of a reduce is an <b>expand</b>. Reshape <code>g</code> to put size-1 axes where the popped axes were, then expand.</p>
 </div>
 
@@ -104,10 +104,10 @@
 <p class="score"></p>
 
 <div class="quiz" data-answer="b">
-<p class="q">What is the gradient of <code>permute x order=[2 0 1]</code>, given <code>g</code>?</p>
+<p class="q">What is the gradient of <code>permute x [2 0 1]</code>, given <code>g</code>?</p>
 <div class="opts">
-<button data-k="a"><code>permute g order=[2 0 1]</code></button>
-<button data-k="b"><code>permute g order=[1 2 0]</code></button>
+<button data-k="a"><code>permute g [2 0 1]</code></button>
+<button data-k="b"><code>permute g [1 2 0]</code></button>
 <button data-k="c"><code>reshape g</code> to x's shape</button>
 </div>
 <p class="hint"><code>inv[p[k]] = k</code>.</p>
@@ -133,11 +133,11 @@
 </div>
 
 <div class="quiz" data-answer="a">
-<p class="q">The gradient of <code>pad x pads=[2 1]</code> for a 3-element x?</p>
+<p class="q">The gradient of <code>pad x [2 1]</code> for a 3-element x?</p>
 <div class="opts">
-<button data-k="a"><code>shrink g 2 shape=[3]</code>: keep the 3 positions x landed on</button>
-<button data-k="b"><code>shrink g 1 shape=[3]</code></button>
-<button data-k="c"><code>pad g pads=[2 1]</code></button>
+<button data-k="a"><code>shrink g 2 [3]</code>: keep the 3 positions x landed on</button>
+<button data-k="b"><code>shrink g 1 [3]</code></button>
+<button data-k="c"><code>pad g [2 1]</code></button>
 </div>
 <p class="hint">Where in the 6-element output did x's elements go?</p>
 <div class="why"><p>Positions 2, 3 and 4. The padded zeros (positions 0, 1 and 5) were constants, so their gradient is dropped.</p></div>

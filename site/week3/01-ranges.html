@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .nest { font: 0.875rem/1.7 var(--mono); color: var(--ink-2); }
   .nest .box { border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s2) var(--s3); margin: var(--s2) 0 0; }
@@ -42,7 +42,7 @@
 <pre><code>%b  = buffer 4 dtype=i32 slot=0
 %i  = range 4
 %sq = mul %i %i             # i * i, for each i
-%v  = shrink %b %i [] # element i
+%v  = shrink %b %i []       # element i
 %s  = store %v %sq          # b[i] = i * i
 %e  = end %s %i             # repeat %s for i = 0, 1, 2, 3
 %b1 = after %b %e           # the buffer after the whole loop</code></pre>
@@ -119,7 +119,7 @@
 <li><strong>A bound that depends on a range.</strong> <code>%j = range %i</code> is rejected in week 3.</li>
 <li><strong>An open range where none is allowed.</strong> <code>assert</code>, <code>call</code> and a range's bound must have nothing open. An assert inside a loop would have to pass once per iteration, which the format doesn't say how to report.</li>
 <li><strong>Closing a range twice.</strong> Each range has exactly one <code>end</code>, so each range is exactly one loop.</li>
-<li><strong>Out of bounds.</strong> A range's interval is <code>[0, n-1]</code>, and week 2's bounds check uses it. <code>shrink %b %i</code> with <code>%i = range 5</code> on a four-element buffer is invalid. When the bound isn't a constant, the interval is <code>[0, hi(n) - 1]</code>, where <code>hi(n)</code> is the top of the bound's own interval, so <code>range %c</code> with <code>%c</code> in [0, 4] is <code>[0, 3]</code>. If <code>hi(n) ≤ 0</code> the loop never runs, and the interval is <code>[0, 0]</code>.</li>
+<li><strong>Out of bounds.</strong> A range's interval is <code>[0, n-1]</code>, and week 2's bounds check uses it. <code>shrink %b %i []</code> with <code>%i = range 5</code> on a four-element buffer is invalid. When the bound isn't a constant, the interval is <code>[0, hi(n) - 1]</code>, where <code>hi(n)</code> is the top of the bound's own interval, so <code>range %c</code> with <code>%c</code> in [0, 4] is <code>[0, 3]</code>. If <code>hi(n) ≤ 0</code> the loop never runs, and the interval is <code>[0, 0]</code>.</li>
 </ul>
 </div>
 
@@ -151,7 +151,7 @@
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q"><code>%s</code> stores into <code>shrink %b %i shape=[]</code>, with <code>%i = range 4</code> and <code>%j = range 2</code>. What does <code>%e = end %s %j</code> do?</p>
+<p class="q"><code>%s</code> stores into <code>shrink %b %i []</code>, with <code>%i = range 4</code> and <code>%j = range 2</code>. What does <code>%e = end %s %j</code> do?</p>
 <div class="opts">
 <button data-k="a">Runs the store twice per element.</button>
 <button data-k="b">Nothing: the loop over j is empty.</button>
@@ -218,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const steps = [
     { open: ['i'], hl: 1, cl: 0, caption: '<code>%i = range 4</code> is open in itself: its open set is <code>{i}</code>. In C, it becomes the loop variable.' },
     { open: ['i', 'sq'], hl: 2, cl: 1, caption: '<code>%sq</code> depends on <code>%i</code>, so it has <code>{i}</code> open too. It\'s computed inside the loop.' },
-    { open: ['i', 'sq', 'v'], hl: 3, cl: 2, caption: 'The view <code>shrink %b %i</code> moves with i, so it has <code>{i}</code> open. <code>%b</code> itself has nothing open: the buffer exists once.' },
+    { open: ['i', 'sq', 'v'], hl: 3, cl: 2, caption: 'The view <code>shrink %b %i []</code> moves with i, so it has <code>{i}</code> open. <code>%b</code> itself has nothing open: the buffer exists once.' },
     { open: ['i', 'sq', 'v', 's'], hl: 4, cl: 2, caption: 'The store has <code>{i}</code> open. A store with an open range needs an <code>end</code> to say how often it runs.' },
     { open: ['i', 'sq', 'v', 's'], closed: 'e', hl: 5, cl: 3, caption: '<code>end %s %i</code> closes i: its open set is <code>{i}</code> minus i, which is empty. In C, this is the closing brace.' },
     { open: [], closed: 'e', done: ['b1'], hl: 6, cl: -1, caption: '<code>after %b %e</code> has nothing open. It sits outside every loop and names the buffer once the whole loop has run.' },

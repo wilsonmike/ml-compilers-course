@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .tview { display: grid; gap: var(--s5); }
   .planes { display: flex; gap: var(--s5); flex-wrap: wrap; }
@@ -49,7 +49,7 @@
 <div class="fig" id="tensor" data-title="a (2, 3, 4) tensor and the 24 numbers behind it"></div>
 
 <div class="prose">
-<p>Going the other way, from a flat position back to an index, is called <b>unflattening</b>. Divide by an axis's stride (<code>div</code>, which floors, though positions are never negative, so that's plain integer division) to drop the axes to its right, then take <code>mod</code> its size to drop the axes to its left. For position 23 in <code>(2, 3, 4)</code>: axis 0 is <code>23 div 12 = 1</code>, axis 1 is <code>(23 div 4) mod 3 = 5 mod 3 = 2</code>, and axis 2 is <code>23 mod 4 = 3</code>, so it's <code>[1][2][3]</code>. Lesson 5.5 builds exactly this arithmetic for every <code>reshape</code>.</p>
+<p>Going the other way, from a flat position back to an index, is called <b>unflattening</b>. Divide by an axis's stride with <code>div</code> to drop the axes to its right, then take <code>mod</code> its size to drop the axes to its left. Positions are never negative, so <code>div</code> here is plain integer division. For position 23 in <code>(2, 3, 4)</code>: axis 0 is <code>23 div 12 = 1</code>, axis 1 is <code>(23 div 4) mod 3 = 5 mod 3 = 2</code>, and axis 2 is <code>23 mod 4 = 3</code>, so it's <code>[1][2][3]</code>. Lesson 5.5 builds exactly this arithmetic for every <code>reshape</code>.</p>
 </div>
 
 <h2>Memory stays rank 1</h2>
@@ -58,12 +58,12 @@
 <pre><code>%x  = buffer 24 dtype=i32 slot=0
 %v  = load %x                      # (24,)
 %t  = reshape %v [2 3 4]     # (2, 3, 4): same numbers, new shape</code></pre>
-<p>Storing goes the other way: <code>store</code> needs a value with the view's shape, so you reshape back to <code>[24]</code> first. Because the layout is row-major on both sides, neither reshape moves a single number.</p>
+<p>Storing goes the other way: <code>store</code> needs a value with the view's shape, so you reshape back to <code>(24,)</code> first, with <code>reshape %t [24]</code>. Because the layout is row-major on both sides, neither reshape moves a single number.</p>
 </div>
 
 <div class="trap">
 <span class="label">Storing a matrix directly</span>
-<p><code>store %y %m</code> with <code>%m</code> of shape <code>(3, 4)</code> and <code>%y</code> a 12-element buffer is a type error (the oracle reports "the value must match the view's dtype and shape"). Reshape to <code>[12]</code> first. Params also keep their week 2 rule, rank 0 or 1, so <code>param [2 3] slot=0 dtype=i32 addrspace=ALU</code> is invalid. Shaped data comes from buffers.</p>
+<p><code>store %y %m</code> with <code>%m</code> of shape <code>(3, 4)</code> and <code>%y</code> a 12-element buffer is a type error (the oracle reports "the value must match the view's dtype and shape"). Reshape to <code>[12]</code> first. Params also keep their week 2 rule, rank 0 or 1, so <code>param [2 3] slot=0 dtype=i32 addrspace=ALU</code> is rejected. Shaped data comes from buffers.</p>
 </div>
 
 <h2>Popping leading axes</h2>
@@ -131,12 +131,12 @@
 <p class="q"><code>%m</code> has shape <code>(3, 4)</code> and <code>%y</code> is a 12-element buffer. How do you write <code>%m</code> into <code>%y</code>?</p>
 <div class="opts">
 <button data-k="a"><code>store %y %m</code> works as is.</button>
-<button data-k="b">Declare <code>%y</code> with <code>shape=[3 4]</code>.</button>
+<button data-k="b">Declare <code>%y</code> as a <code>(3, 4)</code> buffer.</button>
 <button data-k="c">Reshape <code>%m</code> to <code>[12]</code>, then store that.</button>
 <button data-k="d">Store each row with its own <code>store</code>, since there's no other way.</button>
 </div>
 <p class="hint">Memory stays rank 1. What does <code>store</code> require of its value's shape?</p>
-<div class="why"><p>The value must match the view's shape, and buffers are rank 1. <code>reshape %m shape=[12]</code> moves nothing, because both sides are row-major, and then one store writes all 12.</p></div>
+<div class="why"><p>The value must match the view's shape, and buffers are rank 1. <code>reshape %m [12]</code> moves nothing, because both sides are row-major, and then one store writes all 12.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">

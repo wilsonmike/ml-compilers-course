@@ -26,7 +26,7 @@ move to the official format when it is published.
 | special float | `inf`, `-inf`, `nan` | a constant of dtype `f32` |
 
 A float literal is read as a 64-bit double, then rounded to f32 (round to nearest-even). Too big for f32 rounds to
-`inf`; too small rounds to `0.0`. `1.0` is f32 and `1` is i32, and there is **no implicit conversion**: `add %x 1`
+`inf`; too small rounds to `0.0` (`-0.0` for a negative literal). `1.0` is f32 and `1` is i32, and there is **no implicit conversion**: `add %x 1`
 with `%x` an f32 is rejected. Write `add %x 1.0`, or use `cast`.
 
 f32 is IEEE-754 binary32, rounded to nearest-even after every op. The week 1 ops that take "same" dtypes take f32
@@ -122,7 +122,7 @@ void kernel(T0 *b0, T1 *b1, ...);
 ```
 
 with one pointer per `buffer`, in slot order. `T` is `float` for f32, `int32_t` for i32 and `bool`
-for bool. When the grader calls `kernel` on buffers holding the initial `data`, the buffers must end
+for bool. When the grader calls `kernel` on buffers holding their initial data, the buffers must end
 up holding exactly what the oracle says: f32 bit for bit (any NaN matches any NaN). `render` ignores
 asserts. The C must be **loopless** (no `for`, `while`, `do`, `goto` or recursion). It may call
 `<math.h>` functions, `memcpy` from `<string.h>` (to move a float's bits into an int and back), and

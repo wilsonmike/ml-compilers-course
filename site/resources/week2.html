@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 </head>
 <body data-root="../">
 <main>
@@ -30,7 +30,7 @@
 
   <h2>The week in one page</h2>
   <h3><a href="../week2/01-buffers-and-views.html">2.1 Floats, buffers and views</a></h3>
-  <p>Floats arrive: the <code>f32</code> dtype, float literals and <code>recip</code>. f32 rounds to nearest-even after every op, never converts implicitly to or from i32, and has its own rules for NaN and <code>-0.0</code>. Params and asserts may be rank 1, attributes may hold lists, and the week 1 budgets are gone. Then memory. A <code>buffer</code> is memory outside the program, given to the kernel by slot. An <code>alloc</code> is scratch memory inside it, zeroed. <code>shrink</code> makes a view: a window starting some elements in, either <code>[k]</code> elements or a single element (<code>shape=[]</code>). Memory is never an ALU operand, so you <code>load</code> it first.</p>
+  <p>Floats arrive: the <code>f32</code> dtype, float literals and <code>recip</code>. f32 rounds to nearest-even after every op, never converts implicitly to or from i32, and has its own rules for NaN and <code>-0.0</code>. Params and asserts may be rank 1, lists are written as bracket operands, and the week 1 budgets are gone. Then memory. A <code>buffer</code> is memory outside the program, given to the kernel by slot. An <code>alloc</code> is scratch memory inside it, zeroed. <code>shrink</code> makes a view: a window starting some elements in, either <code>[k]</code> elements or a single element (<code>[]</code>). Memory is never an ALU operand, so you <code>load</code> it first.</p>
   <h3><a href="../week2/02-load-store-after.html">2.2 Load, store, after</a></h3>
   <p>A store doesn't change a buffer in the graph. <code>after %b %s</code> is the new version with the write applied, and loads read whichever version they name. "Fully ordered" means one store per version, every store sequenced by an <code>after</code>, and every load of a version able to run before the store that overwrites it.</p>
   <h3><a href="../week2/03-bounds.html">2.3 Proving bounds</a></h3>
@@ -40,7 +40,7 @@
   <h3><a href="../week2/05-the-runtime.html">2.5 The runtime</a></h3>
   <p>To run the C, write the kernel and a generated <code>main</code> to a temp folder, compile, run and read the results back, printing f32 as raw bits so nothing is lost. It's optional this week, but kernels get timed from week 6.</p>
   <h3><a href="../week2/06-lab.html">2.6 Lab</a></h3>
-  <p><code>./compile FILE...</code> prints week 1's <code>MATCH</code>, <code>MISMATCH</code> or <code>REJECTED</code> lines, with floats and memory added and no budgets. <code>render</code> prints a <code>kernel</code> the grader compiles with UB trapping and compares bit for bit against the oracle. The week 2 suite has 195 tests. Keep week 1 green too.</p>
+  <p><code>./compile FILE...</code> prints week 1's <code>MATCH</code>, <code>MISMATCH</code> or <code>REJECTED</code> lines, with floats and memory added and no budgets. <code>render</code> prints a <code>kernel</code> the grader compiles with UB trapping and compares bit for bit against the oracle. The week 2 suite has 198 tests. Keep week 1 green too.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -63,16 +63,16 @@
     <tbody>
       <tr><td>rank-1 params</td><td><code>%x = param [3] slot=0 dtype=i32 addrspace=ALU</code>, and a call can pass and return vectors</td></tr>
       <tr><td>rank-1 asserts</td><td>the left side may be a vector, compared with a stack literal: <code>assert %r [1 2 3]</code></td></tr>
-      <tr><td>list attributes</td><td><code>data=[1 2 3]</code> or <code>shape=[2 3]</code> is one attribute, spaces and all</td></tr>
+      <tr><td>lists are operands</td><td>an attribute is still one token with no spaces, so a list is a bracket operand, last among the operands: <code>shrink %b 2 [3]</code>, <code>buffer 3 [1 2 3] dtype=i32 slot=0</code></td></tr>
       <tr><td>budgets</td><td>none: nothing is OVERBUDGET in week 2</td></tr>
     </tbody>
   </table></div>
   <div class="tablewrap"><table>
     <thead><tr><th>op</th><th>gives</th><th>remember</th></tr></thead>
     <tbody>
-      <tr><td><code>buffer n dtype=D slot=S data=[...]</code></td><td>memory (n,)</td><td>slots unique, and no data means zeros</td></tr>
+      <tr><td><code>buffer n [v0 v1 ...] dtype=D slot=S</code></td><td>memory (n,)</td><td>slots unique, and no data means zeros</td></tr>
       <tr><td><code>alloc n dtype=D</code></td><td>memory (n,)</td><td>local, zeroed and not an output. Each alloc is its own storage</td></tr>
-      <tr><td><code>shrink m off shape=[k]</code> / <code>shape=[]</code></td><td>a view</td><td>offsets of nested shrinks add up and must be provably in range</td></tr>
+      <tr><td><code>shrink m off [k]</code> / <code>shrink m off []</code></td><td>a view</td><td>offsets of nested shrinks add up and must be provably in range</td></tr>
       <tr><td><code>load v</code></td><td>a value</td><td>reads the version it's given</td></tr>
       <tr><td><code>store v x</code></td><td>void</td><td>must be sequenced by exactly one <code>after</code></td></tr>
       <tr><td><code>after m s</code></td><td>memory</td><td>the version of m once s happened, where m is a whole version, not a view</td></tr>
@@ -84,7 +84,7 @@
       <tr><td>one store per version</td><td>two stores into the same version are unordered, even into different elements</td></tr>
       <tr><td>every store sequenced</td><td>a store no <code>after</code> names has no effect and is invalid</td></tr>
       <tr><td>loads before stores</td><td>a load of version V runs before the store that makes the next version, even if its value is used much later. Your C must schedule it that way. If the load's inputs depend on the new version, no order works and the program is invalid</td></tr>
-      <tr><td>bounds</td><td>offset interval: <code>lo ≥ 0</code> and <code>hi + k ≤ n</code> (<code>k = 1</code> for <code>shape=[]</code>), and loaded values are full range. <code>mod %i k</code> with a positive <code>k</code> is <code>[0, k - 1]</code></td></tr>
+      <tr><td>bounds</td><td>offset interval: <code>lo ≥ 0</code> and <code>hi + k ≤ n</code> (<code>k = 1</code> for a <code>[]</code> view), and loaded values are full range. <code>mod %i k</code> with a positive <code>k</code> is <code>[0, k - 1]</code></td></tr>
       <tr><td>outputs</td><td>the final version of each buffer: the one no <code>after</code> builds on</td></tr>
     </tbody>
   </table></div>
@@ -108,11 +108,11 @@
     <li><strong>Forgetting that nested shrink offsets add up.</strong> A view of a view starts at the sum of both offsets. Caught by <code>view_shrink_of_shrink</code> and the render test <code>nested_view_offsets</code>.</li>
     <li><strong>Letting two stores share a version.</strong> Even two stores into different elements of the same version are unordered. Caught by <code>rejected_two_stores_one_version</code>.</li>
     <li><strong>Allowing a store nothing sequences.</strong> Caught by <code>rejected_unsequenced_store</code>.</li>
-    <li><strong>Treating every alloc as the same memory.</strong> Two allocs of the same size are separate storage. Caught by <code>alloc_distinct</code> and <code>alloc_two_distinct</code>.</li>
+    <li><strong>Treating every alloc as the same memory.</strong> Two allocs of the same size are separate storage. Caught by <code>alloc_distinct</code> and the render test <code>alloc_two_distinct</code>.</li>
     <li><strong>Skipping the bounds proof for a loaded index.</strong> A raw loaded value can be anything. Caught by <code>rejected_bounds_raw_loaded</code>. The masked version passes in <code>bounds_masked_offset</code>.</li>
     <li><strong>Scheduling a store before a load of the version it overwrites.</strong> In C, memory is updated in place. Caught by <code>swap</code>, <code>old_version_late_use</code> and <code>swap_schedule</code>.</li>
     <li><strong>Printing plain signed C.</strong> <code>a + b</code> on <code>int32_t</code> traps under the grader's UB sanitizer. Caught by <code>i32_add_wrap</code>, <code>i32_mul_wrap</code> and <code>i32_shl_wrap</code>.</li>
-    <li><strong>Printing C's <code>/</code> and <code>%</code> for div and mod.</strong> They truncate, and .uir floors. Caught by <code>i32_div_mod_trunc</code>.</li>
+    <li><strong>Printing C's <code>/</code> and <code>%</code> for div and mod.</strong> They truncate, and .uir floors. Caught by <code>i32_div_mod_floor</code> and <code>div_mod_negative_const</code>.</li>
     <li><strong>No <code>-1</code> guard on div and mod.</strong> Caught by <code>i32_div_mod_intmin</code>. On Windows the unguarded version can hang instead of trapping.</li>
     <li><strong>Treating an f32 to i32 cast of NaN as an error.</strong> It's 0, and out-of-range values saturate. Caught by <code>cast_nan_i32</code>.</li>
     <li><strong>Using <code>fmaxf</code> for <code>max</code>.</strong> <code>fmaxf(NAN, 1.0f)</code> is 1, but the course's max gives NaN. Caught by <code>f32_max</code>.</li>
@@ -125,8 +125,8 @@
     <li><strong>Add f32.</strong> Done when float literals parse and every op rounds to f32. Check: <code>%s = add 0.1 0.2</code>, <code>%t = assert %s 0.3</code> prints MATCH. If you get MISMATCH, you're computing in doubles without rounding after the add.</li>
     <li><strong>Parse the new ops.</strong> Done when <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code> parse with their attributes. Check: <code>%b = buffer 3 [1 2 3] dtype=i32 slot=0</code>, <code>%v = shrink %b 1 [2]</code>, <code>%l = load %v</code>, <code>%e = index %l 1</code>, <code>%t = assert %e 3</code> prints MATCH.</li>
     <li><strong>Type memory.</strong> Done when memory can't be used as a value. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%a = add %b 1</code>, <code>%t = assert %a 1</code> must be REJECTED.</li>
-    <li><strong>Bounds.</strong> Done when views are proven with week 1's intervals. Check: an offset of <code>mod %x 4</code>, with <code>%x</code> loaded, and <code>shape=[2]</code> passes on a 5-element buffer and fails on a 4-element one (the interval is [0, 3], and 3 + 2 must be at most n). If both pass, you aren't checking at all. If both fail, your <code>mod</code> interval is too wide: maybe it still follows C's sign rule.</li>
-    <li><strong>Ordering checks.</strong> Done when two stores into one version, or an unsequenced store, are REJECTED. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%e = shrink %b 0 []</code>, <code>%s1 = store %e 1</code>, <code>%t = assert 1 1</code> must be REJECTED.</li>
+    <li><strong>Bounds.</strong> Done when views are proven with week 1's intervals. Check: an offset of <code>mod %x 4</code>, with <code>%x</code> loaded, and a <code>[2]</code> view passes on a 5-element buffer and fails on a 4-element one (the interval is [0, 3], and 3 + 2 must be at most n). If both pass, you aren't checking at all. If both fail, your <code>mod</code> interval is too wide: maybe it still follows C's sign rule.</li>
+    <li><strong>Ordering checks.</strong> Done when two stores into one version, or an unsequenced store, are REJECTED. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%e = shrink %b 0 []</code>, <code>%s1 = store %e 1</code>, <code>%x = load %b</code>, <code>%t = assert %x [0 0]</code> must be REJECTED.</li>
     <li><strong>Interpret memory.</strong> Done when versions behave. Check: with <code>%b</code> holding <code>[10 20]</code>, load element 0 as <code>%x</code>, store 5 into it, take <code>%b1 = after %b %s</code>, load element 0 of <code>%b1</code> as <code>%y</code>. Then <code>add %x %y</code> must be 15. If you get 10, your load of <code>%b</code> saw the store.</li>
     <li><strong>Render ALU ops.</strong> Done when every op prints UB-free C. Check: <code>python tools/test.py --compiler PATH --week 2 -k i32_ -v</code>. A crash with exit code 132 or similar means the sanitizer trapped undefined behavior.</li>
     <li><strong>Render memory and the schedule.</strong> Done when loads come before the stores that overwrite their version. Check: <code>-k swap -v</code>. A swap that copies the same value into both slots means a store was printed too early.</li>
@@ -148,7 +148,7 @@
     <div class="why">The view covers buffer elements 1 and 2, so it holds <code>[2 3]</code>, and index 1 is 3.</div>
   </div>
   <div class="quiz" data-fill="5">
-    <p class="q">An offset is <code>mod %x 4</code> with <code>%x</code> loaded from memory, and the view is <code>shape=[2]</code>. What's the smallest buffer size for which the view is provably in bounds?</p>
+    <p class="q">An offset is <code>mod %x 4</code> with <code>%x</code> loaded from memory, and the view is <code>[2]</code>. What's the smallest buffer size for which the view is provably in bounds?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
     <p class="hint"><code>mod</code> floors, so the offset's interval is [0, 3] even though <code>%x</code> can be negative. The rule is <code>hi + k ≤ n</code>.</p>
     <div class="why"><code>3 + 2 = 5</code>, so n must be at least 5. On a 4-element buffer the oracle reports "offset in [0, 3], 2 element(s), parent has 4".</div>
@@ -189,7 +189,8 @@
     <pre><code>%b = buffer 2 dtype=i32 slot=0
 %e = shrink %b 0 []
 %s1 = store %e 1
-%t = assert 1 1</code></pre>
+%x = load %b
+%t = assert %x [0 0]</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
     <p class="hint">Is the store sequenced by anything?</p>
     <div class="why">No <code>after</code> names <code>%s1</code>, so it has no effect, which the spec makes invalid: REJECTED.</div>

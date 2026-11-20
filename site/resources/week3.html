@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 </head>
 <body data-root="../">
 <main>
@@ -33,14 +33,14 @@
   <p><code>%i = range 4</code> is a loop counter that takes the values 0, 1, 2, 3, named by its statement. <code>end %s %i</code> runs the effect <code>%s</code> once for every value of <code>%i</code>. Every node has a set of open ranges: the ranges it depends on that no <code>end</code> has closed yet. Asserts, calls and range bounds may not depend on an open range.</p>
   <h3><a href="../week3/02-memory-in-loops.html">3.2 Memory in loops</a></h3>
   <p>A value is computed inside every loop whose range it uses, and no deeper. A load is the one exception: if the innermost loop holding every use of it stores into the version it reads, the load moves into that loop and sees the current contents on each iteration. That is the accumulator. A use counts as inside a loop only if it is placed there itself.</p>
-  <h3><a href="../week3/03-gemm.html">3.3 A matmul by hand</a></h3>
+  <h3><a href="../week3/03-gemm.html">3.3 A GEMM by hand</a></h3>
   <p>Three ranges i, j, k. Reset <code>C[i*N + j]</code> to zero with a store that depends on i and j, then let the k loop add into it. Bounds come free: a range's interval is <code>[0, n-1]</code>, so <code>i*K + k</code> is provably inside a buffer of M·K elements.</p>
-  <h3><a href="../week3/04-conv.html">3.4 A convolution by hand</a></h3>
-  <p>A valid convolution sums <code>x[o + k] * w[k]</code>. Padding is a clamped index (so the read stays in bounds) plus a <code>where</code> that zeroes the taps outside the input. A 2D convolution is four loops on flat buffers.</p>
+  <h3><a href="../week3/04-conv.html">3.4 Convolutions</a></h3>
+  <p>A valid convolution sums <code>x[o + k] * w[k]</code>. Zero padding needs two things: an index taken <code>mod</code> the input length, so the read is provably in bounds, and a <code>where</code> that zeroes the taps outside the input. A 2D convolution is four loops on flat buffers.</p>
   <h3><a href="../week3/05-rendering-loops.html">3.5 Rendering loops</a></h3>
   <p>Give every node a path of loops, outermost first, from its open ranges. Linearize into nested blocks where sources come first and loads of a version come before the store that overwrites it, then print each block as a <code>for</code> loop. Values that depend on no range end up outside the loops for free.</p>
   <h3><a href="../week3/06-lab.html">3.6 Lab</a></h3>
-  <p>Running tests and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>goto</code> or recursion). The suite has 94 tests, and weeks 1 and 2 must stay green.</p>
+  <p>Running tests and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>do</code>, <code>goto</code> or recursion). The suite has 94 tests, and weeks 1 and 2 must stay green.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -96,7 +96,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
 %t  = assert %x 3</code></pre>
       If it prints <code>MISMATCH</code>, check the trip count and the start value.</li>
     <li><strong>Open ranges and the static rules.</strong> Done when closing a range the effect doesn't use prints <code>REJECTED</code>. Check: the same program with an extra <code>%j = range 2</code>, an <code>%ej = end %e %j</code> wrapped around the i loop, and <code>%b1 = after %b %ej</code>. Nothing inside uses <code>%j</code>, so the program must be <code>REJECTED</code>.</li>
-    <li><strong>Bounds through ranges.</strong> Done when <code>range 5</code> indexing a 4-element buffer is <code>REJECTED</code> (the offset is in <code>[0, 4]</code>), while <code>shrink %b (mul %k 2) shape=[2]</code> with <code>%k = range 5</code> on a 10-element buffer is accepted (offset in <code>[0, 8]</code>, plus 2, fits in 10). If both are accepted or both rejected, look at the range case of your interval analysis.</li>
+    <li><strong>Bounds through ranges.</strong> Done when <code>range 5</code> indexing a 4-element buffer is <code>REJECTED</code> (the offset is in <code>[0, 4]</code>), while <code>shrink %b (mul %k 2) [2]</code> with <code>%k = range 5</code> on a 10-element buffer is accepted (offset in <code>[0, 8]</code>, plus 2, fits in 10). If both are accepted or both rejected, look at the range case of your interval analysis.</li>
     <li><strong>Loop placement and the load rule.</strong> Done when this sums 1 to 4 into <code>o</code>:
 <pre><code>%x   = buffer 4 [1 2 3 4] dtype=i32 slot=0
 %o   = buffer 1 dtype=i32 slot=1
@@ -133,7 +133,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
     <div class="why">A negative bound runs zero times, just like <code>range 0</code>. The buffer keeps its data.</div>
   </div>
   <div class="quiz" data-answer="b">
-    <p class="q">With <code>%k = range 5</code>, is <code>shrink %b (mul %k 2) shape=[2]</code> provably inside a 10-element buffer? (Written as two statements.)</p>
+    <p class="q">With <code>%k = range 5</code>, is <code>shrink %b (mul %k 2) [2]</code> provably inside a 10-element buffer? (Written as two statements.)</p>
     <div class="opts"><button data-k="a">No: the offset reaches 10</button><button data-k="b">Yes: the offset is in [0, 8], and 8 + 2 = 10 fits</button><button data-k="c">No: ranges have no interval</button></div>
     <p class="hint">What's the interval of <code>%k</code>, and what does <code>mul</code> by 2 do to it?</p>
     <div class="why"><code>%k</code> is in [0, 4], so the offset is in [0, 8]. A 2-element view at offset 8 ends at 10, which fits.</div>

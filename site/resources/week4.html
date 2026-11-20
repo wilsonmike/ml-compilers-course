@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 </head>
 <body data-root="../">
 <main>
@@ -30,7 +30,7 @@
 
   <h2>The week in one page</h2>
   <h3><a href="../week4/01-vectors.html">4.1 Vectors and elementwise ops</a></h3>
-  <p>ALU ops now accept rank-1 operands of one shared shape and work element by element. There's no implicit broadcasting: <code>add %v 1.0</code> with a vector <code>%v</code> is a type error. Rank-1 values may not depend on a hand-written loop's open range.</p>
+  <p>ALU ops now accept rank-1 operands of one shared shape and work element by element. There's no implicit broadcasting: <code>add %v 1.0</code> with a vector <code>%v</code> is a type error, so the program is rejected. Rank-1 values may not depend on a hand-written loop's open range.</p>
   <h3><a href="../week4/02-reduce-expand.html">4.2 Reduce and expand</a></h3>
   <p><code>reduce</code> is a left fold that starts from the first element: <code>x[0] op x[1] op ... op x[n-1]</code>, rounding after every step. The order is part of the spec because f32 results depend on it. <code>expand</code> broadcasts a scalar to a shape, and week 5 widens it to grow any size-1 axis.</p>
   <h3><a href="../week4/03-rangeify.html">4.3 Rangeify</a></h3>
@@ -38,7 +38,7 @@
   <h3><a href="../week4/04-materialization.html">4.4 Fuse or materialize</a></h3>
   <p>A computed value used twice can be recomputed at each use (fusion) or stored once in a temp buffer (materialization). Without <code>stage</code> your compiler may choose, and <code>stage</code> forces a temp. The results are bit-identical either way. Only speed differs, and kernels are timed from week 6.</p>
   <h3><a href="../week4/05-rendering-vectors.html">4.5 Rendering vectors</a></h3>
-  <p>Rendered C must be at most 20,000 bytes, so a 4096-element vector has to become a loop. A whole <code>x / sum(x)</code> kernel is about a kilobyte (1,041 bytes with the current oracle): a reduce loop, a scalar computed once between loops, and a store loop.</p>
+  <p>Rendered C must be at most 20,000 bytes, so a 4096-element vector has to become a loop. A whole <code>x / sum(x)</code> file is about 1.6 kilobytes (1,630 bytes with the current oracle, most of it helper functions): a reduce loop, a scalar computed once between loops, and a store loop.</p>
   <h3><a href="../week4/06-lab.html">4.6 Lab</a></h3>
   <p>Same commands as week 3. <code>render</code> may print <code>for</code> loops when the program has a range, a reduce, expand or stage, an elementwise op on a vector, or any rank-1 value over 32 elements. The suite has 90 tests.</p>
 
@@ -47,7 +47,7 @@
     <thead><tr><th>op</th><th>operands</th><th>result</th><th>remember</th></tr></thead>
     <tbody>
       <tr><td>ALU ops</td><td>one shared shape</td><td>that shape</td><td>elementwise, with no implicit broadcast</td></tr>
-      <tr><td><code>expand x shape=[n]</code></td><td>a scalar (week 5: also size-1 axes)</td><td><code>(n,)</code></td><td>every element is x, and growing a size-2 axis is always an error</td></tr>
+      <tr><td><code>expand x [n]</code></td><td>a scalar (week 5: also size-1 axes)</td><td><code>(n,)</code></td><td>every element is x, and growing a size-2 axis is always rejected</td></tr>
       <tr><td><code>reduce x op=add|mul|max</code></td><td>rank-1, i32 or f32</td><td>scalar</td><td>left fold from <code>x[0]</code>, and one element is just that element</td></tr>
       <tr><td><code>stage x</code></td><td>any value</td><td>same</td><td>same value, but forces a temp buffer in render</td></tr>
     </tbody>
@@ -114,7 +114,7 @@
 %n2 = mul %xs %e2
 %d  = add %n %n2
 %t  = assert %d [20.0 40.0 60.0 80.0]</code></pre></li>
-    <li><strong>Check the size.</strong> Done when your largest kernel is around a kilobyte, whatever n is, and every render test passes.</li>
+    <li><strong>Check the size.</strong> Done when your largest kernel stays a couple of kilobytes at most, whatever n is, and every render test passes.</li>
   </ol>
   <div class="trap"><span class="label">When a render is bit-for-bit wrong</span>
     <p>Print the failing element's index and both values as f32 bits. A difference in the last bit almost always means a different order of operations: a reduce folded the other way, or an <code>a * b + c</code> the compiler contracted into one rounding. The <a href="debugging.html">debugging guide</a> shows how to print the bits.</p>
@@ -150,7 +150,7 @@
     <p class="q">Which program must render with a <code>for</code> loop?</p>
     <div class="opts"><button data-k="a">copy an 8-element buffer into another (load, then store)</button><button data-k="b">copy a 64-element buffer into another (load, then store)</button><button data-k="c">add two scalars and store the result</button></div>
     <p class="hint">A plain copy has no ALU op. What else makes the loop rule apply?</p>
-    <div class="why">Any rank-1 value with more than 32 elements must become a loop. The 8-element copy may stay loopless (the oracle prints 8 stores, about 850 bytes), but the 64-element one renders as one loop.</div>
+    <div class="why">Any rank-1 value with more than 32 elements must become a loop. The 8-element copy may stay loopless (the oracle prints 8 stores, about 1,400 bytes with its helper functions), but the 64-element one renders as one loop.</div>
   </div>
   <div class="quiz" data-answer="c">
     <p class="q">A program computes <code>x / sum(x)</code> twice: once as written, and once with <code>stage</code> on <code>x</code>. How do the outputs compare?</p>

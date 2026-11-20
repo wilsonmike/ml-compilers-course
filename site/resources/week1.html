@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 </head>
 <body data-root="../">
 <main>
@@ -37,10 +37,10 @@
   <p>A rewrite rule is a pattern and a replacement, like <code>add(x, 0) → x</code>. The engine visits sources first, applies rules until none fire, and repeats passes until nothing changes. Constant folding is the rule family "all inputs are constants, so compute it now", with exactly the interpreter's semantics: <code>div 1 0</code> folds to <code>-1</code>.</p>
   <h3><a href="../week1/04-symbolic.html">1.4 Symbolic simplification</a></h3>
   <p>i32 is a ring mod 2<sup>32</sup>, so reassociation is always safe. Bounds give each node an interval by fixed op-by-op rules, and they're part of validation: an <code>index</code> whose bounds don't fit its axis is rejected. In simplify, bounds and param limits prove rules like <code>cmplt(mod(x, 8), 8) → true</code>.</p>
-  <h3><a href="../week1/05-call-and-param.html">1.5 CALL, PARAM, STACK, INDEX</a></h3>
+  <h3><a href="../week1/05-call-and-param.html">1.5 call, param, stack and index</a></h3>
   <p>A param is <code>param [] [l h] slot=k dtype=t addrspace=ALU</code>, with optional limits. A call binds argument i to slot i in its body, and each argument's bounds must fit the limits. Bodies are closed: substitution stops at a nested call's body but goes into its arguments. A param outside any call is rejected.</p>
   <h3><a href="../week1/06-lab.html">1.6 Lab</a></h3>
-  <p>Your compiler takes <code>FILE...</code> (print one <code>OUTCOME FILE</code> line each) and <code>simplify FILE</code> (print a smaller equivalent <code>%out</code>). The suite has 273 tests, and every bug planted in the reference compiler to test them fails at least one.</p>
+  <p>Your compiler takes <code>FILE...</code> (print one <code>OUTCOME FILE</code> line each) and <code>simplify FILE</code> (print a smaller equivalent <code>%out</code>). The suite has 278 tests, and every bug planted in the reference compiler to test them fails at least one.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -48,9 +48,9 @@
     <tbody>
       <tr><td><code>add</code>, <code>mul</code></td><td>i32 or bool, same</td><td>same</td><td>i32 wraps. On bools, add is or and mul is and.</td></tr>
       <tr><td><code>max</code></td><td>i32 or bool, same</td><td>same</td><td>on bools it's or</td></tr>
-      <tr><td><code>div</code>, <code>mod</code></td><td>i32</td><td>i32</td><td>floor, so a nonzero <code>mod</code> has the divisor's sign. <code>div x 0 = -1</code>, <code>mod x 0 = x</code>, <code>INT_MIN / -1 = INT_MIN</code>.</td></tr>
+      <tr><td><code>div</code>, <code>mod</code></td><td>i32</td><td>i32</td><td>floor, so a nonzero <code>mod</code> has the divisor's sign. <code>div x 0 = -1</code>, <code>mod x 0 = x</code>, <code>div INT_MIN -1 = INT_MIN</code>.</td></tr>
       <tr><td><code>shl</code></td><td>i32</td><td>i32</td><td>shifts by <code>y mod 32</code>, and wraps</td></tr>
-      <tr><td><code>xor</code></td><td>i32 or bool</td><td>same</td><td>bitwise / logical</td></tr>
+      <tr><td><code>xor</code></td><td>i32 or bool, same</td><td>same</td><td>bitwise / logical</td></tr>
       <tr><td><code>cmplt</code></td><td>i32 or bool, same</td><td>bool</td><td><code>cmplt false true</code> is true</td></tr>
       <tr><td><code>where c a b</code></td><td>bool, then same</td><td>a's</td><td>strict: both branches evaluated</td></tr>
       <tr><td><code>cast a dtype=D</code></td><td>i32 or bool</td><td>D</td><td>to bool is <code>a != 0</code>, from bool is 0 or 1</td></tr>
@@ -101,7 +101,7 @@ python tools/test.py --check-tests DIR --week 1                  # check your ow
   <p><code>YOUR_COMPILER</code> is the command that runs your compiler: <span class="only-python">the wrapper script from lesson 0.7, such as <code>"C:/path/to/my-ml-compiler/mlc.cmd"</code> on Windows or <code>~/my-ml-compiler/mlc</code> on macOS and Linux.</span><span class="only-ocaml">the path to the <code>main.exe</code> that dune built.</span></p>
 
   <h2>Mistakes people make</h2>
-  <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week1.html">week 1 test guide</a> lists every test with the bugs known to fail it.</p>
+  <p>Most of these are bugs that were planted in the reference compiler to prove the suite catches them. The <a href="tests-week1.html">week 1 test guide</a> lists every test with the bugs known to fail it.</p>
   <ol>
     <li><strong>Using your language's native int for i32.</strong> <span class="only-python">Python's ints never overflow</span><span class="only-ocaml">OCaml's is 63 bits</span>, so <code>2147483647 + 1</code> never wraps. Caught by <code>add_i32_0</code> and <code>mul_i32_0</code>.</li>
     <li><strong>Dividing like C.</strong> Truncation gives <code>-7 / 2 = -3</code>, but .uir floors to <code>-4</code>. <span class="only-ocaml">OCaml's <code>/</code> and <code>mod</code> truncate.</span><span class="only-python">Python's <code>//</code> and <code>%</code> already floor.</span> Caught by <code>div_floor_1</code> and <code>mismatch_div_not_c</code>.</li>
@@ -185,7 +185,7 @@ python tools/test.py --check-tests DIR --week 1                  # check your ow
     <p class="q"><code>%x</code> has limits <code>[0 8]</code>. Which simplification is <strong>wrong</strong>?</p>
     <div class="opts"><button data-k="a"><code>mod %x 8 → %x</code></button><button data-k="b"><code>mod %x 9 → %x</code></button><button data-k="c"><code>div %x 9 → 0</code></button><button data-k="d"><code>max %x 0 → %x</code></button></div>
     <p class="hint">Try each with <code>x = 8</code>, the top of the limits.</p>
-    <div class="why"><code>8 mod 8</code> is 0, not 8. The other three hold for every x in <code>[0, 8]</code>, and the limits are all the grader tests.</div>
+    <div class="why"><code>8 mod 8</code> is 0, not 8. The other three hold for every x in <code>[0, 8]</code>, and the grader only tests inputs inside the limits.</div>
   </div>
   <div class="quiz" data-answer="b">
     <p class="q">Can bounds analysis simplify <code>cmplt (mod (max %x 0) 10) 9</code>?</p>
@@ -197,7 +197,7 @@ python tools/test.py --check-tests DIR --week 1                  # check your ow
 
   <h2>Go deeper</h2>
   <ul>
-    <li><a href="https://10-411.com/assignments/week1.pdf">The official 10-411 week 1 reference</a>. Two pages: the grammar, the op table with bounds and cost, and the test-file rules. The course's spec follows it.</li>
+    <li><a href="https://10-411.com/assignments/week1.pdf">The official 10-411 week 1 reference</a>. A short PDF with the grammar, the op table with bounds and cost, and the test-file rules. The course's spec follows it.</li>
     <li><a href="https://github.com/tinygrad/tinygrad">tinygrad</a> and its <a href="https://docs.tinygrad.org/">documentation</a>. The UOp, rewrite rules and symbolic simplification here follow tinygrad's design, and reading its pattern matcher shows the production version.</li>
     <li><a href="https://gist.github.com/geohot/4768597d9dc536446ee2d5de1f29e89d">The 10-411 technical syllabus</a>. The source this course is built from.</li>
     <li><a href="https://en.wikipedia.org/wiki/Hash_consing">Hash consing</a>. The idea, its history and where else it's used.</li>
@@ -211,7 +211,7 @@ python tools/test.py --check-tests DIR --week 1                  # check your ow
   <ol>
     <li><strong>Tighter bounds for simplify.</strong> Validation has to use the spec's bounds rules exactly, but <code>simplify</code> may use any bounds that are true. Find a program where knowing <code>mul %i %i</code> is never negative would let <code>simplify</code> remove one more op, and check your rule never changes a value by running both versions through the oracle with a few params.</li>
     <li><strong>A rule the oracle doesn't have.</strong> Find a valid i32 identity the reference simplifier misses (for example something with <code>xor</code> or <code>max</code>). Write it as a <code>simplify</code> test with a smaller <code>max_ops</code> and check that <code>python tools/test.py --check-tests DIR --week 1</code> (the folder holding your test) rejects it, which proves the oracle doesn't reach it yet.</li>
-    <li><strong>Break the grader.</strong> Write a wrong simplification that you think the grader's edge-case inputs won't catch. If you find one, you've found a hole in the course: the cross product covers every edge value in every slot, so think about values that aren't edges.</li>
+    <li><strong>Break the grader.</strong> Write a wrong simplification that you think the grader's edge-case inputs won't catch. If you find one, you've found a hole in the course. With one or two params the grader tries every combination of edge values, so think about values that aren't edges.</li>
   </ol>
 </main>
 </body>

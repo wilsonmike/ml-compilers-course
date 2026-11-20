@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 </head>
 <body data-root="../">
 <main>
@@ -101,6 +101,7 @@ def uop(op, dtype, src=(), arg=None) -&gt; UOp:
     <ul>
       <li><strong>i32.</strong> After each op, keep the low 32 bits (mask with <code>0xFFFFFFFF</code>) and read the top bit as a sign. <code>ctypes.c_int32(n).value</code> does the same and makes a good reference for a test.</li>
       <li><strong>Division.</strong> <code>//</code> floors and <code>%</code> takes the divisor's sign, exactly like .uir's <code>div</code> and <code>mod</code>. Two edges differ: Python raises on a zero divisor, where .uir gives <code>-1</code> for <code>div</code> and <code>x</code> for <code>mod</code>, and <code>-2**31 // -1</code> needs the wrap. From week 2 you also print C, whose <code>/</code> truncates. <code>int(a / b)</code> goes through a double, so build truncating division from the quotient of the absolute values.</li>
+      <li><strong>Shifts.</strong> .uir's <code>shl x y</code> shifts by <code>y mod 32</code>, so <code>shl 1 32</code> is 1. Python's <code>&lt;&lt;</code> raises on a negative count and never drops bits, so take <code>y % 32</code> first and wrap the result.</li>
       <li><strong>f32, from week 2.</strong> Round a double to f32 by packing and unpacking it: <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>. Do it after every op and on every literal, not once at the end.</li>
     </ul>
 
@@ -108,7 +109,7 @@ def uop(op, dtype, src=(), arg=None) -&gt; UOp:
     <p><code>functools.cache</code> on an evaluator is one global table that lives forever. That's fine for a pure property of a node, like its dtype or shape. It's wrong for values that depend on a <code>call</code>'s arguments: the same body called with 3 and then with 4 returns the first answer twice. Use a plain dict created at the start of each call for those.</p>
 
     <h3>An explicit worklist instead of deep recursion</h3>
-    <p>Python stops at about 1000 nested calls (<code>sys.getrecursionlimit()</code>), and a long chain of ops is deeper than that. Raising the limit works until the C stack overflows and the process dies with no message. Walk the graph with your own stack instead. The trick for "sources before the node" is to push each node twice:</p>
+    <p>Python stops at about 1000 nested calls (<code>sys.getrecursionlimit()</code>). Week 1's budget keeps programs under 100 nodes, but from week 2 the budgets are lifted, and a long chain of ops is deeper than that. Raising the limit works until the C stack overflows and the process dies with no message. Walk the graph with your own stack instead. The trick for "sources before the node" is to push each node twice:</p>
     <pre><code>stack, done = [(root, False)], set()
 while stack:
   u, expanded = stack.pop()
@@ -162,7 +163,7 @@ let make op dtype src arg = ...            (* find, or build with a fresh id and
   | _ -&gt; None   (* fine here: most nodes have no rule *)</code></pre>
 
     <h3><code>Int32</code> and f32 rounding</h3>
-    <p>OCaml's <code>int</code> is 63 bits, so it never wraps where i32 does. <code>Int32.add</code>, <code>Int32.mul</code> and <code>Int32.shift_left</code> wrap like C. <code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, like C, but .uir's <code>div</code> and <code>mod</code> floor. Adjust: when the remainder isn't zero and its sign differs from the divisor's, subtract 1 from the quotient and add the divisor to the remainder. <code>Int32.div Int32.min_int (-1l)</code> gives <code>min_int</code> instead of trapping, which is what the spec wants. Division by zero raises <code>Division_by_zero</code>, so check for 0 first: .uir defines <code>div x 0</code> as <code>-1</code> and <code>mod x 0</code> as <code>x</code>. Floats are doubles, so from week 2 round each f32 result with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
+    <p>OCaml's <code>int</code> is 63 bits, so it never wraps where i32 does. <code>Int32.add</code>, <code>Int32.mul</code> and <code>Int32.shift_left</code> wrap. <code>Int32.shift_left</code> is unspecified for a count outside 0 to 31, so take .uir's <code>y mod 32</code> first. <code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, like C, but .uir's <code>div</code> and <code>mod</code> floor. Adjust: when the remainder isn't zero and its sign differs from the divisor's, subtract 1 from the quotient and add the divisor to the remainder. <code>Int32.div Int32.min_int (-1l)</code> gives <code>min_int</code> instead of trapping, which is what the spec wants. Division by zero raises <code>Division_by_zero</code>, so check for 0 first: .uir defines <code>div x 0</code> as <code>-1</code> and <code>mod x 0</code> as <code>x</code>. Floats are doubles, so from week 2 round each f32 result with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
 
     <h3>Memoize per call</h3>
     <p>Create the value table inside the function that evaluates one <code>call</code>, not at the top level of a module. A top-level <code>Hashtbl</code> is global, and the same body called with different arguments would return the first answer twice. Local tables keyed by node id are cheap to make.</p>
@@ -322,8 +323,8 @@ end</code></pre>
     </div>
     <h3>Unrolling an upcast loop</h3>
     <p>Emit the body once per value of the range, with the dict from range to C text mapping it to <code>"0"</code>, then <code>"1"</code>, and so on. Each copy declares the same values again, so either give them fresh names per copy or wrap each copy in its own <code>{ }</code> block.</p>
-    <h3>Private allocs in run</h3>
-    <p>Make a new list of zeros for each private alloc at the start of every iteration of its thread loop. A list made once outside the loop keeps the previous iteration&#x27;s values, which <code>thread_private_alloc_not_cumulative</code> catches.</p>
+    <h3>Private allocs in your interpreter</h3>
+    <p>Make a new list of zeros for each private alloc at the start of every iteration of its thread loop. A list made once outside the loop keeps the previous iteration&#x27;s values, which <code>mismatch_thread_private_alloc_not_cumulative</code> catches.</p>
   </div>
 
   <div class="only-ocaml">
@@ -331,7 +332,7 @@ end</code></pre>
     <p>Render the thread loop's body into a second <code>Buffer.t</code>, and keep a <code>Hashtbl</code> from every C name you emit to its C type. With <code>module SS = Set.Make (String)</code>, the free names from lesson 7.5 are <code>SS.diff</code> of the names used and the names declared, minus the loop variable. <code>SS.elements</code> returns them sorted, so the context struct comes out the same on every run. Collect the outlined functions in a third buffer and print it above <code>kernel</code>, since C needs a function declared before its first use.</p>
     <h3>Unrolling an upcast loop</h3>
     <p>Emit the body once per value of the range, with the range's entry in your name table set to <code>"0"</code>, then <code>"1"</code>, and so on. Each copy declares the same values again, so either give them fresh names per copy or wrap each copy in its own <code>{ }</code> block.</p>
-    <h3>Private allocs in run</h3>
+    <h3>Private allocs in your interpreter</h3>
     <p>Make a fresh <code>Array.make n 0l</code> (or <code>0.0</code>) for each private alloc at the start of every iteration of its thread loop. An array made once outside the loop keeps the previous iteration's values.</p>
   </div>
 
@@ -355,19 +356,19 @@ end</code></pre>
 
   <div class="only-python">
     <h3>Wrap to 8 bits by hand</h3>
-    <p>Python ints don&#x27;t wrap at 8 bits any more than at 32. A cast to i8 keeps the low 8 bits as a signed number: <code>((x + 128) &amp; 255) - 128</code>, which takes 200 to -56. Check <code>data=</code> literals against -128 to 127 instead of wrapping them, since out-of-range data is an error.</p>
+    <p>Python ints don&#x27;t wrap at 8 bits any more than at 32. A cast to i8 keeps the low 8 bits as a signed number: <code>((x + 128) &amp; 255) - 128</code>, which takes 200 to -56. Check the literals in an i8 buffer's data list against -128 to 127 instead of wrapping them, since out-of-range data is rejected.</p>
     <h3>Reading i8 files</h3>
     <p>Indexing <code>bytes</code> gives 0 to 255, so a <code>url=</code> file read that way turns -1 into 255. Decode signed bytes with <code>struct.unpack(f"&lt;{n}b", data)</code>.</p>
-    <h3>mma in run</h3>
+    <h3>mma in your interpreter</h3>
     <p>The products of two i8 values are small, so add each output&#x27;s 16 products and the old C value as plain ints and wrap the total to i32 once. Wrapping addition is associative, so that gives the same bits as wrapping after every add.</p>
   </div>
 
   <div class="only-ocaml">
     <h3>No <code>int8</code> type</h3>
-    <p>OCaml has no 8-bit integer, so hold i8 values in an <code>int</code> or an <code>int32</code> and wrap them yourself. On an <code>int</code>, a cast to i8 is <code>((x + 128) land 255) - 128</code>, which takes 200 to -56. On an <code>int32</code>, shift the low byte to the top and back: <code>Int32.shift_right (Int32.shift_left x 24) 24</code>. Check <code>data=</code> literals against -128 to 127 instead of wrapping them, since out-of-range data is an error.</p>
+    <p>OCaml has no 8-bit integer, so hold i8 values in an <code>int</code> or an <code>int32</code> and wrap them yourself. On an <code>int</code>, a cast to i8 is <code>((x + 128) land 255) - 128</code>, which takes 200 to -56. On an <code>int32</code>, shift the low byte to the top and back: <code>Int32.shift_right (Int32.shift_left x 24) 24</code>. Check the literals in an i8 buffer's data list against -128 to 127 instead of wrapping them, since out-of-range data is rejected.</p>
     <h3>Reading i8 files</h3>
     <p><code>String.get_int8</code> reads one signed byte of a <code>url=</code> file. <code>String.get_uint8</code> would turn -1 into 255.</p>
-    <h3>mma in run</h3>
+    <h3>mma in your interpreter</h3>
     <p>Do the dot products in <code>Int32</code>: <code>Int32.mul</code> and <code>Int32.add</code> wrap like the spec&#x27;s i32, and the order of the adds doesn&#x27;t matter because wrapping addition is associative.</p>
   </div>
 

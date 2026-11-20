@@ -37,8 +37,8 @@ const CC = (() => {
       ['week1/01-the-uop.html', 'The UOp', '1.1'], ['week1/02-uir-and-interpreting.html', '.uir and interpreting', '1.2'],
       ['week1/03-rewrites-and-folding.html', 'Rewrites and folding', '1.3'], ['week1/04-symbolic.html', 'Symbolic simplification', '1.4'],
       ['week1/05-call-and-param.html', 'CALL, PARAM, STACK, INDEX', '1.5'], ['week1/06-lab.html', 'Lab: your compiler', '1.6']] },
-    { title: 'Week 2 · Memory and rendering C', items: [
-      ['week2/01-buffers-and-views.html', 'Buffers and views', '2.1'], ['week2/02-load-store-after.html', 'Load, store, after', '2.2'],
+    { title: 'Week 2 · Floats, memory and rendering C', items: [
+      ['week2/01-buffers-and-views.html', 'Floats, buffers and views', '2.1'], ['week2/02-load-store-after.html', 'Load, store, after', '2.2'],
       ['week2/03-bounds.html', 'Proving bounds', '2.3'], ['week2/04-rendering-c.html', 'Rendering C', '2.4'],
       ['week2/05-the-runtime.html', 'The runtime', '2.5'], ['week2/06-lab.html', 'Lab: memory and C', '2.6']] },
     { title: 'Week 3 · Loops', items: [
@@ -106,10 +106,14 @@ const CC = (() => {
   const TRACKS = [['python', 'Python'], ['ocaml', 'OCaml']];
   const track = () => (store.get('cc-track') === 'ocaml' ? 'ocaml' : 'python');
   document.documentElement.dataset.track = track();
-  function trackSelect(cls) {
-    const s = h('select', { class: cls, 'aria-label': 'Language you write your compiler in', onchange: () => { store.set('cc-track', s.value); location.reload(); } },
-      TRACKS.map(([v, t]) => h('option', { value: v, text: t })));
-    s.value = track(); return s;
+  function segPick(label, options, current, pick) {
+    const g = h('div', { class: 'seg', role: 'group', 'aria-label': label });
+    g.paint = v => g.querySelectorAll('button').forEach(b => { const on = b.dataset.v === v; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+    options.forEach(([v, t]) => g.append(h('button', { type: 'button', 'data-v': v, text: t, onclick: () => pick(v) })));
+    g.paint(current); return g;
+  }
+  function trackSelect() {
+    return segPick('Language you write your compiler in', TRACKS, track(), v => { if (v !== track()) { store.set('cc-track', v); location.reload(); } });
   }
   const TOUCH = matchMedia('(any-pointer: coarse)').matches || /[?&]touch=1/.test(location.search);
   if (TOUCH) document.documentElement.classList.add('touch');
@@ -198,11 +202,11 @@ const CC = (() => {
     ['light', 'dark'].forEach(t => seg.append(h('button', { type: 'button', 'data-t': t, text: t[0].toUpperCase() + t.slice(1), onclick: () => {
       document.documentElement.dataset.theme = t; store.set('cc-theme', t); paintSeg(); } })));
     paintSeg();
-    const km = keymapSelect('sel');
+    const km = keymapSelect();
     const side = h('aside', { class: 'side' },
       h('a', { class: 'brand', href: root + 'index.html' }, h('span', { class: 'mark', 'aria-hidden': 'true' }), 'ML compilers, from zero'),
       h('div', { class: 'search' }, search), nav,
-      h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect('sel')), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Editor keys', km)));
+      h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect()), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Editor keys', km)));
     const pill = h('span', { class: 'runner', title: 'Start it with: python tools/serve.py' }, h('span', { class: 'dot' }), 'Runner off');
     runner().then(r => { if (r) { pill.classList.add('on'); pill.lastChild.textContent = 'Runner on'; pill.title = 'Exercises run on your machine via tools/serve.py'; } });
     const crumbs = h('div', { class: 'crumbs' }, cur ? [h('a', { href: root + 'index.html', text: 'Course' }),
@@ -277,7 +281,7 @@ const CC = (() => {
     if (!pid) {
       el.replaceChildren(heading('Where do you want to start?'),
         h('p', { text: 'Pick the one that sounds most like you. It sets the order of lessons and what comes next. You can change it any time.' }),
-        h('p', { class: 'pick-lang' }, h('label', { for: 'pick-lang', text: 'You’ll write code in' }), (() => { const x = trackSelect('sel'); x.id = 'pick-lang'; return x; })(),
+        h('p', { class: 'pick-lang' }, h('span', { text: 'You’ll write code in' }), trackSelect(),
           h('span', { class: 'muted', text: 'Python is the usual choice. OCaml is there if you’d like it.' })),
         h('ul', { class: 'paths' }, Object.entries(PATHS).map(([k, p]) => { const items = pathItems(k);
           return h('li', {}, h('button', { type: 'button', onclick: () => { store.set('cc-path', k); homePanel(el); changed(); } },
@@ -489,10 +493,10 @@ const CC = (() => {
   const KEYMAPS = [['default', 'Default'], ['vim', 'Vim'], ['emacs', 'Emacs'], ['sublime', 'Sublime']];
   const editors = new Set(), selects = new Set();
   const keymap = () => store.get('cc-keymap') || 'default';
-  function setKeymap(k) { store.set('cc-keymap', k); editors.forEach(cm => { cm.setOption('keyMap', k); cm.getWrapperElement().dispatchEvent(new Event('cc-keymap')); }); selects.forEach(s => (s.value = k)); }
-  function keymapSelect(cls) {
-    const s = h('select', { class: cls, 'aria-label': 'Editor key bindings', onchange: () => setKeymap(s.value) }, KEYMAPS.map(([v, t]) => h('option', { value: v, text: t })));
-    s.value = keymap(); selects.add(s); return s;
+  function setKeymap(k) { store.set('cc-keymap', k); editors.forEach(cm => { cm.setOption('keyMap', k); cm.getWrapperElement().dispatchEvent(new Event('cc-keymap')); }); selects.forEach(s => s.paint(k)); }
+  function keymapSelect() {
+    const s = segPick('Editor key bindings', KEYMAPS, keymap(), setKeymap);
+    selects.add(s); return s;
   }
   let cmP = null;
   function loadCM() {
@@ -559,7 +563,7 @@ const CC = (() => {
       const runB = h('button', { class: 'btn', type: 'button', text: 'Run' }), subB = h('button', { class: 'btn primary', type: 'button', text: 'Submit' });
       const cmpB = h('button', { class: 'btn primary', type: 'button', text: 'Compare with answer' });
       const resetB = h('button', { class: 'btn', type: 'button', text: 'Reset', title: 'Back to the starter code' });
-      work.append(h('div', { class: 'ex-bar' }, h('span', { class: 'lang', text: LANG[ex.lang] }), keymapSelect('sel'), resetB, ...(r ? [runB, subB] : [cmpB])),
+      work.append(h('div', { class: 'ex-bar' }, h('span', { class: 'lang', text: LANG[ex.lang] }), keymapSelect(), resetB, ...(r ? [runB, subB] : [cmpB])),
         edDiv, h('div', { class: 'ex-status' }, mode, keys), out);
       let CM;
       try { CM = await loadCM(); } catch (e) { edDiv.append(h('div', { class: 'ex-offline', text: 'Editor failed to load: ' + e.message })); continue; }

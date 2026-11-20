@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .padview { display: grid; gap: var(--s4); }
   .vlabel { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
@@ -45,8 +45,8 @@
 <thead><tr><th>op</th><th>element at <code>(i0, ..., ik)</code> becomes</th></tr></thead>
 <tbody>
 <tr><td><code>reshape</code></td><td>flatten the index in the new shape (<code>f = i0·stride0 + i1·stride1 + ...</code>, row-major strides), then unflatten <code>f</code> in the old shape: axis k is <code>(f div stride_k) mod size_k</code></td></tr>
-<tr><td><code>permute order=p</code></td><td>the operand at the index whose axis <code>p_k</code> is <code>i_k</code>: just a reordering, no arithmetic</td></tr>
-<tr><td><code>pad pads=[l r ...]</code></td><td>the operand at the clamped index <code>clamp(i - l, 0, n - 1)</code>, then <code>where(valid, that, 0)</code>, with <code>valid = l ≤ i &lt; l + n</code></td></tr>
+<tr><td><code>permute [p0 p1 ...]</code></td><td>the operand at the index whose axis <code>p_k</code> is <code>i_k</code>: just a reordering, no arithmetic</td></tr>
+<tr><td><code>pad [l r ...]</code></td><td>the operand at the clamped index <code>clamp(i - l, 0, n - 1)</code>, then <code>where(valid, that, 0)</code>, with <code>valid = l ≤ i &lt; l + n</code></td></tr>
 <tr><td><code>shrink</code></td><td>the operand at <code>(i0 + o0, ...)</code></td></tr>
 <tr><td><code>expand</code></td><td>the operand with every size-1 axis read at 0</td></tr>
 <tr><td><code>stack</code></td><td>item <code>i0</code> at the rest of the index: a chain of <code>where</code>s on <code>i0</code>, or a plain C array index when the items are scalars</td></tr>
@@ -58,7 +58,7 @@
 <p>Here is one question followed all the way down. <code>%m = reshape %v [2 3]</code> on a 6-element <code>%v</code>, then <code>%t = permute %m [1 0]</code>, shape <code>(3, 2)</code>. Ask <code>%t</code> for element <code>(2, 1)</code>. The permute swaps the tuple and asks <code>%m</code> for <code>(1, 2)</code>. The reshape flattens that in <code>[2 3]</code>, <code>f = 1·3 + 2 = 5</code>, then unflattens 5 in <code>%v</code>'s shape <code>(6,)</code>, which leaves 5. So the transpose's <code>(2, 1)</code> is a load of element 5.</p>
 
 <h2>Pad: a clamp and a mask</h2>
-<p>Here is the oracle's C for <code>pad %x pads=[1 2]</code> on a 3-element <code>x</code>, stored into a 6-element buffer:</p>
+<p>Here is the oracle's C for <code>pad %x [1 2]</code> on a 3-element <code>x</code>, stored into a 6-element buffer:</p>
 </div>
 <pre><code>for (int32_t r9 = 0; r9 &lt; 6; r9++) {
   bool v11 = (0 &lt; r9);
@@ -77,7 +77,7 @@
 <p>There's no <code>min</code> op, so the upper clamp is written as <code>-max(-x, -(n-1))</code>. Step through the loop to see what each iteration reads.</p>
 </div>
 
-<div class="fig" id="pad" data-title="pad x pads=[1 2]: what each iteration reads"></div>
+<div class="fig" id="pad" data-title="pad x [1 2]: what each iteration reads"></div>
 
 <div class="trap">
 <span class="label">The mask doesn't make the read safe</span>
@@ -125,7 +125,7 @@ for (int32_t r11 = 0; r11 &lt; 6; r11++) {          /* output element: (m, n) = 
 }</code></pre>
 <div class="prose">
 <p>Inside the k loop, <code>v28 = r26 + 1</code> is k, and <code>v29 = v28 % 2</code> is its coordinate on the k axis of size 2. A's flat index is <code>k·2 + m</code> (<code>v31</code>, reusing <code>v14 = m</code> from the outer loop), and B's is <code>k·3 + n</code> (<code>v36</code>, reusing <code>v18 = n</code>). The two loads are multiplied and added into the accumulator.</p>
-<p>The <code>/</code> and <code>%</code> here are .uir's <code>div</code> and <code>mod</code>. Those floor and C's operators truncate, but the two only differ when an operand is negative. Every left operand here is provably non-negative and every divisor is a positive constant, so the oracle prints C's operators bare. Anywhere else it calls helpers that floor, like the <code>uir_div</code> and <code>uir_mod</code> from <a href="../week2/04-rendering-c.html">lesson 2.4</a>.</p>
+<p>The <code>/</code> and <code>%</code> here are .uir's <code>div</code> and <code>mod</code>. Those floor, while C's operators truncate, but the two only differ when an operand is negative. Every left operand here is provably non-negative and every divisor is a positive constant, so the oracle prints C's operators bare. Anywhere else it calls helpers that floor (the oracle names them <code>i32_div</code> and <code>i32_mod</code>), like the <code>uir_div</code> and <code>uir_mod</code> you wrote in <a href="../week2/04-rendering-c.html">lesson 2.4</a>.</p>
 <p>The <code>[K M N]</code> cube from lesson 5.4 is gone. Every element of it was a multiply of two loads, and rangeify only ever asked for the elements the reduce needed, one k at a time.</p>
 
 <h2>Cleaning up the index math</h2>
@@ -216,7 +216,7 @@ for (int32_t r9 = 0; r9 &lt; 3; r9++) {
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q">How does rangeify answer "your element at <code>(k, m, n)</code>" for <code>expand %b3 shape=[K M N]</code>, where <code>%b3</code> has shape <code>[K 1 N]</code>?</p>
+<p class="q">How does rangeify answer "your element at <code>(k, m, n)</code>" for <code>expand %b3 [K M N]</code>, where <code>%b3</code> has shape <code>[K 1 N]</code>?</p>
 <div class="opts">
 <button data-k="a">It copies b into a K x M x N temp and reads that</button>
 <button data-k="b">It asks <code>%b3</code> for element <code>(k, m, n)</code></button>

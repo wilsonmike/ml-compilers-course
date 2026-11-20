@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   svg.nl { display: block; width: 100%; max-width: 40rem; height: auto; font-family: var(--mono); margin-top: var(--s4); }
   svg.nl .axis { stroke: var(--line-2); stroke-width: 1.5; }
@@ -44,7 +44,7 @@
 
 <div class="prose">
 <h2>The rule</h2>
-<p>For <code>shrink m off shape=[k]</code>, where the parent <code>m</code> has n elements (k counts as 1 for <code>shape=[]</code>), work out the interval <code>[lo, hi]</code> of <code>off</code>, then require:</p>
+<p>For <code>shrink m off [k]</code>, where the parent <code>m</code> has n elements (k counts as 1 for a <code>[]</code> view), work out the interval <code>[lo, hi]</code> of <code>off</code>, then require:</p>
 <pre><code>lo ≥ 0     and     hi + k ≤ n</code></pre>
 <p>The first says the window can't start before the parent. The second says that even at its largest offset, the window still ends inside. The allowed offsets are exactly <code>[0, n - k]</code>, and the whole interval of <code>off</code> has to sit inside that range.</p>
 <p>With a constant offset the interval is a single point, so this is the plain check from lesson 1. It gets interesting when the offset is computed.</p>
@@ -53,8 +53,8 @@
 <p>A value loaded from memory could be anything, because memory comes from outside. Its interval is the full i32 range. So this gather, which reads an index from one buffer and uses it on <code>%d</code>, a 4-element buffer, is invalid, even if the data happens to hold a small number:</p>
 <pre><code>%i0  = shrink %ix 0 []
 %i   = load %i0                 # interval: [INT_MIN, INT_MAX]
-%src = shrink %d %i []    # can't prove 0 ≤ %i ≤ 3</code></pre>
-<p>To make it valid you shape the interval with ops whose bounds you can compute, using week 1's exact rules (spec section 5). The one that does most of the work is <code>mod</code>. It floors, so a nonzero remainder has the sign of <code>y</code>: <code>mod %i 4</code> is in <code>[0, 3]</code> for <em>every</em> <code>%i</code>, negative ones included. <code>mod -7 4</code> is 1, not -3. We write nested forms like <code>shrink %b (mod %i 4)</code> as shorthand, but in a <code>.uir</code> file each op is its own binding. Step through: the green line is the allowed range <code>[0, n - k]</code>, and the thick line is the offset's interval.</p>
+%src = shrink %d %i []          # can't prove 0 ≤ %i ≤ 3</code></pre>
+<p>To make it valid you shape the interval with ops whose bounds you can compute, using week 1's exact rules (spec section 5). The one that does most of the work is <code>mod</code>. It floors, so a nonzero remainder has the sign of <code>y</code>: <code>mod %i 4</code> is in <code>[0, 3]</code> for <em>every</em> <code>%i</code>, negative ones included. <code>mod -7 4</code> is 1, not -3. We write nested forms like <code>shrink %b (mod %i 4) []</code> as shorthand, but in a <code>.uir</code> file each op is its own binding. Step through: the green line is the allowed range <code>[0, n - k]</code>, and the thick line is the offset's interval.</p>
 </div>
 
 <div class="fig" id="nl" data-title="shaping an index until it provably fits"></div>
@@ -74,10 +74,10 @@
 <h2>Offsets add up, and so do intervals</h2>
 <p>A view of a view is checked against its own parent. An offset built from arithmetic is checked with the interval rules for that arithmetic: <code>add</code> adds the endpoints when nothing can wrap. With an 8-element buffer:</p>
 <pre><code>%k = mod %i 4         # [0, 3]
-%o = add %k 4         # [4, 7]: fits shape=[] on 8 elements
+%o = add %k 4         # [4, 7]: fits a [] view on 8 elements
 %p = add %k 5         # [5, 8]: 8 + 1 > 8, invalid</code></pre>
-<p>You can also cut the window first and index inside it: <code>shrink %b 4 shape=[4]</code>, then <code>shrink</code> that by <code>%k</code>. The inner view only has to fit the four-element window, and <code>[0, 3]</code> does.</p>
-<p>The week 1 rule for <code>index</code> still applies, and it's the same idea. <code>index [7 8 9] %i</code> with a loaded <code>%i</code> is rejected, and <code>index [7 8 9] %k</code> with <code>%k = mod %i 3</code> is safe. An index into a vector you loaded works the same way: loading a <code>shape=[3]</code> view gives an axis of size 3, just like the stack.</p>
+<p>You can also cut the window first and index inside it: <code>shrink %b 4 [4]</code>, then <code>shrink</code> that by <code>%k</code>. The inner view only has to fit the four-element window, and <code>[0, 3]</code> does.</p>
+<p>The week 1 rule for <code>index</code> still applies, and it's the same idea. <code>index [7 8 9] %i</code> with a loaded <code>%i</code> is rejected, and <code>index [7 8 9] %k</code> with <code>%k = mod %i 3</code> is safe. An index into a vector you loaded works the same way: loading a <code>[3]</code> view gives an axis of size 3, just like the stack.</p>
 </div>
 
 <div class="note">
@@ -103,18 +103,18 @@
 <button data-k="d">It has no interval, so any view using it is fine</button>
 </div>
 <p class="hint">Is the data part of the program, or does it come from outside?</p>
-<div class="why"><p>Memory is input: the same kernel runs on whatever data the caller passes. The <code>data=[...]</code> in a test file is just one possible input, so a loaded value gets the full i32 range.</p></div>
+<div class="why"><p>Memory is input: the same kernel runs on whatever data the caller passes. The starting data in a test file is just one possible input, so a loaded value gets the full i32 range.</p></div>
 </div>
 
 <div class="quiz" data-fill="[0, 3] | [0,3] | 0 3 | 0..3 | 0, 3">
 <p class="q">What's the interval of <code>mod %i 4</code> when <code>%i</code> is a loaded value? Write it as <code>[lo, hi]</code>.</p>
 <div class="fill"><input aria-label="your answer" placeholder="[lo, hi]"><button class="btn">Check</button></div>
 <p class="hint">In <code>.uir</code>, <code>mod</code> floors, so a nonzero remainder has the sign of the right operand, not the left.</p>
-<div class="why"><p><code>[0, 3]</code>. Even a negative <code>%i</code> gives a remainder from 0 to 3: <code>mod -7 4</code> is 1. That's exactly the allowed range for a <code>shape=[]</code> view on 4 elements. C's <code>%</code> would give <code>[-3, 3]</code>.</p></div>
+<div class="why"><p><code>[0, 3]</code>. Even a negative <code>%i</code> gives a remainder from 0 to 3: <code>mod -7 4</code> is 1. That's exactly the allowed range for a <code>[]</code> view on 4 elements. C's <code>%</code> would give <code>[-3, 3]</code>.</p></div>
 </div>
 
 <div class="quiz" data-fill="3">
-<p class="q">On a buffer of 4 elements, with <code>%i</code> loaded from memory, what's the largest <code>m</code> for which <code>shrink %b (mod %i m) shape=[2]</code> can be proven in bounds?</p>
+<p class="q">On a buffer of 4 elements, with <code>%i</code> loaded from memory, what's the largest <code>m</code> for which <code>shrink %b (mod %i m) [2]</code> can be proven in bounds?</p>
 <div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
 <p class="hint">The allowed offsets are <code>[0, n - k]</code>. What's <code>n - k</code> here?</p>
 <p class="hint">For a positive <code>m</code>, <code>mod %i m</code> is <code>[0, m - 1]</code>.</p>
@@ -134,7 +134,7 @@
 </div>
 
 <div class="quiz" data-answer="a">
-<p class="q">On an 8-element buffer, <code>%k</code> is in <code>[0, 3]</code>. Which offset works for a <code>shape=[]</code> view?</p>
+<p class="q">On an 8-element buffer, <code>%k</code> is in <code>[0, 3]</code>. Which offset works for a <code>[]</code> view?</p>
 <div class="opts">
 <button data-k="a"><code>add %k 4</code></button>
 <button data-k="b"><code>add %k 5</code></button>
@@ -146,7 +146,7 @@
 </div>
 
 <div class="quiz" data-fill="n - k | n-k">
-<p class="q">For <code>shape=[k]</code> on a parent of n elements, the offset's whole interval must fit inside <code>[0, ?]</code>. What goes in place of the question mark?</p>
+<p class="q">For a <code>[k]</code> view on a parent of n elements, the offset's whole interval must fit inside <code>[0, ?]</code>. What goes in place of the question mark?</p>
 <div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
 <p class="hint">The window's last element is at <code>off + k - 1</code>, and that must be at most <code>n - 1</code>.</p>
 <div class="why"><p><code>off + k - 1 ≤ n - 1</code> means <code>off ≤ n - k</code>, which is the same as the rule <code>hi + k ≤ n</code>.</p></div>
@@ -178,7 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return svg;
   }
   const steps = [
-    { caption: 'A raw loaded index on a 4-element buffer, <code>shape=[]</code>. Its interval is all of i32, far outside <code>[0, 3]</code>. Invalid.',
+    { caption: 'A raw loaded index on a 4-element buffer, as a <code>[]</code> view. Its interval is all of i32, far outside <code>[0, 3]</code>. Invalid.',
       code: '%i = load %i0', lo: MIN, hi: MAX, n: 3, label: '%i ∈ [MIN, MAX]', ok: false },
     { caption: '<code>max %i 0</code> cuts off everything below zero: <code>[0, MAX]</code>. Still too wide.',
       code: '%m = max %i 0', lo: 0, hi: MAX, n: 3, label: '[0, MAX]', ok: false },
@@ -186,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
       code: '%k = mod %i 4', lo: 0, hi: 3, n: 3, label: '[0, 3]', ok: true },
     { caption: 'A negative divisor flips it: <code>mod %i -4</code> is <code>[-3, 0]</code>, and the negative half sticks out. Invalid.',
       code: '%k = mod %i -4', lo: -3, hi: 0, n: 3, label: '[-3, 0]', ok: false },
-    { caption: 'Back to <code>mod %i 4</code>, now with a <code>shape=[2]</code> window: the allowed starts shrink to <code>[0, 2]</code>, and 3 + 2 > 4. Invalid.',
+    { caption: 'Back to <code>mod %i 4</code>, now with a <code>[2]</code> window: the allowed starts shrink to <code>[0, 2]</code>, and 3 + 2 > 4. Invalid.',
       code: '%v = shrink %b %k [2]', lo: 0, hi: 3, n: 2, label: '[0, 3]', ok: false },
     { caption: '<code>mod %i 3</code> gives <code>[0, 2]</code>, which fits the two-element window. Valid.',
       code: '%k = mod %i 3', lo: 0, hi: 2, n: 2, label: '[0, 2]', ok: true },

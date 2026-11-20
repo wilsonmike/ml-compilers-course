@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 </head>
 <body data-root="../">
 <main>
@@ -41,7 +41,7 @@
 <h2>Generating main</h2>
 <p>The kernel only does the work. The program you compile also needs a <code>main</code> that sets up the buffers, calls <code>kernel</code> and prints the results. Your compiler writes that <code>main</code> too, from the same graph:</p>
 <ul>
-<li>One array per <code>buffer</code>, sized from the op and filled from its <code>data</code> (or zeros). <code>static</code> arrays keep large buffers off the stack.</li>
+<li>One array per <code>buffer</code>, sized from the op and filled from its starting data (or zeros). <code>static</code> arrays keep large buffers off the stack.</li>
 <li>A call to <code>kernel</code> with the arrays in slot order.</li>
 <li>One output line per element, in a format you can parse without losing anything.</li>
 </ul>
@@ -163,10 +163,10 @@ if r.returncode != 0:
 document.addEventListener('DOMContentLoaded', () => {
   const steps = [
     { caption: 'The program. One f32 buffer, slot 0, with two elements. The result should be <code>0.1 + 0.2</code> in f32 at index 0, and <code>-0.0</code> untouched at index 1.',
-      file: 'program.uir', text: '%b  = buffer 2 [0.1 -0.0] [] dtype=f32 slot=0\n%e  = shrink %b 0\n%x  = load %e\n%y  = add %x 0.2\n%s  = store %e %y\n%b1 = after %b %s', hl: 3 },
+      file: 'program.uir', text: '%b  = buffer 2 [0.1 -0.0] dtype=f32 slot=0\n%e  = shrink %b 0 []\n%x  = load %e\n%y  = add %x 0.2\n%s  = store %e %y\n%b1 = after %b %s', hl: 3 },
     { caption: '<strong>1. Render.</strong> Your compiler prints the kernel. The constant <code>0.2</code> becomes a hex float, so it means exactly one f32.',
       file: 'kernel.c', text: 'void kernel(float *b0) {\n  float v0 = b0[0];\n  float v1 = (v0 + 0x1.99999ap-3f);\n  b0[0] = v1;\n}', hl: 2 },
-    { caption: '<strong>2. Generate main.</strong> Arrays from the buffer ops, filled from <code>data</code> (written as hex floats so the start values are exact too; the grader\'s own harness uses raw bits and <code>memcpy</code>), one call to <code>kernel</code>, then one line per element. <code>print_bits</code> stands for whatever prints a float\'s 32 bits.',
+    { caption: '<strong>2. Generate main.</strong> Arrays from the buffer ops, filled from their starting data (written as hex floats so the start values are exact too; the grader\'s own harness uses raw bits and <code>memcpy</code>), one call to <code>kernel</code>, then one line per element. <code>print_bits</code> stands for whatever prints a float\'s 32 bits.',
       file: 'main.c', text: 'void kernel(float *b0);\n\nint main(void) {\n  static float b0[2] = {0x1.99999ap-4f, -0x0p+0f};\n  kernel(b0);\n  print_bits(0, b0[0]);   /* prints "0 " then 8 hex digits */\n  print_bits(0, b0[1]);\n  return 0;\n}', hl: 4 },
     { caption: '<strong>3. Compile.</strong> Both files, into one program, in a temp directory. Use the same strict flags the grader uses, so your runtime and the grader agree.',
       file: 'shell', text: 'clang -std=c11 -O2 -ffp-contract=off \\\n      -fsanitize=undefined -fsanitize-trap=undefined \\\n      kernel.c main.c -o prog', hl: 0 },

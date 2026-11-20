@@ -20,7 +20,7 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
 <style>
   .anat { font: 0.9375rem/1 var(--mono); display: flex; flex-wrap: wrap; gap: var(--s2); align-items: flex-end; margin: var(--s4) 0; }
   .anat span { display: inline-flex; flex-direction: column; align-items: center; gap: var(--s2); }
@@ -83,7 +83,7 @@ atom    := REF | INT | BOOL | '[' atom* ']'</code></pre>
 
   <div class="key"><span class="label">Params in one paragraph</span><p><code>%x = param [] slot=0 dtype=i32 addrspace=ALU</code> declares an input: a scalar (<code>[]</code>) i32 in slot 0. Every week 1 value lives in the <code>ALU</code> address space, so that part never changes this week. The exercises in lessons 1 to 4 use params: the tests fill slot 0 (and 1, and so on) with numbers and print what your <code>%out</code> computes. Lesson 5 shows how <code>call</code> fills params inside a program. Until then, think of a param as "a number the test hands in". In a test file, nothing fills a param that sits outside any <code>call</code>, so that file is rejected (lesson 5).</p></div>
 
-  <h2>Three dtypes, zero conversions</h2>
+  <h2>Three dtypes, no implicit conversions</h2>
   <div class="tablewrap"><table>
     <tr><th>dtype</th><th>values</th><th>watch out</th></tr>
     <tr><td><code>void</code></td><td>none</td><td>Only <code>[]</code> and <code>assert</code> have it, and neither can be an operand of an ALU op.</td></tr>
@@ -107,7 +107,7 @@ atom    := REF | INT | BOOL | '[' atom* ']'</code></pre>
 
   <h2>Evaluating: sources first</h2>
   <div class="prose">
-    <p>To evaluate a node, first evaluate its sources. Because names are defined before use, the file order is already a <strong>topological order</strong>: every node comes after its sources. So the simplest correct evaluator is a recursive <code>eval node</code> that evaluates the sources first and caches each result. Calling it on the assert only ever touches what the assert needs. (Once <code>call</code> arrives in lesson 5, that cache must be per call, because the same param node means different values in different calls.) Step through it:</p>
+    <p>To evaluate a node, first evaluate its sources. Because names are defined before use, the file order is already a <strong>topological order</strong>: every node comes after its sources. So the simplest correct evaluator is a recursive <code>eval node</code> that evaluates the sources first and caches each result. Run it on the assert. (Once <code>call</code> arrives in lesson 5, that cache must be per call, because the same param node means different values in different calls.) Step through it:</p>
   </div>
   <div class="fig" id="ev" data-title="evaluating a program one node at a time"></div>
 
@@ -176,9 +176,7 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
       <li>i32 and bool compare exactly, and both sides must have the same dtype: <code>assert 3 true</code> is rejected.</li>
       <li>The expected side must be written out. <code>%e = 6</code> then <code>assert %s %e</code> is fine, because <code>%e</code> just names a literal. <code>assert %s %f</code> with <code>%f = add 3 3</code> is rejected.</li>
     </ul>
-    <details class="toggle"><summary>cast rules</summary>
-    <p>A number to bool means "not zero": <code>cast 5 dtype=bool</code> is <code>true</code>. A bool to i32 gives 0 or 1. A cast to the dtype a value already has changes nothing.</p>
-    </details>
+    <p><strong>Casts.</strong> A number to bool means "not zero": <code>cast 5 dtype=bool</code> is <code>true</code>. A bool to i32 gives 0 or 1. A cast to the dtype a value already has changes nothing.</p>
   </div>
   <div class="note"><span class="label">Floats wait for week 2</span><p>Week 1 is i32 and bool only. A float literal like <code>1.5</code> is rejected. f32, its rounding rules and its odd values (<code>nan</code>, <code>inf</code>, <code>-0.0</code>) are taught in <a href="../week2/01-buffers-and-views.html">week 2, lesson 1</a>, along with the exercise that rounds to f32.</p></div>
 
@@ -287,7 +285,7 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
 
   <nav class="pager"><a href="01-the-uop.html">← The UOp</a><a href="03-rewrites-and-folding.html">Rewrites and constant folding →</a></nav>
 </main>
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <script>
 (() => {
   const { h, graph, parseUir, stepper, code } = CC;
@@ -302,7 +300,7 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
     a: '<code>%a = add 2 3</code>: both sources are constants, already known. 2 + 3 = <b>5</b>.',
     b: '<code>%b = mul %a 4</code>: %a is cached as 5, so 5 * 4 = <b>20</b>.',
     c: '<code>%c = cmplt %b 30</code>: 20 &lt; 30 is <b>true</b>. The dtype is bool.',
-    d: '<code>%d = where %c %b 0</code>: c is true, so pick b, which is <b>20</b>. Both branches were evaluated (where is strict: it evaluates both branches even though it returns only one), but 0 was free.',
+    d: '<code>%d = where %c %b 0</code>: c is true, so pick b, which is <b>20</b>. <code>where</code> evaluates both branches even though it returns only one, but the other branch is the constant 0, so that costs nothing.',
     t: '<code>%t = assert %d 20</code>: 20 equals 20, so the outcome is <b>MATCH</b>.',
   };
   const order = Object.keys(vals);

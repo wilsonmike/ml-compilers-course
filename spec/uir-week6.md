@@ -226,7 +226,7 @@ operand's shape (`expand c [...]`) when the operand isn't a scalar.
 | `cmpeq a b` | two bool | `xor (xor a b) true` |
 | `matmul A B` | `M×K` and `K×N`, i32 or f32 | the week 5 composite: `reshape A [M K 1]`, `permute [1 0 2]`, `expand [K M N]`; `reshape B [K 1 N]`, `expand [K M N]`; `mul`; `reduce op=add pop=1`. Shape `M×N`. |
 
-`(...)` above is shorthand for a separate statement. `floor`:
+`(...)` above is shorthand for a separate binding. `floor`:
 
 ```
 %x   = param [] slot=0 dtype=f32 addrspace=ALU

@@ -25,9 +25,9 @@ those, and puts a diagram before every idea.
 | 9 | GPUs, part 2: registers, fast GEMMs, tensor cores, convolutions, flash attention | 6 | 52 | [uir-week9.md](spec/uir-week9.md) |
 
 509 quizzes with hints and answers, 202 graded exercises (67 of them in Python) and 1080 compiler tests. `_reference/mutants.py` plants 286 plausible bugs in the reference compiler, one at a time, and each one must
-make some test fail. A few of them, like a CUDA kernel that runs each block on a single thread, are only caught on a real GPU. `--checks` also
-switches off each of its validations and simplifier rules, one at a time: most are caught, and the rest are backed up by a
-second check that rejects the same program, or can't be reached by a valid one. Week 1 follows the official 10-411
+make some test fail. A few of them, like a CUDA kernel that runs each block on a single thread, are only caught on a real GPU. With `--checks` it
+also switches off each of the reference compiler's validations and simplifier rules, one at a time: most of these are caught, and the
+rest are either backed up by a second check that rejects the same program or can't be reached by a valid one. Week 1 follows the official 10-411
 [week 1 reference](https://10-411.com/assignments/week1.pdf): its format, semantics and outcomes. The format for weeks 2
 to 9 is our own until the official one for each week is published, and then those specs and tests migrate.
 
@@ -109,8 +109,7 @@ What it runs, and what each part protects:
 | `_reference/check_exercises.py` | an exercise whose solution fails or whose starter already passes |
 | `_reference/mutants.py` | tests too weak to notice a bug: it plants 286 plausible bugs into the reference, one at a time, and each must fail some test while an unmutated copy passes them all (5 minutes). `--checks` adds one bug per validation and simplifier rule. `--matrix` records every test each bug fails, for the test guides. |
 
-The tricky values (f32 rounding, i32 wrap, C division, f32 to i32 casts) were also cross-checked against real C
-compiled with clang, and the week 6 gradients against finite differences. The week 8 and 9 CUDA tests, tensor cores and speed
+The tricky values (f32 rounding and i32 wrapping) were also cross-checked against real C compiled with clang, and the week 6 gradients against finite differences. The week 8 and 9 CUDA tests, tensor cores and speed
 tests included, were run on a real GPU (an RTX 4060 Ti, through `--cuda-docker`) as well as in the grader's emulator, which is
 what `tools/check.py` uses.
 

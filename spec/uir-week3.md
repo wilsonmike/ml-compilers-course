@@ -10,7 +10,7 @@ format is published.
 
 | op | attributes | operands | result | notes |
 |---|---|---|---|---|
-| `range n` | none | n: an i32 scalar with no open ranges | i32 `()` | A loop counter: takes the values `0, 1, ..., n-1`. The statement's name is the range's name. `n ≤ 0` runs zero times. |
+| `range n` | none | n: an i32 scalar with no open ranges | i32 `()` | A loop counter: takes the values `0, 1, ..., n-1`. The name it's bound to is the range's name. `n ≤ 0` runs zero times. |
 | `end x1 ... xk r` | none | one or more effects, then a range | effect | Runs the effects `x1 ... xk` once for every value of `r`, in increasing order. Closes `r`. |
 
 An **effect** is a `store` or an `end`. Effects have dtype `void`. Besides `end`, the only things

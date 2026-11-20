@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
   .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
@@ -58,7 +58,7 @@
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 5 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe FILE...</code></td><td>Values may have any rank. <code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> are new, and <code>expand</code>, <code>stack</code>, <code>index</code> and <code>reduce pop=m</code> work at any rank. Static errors (print <code>REJECTED FILE</code>) include: a reshape that changes the element count, an order that isn't a permutation, the wrong number of pads, a shrink offset that can't be proven in range, an expand that grows an axis that isn't size 1, a reduce popping more axes than the value has, storing a value whose shape isn't the view's (buffers stay rank 1), a param of rank 2 or more, a negative pad, more indices than axes, and stacking values of different shapes. An <code>index</code> that the bounds can't prove in range is rejected too, as in week 1: nothing fails at run time.</td></tr>
+<tr><td><code>your.exe FILE...</code></td><td>Values may have any rank. <code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> are new, and <code>expand</code>, <code>stack</code>, <code>index</code> and <code>reduce pop=m</code> work at any rank. A program is rejected (print <code>REJECTED FILE</code>) for any of these: a reshape that changes the element count, a permute order that isn't a permutation, a pad list of the wrong length, a shrink offset that can't be proven in range, an expand that grows an axis that isn't size 1, a reduce popping more axes than the value has, storing a value whose shape isn't the view's (buffers stay rank 1), a param of rank 2 or more, a negative pad, more indices than axes, and stacking values of different shapes. An <code>index</code> that the bounds can't prove in range is rejected too, as in week 1: nothing fails at run time.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>Still at most 20,000 bytes, bit-exact. <code>for</code> loops are allowed when the program has a <code>range</code>, any shape op (<code>reduce</code>, <code>expand</code>, <code>stage</code>, <code>reshape</code>, <code>permute</code>, <code>pad</code>, value <code>shrink</code>), an elementwise op on a shaped value, a value of rank 2 or more, or a rank-1 value with more than 32 elements. Otherwise it stays loopless, as in week 2.</td></tr>
 </tbody></table></div>
 
@@ -72,7 +72,7 @@
 <li>Compiles your C with its own <code>main</code>: <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code>.</li>
 <li>Runs it and compares every buffer with the oracle: i32 and bool exactly, f32 bit for bit, any NaN matching any NaN.</li>
 </ol>
-<p>Three things bite this week. A reduce over several axes must fold them in row-major order, the same order the oracle uses, or f32 bits drift. And a padded read must clamp its index: an out-of-bounds read is undefined behavior even when the mask throws the value away. The sanitizer won't always catch it, so don't count on the grader to: clamp because the C must be correct. Last, a store into the buffer its own value reads, like <code>r_inplace_transpose</code>, must go through a temp (the trap in lesson 4.4). A fused transpose overwrites elements it still has to read.</p>
+<p>Three things bite this week. First, a reduce over several axes must fold them in row-major order, the same order the oracle uses, or f32 bits drift. Second, a padded read must clamp its index: an out-of-bounds read is undefined behavior even when the mask throws the value away. The sanitizer won't always catch it, so don't count on the grader to: clamp because the C must be correct. Last, a store into the buffer its own value reads, like <code>r_inplace_transpose</code>, must go through a temp (the trap in lesson 4.4). A fused transpose overwrites elements it still has to read.</p>
 
 <h2>Running the suite</h2>
 <p>Stuck on a failing test? The <a href="../resources/tests-week5.html">week 5 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week5.html">week 5 study guide</a> has a cheat sheet and a step-by-step way out.</p>
@@ -106,7 +106,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <h2>Checklist</h2>
 <ul class="checklist" id="checklist">
 <li><label><input type="checkbox" data-k="rank"><span>Values of any rank type check, and memory and params stay rank 0 or 1</span></label></li>
-<li><label><input type="checkbox" data-k="ops"><span><code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> parse, type check and reject bad attributes</span></label></li>
+<li><label><input type="checkbox" data-k="ops"><span><code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> parse, type check and reject bad operands</span></label></li>
 <li><label><input type="checkbox" data-k="bcast"><span><code>expand</code> grows only size-1 axes, and <code>stack</code> and <code>index</code> work at any rank</span></label></li>
 <li><label><input type="checkbox" data-k="run"><span>Your evaluator runs every movement op, and <code>reduce pop=m</code> folds in row-major order</span></label></li>
 <li><label><input type="checkbox" data-k="lower"><span>Rangeify asks for elements by index tuple, with flatten and unflatten helpers</span></label></li>
@@ -127,7 +127,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <p class="score"></p>
 
 <div class="quiz" data-answer="b">
-<p class="q"><code>%m = reshape %x [2 2]</code> on a loaded 4-element buffer, then <code>store %b %m</code>. Valid?</p>
+<p class="q"><code>%m = reshape %v [2 2]</code>, where <code>%v</code> is a loaded 4-element buffer <code>%b</code>, then <code>store %b %m</code>. Is that valid?</p>
 <div class="opts">
 <button data-k="a">Yes: the element counts match</button>
 <button data-k="b">No: memory stays rank 1, so the stored value must be reshaped back to <code>[4]</code></button>
@@ -138,21 +138,21 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q">Which of these is a static error?</p>
+<p class="q">Which of these makes the program <code>REJECTED</code>?</p>
 <div class="opts">
 <button data-k="a"><code>reshape</code> of a <code>(2, 3)</code> to <code>[6 1]</code></button>
-<button data-k="b"><code>permute</code> of a <code>(2, 3)</code> with <code>order=[1 0]</code></button>
+<button data-k="b"><code>permute</code> of a <code>(2, 3)</code> with the order <code>[1 0]</code></button>
 <button data-k="c"><code>reshape</code> of a 3-element vector to <code>[2 2]</code></button>
-<button data-k="d"><code>pad</code> of a <code>(2, 3)</code> with <code>pads=[0 0 1 1]</code></button>
+<button data-k="d"><code>pad</code> of a <code>(2, 3)</code> with <code>[0 0 1 1]</code></button>
 </div>
 <p class="hint">Count the elements before and after.</p>
 <div class="why"><p>3 elements can't become 4. The oracle: "reshape keeps the element count: 3 != 4".</p></div>
 </div>
 
 <div class="quiz" data-answer="a">
-<p class="q"><code>reduce %m op=add pop=3</code> on a value of shape <code>(2, 2)</code>?</p>
+<p class="q">What is <code>reduce %m op=add pop=3</code> on a value of shape <code>(2, 2)</code>?</p>
 <div class="opts">
-<button data-k="a">Invalid: it pops more axes than the value has</button>
+<button data-k="a">Rejected: it pops more axes than the value has</button>
 <button data-k="b">A scalar: extra pops are ignored</button>
 <button data-k="c">Shape <code>(2,)</code></button>
 </div>

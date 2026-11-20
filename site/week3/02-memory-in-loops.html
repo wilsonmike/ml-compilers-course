@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -112,7 +112,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 
 <div class="trap">
 <span class="label">Don't fold the trick away</span>
-<p><code>mul %k 0</code> only helps while it is still a node. If your graph builder applies week 1's <code>mul(x, 0) → 0</code> as it builds, the running view becomes <code>shrink %b 0</code>, the same node as <code>%acc</code>, and the two loads merge back into one. Place loads on the graph exactly as written, and run any simplifier rules afterwards or not at all.</p>
+<p><code>mul %k 0</code> only helps while it is still a node. If your graph builder applies week 1's <code>mul(x, 0) → 0</code> as it builds, the running view becomes <code>shrink %b 0 []</code>, the same node as <code>%acc</code>, and the two loads merge back into one. Place loads on the graph exactly as written, and run any simplifier rules afterwards or not at all.</p>
 </div>
 
 <div class="trap">
@@ -121,8 +121,8 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 <pre><code>%b  = buffer 1 [10] dtype=i32 slot=0
 %i  = range 3
 %z  = mul %i 0
-%v  = shrink %b %z []   # the store's view depends on %i
-%v0 = shrink %b 0 []    # the load's view doesn't
+%v  = shrink %b %z []         # the store's view depends on %i
+%v0 = shrink %b 0 []          # the load's view doesn't
 %x  = load %v0
 %y  = add %x 1                # depends on no range
 %s  = store %v %y
@@ -133,7 +133,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 
 <h2>Resets and chains of versions inside a loop</h2>
 <div class="prose">
-<p>The row-sum exercise needs a reset per row. The reset store has to depend on <code>%i</code> so it runs inside the i loop, and it does: it stores into <code>shrink %out %i</code>. Then the j loop accumulates into the version after the reset:</p>
+<p>The row-sum exercise needs a reset per row. The reset store has to depend on <code>%i</code> so it runs inside the i loop, and it does: it stores into <code>shrink %out %i []</code>. Then the j loop accumulates into the version after the reset:</p>
 <pre><code>%i    = range 3
 %o    = shrink %out %i []
 %z    = store %o 0              # reset out[i]: runs once per i
@@ -201,7 +201,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 <button data-k="d">It's invalid: a store next to a loop must be inside it.</button>
 </div>
 <p class="hint">What are the store's open ranges?</p>
-<div class="why"><p>The store depends on no range, so it has nothing open and runs once, outside both loops. To reset once per row, the store has to depend on <code>%i</code>, for example by storing into <code>shrink %out %i</code>.</p></div>
+<div class="why"><p>The store depends on no range, so it has nothing open and runs once, outside both loops. To reset once per row, the store has to depend on <code>%i</code>, for example by storing into <code>shrink %out %i []</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">

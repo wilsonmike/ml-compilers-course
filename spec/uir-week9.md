@@ -4,7 +4,7 @@ Week 9 makes GPU kernels fast. Two things carry most of the speed of a real GEMM
 keeping each thread's working set in **registers**, and the **tensor cores**, units that multiply small matrices in
 one step. This week adds a rule that lets `render-cuda` use registers, and three things for tensor cores: the `i8`
 dtype, the `warp` axis and the `mma` op. As always, none of it changes a result: `./compile` and `render` still work
-everywhere, and `render-cuda` must still give the interpreter's bits. Everything in weeks 1 to 8 still holds. The
+everywhere, and `render-cuda` must still give the oracle's bits. Everything in weeks 1 to 8 still holds. The
 course schedule names tensor cores, upcasting, fast GEMMs, convolutions and flash attention for this week. The rest
 is our design, provisional until the official format is published.
 
@@ -37,7 +37,7 @@ A fourth dtype, for memory: 8-bit two's complement, -128 to 127.
 * `load` of i8 memory gives an i8 value, and `store` takes one.
 * `cast X dtype=i8` takes an `i32` (or an `i8`, unchanged) and keeps its low 8 bits (`200` becomes `-56`). `cast` from i8 to `i32`, `f32`
   or `bool` is exact.
-* There are no i8 literals or `const`s, and arithmetic and comparisons don't take i8: cast to `i32` to compute. Ops
+* There are no i8 literals, and arithmetic and comparisons don't take i8: cast to `i32` to compute. Ops
   that only move values (`where`, `stack`, `index`, `assert` and the shape ops) take it like any dtype.
 * Only `buffer`, `alloc` and `cast` accept `dtype=i8`. Any other op given it is rejected, `param` and `bitcast`
   included. A cast to i8 from `f32` or `bool` is rejected too.

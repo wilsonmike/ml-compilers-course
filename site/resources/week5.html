@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 </head>
 <body data-root="../">
 <main>
@@ -40,17 +40,17 @@
   <h3><a href="../week5/05-rangeify-movement.html">5.5 Rangeify movement ops</a></h3>
   <p>"Your element at index i" now takes one index per axis. Reshape is a flatten and an unflatten with <code>mul</code>, <code>div</code> and <code>mod</code>. Permute reorders the indices, shrink adds offsets, expand reads size-1 axes at 0, and pad clamps the index into range and zeroes the value with <code>where</code>.</p>
   <h3><a href="../week5/06-lab.html">5.6 Lab</a></h3>
-  <p>Same commands as week 4, with every rank limit lifted except on memory and params. The suite has 115 tests, and weeks 1 to 4 must stay green.</p>
+  <p>Same commands as week 4, with every rank limit lifted except on memory and params. The suite has 116 tests, and weeks 1 to 4 must stay green.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
     <thead><tr><th>op</th><th>result shape</th><th>element at <code>i</code></th></tr></thead>
     <tbody>
-      <tr><td><code>reshape x shape=[...]</code></td><td>that shape (same element count)</td><td>the same position in row-major order</td></tr>
-      <tr><td><code>permute x order=[p0 ...]</code></td><td><code>shape[k] = x.shape[p_k]</code></td><td><code>x</code> at the index whose axis <code>p_k</code> is <code>i_k</code></td></tr>
-      <tr><td><code>pad x pads=[l0 r0 ...]</code></td><td>each axis grows by <code>l + r</code></td><td><code>x[i - l]</code> inside, zero outside</td></tr>
-      <tr><td><code>shrink x o0 ... shape=[...]</code></td><td>that shape</td><td><code>x[i + o]</code>, with offsets provably in range</td></tr>
-      <tr><td><code>expand x shape=[...]</code></td><td>that shape</td><td><code>x</code> with each size-1 axis read at 0</td></tr>
+      <tr><td><code>reshape x [d0 ...]</code></td><td>that shape (same element count)</td><td>the same position in row-major order</td></tr>
+      <tr><td><code>permute x [p0 ...]</code></td><td><code>shape[k] = x.shape[p_k]</code></td><td><code>x</code> at the index whose axis <code>p_k</code> is <code>i_k</code></td></tr>
+      <tr><td><code>pad x [l0 r0 ...]</code></td><td>each axis grows by <code>l + r</code></td><td><code>x[i - l]</code> inside, zero outside</td></tr>
+      <tr><td><code>shrink x o0 ... [s0 ...]</code></td><td>that shape</td><td><code>x[i + o]</code>, with offsets provably in range</td></tr>
+      <tr><td><code>expand x [d0 ...]</code></td><td>that shape</td><td><code>x</code> with each size-1 axis read at 0</td></tr>
       <tr><td><code>stack a0 ... a(n-1)</code></td><td><code>(n,) + shape</code></td><td><code>a_{i0}[i1, ...]</code></td></tr>
       <tr><td><code>index x j0 ...</code></td><td>drops one leading axis per index</td><td><code>x[j0, ..., i0, ...]</code></td></tr>
       <tr><td><code>reduce x op= pop=m</code></td><td>drops m leading axes</td><td>left fold over the leading axes, in row-major order</td></tr>
@@ -122,7 +122,7 @@
     <div class="why">Row 2 starts at 8, and column 1 is one further: 9.</div>
   </div>
   <div class="quiz" data-fill="4 2 3|[4 2 3]|(4, 2, 3)|4,2,3|4, 2, 3">
-    <p class="q">What shape does <code>permute</code> with <code>order=[2 0 1]</code> give for a value of shape <code>[2 3 4]</code>? (Write the three sizes.)</p>
+    <p class="q">What shape does <code>permute</code> with the order <code>[2 0 1]</code> give for a value of shape <code>[2 3 4]</code>? (Write the three sizes.)</p>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
     <p class="hint"><code>shape[k] = x.shape[order[k]]</code>.</p>
     <div class="why"><code>shape[0] = x.shape[2] = 4</code>, <code>shape[1] = x.shape[0] = 2</code>, <code>shape[2] = x.shape[1] = 3</code>: <code>[4 2 3]</code>.</div>
@@ -134,14 +134,14 @@
     <div class="why">The original index is <code>(1, 2, 3)</code>, and its flat position is <code>1 · 12 + 2 · 4 + 3 = 23</code>, the last element.</div>
   </div>
   <div class="quiz" data-fill="6">
-    <p class="q">How many elements does <code>pad %v pads=[2 1]</code> give for a 3-element vector?</p>
+    <p class="q">How many elements does <code>pad %v [2 1]</code> give for a 3-element vector?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
     <p class="hint">Two zeros on the left, one on the right.</p>
     <div class="why">3 + 2 + 1 = 6: <code>[0 0 x0 x1 x2 0]</code>.</div>
   </div>
   <div class="quiz" data-answer="b">
     <p class="q">Which expand is valid?</p>
-    <div class="opts"><button data-k="a">a <code>[2]</code> vector to <code>shape=[3]</code></button><button data-k="b">a <code>[2 1]</code> value to <code>shape=[2 3]</code></button><button data-k="c">a <code>[2]</code> vector to <code>shape=[2 3]</code></button></div>
+    <div class="opts"><button data-k="a">a <code>[2]</code> vector to <code>[3]</code></button><button data-k="b">a <code>[2 1]</code> value to <code>[2 3]</code></button><button data-k="c">a <code>[2]</code> vector to <code>[2 3]</code></button></div>
     <p class="hint">Only size-1 axes grow, and a non-scalar keeps its rank.</p>
     <div class="why"><code>[2 1]</code> to <code>[2 3]</code> grows the size-1 axis. A size-2 axis can't become 3, and a rank-1 value can't become rank 2 (reshape it to <code>[2 1]</code> first).</div>
   </div>

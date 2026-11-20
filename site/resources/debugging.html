@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 </head>
 <body data-root="../">
 <main>
@@ -62,7 +62,7 @@ ZeroDivisionError: integer division or modulo by zero</code></pre>
   <table>
     <thead><tr><th>message starts with</th><th>look at</th></tr></thead>
     <tbody>
-      <tr><td><code>expected REJECTED, got MATCH</code></td><td>a check you don't do yet: a type rule, a bounds proof, a param's limits, an ordering rule. The <code>oracle:</code> line under it says which.</td></tr>
+      <tr><td><code>expected REJECTED, got MATCH</code></td><td>a check you don't do yet: a type rule, a bounds proof, a param's limits, a test-file rule or, from week 2, an ordering rule. The <code>oracle:</code> line under it says which.</td></tr>
       <tr><td><code>expected OVERBUDGET, got ...</code></td><td>a budget check you don't do yet, or one done in the wrong order: the file size comes before parsing, the node and edge counts before validation, and the static cost after it (spec section 7)</td></tr>
       <tr><td><code>print the file path as it was given</code></td><td>your outcome line changed the path: printed it absolute, or with a different separator</td></tr>
       <tr><td><code>oracle: a load of an old buffer version is needed after that version was overwritten</code></td><td>week 2's ordering rule. No order of loads and stores works, for example because the offset of a load from the old version depends on the new one (<code>rejected_old_version_needed_late</code>).</td></tr>
@@ -81,10 +81,10 @@ ZeroDivisionError: integer division or modulo by zero</code></pre>
   </div>
 
   <h2>2. Find out what the test is for</h2>
-  <p>Every test starts with a comment saying what it checks. The test guides collect all of them, with the plausible bugs known to fail each test: <a href="tests-week1.html">week 1</a>, <a href="tests-week2.html">week 2</a>, <a href="tests-week3.html">week 3</a>, <a href="tests-week4.html">week 4</a>, <a href="tests-week5.html">week 5</a>, <a href="tests-week6.html">week 6</a>, <a href="tests-week7.html">week 7</a>, <a href="tests-week8.html">week 8</a>, <a href="tests-week9.html">week 9</a>. Read the matching section of the spec for that week before changing code: most failures are a rule read differently, not a typo.</p>
+  <p>Every test starts with a comment saying what it checks. The test guides collect all of them, with the planted bugs each test catches: <a href="tests-week1.html">week 1</a>, <a href="tests-week2.html">week 2</a>, <a href="tests-week3.html">week 3</a>, <a href="tests-week4.html">week 4</a>, <a href="tests-week5.html">week 5</a>, <a href="tests-week6.html">week 6</a>, <a href="tests-week7.html">week 7</a>, <a href="tests-week8.html">week 8</a>, <a href="tests-week9.html">week 9</a>. Read the matching section of the spec for that week before changing code: most failures are a rule read differently, not a typo.</p>
 
   <h2>3. Shrink the failing test</h2>
-  <p>A test with ten statements has ten places for the bug. Copy it to a scratch file and delete lines until it stops failing, then put back the last thing you removed. What's left is the bug.</p>
+  <p>A test with ten bindings has ten places for the bug. Copy it to a scratch file and delete or simplify bindings until it stops failing, then put back the last thing you removed. What's left shows the bug.</p>
   <p>Say your compiler prints <code>MISMATCH</code> for this test, <code>halves.uir</code>:</p>
   <pre><code>%x = param [] slot=0 dtype=i32 addrspace=ALU
 %h = div %x 2
@@ -92,14 +92,14 @@ ZeroDivisionError: integer division or modulo by zero</code></pre>
 %s = add %h %m
 %v = call %s -7
 %t = assert %v -3</code></pre>
-  <p>The assert sees one value, built from three. Put the call's argument in by hand and check one piece at a time, starting with the division:</p>
+  <p>The assert sees one value, built from three. Put the call's argument in by hand and check one piece at a time, starting with the division. Save this as <code>small.uir</code>:</p>
   <pre><code>%h = div -7 2
 %t = assert %h -4</code></pre>
-  <p>Ask the oracle what should happen. Then save the same program asserting your compiler's value, -3, as <code>guess.uir</code>:</p>
+  <p>Then save the same program with -3 as the expected value, as <code>guess.uir</code>. Ask the oracle about both:</p>
   <pre><code>&gt; python _reference/uirc.py --week=1 small.uir guess.uir
 MATCH small.uir
 MISMATCH guess.uir</code></pre>
-  <p>Your compiler computes -3: it truncates toward zero, like C or OCaml's <code>/</code>. The spec says <code>div</code> floors, so <code>div -7 2</code> is -4 and <code>mod -7 2</code> is 1. Two lines, one rule.</p>
+  <p>Say your compiler prints the opposite: <code>MISMATCH small.uir</code> and <code>MATCH guess.uir</code>. Then it computes -3: it truncates toward zero, like C or OCaml's <code>/</code>. The spec says <code>div</code> floors, so <code>div -7 2</code> is -4 and <code>mod -7 2</code> is 1. Two lines, one rule.</p>
   <div class="key"><span class="label">Shrinking tips</span>
     <ul>
       <li>Put a call's arguments into its body by hand. If the bug disappears, it's in how you substitute.</li>

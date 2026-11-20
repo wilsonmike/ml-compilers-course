@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -44,7 +44,7 @@
 <ul>
 <li><strong>A new dtype, <code>f32</code>,</strong> with float literals and one new op, <code>recip</code>. The first half of this lesson covers it.</li>
 <li><strong>Rank-1 params and asserts.</strong> A param may have a shape like <code>[3]</code>, so a call can pass and return vectors, and an assert's left side may be a vector, compared with a stack literal like <code>[1 2 3]</code>.</li>
-<li><strong>List attributes.</strong> An attribute may hold a bracketed list with spaces, like <code>data=[1 2 3]</code> or <code>shape=[2 3]</code>. It's one attribute, from the <code>[</code> to the <code>]</code>.</li>
+<li><strong>Lists are operands.</strong> An attribute is still one token with no spaces, as in week 1. So a list, like a view's shape or a buffer's starting data, is written as a bracket operand, last among the operands: <code>shrink %b 2 [3]</code>.</li>
 <li><strong>No budgets.</strong> The week 1 limits (4096 bytes, 100 nodes, 300 edges, cost 1,000,000) are lifted. Week 2 programs are bigger, and nothing is OVERBUDGET.</li>
 </ul>
 <p>A vector param in action. ALU ops work element by element on two vectors of the same shape:</p>
@@ -138,22 +138,22 @@
 
 <div class="prose">
 <h2>Memory lives outside the program</h2>
-<p>A <code>buffer</code> is a block of n elements that exists before your program runs and after it ends. The program can read it and write it. When your compiler renders C, each buffer becomes one pointer argument of the kernel.</p>
+<p>That covers floats. The rest of this lesson is about memory. A <code>buffer</code> is a block of n elements that exists before your program runs and after it ends. The program can read it and write it. When your compiler renders C, each buffer becomes one pointer argument of the kernel.</p>
 <pre><code>%b = buffer 6 [10 20 30 40 50 60] dtype=i32 slot=0
 %w = buffer 3 dtype=f32 slot=1</code></pre>
 <ul>
-<li>The operand is the size, an integer literal.</li>
+<li>The first operand is the size, an integer literal.</li>
 <li><code>dtype</code> is the element type, and <code>slot</code> is the buffer's position in the kernel's argument list. Two buffers can't share a slot.</li>
-<li><code>data=[...]</code> gives exactly n starting values. Without it the buffer starts as zeros. In real use the data comes from outside, but in tests it's written into the file.</li>
+<li>The optional list after the size gives exactly n starting values. Without it the buffer starts as zeros. In real use the data comes from outside, but in tests it's written into the file.</li>
 </ul>
-<p>An <code>alloc</code> is the same shape of thing, but it's scratch space that belongs to the program, like a local <code>float a[3];</code> in C. It always starts as zeros, and nothing outside sees it.</p>
+<p>An <code>alloc</code> is the same kind of thing, but it's scratch space that belongs to the program, like a local <code>float a[3];</code> in C. It always starts as zeros, and nothing outside sees it.</p>
 <pre><code>%a = alloc 3 dtype=f32</code></pre>
 
 <h2>A view is a window</h2>
 <p>You rarely want a whole buffer. <code>shrink</code> makes a <strong>view</strong>: a window that starts some number of elements in and covers a fixed number of them. The offset is an i32 operand. It can be a literal or a computed value, and lesson 3 shows how computed offsets are checked. Nothing is copied. A view is just a buffer plus an offset plus a length.</p>
 <pre><code>%v = shrink %b 2 [3]     # elements 2, 3, 4
 %e = shrink %b 5 []      # just element 5</code></pre>
-<p><code>shape=[k]</code> gives a rank-1 window of k elements. <code>shape=[]</code> gives a single element, a rank-0 view, which is what you load and store scalars through. Step through the picture: the window slides over the same six cells.</p>
+<p>The last operand is the view's shape. <code>[k]</code> gives a rank-1 window of k elements. <code>[]</code> gives a single element, a rank-0 view, which is what you load and store scalars through. Step through the picture: the window slides over the same six cells.</p>
 </div>
 
 <div class="fig" id="win" data-title="one buffer, several views"></div>
@@ -163,12 +163,12 @@
 <p>A view can be shrunk again. The offsets add up, and the new window has to fit inside the <em>view</em> it was cut from, not just inside the buffer.</p>
 <pre><code>%v = shrink %b 2 [3]     # elements 2..4 of %b
 %w = shrink %v 1 []      # element 1 of %v, which is element 3 of %b</code></pre>
-<p><code>shrink %v 3 shape=[]</code> would be invalid, even though <code>%b</code> has an element 5: <code>%v</code> only has three elements, numbered 0 to 2.</p>
+<p><code>shrink %v 3 []</code> would be invalid, even though <code>%b</code> has an element 5: <code>%v</code> only has three elements, numbered 0 to 2.</p>
 </div>
 
 <div class="exercise" data-ex="w2-01-resolve" data-ex-py="w2-01-resolve-py">
 <h3>Resolve a view</h3>
-<p>Here views are a small type with three cases: a <span class="only-ocaml"><code>Buffer n</code>, a <code>Shrink (parent, off, k)</code></span><span class="only-python"><code>Buffer(n)</code>, a <code>Shrink(parent, off, k)</code></span> for <code>shape=[k]</code>, or an <span class="only-ocaml"><code>Elem (parent, off)</code></span><span class="only-python"><code>Elem(parent, off)</code></span> for <code>shape=[]</code>. Write <span class="only-ocaml"><code>resolve v</code></span><span class="only-python"><code>resolve(v)</code></span>, returning <code>(start, len)</code>: where the view starts inside its buffer, and how many elements it covers.</p>
+<p>Here views are a small type with three cases: a <span class="only-ocaml"><code>Buffer n</code>, a <code>Shrink (parent, off, k)</code></span><span class="only-python"><code>Buffer(n)</code>, a <code>Shrink(parent, off, k)</code></span> for a <code>[k]</code> view, or an <span class="only-ocaml"><code>Elem (parent, off)</code></span><span class="only-python"><code>Elem(parent, off)</code></span> for a <code>[]</code> view. Write <span class="only-ocaml"><code>resolve v</code></span><span class="only-python"><code>resolve(v)</code></span>, returning <code>(start, len)</code>: where the view starts inside its buffer, and how many elements it covers.</p>
 <p>Raise <span class="only-ocaml"><code>Invalid_argument "out of bounds"</code></span><span class="only-python">the "out of bounds" error the starter code describes</span> if any step in the chain doesn't fit inside its parent: a negative offset, or a window that runs past the end of the parent.</p>
 </div>
 
@@ -179,10 +179,10 @@
 %e = shrink %b 0 []
 %y = load %e           # 10, an i32 value
 %z = add %y 1          # 11</code></pre>
-<p>A load takes the view's dtype and shape. Loading a <code>shape=[]</code> view gives a scalar. Loading a <code>shape=[3]</code> view, or a whole buffer, gives a rank-1 value, the same kind of value <code>stack</code> builds, so you can compare it with <code>assert</code> or pick from it with <code>index</code>.</p>
+<p>A load takes the view's dtype and shape. Loading a <code>[]</code> view gives a scalar. Loading a <code>[3]</code> view, or a whole buffer, gives a rank-1 value, the same kind of value <code>stack</code> builds, so you can compare it with <code>assert</code> or pick from it with <code>index</code>.</p>
 <pre><code>%r = load %v           # the rank-1 value [30 40 50]
 %t = assert %r [30 40 50]</code></pre>
-<p>That file is a MATCH. A week 2 assert may compare a vector, as long as the expected side is a stack of literals.</p>
+<p>With the buffer above, that file is a MATCH. A week 2 assert may compare a vector, as long as the expected side is a stack of literals.</p>
 </div>
 
 <div class="note">
@@ -262,7 +262,7 @@
 </div>
 
 <div class="quiz" data-fill="2 3 4 | 2, 3, 4 | [2 3 4] | [2, 3, 4] | 2..4 | 2-4">
-<p class="q">Which element indices of <code>%b</code> does <code>shrink %b 2 shape=[3]</code> cover?</p>
+<p class="q">Which element indices of <code>%b</code> does <code>shrink %b 2 [3]</code> cover?</p>
 <div class="fill"><input aria-label="your answer" placeholder="e.g. 0 1 2"><button class="btn">Check</button></div>
 <p class="hint">It starts at the offset and covers k elements.</p>
 <div class="why"><p>Offset 2, three elements: indices 2, 3, and 4.</p></div>
@@ -282,10 +282,10 @@
 <div class="quiz" data-answer="b">
 <p class="q">On <code>%b = buffer 6 ...</code>, which view is invalid?</p>
 <div class="opts">
-<button data-k="a"><code>shrink %b 5 shape=[]</code></button>
-<button data-k="b"><code>shrink %b 4 shape=[3]</code></button>
-<button data-k="c"><code>shrink %b 0 shape=[6]</code></button>
-<button data-k="d"><code>shrink %b 3 shape=[3]</code></button>
+<button data-k="a"><code>shrink %b 5 []</code></button>
+<button data-k="b"><code>shrink %b 4 [3]</code></button>
+<button data-k="c"><code>shrink %b 0 [6]</code></button>
+<button data-k="d"><code>shrink %b 3 [3]</code></button>
 </div>
 <p class="hint">A window of k elements starting at off ends at index <code>off + k - 1</code>. The last valid index is 5.</p>
 <div class="why"><p>Offset 4 with three elements would cover indices 4, 5, and 6, and there is no index 6. The others end exactly at index 5 or earlier.</p></div>
@@ -316,10 +316,10 @@
 </div>
 
 <div class="quiz" data-answer="d">
-<p class="q">Why is <code>shrink %v 3 shape=[]</code> invalid when <code>%v = shrink %b 2 [3]</code> and <code>%b</code> has six elements?</p>
+<p class="q">Why is <code>shrink %v 3 []</code> invalid when <code>%v = shrink %b 2 [3]</code> and <code>%b</code> has six elements?</p>
 <div class="opts">
 <button data-k="a">Views can't be shrunk again.</button>
-<button data-k="b"><code>shape=[]</code> views need offset 0.</button>
+<button data-k="b"><code>[]</code> views need offset 0.</button>
 <button data-k="c">Element 5 of <code>%b</code> doesn't exist.</button>
 <button data-k="d"><code>%v</code> only has elements 0 to 2.</button>
 </div>
@@ -345,8 +345,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   const steps = [
     { caption: 'The buffer: six i32 elements, numbered 0 to 5.', code: '%b = buffer 6 [10 20 30 40 50 60] dtype=i32 slot=0', lo: 0, len: 0, label: '' },
-    { caption: '<code>shrink %b 2 shape=[3]</code>: start 2 elements in, cover 3. Loading it gives the rank-1 value <code>[30 40 50]</code>.', code: '%v = shrink %b 2 [3]', lo: 2, len: 3, label: 'start 2, length 3' },
-    { caption: '<code>shape=[]</code> is a single element. This is how you load or store one scalar.', code: '%e = shrink %b 5 []', lo: 5, len: 1, label: 'start 5, length 1' },
+    { caption: '<code>shrink %b 2 [3]</code>: start 2 elements in, cover 3. Loading it gives the rank-1 value <code>[30 40 50]</code>.', code: '%v = shrink %b 2 [3]', lo: 2, len: 3, label: 'start 2, length 3' },
+    { caption: '<code>[]</code> is a single element. This is how you load or store one scalar.', code: '%e = shrink %b 5 []', lo: 5, len: 1, label: 'start 5, length 1' },
     { caption: 'A view of a view: <code>%w</code> is element 1 <em>of %v</em>. Offsets add, 2 + 1 = 3, so it\'s element 3 of the buffer.', code: '%w = shrink %v 1 []', lo: 3, len: 1, label: 'start 2 + 1 = 3, length 1' },
     { caption: 'The whole buffer is a view too: start 0, all six elements. <code>load %b</code> gives all of them.', code: '%r = load %b', lo: 0, len: 6, label: 'start 0, length 6' },
     { caption: 'Out of bounds: start 4 with three elements needs index 6, which doesn\'t exist. The compiler rejects this before anything runs.', code: '%bad = shrink %b 4 [3]', lo: 4, len: 3, label: 'start 4, length 3: invalid' },

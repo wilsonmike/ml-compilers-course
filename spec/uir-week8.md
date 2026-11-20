@@ -82,7 +82,7 @@ are `__device__` functions. Floating point matches the CPU bit for bit, because 
 
 ## 5. Grading
 
-* `# cuda` tests run `render-cuda` and compare every buffer with the interpreter, bit for bit. With `nvcc` (or
+* `# cuda` tests run `render-cuda` and compare every buffer with the oracle's, bit for bit. With `nvcc` (or
   `--cuda-docker IMAGE`, which builds and runs in that Docker image with `--gpus all`), on the GPU. Without, in the
   emulator: the CUDA is compiled as C++ (`clang++` or `g++`), blocks run one after another, each block's threads
   are real threads, `__shared__` arrays are shared by them, and `__syncthreads()` is a real barrier. A missing

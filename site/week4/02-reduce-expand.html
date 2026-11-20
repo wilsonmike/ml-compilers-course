@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -39,7 +39,7 @@
 <h2>reduce is a left fold</h2>
 <p><code>reduce %x op=add</code> takes a vector of shape <code>(n,)</code> and returns a scalar. The spec fixes the order exactly:</p>
 <pre><code>reduce x op=add  =  ((x[0] + x[1]) + x[2]) + ... + x[n-1]</code></pre>
-<p>It starts from <code>x[0]</code>, not from 0, and adds the rest left to right, rounding to f32 after every add. <code>op=mul</code> and <code>op=max</code> fold the same way. reduce works on i32 and f32. i32 wraps at every step, as always.</p>
+<p>It starts from <code>x[0]</code>, not from 0, and adds the rest left to right, rounding to f32 after every add. <code>op=mul</code> and <code>op=max</code> fold the same way. <code>reduce</code> works on i32 and f32, not bool. i32 wraps at every step, as always.</p>
 </div>
 
 <div class="key">
@@ -72,7 +72,7 @@
 <table>
 <thead><tr><th>op</th><th>folds with</th><th>edge cases</th></tr></thead>
 <tbody>
-<tr><td><code>op=add</code></td><td><code>add</code></td><td>f32 overflow gives <code>inf</code>, and later finite adds keep it <code>inf</code> (a later <code>-inf</code> makes NaN), and i32 wraps</td></tr>
+<tr><td><code>op=add</code></td><td><code>add</code></td><td>i32 wraps. In f32, an overflow gives <code>inf</code>, which stays <code>inf</code> through later finite adds (adding <code>-inf</code> to it gives NaN)</td></tr>
 <tr><td><code>op=mul</code></td><td><code>mul</code></td><td><code>65536 * 65536 * 3</code> is 0 in i32</td></tr>
 <tr><td><code>op=max</code></td><td><code>max</code></td><td>any NaN makes the result NaN, and <code>max(-0.0, 0.0)</code> is <code>+0.0</code></td></tr>
 </tbody>
@@ -82,14 +82,14 @@
 
 <h2>expand is a broadcast</h2>
 <div class="prose">
-<p><code>expand %s shape=[n]</code> takes a scalar and gives a vector of n copies. It's how a scalar meets a vector, since ALU ops never broadcast on their own. Week 4 uses <code>expand</code> on scalars. Week 5 widens it to grow any size-1 axis of a same-rank value. Growing an axis that isn't size 1 is always an error: a <code>(2,)</code> vector can't become <code>[3]</code>.</p>
+<p><code>expand %s [n]</code> takes a scalar and gives a vector of n copies. The shape is the last operand, a bracket list. It's how a scalar meets a vector, since ALU ops never broadcast on their own. Week 4 uses <code>expand</code> on scalars. Week 5 widens it to grow any size-1 axis of a value with the same rank. Growing an axis that isn't size 1 is always rejected: a <code>(2,)</code> vector can't become <code>(3,)</code>.</p>
 <p>The two ops together give the classic patterns. Here's normalization, <code>y = x / sum(x)</code>, written with <code>recip</code> because there's no f32 division op:</p>
 <pre><code>%v = load %x                   # (n,)
 %s = reduce %v op=add          # ()   the sum
 %r = recip %s                  # ()   1 / sum
 %e = expand %r [n]       # (n,) 1 / sum, n times
 %y = mul %v %e                 # (n,) each x / sum</code></pre>
-<p>For <code>x = [1.0 3.0]</code> that's <code>[0.25 0.75]</code>. A mean is a sum times a constant: <code>reduce</code>, then <code>mul</code> by <code>0.125</code> for eight elements. Note that <code>%v</code> is used twice, by the reduce and by the final <code>mul</code>. That's fine: the generated code reads <code>x</code> twice whatever you do, because the reduce has to finish before the store loop can start. The real question comes when a <em>computed</em> value (not a plain load) has two uses: recompute it at each use, or store it once. That's the materialization question of lesson 4.4.</p>
+<p>For <code>x = [1.0 3.0]</code> that's <code>[0.25 0.75]</code>. A mean is a sum times a constant: <code>reduce</code>, then <code>mul</code> by <code>0.125</code> for eight elements. Note that <code>%v</code> is used twice, by the reduce and by the final <code>mul</code>. That's fine: the generated code reads <code>x</code> twice whatever you do, because the reduce has to finish before the store loop can start. The real question comes when a <em>computed</em> value (not a plain load) has two uses: should the compiler recompute it at each use, or store it once? That's the materialization question of lesson 4.4.</p>
 </div>
 
 <div class="exercise" data-ex="w4-02-maxnorm">
@@ -125,7 +125,7 @@
 <button data-k="a">3.0: NaN is ignored.</button>
 <button data-k="b">nan</button>
 <button data-k="c">1.0: the fold stops at the NaN.</button>
-<button data-k="d">Invalid: NaN can't be reduced.</button>
+<button data-k="d">Rejected: NaN can't be reduced.</button>
 </div>
 <p class="hint">reduce folds with week 2's f32 <code>max</code>. What does that do with a NaN operand?</p>
 <div class="why"><p>The f32 <code>max</code> returns NaN if either operand is NaN, so once the NaN enters the fold, every later step is NaN too.</p></div>
@@ -146,15 +146,15 @@
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q"><code>%v = stack 1 2</code>. What is <code>expand %v shape=[3]</code>?</p>
+<p class="q"><code>%v = stack 1 2</code>. What is <code>expand %v [3]</code>?</p>
 <div class="opts">
 <button data-k="a"><code>[1 2 1]</code>: it repeats the vector.</button>
 <button data-k="b"><code>[1 2 0]</code>: it pads with zeros.</button>
-<button data-k="c">Invalid: its axis has size 2, and <code>expand</code> only grows size-1 axes.</button>
+<button data-k="c">Rejected: its axis has size 2, and <code>expand</code> only grows size-1 axes.</button>
 <button data-k="d"><code>[1 1 1]</code>: it repeats the first element.</button>
 </div>
 <p class="hint">Which axes is <code>expand</code> allowed to grow?</p>
-<div class="why"><p>Week 4 uses <code>expand</code> on scalars, and week 5 lets it grow any size-1 axis. Neither allows a size-2 axis to become size 3, so this is a static error in every week. To repeat a pattern you need the movement ops of week 5.</p></div>
+<div class="why"><p>Week 4 uses <code>expand</code> on scalars, and week 5 lets it grow any size-1 axis. Neither allows a size-2 axis to become size 3, so the program is rejected in every week. To repeat a pattern you need the movement ops of week 5.</p></div>
 </div>
 
 <nav class="pager">

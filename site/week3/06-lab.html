@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
   .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
@@ -78,7 +78,7 @@
 <ol>
 <li>Runs <code>your.exe render FILE</code> and fails the test on a nonzero exit.</li>
 <li>Parses the program with the oracle and checks whether it contains a <code>range</code>. It then strips comments and string literals from your C and fails the test if it finds <code>while</code>, <code>do</code> or <code>goto</code>, or, when the program has no range, <code>for</code>.</li>
-<li>Writes its own <code>main</code>: one array per buffer filled with the <code>data</code> values (f32 from exact bits), a call to <code>kernel</code> in slot order, then one line per element.</li>
+<li>Writes its own <code>main</code>: one array per buffer, filled with its starting data (f32 from exact bits), a call to <code>kernel</code> in slot order, then one line per element.</li>
 <li>Compiles both files with <code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined ... -lm</code>.</li>
 <li>Runs it and compares every element with the oracle: i32 and bool exactly, f32 bit for bit, any NaN matching any NaN.</li>
 </ol>
@@ -163,7 +163,11 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 %w  = shrink %c %i []
 %s2 = store %w 8
 %e2 = end %s2 %i
-%c1 = after %c %e2</code></pre>
+%c1 = after %c %e2
+%x  = load %b1
+%y  = load %c1
+%z  = add %x %y
+%t  = assert %z [15 15 15 15]</code></pre>
 <div class="fill"><input aria-label="outcome"><button class="btn">Check</button></div>
 <p class="hint">Count the <code>end</code>s that close <code>%i</code>.</p>
 <div class="why"><p><code>REJECTED</code>: <code>%i</code> is closed twice. A range is one loop and gets one <code>end</code>. To write both buffers in it, use <code>end %s %s2 %i</code>.</p></div>

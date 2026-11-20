@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .stack { display: grid; gap: var(--s4); }
 </style>
@@ -30,12 +30,12 @@
 <main>
 <p class="eyebrow">Week 4 · Lesson 5</p>
 <h1>Rendering vectors</h1>
-<p class="lede">After rangeify, your renderer is printing a week 3 program, so most of this lesson is about what the output should look like and how to check it. The short version: one loop per rank-1 store, one per reduce, scalars computed once between them, and the whole kernel around a kilobyte no matter how long the vectors are.</p>
+<p class="lede">After rangeify, your renderer is printing a week 3 program, so most of this lesson is about what the output should look like and how to check it. The short version: one loop per rank-1 store, one per reduce, scalars computed once between them, and a file that stays under two kilobytes no matter how long the vectors are.</p>
 
 <div class="prose">
 <h2>Why unrolling fails</h2>
 <p>Week 2's renderer handled a rank-1 value by keeping it as a C array and spelling out every element: <code>{b0[0 + 0], b0[0 + 1], ...}</code>. For four elements that's fine. Week 4's render tests use vectors of 4096 floats, and the grader rejects any rendered C over <strong>20,000 bytes</strong>, before it even tries to compile it.</p>
-<p>Count it out for <code>x / sum(x)</code> on 4096 floats. The store alone, unrolled, is one line per element, about 30 bytes each: roughly 125,000 bytes, six times the limit, before the reduce or any loads. The rangeified version is about a kilobyte in total (1,041 bytes with the current oracle), headers and helpers included. Make the vectors a million long and it's the same size plus a few more digits in the loop bounds.</p>
+<p>Count it out for <code>x / sum(x)</code> on 4096 floats. The store alone, unrolled, is one line per element, about 30 bytes each: roughly 125,000 bytes, six times the limit, before the reduce or any loads. The rangeified version is about 1.6 kilobytes in total (1,630 bytes with the current oracle), headers and helper functions included. Make the vectors a million long and it's the same size plus a few more digits in the loop bounds.</p>
 </div>
 
 <div class="fig" id="steps" data-title="x / sum(x) on 4096 floats: where each part of the C comes from"></div>
@@ -84,13 +84,13 @@
 <div class="quiz" data-answer="a">
 <p class="q">Roughly how big is the oracle's rendered C for <code>x / sum(x)</code> on 4096 floats, headers included?</p>
 <div class="opts">
-<button data-k="a">About 1,000 bytes</button>
+<button data-k="a">About 1,600 bytes</button>
 <button data-k="b">About 20,000 bytes, right at the limit</button>
 <button data-k="c">About 125,000 bytes</button>
 <button data-k="d">It depends on the data in the buffer</button>
 </div>
 <p class="hint">It's in the lesson, and it doesn't depend on 4096.</p>
-<div class="why"><p>About a kilobyte (1,041 bytes with the current oracle). Two loops and a few scalar lines. The vector length only appears as a few numbers: the loop bounds 4095 and 4096, and the <code>% 4096</code> in the index math. 125,000 bytes is what the unrolled store alone would cost.</p></div>
+<div class="why"><p>About 1.6 kilobytes (1,630 bytes with the current oracle): the helper functions at the top, then two loops and a few scalar lines. The vector length only appears as a few numbers: the loop bounds 4095 and 4096, and the <code>% 4096</code> in the index math. 125,000 bytes is what the unrolled store alone would cost.</p></div>
 </div>
 
 <div class="quiz" data-answer="b">

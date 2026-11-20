@@ -70,4 +70,4 @@ show only on that track.
   (add `-k ID` to check only the exercises whose id contains ID). It also checks that every exercise has a sample
   test, at least 2 hints, and an `explain`.
 * OCaml exercises are drills, not pieces of the week's compiler handed over whole. The student writes their
-  compiler in their own repo; exercises build the muscles (Int32 wrap, C division, pattern matching, a toposort on a toy type).
+  compiler in their own repo; exercises build the muscles (Int32 wrap, floor division, pattern matching, a toposort on a toy type).

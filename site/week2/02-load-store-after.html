@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -79,7 +79,7 @@
 
 <div class="prose">
 <h2>The old-version trap</h2>
-<p>Rule 3 sounds like it can never fail, because a load of V doesn't depend on the store that comes after V. It can fail, though, when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer. The <code>mod</code> only keeps that index provably in range, which <a href="03-bounds.html">lesson 3</a> explains, so you can ignore it for now:</p>
+<p>Rule 3 sounds like it can never fail, because a load of V doesn't depend on the store that comes after V. It can fail, though, when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer. The <code>mod</code> is only there to keep the index provably in range (<a href="03-bounds.html">lesson 3</a> explains why), so you can ignore it for now:</p>
 <pre><code>%b  = buffer 2 [1 0] dtype=i32 slot=0
 %e0 = shrink %b 0 []
 %s  = store %e0 0
@@ -87,7 +87,7 @@
 %n0 = shrink %b1 0 []
 %i  = load %n0              # reads the NEW b[0]
 %k  = mod %i 2
-%v  = shrink %b %k [] # ...to index the OLD %b
+%v  = shrink %b %k []       # ...to index the OLD %b
 %y  = load %v
 %t  = assert %y 1</code></pre>
 <p>When your compiler renders C, every version of <code>%b</code> is the same array, written in place. So the load of old <code>%b</code> must run before the store. But it needs <code>%i</code>, which needs <code>%b1</code>, which needs the store. Step through the chain of "must come before":</p>
@@ -116,7 +116,7 @@
 %x  = load %e</code></pre>
 <div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
 <p class="hint">Which version is <code>%e</code> a view of?</p>
-<div class="why"><p><code>%e</code> is a view of <code>%b</code>, the version before the store, and the buffer started as zeros. To read the 1, you'd load through <code>shrink %b1 0 shape=[]</code>.</p></div>
+<div class="why"><p><code>%e</code> is a view of <code>%b</code>, the version before the store, and the buffer started as zeros. To read the 1, you'd load through <code>shrink %b1 0 []</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="c">
@@ -229,7 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
 %b1 = after %b %s
 %i  = load %n0              # n0 is a view of %b1
 %k  = mod %i 2
-%v  = shrink %b %k [] # a view of the OLD %b
+%v  = shrink %b %k []       # a view of the OLD %b
 %y  = load %v`;
   const cyc = [
     { caption: '<code>%y</code> loads from <code>%b</code>, and <code>%s</code> overwrites <code>%b</code>. So <code>%y</code> must run <strong>before</strong> <code>%s</code>.', hl: 5 },

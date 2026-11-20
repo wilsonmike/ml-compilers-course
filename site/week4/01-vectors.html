@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=8f97a2652a">
-<script src="../assets/course.js?v=1eb7fa1844"></script>
+<link rel="stylesheet" href="../assets/course.css?v=31313a0495">
+<script src="../assets/course.js?v=a2005c9cb3"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -54,9 +54,9 @@
 
 <h2>No implicit broadcasting</h2>
 <div class="prose">
-<p>NumPy and PyTorch let you write <code>x + 1.0</code> and quietly stretch the scalar to x's shape. Here that's a type error:</p>
+<p>NumPy and PyTorch let you write <code>x + 1.0</code> and quietly stretch the scalar to x's shape. Here it's a type error, and the program is rejected:</p>
 <pre><code>%v = load %x               # shape (4,)
-%z = add %v 1.0            # invalid: shapes (4,) and () don't match</code></pre>
+%z = add %v 1.0            # rejected: shapes (4,) and () don't match</code></pre>
 <p>To use a scalar with a vector, you <code>expand</code> it first, which lesson 4.2 covers properly:</p>
 <pre><code>%one = expand 1.0 [4]   # [1.0 1.0 1.0 1.0]
 %z   = add %v %one            # fine: both (4,)</code></pre>
@@ -80,8 +80,8 @@
 <tr><td><code>add</code> of two <code>(4,)</code> f32 vectors</td><td>f32 <code>(4,)</code></td></tr>
 <tr><td><code>cmplt</code> of two <code>(3,)</code> i32 vectors</td><td>bool <code>(3,)</code></td></tr>
 <tr><td><code>where</code> with a bool <code>(3,)</code> condition and two <code>(3,)</code> branches</td><td>the branches' dtype, <code>(3,)</code></td></tr>
-<tr><td><code>add</code> of <code>(4,)</code> and <code>(3,)</code></td><td>invalid</td></tr>
-<tr><td><code>add</code> of <code>(4,)</code> and a scalar</td><td>invalid: <code>expand</code> the scalar</td></tr>
+<tr><td><code>add</code> of <code>(4,)</code> and <code>(3,)</code></td><td>rejected</td></tr>
+<tr><td><code>add</code> of <code>(4,)</code> and a scalar</td><td>rejected: <code>expand</code> the scalar first</td></tr>
 <tr><td><code>index</code> of an <code>(n,)</code> result</td><td>a scalar, as in week 1</td></tr>
 </tbody>
 </table>
@@ -89,7 +89,7 @@
 
 <div class="trap">
 <span class="label">Vectors don't mix with hand-written loops</span>
-<p>A vector may not depend on an open range from a week 3 loop. "The element of a vector at iteration k" is something rangeify will build for you. Mixing the two by hand is an error.</p>
+<p>A vector may not depend on an open range from a week 3 loop. "The element of a vector at iteration k" is something rangeify will build for you. Mixing the two by hand is rejected.</p>
 </div>
 
 <div class="exercise small" data-ex="w4-01-absdiff">
@@ -116,7 +116,7 @@
 <div class="opts">
 <button data-k="a">Each element gets 1.0 added.</button>
 <button data-k="b">Only element 0 gets 1.0 added.</button>
-<button data-k="c">The program is invalid: the shapes <code>(4,)</code> and <code>()</code> don't match.</button>
+<button data-k="c">The program is rejected: the shapes <code>(4,)</code> and <code>()</code> don't match.</button>
 <button data-k="d">The result is a scalar: the sum of <code>%v</code> plus 1.0.</button>
 </div>
 <p class="hint">Does any ALU op stretch a scalar for you?</p>
@@ -129,7 +129,7 @@
 <button data-k="a">One bool: whether every element of x is less than y's.</button>
 <button data-k="b">A bool vector of shape <code>(3,)</code>.</button>
 <button data-k="c">An i32 vector of 0s and 1s.</button>
-<button data-k="d">Invalid: comparisons only take scalars.</button>
+<button data-k="d">Rejected: comparisons only take scalars.</button>
 </div>
 <p class="hint">Elementwise means the result has the operands' shape, and <code>cmplt</code> always returns bool.</p>
 <div class="why"><p>Each element compares on its own, so you get three bools, shape <code>(3,)</code>.</p></div>
