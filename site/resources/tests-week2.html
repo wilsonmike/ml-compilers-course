@@ -43,15 +43,15 @@
     <tr><td><code>render/alloc_read_before_write</code></td><td>render</td><td>reading an alloc before any store sees zeros</td><td>C alloc not zeroed<br>C rank-1 store one elem<br>final version not followed</td></tr>
     <tr><td><code>render/alloc_scratch</code></td><td>render</td><td>a local alloc holds an intermediate, and it starts as zeros</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/alloc_two_distinct</code></td><td>render</td><td>two same-size allocs are separate arrays</td><td>allocs share storage</td></tr>
-    <tr><td><code>render/asserts_ignored</code></td><td>render</td><td>render ignores asserts and statements the outputs don&#x27;t need</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/asserts_ignored</code></td><td>render</td><td>render ignores asserts and anything the outputs don&#x27;t need</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/bool_ops</code></td><td>render</td><td>bool xor, where on bools, and bool to i32</td><td>C where swapped</td></tr>
     <tr><td><code>render/call_inlined</code></td><td>render</td><td>calls render inline: the body runs on loaded args</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/call_nested_closed</code></td><td>render</td><td>a nested call&#x27;s body keeps its own param 0 when inlined</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/cast_f32_i32_saturates</code></td><td>render</td><td>f32 to i32 truncates and saturates, and nan is 0: C&#x27;s plain (int32_t) cast is undefined for most of these</td><td>C f32-&gt;i32 plain cast</td></tr>
+    <tr><td><code>render/call_nested_closed</code></td><td>render</td><td>a nested call&#x27;s body keeps its own slot 0 when inlined</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/cast_f32_i32_saturates</code></td><td>render</td><td>f32 to i32 truncates and saturates, and nan is 0. C&#x27;s plain cast is undefined here</td><td>C f32-&gt;i32 plain cast</td></tr>
     <tr><td><code>render/casts_to_i32_and_bool</code></td><td>render</td><td>f32 to i32 truncates toward zero, and anything to bool is != 0, nan included</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/copy_scalar</code></td><td>render</td><td>the smallest kernel: one load, one store</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/div_mod_loaded</code></td><td>render</td><td>div and mod of loaded values floor, and a zero divisor gives -1 and x: the C needs more than / and %</td><td>C div by zero is 0<br>C div doesn&#x27;t floor<br>C div is C&#x27;s /<br>C mod by zero is 0<br>C mod keeps x&#x27;s sign</td></tr>
-    <tr><td><code>render/div_mod_negative_const</code></td><td>render</td><td>a constant positive divisor still needs floor semantics when x can be negative: -7 div 4 is -2, mod is 1</td><td>C fast path ignores sign</td></tr>
+    <tr><td><code>render/div_mod_loaded</code></td><td>render</td><td>div and mod of loaded values floor, and a zero divisor gives -1 and x</td><td>C div by zero is 0<br>C div doesn&#x27;t floor<br>C div is C&#x27;s /<br>C mod by zero is 0<br>C mod keeps x&#x27;s sign</td></tr>
+    <tr><td><code>render/div_mod_negative_const</code></td><td>render</td><td>-7 div 4 is -2 and -7 mod 4 is 1, so C&#x27;s / and % aren&#x27;t enough</td><td>C fast path ignores sign</td></tr>
     <tr><td><code>render/dynamic_offset_bool</code></td><td>render</td><td>a bool-derived offset picks one of two elements</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/dynamic_offset_store</code></td><td>render</td><td>store at a masked loaded offset</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/f32_chain</code></td><td>render</td><td>a longer f32 chain where every intermediate rounds</td><td><span class=muted>none recorded</span></td></tr>
@@ -89,20 +89,20 @@
     <tr><td><code>run/bounds_const_arith_offset</code></td><td>run: MATCH</td><td>constant arithmetic offsets have exact bounds</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/bounds_last_window</code></td><td>run: MATCH</td><td>a [k] view that ends exactly at the end is in bounds</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/bounds_masked_offset</code></td><td>run: MATCH</td><td>a loaded index masked with max and mod is provably in [0, 3]</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/bounds_mod_floor</code></td><td>run: MATCH</td><td>mod by a positive y is in [0, y - 1] even for a negative x, so a loaded value mod 4 is a safe offset</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_mod_floor</code></td><td>run: MATCH</td><td>a loaded value mod 4 is in [0, 3], even when it&#x27;s negative</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/buf_bool</code></td><td>run: MATCH</td><td>bool buffers hold true/false</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/buf_chain3</code></td><td>run: MATCH</td><td>three stores in a row, each into the previous version</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/buf_data_load_t0</code></td><td>run: MATCH</td><td>data= gives a buffer its initial contents, and a scalar view loads one element</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/buf_data_load_t1</code></td><td>run: MATCH</td><td>data= gives a buffer its initial contents, and a scalar view loads one element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_data_load_t0</code></td><td>run: MATCH</td><td>a data list sets a buffer&#x27;s starting values, and a [] view loads one</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_data_load_t1</code></td><td>run: MATCH</td><td>a data list sets a buffer&#x27;s starting values, and a [] view loads one</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/buf_f32_rounding</code></td><td>run: MATCH</td><td>f32 data rounds like f32 literals, and stays f32 through memory</td><td>f32 consts not rounded<br>f32 ops not rounded</td></tr>
     <tr><td><code>run/buf_old_version</code></td><td>run: MATCH</td><td>a load of the old version still sees the old value, even if written after the store in the file</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/buf_rmw</code></td><td>run: MATCH</td><td>read, modify, write back</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/buf_store_after</code></td><td>run: MATCH</td><td>after names the version with the store applied</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/buf_versions_differ_t0</code></td><td>run: MATCH</td><td>every version keeps its own contents</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/buf_versions_differ_t1</code></td><td>run: MATCH</td><td>every version keeps its own contents</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/buf_zeros_t0</code></td><td>run: MATCH</td><td>without data=, a buffer starts as zeros of its dtype</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/buf_zeros_t1</code></td><td>run: MATCH</td><td>without data=, a buffer starts as zeros of its dtype</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/buf_zeros_t2</code></td><td>run: MATCH</td><td>without data=, a buffer starts as zeros of its dtype</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_zeros_t0</code></td><td>run: MATCH</td><td>with no data list, a buffer starts as zeros</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_zeros_t1</code></td><td>run: MATCH</td><td>with no data list, a buffer starts as zeros</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/buf_zeros_t2</code></td><td>run: MATCH</td><td>with no data list, a buffer starts as zeros</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/call_extra_args</code></td><td>run: MATCH</td><td>extra args are ignored</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/call_f32_bool_t0</code></td><td>run: MATCH</td><td>params of other dtypes</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/call_f32_bool_t1</code></td><td>run: MATCH</td><td>params of other dtypes</td><td><span class=muted>none recorded</span></td></tr>
@@ -121,8 +121,8 @@
     <tr><td><code>run/cmplt_nan_zero_t1</code></td><td>run: MATCH</td><td>any NaN compare is false; -0.0 is not less than 0.0</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/cmplt_nan_zero_t2</code></td><td>run: MATCH</td><td>any NaN compare is false; -0.0 is not less than 0.0</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/cmplt_nan_zero_t3</code></td><td>run: MATCH</td><td>any NaN compare is false; -0.0 is not less than 0.0</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/const_dtype_t0</code></td><td>run: MATCH</td><td>const with an explicit dtype</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/const_dtype_t2</code></td><td>run: MATCH</td><td>const with an explicit dtype</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/const_dtype_t0</code></td><td>run: MATCH</td><td>a literal with a point is f32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/const_dtype_t2</code></td><td>run: MATCH</td><td>a literal with a point is f32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/copy_between_buffers</code></td><td>run: MATCH</td><td>load from one buffer, store into another</td><td>rank-1 store writes one</td></tr>
     <tr><td><code>run/f32_assert_equality_t0</code></td><td>run: MATCH</td><td>assert compares f32 by value, and NaN counts as equal to NaN</td><td>-0.0 != 0.0 in assert</td></tr>
     <tr><td><code>run/f32_assert_equality_t1</code></td><td>run: MATCH</td><td>assert compares f32 by value, and NaN counts as equal to NaN</td><td>NaN != NaN in assert</td></tr>
@@ -157,7 +157,7 @@
     <tr><td><code>run/literal_float_out_of_range_t0</code></td><td>run: MATCH</td><td>a float literal too big for f32 rounds to inf, and one too small rounds to 0</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/literal_float_out_of_range_t1</code></td><td>run: MATCH</td><td>a float literal too big for f32 rounds to inf, and one too small rounds to 0</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/load_after_values_in_call</code></td><td>run: MATCH</td><td>loaded values (not memory) can be call args</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/loaded_div_zero</code></td><td>run: MATCH</td><td>div by a loaded zero is -1, the same as div by a literal zero: no value can fail at run time</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/loaded_div_zero</code></td><td>run: MATCH</td><td>div by a loaded zero is -1, like div by a literal zero</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/max_basic_t1</code></td><td>run: MATCH</td><td>max on i32 and f32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/max_nan_t0</code></td><td>run: MATCH</td><td>max propagates NaN from either side</td><td>max ignores NaN</td></tr>
     <tr><td><code>run/max_nan_t1</code></td><td>run: MATCH</td><td>max propagates NaN from either side</td><td><span class=muted>none recorded</span></td></tr>
@@ -165,7 +165,7 @@
     <tr><td><code>run/max_signed_zero_t1</code></td><td>run: MATCH</td><td>max(-0.0, 0.0) is +0.0 in either order, and recip tells the zeros apart</td><td>max(-0.0, 0.0) order-dependent</td></tr>
     <tr><td><code>run/mismatch_cast_big_i32</code></td><td>run: MISMATCH</td><td>2^31 doesn&#x27;t fit in i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/mismatch_cast_inf_i32</code></td><td>run: MISMATCH</td><td>inf can&#x27;t become an i32</td><td>f32-&gt;i32 wraps</td></tr>
-    <tr><td><code>run/mismatch_memory_assert</code></td><td>run: MISMATCH</td><td>a failing assert on a loaded value</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mismatch_memory_assert</code></td><td>run: MISMATCH</td><td>the loaded value doesn&#x27;t match</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_after_not_store</code></td><td>run: REJECTED</td><td>the second operand of after must be a store</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_after_on_view</code></td><td>run: REJECTED</td><td>after takes a whole buffer version, not a view</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_after_stale_version</code></td><td>run: REJECTED</td><td>after names an older version of the right buffer: still wrong</td><td>after version unchecked</td></tr>
@@ -188,7 +188,7 @@
     <tr><td><code>run/rejected_call_type_mismatch</code></td><td>run: REJECTED</td><td>arg dtype must match the param</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_call_type_unused</code></td><td>run: REJECTED</td><td>arg dtype checks are static too</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_data_dtype</code></td><td>run: REJECTED</td><td>data values must be literals of the buffer&#x27;s dtype</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_data_length</code></td><td>run: REJECTED</td><td>data= must give exactly n values</td><td>data length unchecked</td></tr>
+    <tr><td><code>run/rejected_data_length</code></td><td>run: REJECTED</td><td>the data list needs exactly n values</td><td>data length unchecked</td></tr>
     <tr><td><code>run/rejected_duplicate_slot</code></td><td>run: REJECTED</td><td>slots are unique</td><td>duplicate slots ok</td></tr>
     <tr><td><code>run/rejected_duplicate_slot_identical</code></td><td>run: REJECTED</td><td>two identical buffer statements are still two buffers sharing a slot</td><td>identical buffers merge</td></tr>
     <tr><td><code>run/rejected_index_f32</code></td><td>run: REJECTED</td><td>the index must be i32</td><td><span class=muted>none recorded</span></td></tr>
@@ -202,20 +202,20 @@
     <tr><td><code>run/rejected_offset_f32</code></td><td>run: REJECTED</td><td>offsets are i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_old_version_needed_late</code></td><td>run: REJECTED</td><td>the offset of a load from the old version depends on the new version: no order works</td><td>no ordering cycle check</td></tr>
     <tr><td><code>run/rejected_param_two_types</code></td><td>run: REJECTED</td><td>one slot can&#x27;t be two types inside one body</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_param_two_types_b</code></td><td>run: REJECTED</td><td>same as err_param_two_types with the uses in the other order: check every use, not just the first or last</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_shrink_no_shape</code></td><td>run: REJECTED</td><td>shrink needs shape=</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_two_types_b</code></td><td>run: REJECTED</td><td>two param nodes for slot 0 in one body, in the other order</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_shrink_no_shape</code></td><td>run: REJECTED</td><td>shrink needs a shape</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_stack_mixed</code></td><td>run: REJECTED</td><td>stack operands must share a dtype</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_store_dtype</code></td><td>run: REJECTED</td><td>the stored value must have the view&#x27;s dtype</td><td>store type unchecked</td></tr>
     <tr><td><code>run/rejected_store_into_value</code></td><td>run: REJECTED</td><td>store writes into memory, not into a value</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_store_shape</code></td><td>run: REJECTED</td><td>the stored value must have the view&#x27;s shape</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_then_static_error</code></td><td>run: REJECTED</td><td>type checking happens before any assert runs, so a later type error beats an earlier failing assert</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_then_static_error</code></td><td>run: REJECTED</td><td>a type error rejects the program, whatever the assert says</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_two_stores_one_version</code></td><td>run: REJECTED</td><td>two stores into the same version are unordered</td><td>two stores per version</td></tr>
-    <tr><td><code>run/rejected_two_stores_unsequenced_second</code></td><td>run: REJECTED</td><td>a second store into a version is invalid even if only one is sequenced</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_two_stores_unsequenced_second</code></td><td>run: REJECTED</td><td>two stores into one version, even if only one is sequenced</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_assert</code></td><td>run: REJECTED</td><td>assert needs matching dtypes</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_div_f32</code></td><td>run: REJECTED</td><td>div is i32 only</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_mix</code></td><td>run: REJECTED</td><td>no implicit conversion between i32 and f32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_recip_i32</code></td><td>run: REJECTED</td><td>recip is f32 only</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_type_static</code></td><td>run: REJECTED</td><td>type errors are static: this bad line is never evaluated, but the program is still invalid</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_type_static</code></td><td>run: REJECTED</td><td>a type error rejects the program even in a line the assert doesn&#x27;t use</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_where_branches</code></td><td>run: REJECTED</td><td>where branches must have the same dtype</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_xor_f32</code></td><td>run: REJECTED</td><td>xor is not defined on f32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_unsequenced_store</code></td><td>run: REJECTED</td><td>a store no after sequences has no effect, so it&#x27;s an error</td><td>unsequenced store ok</td></tr>
@@ -226,7 +226,7 @@
     <tr><td><code>run/stack_f32_bool_1_t0</code></td><td>run: MATCH</td><td>stack works for any dtype</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/stack_f32_bool_2_t0</code></td><td>run: MATCH</td><td>stack works for any dtype</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/swap</code></td><td>run: MATCH</td><td>swap two elements: both loads read the original version</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/view_rank1_load</code></td><td>run: MATCH</td><td>shape=[k] views k elements starting at the offset</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/view_rank1_load</code></td><td>run: MATCH</td><td>a [k] view covers k elements from the offset</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/view_rank1_store</code></td><td>run: MATCH</td><td>store a rank-1 value into a [k] view</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/view_shrink_of_shrink</code></td><td>run: MATCH</td><td>offsets add: shrink 1 then shrink 2 lands on element 3</td><td>shrink offsets don&#x27;t add</td></tr>
     <tr><td><code>run/view_shrink_of_shrink_store</code></td><td>run: MATCH</td><td>a store through a nested view writes the right element</td><td><span class=muted>none recorded</span></td></tr>
