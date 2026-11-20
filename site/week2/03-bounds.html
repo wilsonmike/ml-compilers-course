@@ -51,9 +51,9 @@
 
 <h2>Loaded values are unknown</h2>
 <p>A value loaded from memory could be anything, because memory comes from outside. Its interval is the full i32 range. So this gather, which reads an index from one buffer and uses it on <code>%d</code>, a 4-element buffer, is invalid, even if the data happens to hold a small number:</p>
-<pre><code>%i0  = shrink %ix 0 shape=[]
+<pre><code>%i0  = shrink %ix 0 []
 %i   = load %i0                 # interval: [INT_MIN, INT_MAX]
-%src = shrink %d %i shape=[]    # can't prove 0 ≤ %i ≤ 3</code></pre>
+%src = shrink %d %i []    # can't prove 0 ≤ %i ≤ 3</code></pre>
 <p>To make it valid you shape the interval with ops whose bounds you can compute, using week 1's exact rules (spec section 5). The one that does most of the work is <code>mod</code>. It floors, so a nonzero remainder has the sign of <code>y</code>: <code>mod %i 4</code> is in <code>[0, 3]</code> for <em>every</em> <code>%i</code>, negative ones included. <code>mod -7 4</code> is 1, not -3. We write nested forms like <code>shrink %b (mod %i 4)</code> as shorthand, but in a <code>.uir</code> file each op is its own binding. Step through: the green line is the allowed range <code>[0, n - k]</code>, and the thick line is the offset's interval.</p>
 </div>
 
@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { caption: 'A negative divisor flips it: <code>mod %i -4</code> is <code>[-3, 0]</code>, and the negative half sticks out. Invalid.',
       code: '%k = mod %i -4', lo: -3, hi: 0, n: 3, label: '[-3, 0]', ok: false },
     { caption: 'Back to <code>mod %i 4</code>, now with a <code>shape=[2]</code> window: the allowed starts shrink to <code>[0, 2]</code>, and 3 + 2 > 4. Invalid.',
-      code: '%v = shrink %b %k shape=[2]', lo: 0, hi: 3, n: 2, label: '[0, 3]', ok: false },
+      code: '%v = shrink %b %k [2]', lo: 0, hi: 3, n: 2, label: '[0, 3]', ok: false },
     { caption: '<code>mod %i 3</code> gives <code>[0, 2]</code>, which fits the two-element window. Valid.',
       code: '%k = mod %i 3', lo: 0, hi: 2, n: 2, label: '[0, 2]', ok: true },
   ];

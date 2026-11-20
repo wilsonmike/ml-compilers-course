@@ -19,13 +19,13 @@ official format is published. Shapes are still rank 0 or 1 (rank 2 arrives in we
 
 | op | attributes | operands | result | notes |
 |---|---|---|---|---|
-| `expand x` | `shape` (required, `[n]`) | a scalar (week 5 widens this to any value whose size-1 axes grow) | `(n,)` | Every element equals `x`. Growing an axis that isn't size 1 is always an error. |
+| `expand x [n]` | none | a scalar, then the shape (week 5 widens this to any value whose size-1 axes grow) | `(n,)` | Every element equals `x`. Growing an axis that isn't size 1 is always an error. |
 | `reduce x` | `op` (required: `add`, `mul` or `max`) | a rank-1 value `(n,)` | `()` | A left fold: `x[0] op x[1] op ... op x[n-1]`, in that order, starting from `x[0]`. |
 | `stage x` | none | any value | same as `x` | Same value. Tells the compiler to **materialize** `x`: compute it once into a temp buffer, and read the buffer wherever `x` is used. |
 
 The fold order matters for f32 (rounding happens after every step) and the grader compares f32 bit for
 bit, so your reduce must accumulate left to right, starting from the first element. For `max`, NaN
-semantics are week 1's: any NaN makes the result NaN.
+semantics are week 2's: any NaN makes the result NaN.
 
 Rank-1 values may not depend on an open range from a hand-written week 3 loop.
 

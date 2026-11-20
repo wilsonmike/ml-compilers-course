@@ -12,8 +12,9 @@ move to the official format when it is published.
 * **Floats.** A new dtype, `f32`, with float literals and the `recip` op (section 0.1).
 * **Rank-1 params and asserts.** A param may have a shape like `[3]`, a call may pass and return vectors, and an
   assert's left side may be a vector, compared against a stack literal like `[1 2 3]`.
-* **List attributes.** An attribute may hold a bracketed list with spaces, like `shape=[2 3]` or `data=[1 2 3]`.
-  It's one attribute, from the `[` to the `]`.
+* **Lists are operands.** Week 1's rule that an attribute is one token with no spaces holds in every week. So a
+  list, like a view's shape or a buffer's initial data, is written as a bracket operand: `shrink %b 2 [3]`,
+  `buffer 3 [1 2 3] dtype=i32 slot=0`. It always comes last among the operands.
 * **No budgets.** The week 1 limits (4096 bytes, 100 nodes, 300 edges, cost 1,000,000) are lifted. Week 2
   programs are bigger, and nothing is OVERBUDGET.
 
@@ -56,14 +57,14 @@ or `assert`, and it can't appear inside a call body.
 
 | op | attributes | operands | result | notes |
 |---|---|---|---|---|
-| `buffer n` | `dtype` (required), `slot` (required), `data` (optional) | size n ≥ 1, an integer literal | memory `(n,)` | A global buffer the program reads and writes. Slots are unique; the kernel takes buffers in slot order. `data=[v0 v1 ...]` gives exactly n initial values (literals of the buffer's dtype); without it the buffer starts as zeros. |
+| `buffer n [v0 v1 ...]` | `dtype` (required), `slot` (required) | size n ≥ 1, an integer literal, then optional initial data | memory `(n,)` | A global buffer the program reads and writes. Slots are unique; the kernel takes buffers in slot order. The data list gives exactly n initial values (literals of the buffer's dtype); without it the buffer starts as zeros. |
 | `alloc n` | `dtype` (required) | size n ≥ 1, an integer literal | memory `(n,)` | Scratch memory local to the program, like `float a[10];` in C. Starts as zeros. Not an output. |
-| `shrink m off` | `shape` (required) | memory m, offset `off` (i32 scalar, any expression) | memory | A view of `m` starting `off` elements in. `shape=[k]` is k elements; `shape=[]` is a single element (rank 0). |
+| `shrink m off [k]` | none | memory m, offset `off` (i32 scalar, any expression), then the view's shape | memory | A view of `m` starting `off` elements in. `[k]` is k elements; `[]` is a single element (rank 0). |
 | `load v` | none | a view (or a whole buffer) | ALU value, the view's dtype and shape | Reads memory. |
 | `store v x` | none | a view (or a whole buffer), a value of the same dtype and shape | void | Writes `x` into the view. |
 | `after m s` | none | memory m, a store s into m | memory, same as m | "m, once s has happened". The new version of m. `m` must be a whole version (a `buffer`, an `alloc` or an `after`), not a view. |
 
-`shrink` of a `shrink` is allowed: offsets add up. `shape=[]` views load and store scalars. `load` and `store` also accept a whole buffer, as a view of all of it.
+`shrink` of a `shrink` is allowed: offsets add up. `[]` views load and store scalars. `load` and `store` also accept a whole buffer, as a view of all of it.
 
 ## 2. Versions and ordering
 
@@ -71,12 +72,12 @@ Memory is immutable in the graph. A store doesn't change `%b`; `after %b %s` is 
 of the same storage, with the write applied. Loads read the version they're given:
 
 ```
-%b  = buffer 4 dtype=i32 slot=0 data=[10 20 30 40]
-%e  = shrink %b 1 shape=[]
+%b  = buffer 4 [10 20 30 40] dtype=i32 slot=0
+%e  = shrink %b 1 []
 %x  = load %e              # 20: reads the original version
 %s  = store %e 99
 %b1 = after %b %s          # the version after the store
-%e1 = shrink %b1 1 shape=[]
+%e1 = shrink %b1 1 []
 %y  = load %e1             # 99
 ```
 
@@ -97,8 +98,8 @@ builds on.
 ## 3. Bounds
 
 Every view must be **provably** inside its storage, using the bounds analysis from week 1:
-for `shrink m off shape=[k]` on storage of size n, the interval of `off` must satisfy
-`lo ≥ 0` and `hi + k ≤ n` (`k = 1` for `shape=[]`). Values loaded from memory are unknown, so
+for `shrink m off [k]` on storage of size n, the interval of `off` must satisfy
+`lo ≥ 0` and `hi + k ≤ n` (`k = 1` for `[]`). Values loaded from memory are unknown, so
 their interval is the full i32 range. A view that can't be proven in range makes the program
 invalid, and so does an `index` (week 1's rule). `mod %i 4` is provably in [0, 3], even for a negative
 loaded `%i`, because `mod` floors; a raw loaded `%i` is not.

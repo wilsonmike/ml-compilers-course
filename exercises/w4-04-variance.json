@@ -4,7 +4,7 @@
  "mode": "buffers",
  "out_slot": 1,
  "title": "Variance",
- "starter": "# x: 8 floats in slot 0. Write their variance into the 1-element buffer in slot 1:\n#   mean = (sum of x) * 0.125\n#   c    = x + expand(-mean)          (-mean is mean * -1.0)\n#   var  = (sum of c * c) * 0.125\n# Both sums are reduce op=add. This starter only gets as far as the mean.\n%x  = buffer 8 dtype=f32 slot=0\n%o  = buffer 1 dtype=f32 slot=1\n%v  = load %x\n%s  = reduce %v op=add\n%m  = mul %s 0.125\n%ov = shrink %o 0 shape=[]\n%st = store %ov %m\n%o1 = after %o %st\n",
+ "starter": "# x: 8 floats in slot 0. Write their variance into the 1-element buffer in slot 1:\n#   mean = (sum of x) * 0.125\n#   c    = x + expand(-mean)          (-mean is mean * -1.0)\n#   var  = (sum of c * c) * 0.125\n# Both sums are reduce op=add. This starter only gets as far as the mean.\n%x  = buffer 8 dtype=f32 slot=0\n%o  = buffer 1 dtype=f32 slot=1\n%v  = load %x\n%s  = reduce %v op=add\n%m  = mul %s 0.125\n%ov = shrink %o 0 []\n%st = store %ov %m\n%o1 = after %o %st\n",
  "hints": [
   "You need two reduces: one for the mean, one for the sum of squares. The mean is a scalar, so it has to be broadcast with `expand` before it can meet the vector `x`.",
   "There's no subtract op. Negate the mean with `mul %m -1.0`, expand that to `[8]`, and `add` it to `x`. Then `mul %c %c` squares every element.",

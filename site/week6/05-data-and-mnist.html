@@ -58,47 +58,47 @@
 </div>
 
 <pre><code># the batch: 100 images, and their labels as one-hot rows
-%s0_xv = shrink %xs 0 shape=[78400]
+%s0_xv = shrink %xs 0 [78400]
 %s0_xl = load %s0_xv
-%s0_x = reshape %s0_xl shape=[100 784]
-%s0_yv = shrink %ys 0 shape=[100]
+%s0_x = reshape %s0_xl [100 784]
+%s0_yv = shrink %ys 0 [100]
 %s0_yl = load %s0_yv
-%s0_ohl = reshape %s0_yl shape=[100 1]
-%s0_ohe = expand %s0_ohl shape=[100 10]
-%s0_ohc = reshape %classes shape=[1 10]
-%s0_ohk = expand %s0_ohc shape=[100 10]
+%s0_ohl = reshape %s0_yl [100 1]
+%s0_ohe = expand %s0_ohl [100 10]
+%s0_ohc = reshape %classes [1 10]
+%s0_ohk = expand %s0_ohc [100 10]
 %s0_ohq = cmpeq %s0_ohe %s0_ohk          # label == class, for every pair
 %s0_oh = cast %s0_ohq dtype=f32
 # the logits, staged: computed once, and so is their gradient
 %s0_wl = load %w
-%s0_W = reshape %s0_wl shape=[784 10]
+%s0_W = reshape %s0_wl [784 10]
 %s0_z0 = matmul %s0_x %s0_W
 %s0_z = stage %s0_z0
 # log-softmax, made safe by subtracting each row's max (detached)
-%s0_zt = permute %s0_z order=[1 0]
+%s0_zt = permute %s0_z [1 0]
 %s0_m = reduce %s0_zt op=max
 %s0_md = detach %s0_m
-%s0_mr = reshape %s0_md shape=[100 1]
-%s0_me = expand %s0_mr shape=[100 10]
+%s0_mr = reshape %s0_md [100 1]
+%s0_me = expand %s0_mr [100 10]
 %s0_zs = sub %s0_z %s0_me
 %s0_e = exp %s0_zs
-%s0_et = permute %s0_e order=[1 0]
+%s0_et = permute %s0_e [1 0]
 %s0_se = reduce %s0_et op=add
 %s0_ls = log %s0_se
-%s0_lr = reshape %s0_ls shape=[100 1]
-%s0_le = expand %s0_lr shape=[100 10]
+%s0_lr = reshape %s0_ls [100 1]
+%s0_le = expand %s0_lr [100 10]
 %s0_lp = sub %s0_zs %s0_le
 # the loss: minus the mean log-probability of the right digit
 %s0_pick = mul %s0_lp %s0_oh
-%s0_pf = reshape %s0_pick shape=[1000]
+%s0_pf = reshape %s0_pick [1000]
 %s0_tot = reduce %s0_pf op=add
 %s0_loss = mul %s0_tot -0.01
 # the update, stored back into the weights
 %s0_g = gradient %s0_loss %s0_W
-%s0_lrx = expand 1.0 shape=[784 10]
+%s0_lrx = expand 1.0 [784 10]
 %s0_d = mul %s0_g %s0_lrx
 %s0_W1 = sub %s0_W %s0_d
-%s0_wf = reshape %s0_W1 shape=[7840]
+%s0_wf = reshape %s0_W1 [7840]
 %s0_st = store %w %s0_wf
 %s0_w = after %w %s0_st</code></pre>
 

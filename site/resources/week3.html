@@ -87,32 +87,32 @@ python _reference/uirc.py render FILE                            # the oracle's 
     <li><strong>Parse and type range and end.</strong> Done when this prints <code>MATCH</code>: a loop that writes <code>b[i] = i</code>, then reads <code>b[3]</code>.
 <pre><code>%b  = buffer 4 dtype=i32 slot=0
 %i  = range 4
-%v  = shrink %b %i shape=[]
+%v  = shrink %b %i []
 %s  = store %v %i
 %e  = end %s %i
 %b1 = after %b %e
-%v3 = shrink %b1 3 shape=[]
+%v3 = shrink %b1 3 []
 %x  = load %v3
 %t  = assert %x 3</code></pre>
       If it prints <code>MISMATCH</code>, check the trip count and the start value.</li>
     <li><strong>Open ranges and the static rules.</strong> Done when closing a range the effect doesn't use prints <code>REJECTED</code>. Check: the same program with an extra <code>%j = range 2</code>, an <code>%ej = end %e %j</code> wrapped around the i loop, and <code>%b1 = after %b %ej</code>. Nothing inside uses <code>%j</code>, so the program must be <code>REJECTED</code>.</li>
     <li><strong>Bounds through ranges.</strong> Done when <code>range 5</code> indexing a 4-element buffer is <code>REJECTED</code> (the offset is in <code>[0, 4]</code>), while <code>shrink %b (mul %k 2) shape=[2]</code> with <code>%k = range 5</code> on a 10-element buffer is accepted (offset in <code>[0, 8]</code>, plus 2, fits in 10). If both are accepted or both rejected, look at the range case of your interval analysis.</li>
     <li><strong>Loop placement and the load rule.</strong> Done when this sums 1 to 4 into <code>o</code>:
-<pre><code>%x   = buffer 4 dtype=i32 slot=0 data=[1 2 3 4]
+<pre><code>%x   = buffer 4 [1 2 3 4] dtype=i32 slot=0
 %o   = buffer 1 dtype=i32 slot=1
-%ov  = shrink %o 0 shape=[]
+%ov  = shrink %o 0 []
 %z   = store %ov 0
 %o0  = after %o %z
 %k   = range 4
-%xv  = shrink %x %k shape=[]
+%xv  = shrink %x %k []
 %xk  = load %xv
-%ov0 = shrink %o0 0 shape=[]
+%ov0 = shrink %o0 0 []
 %cur = load %ov0
 %sum = add %cur %xk
 %s   = store %ov0 %sum
 %e   = end %s %k
 %o1  = after %o0 %e
-%ov1 = shrink %o1 0 shape=[]
+%ov1 = shrink %o1 0 []
 %r   = load %ov1
 %t   = assert %r 10</code></pre>
       If you get 4, <code>%cur</code> was loaded once before the loop: its only use, <code>%sum</code>, depends on <code>%k</code>, and the loop stores into its version, so it must move in.</li>
@@ -144,7 +144,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
 %i   = range 3
 %j   = range 4
 %z   = mul %i 0
-%ov  = shrink %o %z shape=[]
+%ov  = shrink %o %z []
 %cur = load %ov
 %nx  = add %cur 1
 %jj  = mul %j 0
@@ -153,7 +153,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
 %ej  = end %s %j
 %ei  = end %ej %i
 %o1  = after %o %ei
-%ov1 = shrink %o1 0 shape=[]
+%ov1 = shrink %o1 0 []
 %r   = load %ov1</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
     <p class="hint">Which loop is <code>%cur</code> placed in? Its use <code>%nx</code> depends on <code>%i</code> but not on <code>%j</code>.</p>

@@ -152,7 +152,7 @@ def build(op, src, attrs):
     if src[0].shape: need(not any(opens(x) for x in src), "rank-1 values can't depend on an open range")
   if op in SHAPE_OPS: need(not any(opens(x) for x in src[:1]), "shaped values can't depend on an open range")
   if op == 'expand':
-    need(len(src) == 1 and 'shape' in attrs, "expand X shape=[...]")
+    need(len(src) == 1 and 'shape' in attrs, "expand X [dims]")
     to, fr = dims_attr(attrs['shape']), src[0].shape
     need(fr == () or (len(fr) == len(to) and all(a == b or a == 1 for a, b in zip(fr, to))),
          f"can't expand {list(fr)} to {list(to)}: same rank, and only size-1 axes grow")
@@ -164,17 +164,17 @@ def build(op, src, attrs):
     need(src[0].dtype in NUM, "reduce works on i32 or f32")
     return UOp('reduce', src, (attrs['op'], m), src[0].dtype, src[0].shape[m:])
   if op == 'reshape':
-    need(len(src) == 1 and 'shape' in attrs, "reshape X shape=[...]")
+    need(len(src) == 1 and 'shape' in attrs, "reshape X [dims]")
     to = dims_attr(attrs['shape'], allow_empty=True)
     need(prod(to) == prod(src[0].shape), f"reshape keeps the element count: {prod(src[0].shape)} != {prod(to)}")
     return UOp('reshape', src, None, src[0].dtype, to)
   if op == 'permute':
-    need(len(src) == 1 and 'order' in attrs, "permute X order=[...]")
+    need(len(src) == 1 and 'order' in attrs, "permute X [order]")
     order = ints_attr(attrs['order'])
     need(sorted(order) == list(range(len(src[0].shape))), f"order must be a permutation of 0..{len(src[0].shape) - 1}")
     return UOp('permute', src, order, src[0].dtype, tuple(src[0].shape[p] for p in order))
   if op == 'pad':
-    need(len(src) == 1 and 'pads' in attrs, "pad X pads=[l0 r0 l1 r1 ...]")
+    need(len(src) == 1 and 'pads' in attrs, "pad X [l0 r0 l1 r1 ...]")
     pads = ints_attr(attrs['pads'])
     need(len(pads) == 2 * len(src[0].shape), "pads has two numbers (left, right) per axis")
     return UOp('pad', src, pads, src[0].dtype, tuple(d + pads[2 * k] + pads[2 * k + 1] for k, d in enumerate(src[0].shape)))
@@ -184,7 +184,7 @@ def build(op, src, attrs):
   n = len(src)
   if op == 'shrink' and src and not is_mem(src[0]):  # week 5: a window into a value, offsets symbolic but provable
     x = src[0]
-    need(n == 1 + len(x.shape) and 'shape' in attrs, "shrink X o0 ... o(r-1) shape=[...]: one offset per axis")
+    need(n == 1 + len(x.shape) and 'shape' in attrs, "shrink X o0 ... o(r-1) [dims]: one offset per axis")
     to = dims_attr(attrs['shape'], allow_empty=not x.shape)
     need(len(to) == len(x.shape), "shrink keeps the rank")
     for k, (o, d, sz) in enumerate(zip(src[1:], x.shape, to)):
@@ -193,9 +193,9 @@ def build(op, src, attrs):
       need(lo >= 0 and hi + sz <= d, f"can't prove axis {k} is in bounds: offset in [{lo}, {hi}], {sz} element(s) of {d}")
     return UOp('vshrink', src, None, x.dtype, to)
   if op == 'shrink':
-    need(n == 2 and is_mem(src[0]), "shrink MEM OFFSET shape=[k]")
+    need(n == 2 and is_mem(src[0]), "shrink MEM OFFSET [k]")
     need(not is_mem(src[1]) and src[1].dtype == 'i32' and src[1].shape == (), "the offset must be an i32 scalar")
-    need('shape' in attrs, "shrink needs shape=[k] or shape=[]")
+    need('shape' in attrs, "shrink needs a shape: [k] or []")
     shape = () if re.fullmatch(r"\[[ \t]*\]", attrs['shape']) else shape_attr(attrs['shape'])
     k, plen = (shape[0] if shape else 1), (src[0].shape[0] if src[0].shape else 1)
     lo, hi = bounds(src[1], {})
@@ -204,7 +204,7 @@ def build(op, src, attrs):
   if op == 'mma':
     need(n == 3 and all(is_mem(s) for s in src), "mma C A B: three memory operands")
     need((src[0].dtype, src[1].dtype, src[2].dtype) == ('i32', 'i8', 'i8'), "C is i32 memory, A and B are i8 memory")
-    need(all(s.op in STORAGE or not s.shape for s in src), "each operand is memory or a scalar view (shape=[]) where its tile starts")
+    need(all(s.op in STORAGE or not s.shape for s in src), "each operand is memory or a scalar view (shape []) where its tile starts")
     lds = []
     for k in ('lda', 'ldb', 'ldc'):
       need(re.fullmatch(r"[0-9]+", attrs.get(k, ''), re.A) is not None, "mma needs lda=, ldb= and ldc=, literal row strides")
@@ -678,8 +678,9 @@ OPS1 = {'param', 'call', 'stack', 'index', 'cast', 'add', 'mul', 'max', 'div', '
 OPS = OPS1 | ALU | SUGAR | {'buffer', 'alloc', 'shrink', 'load', 'store', 'after', 'range', 'end', 'mma', 'gradient',
                            'expand', 'reduce', 'reshape', 'permute', 'pad', 'stage'}
 ATTRS1 = {'param': {'slot', 'dtype', 'addrspace'}, 'cast': {'dtype'}}
-ATTRS = {**ATTRS1, 'mma': {'lda', 'ldb', 'ldc'}, 'range': {'axis'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'data', 'url', 'sha256'},
-         'alloc': {'dtype'}, 'shrink': {'shape'}, 'expand': {'shape'}, 'reduce': {'op', 'pop'}, 'reshape': {'shape'}, 'permute': {'order'}, 'pad': {'pads'}}
+ATTRS = {**ATTRS1, 'mma': {'lda', 'ldb', 'ldc'}, 'range': {'axis'}, 'bitcast': {'dtype'}, 'buffer': {'dtype', 'slot', 'url', 'sha256'},
+         'alloc': {'dtype'}, 'reduce': {'op', 'pop'}}
+LIST_OPERAND = {'expand': 'shape', 'reshape': 'shape', 'shrink': 'shape', 'permute': 'order', 'pad': 'pads'}
 def DTYPES(): return ('i32', 'bool') if WEEK == 1 else ('i32', 'bool', 'f32', 'i8')
 
 def literal(t):
@@ -711,10 +712,6 @@ def lex(text):
     m = WORD_RE.match(text, i); w = m.group(0); i = m.end()
     if (a := ATTR_RE.fullmatch(w)):
       k, v = a.groups()
-      if v == '' and WEEK > 1 and i < n and text[i] == '[':
-        j = text.find(']', i)
-        if j < 0: err(f"attribute {k}= has no closing ]")
-        v = text[i:j + 1]; line += v.count('\n'); i = j + 1
       if v == '': err(f"attribute {k}= has no value (no spaces inside an attribute)")
       out.append(('ATTR', (k, v), line)); continue
     try: lit_ = literal(w)
@@ -812,7 +809,7 @@ def build_storage(r, src, attrs, base, need):
   need(re.fullmatch(r"[0-9]+", attrs.get('slot', ''), re.A) is not None, "buffer needs slot=N")
   if 'url' in attrs or 'sha256' in attrs:
     need('url' in attrs and 'sha256' in attrs, "url= and sha256= go together")
-    need('data' not in attrs, "a buffer takes data= or url=, not both")
+    need('data' not in attrs, "a buffer takes initial data or url=, not both")
     data = blob(attrs['url'], attrs['sha256'], dt, n, base)
   elif 'data' in attrs:
     toks = attrs['data'].strip('[]').split()
@@ -836,6 +833,12 @@ def typecheck(nodes, base=None):
       src, attrs = [T[id(x)] for x in r.src], dict(r.attrs)
       if 'dtype' in attrs: need(attrs['dtype'] in DTYPES(), f"bad dtype {attrs['dtype']}")
       if attrs.get('dtype') == 'i8': need(r.op in ('buffer', 'alloc', 'cast'), "i8 is for memory: buffers, allocs and casts")
+      if r.op in LIST_OPERAND or (r.op == 'buffer' and len(src) == 2):
+        key = 'data' if r.op == 'buffer' else LIST_OPERAND[r.op]
+        vals = literal_list(src[-1]) if src else None
+        need(vals is not None and src[-1].op == 'stack' and not any(isinstance(v, list) for v in vals), f"the last operand is the {key}: a list of literals like [2 3]")
+        attrs[key] = '[' + ' '.join(lit(x) for x in src[-1].src) + ']'
+        src = src[:-1]
       if r.op == 'const': u = r.lit
       elif r.op == 'param': u = build_param(src, attrs, need)
       elif r.op in ('buffer', 'alloc'): u = build_storage(r, src, attrs, base, need)

@@ -113,8 +113,8 @@ def with_data(code, data):
   for line in code.split('\n'):
     m = re.search(r"\bbuffer\b.*\bslot=([0-9]+)", line.split('#', 1)[0])
     if m and m.group(1) in data:
-      body = re.sub(r"[ \t]+data=\[[^\]]*\]", "", line.split('#', 1)[0]).rstrip()
-      line = body + f" data=[{' '.join(str(v).lower() if isinstance(v, bool) else str(v) for v in data[m.group(1)])}]"
+      vals = '[' + ' '.join(str(v).lower() if isinstance(v, bool) else str(v) for v in data[m.group(1)]) + ']'
+      line = re.sub(r"\b(buffer[ \t]+[0-9]+)(?:[ \t]+\[[^\]]*\])?", lambda g: g.group(1) + ' ' + vals, line.split('#', 1)[0], count=1).rstrip()
     out.append(line)
   return '\n'.join(out)
 

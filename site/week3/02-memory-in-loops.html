@@ -39,21 +39,21 @@
 <div class="prose">
 <h2>An accumulator</h2>
 <p>Summing a buffer means keeping a running total in memory. Here it lives in a one-element <code>alloc</code>:</p>
-<pre><code>%in   = buffer 4 dtype=i32 slot=0 data=[1 2 3 4]
+<pre><code>%in   = buffer 4 [1 2 3 4] dtype=i32 slot=0
 %out  = buffer 1 dtype=i32 slot=1
 %acc  = alloc 1 dtype=i32       # starts as 0
 %k    = range 4
-%a    = shrink %acc 0 shape=[]
+%a    = shrink %acc 0 []
 %cur  = load %a                 # the running total so far
-%iv   = shrink %in %k shape=[]
+%iv   = shrink %in %k []
 %x    = load %iv                # in[k]
 %sum  = add %cur %x
 %s    = store %a %sum           # acc = acc + in[k]
 %e    = end %s %k
 %acc1 = after %acc %e           # acc after the whole loop
-%a1   = shrink %acc1 0 shape=[]
+%a1   = shrink %acc1 0 []
 %tot  = load %a1                # 10
-%o    = shrink %out 0 shape=[]
+%o    = shrink %out 0 []
 %so   = store %o %tot
 %out1 = after %out %so</code></pre>
 <p>Look at <code>%cur</code>. It doesn't depend on <code>%k</code>, so by the open-ranges rule from lesson 3.1 it would be computed once, before the loop. That would read 0 once, and every iteration would store <code>0 + in[k]</code>, leaving 4 instead of 10. Loads need one more rule.</p>
@@ -90,8 +90,8 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 <h2>Split uses read the old contents</h2>
 <div class="prose">
 <p>If a load is used both inside and outside a loop, no loop holds both uses, so the load stays <em>outside</em> the loop. It runs once, before the loop, and every use sees the contents from before the loop:</p>
-<pre><code>%b   = buffer 2 dtype=i32 slot=0 data=[5 0]
-%acc = shrink %b 0 shape=[]
+<pre><code>%b   = buffer 2 [5 0] dtype=i32 slot=0
+%acc = shrink %b 0 []
 %cur = load %acc            # used inside AND outside the loop
 %k   = range 3
 %one = add %k 1
@@ -99,7 +99,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 %s   = store %acc %sum
 %e   = end %s %k
 %b1  = after %b %e
-%dst = shrink %b1 1 shape=[]
+%dst = shrink %b1 1 []
 %s2  = store %dst %cur      # use 2: after the loop
 %b2  = after %b1 %s2</code></pre>
 <p>Every iteration computes <code>5 + (k + 1)</code> from the same 5. The last one, k = 2, leaves b[0] = 8, and b[1] gets the old 5. Drop the second use and <code>%cur</code> moves into the loop: b[0] becomes 5 + 1 + 2 + 3 = 11.</p>
@@ -118,11 +118,11 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 <div class="trap">
 <span class="label">A use that doesn't depend on the range pins the load</span>
 <p>This loop is meant to add 1 to b[0] three times, starting from 10. It writes 11:</p>
-<pre><code>%b  = buffer 1 dtype=i32 slot=0 data=[10]
+<pre><code>%b  = buffer 1 [10] dtype=i32 slot=0
 %i  = range 3
 %z  = mul %i 0
-%v  = shrink %b %z shape=[]   # the store's view depends on %i
-%v0 = shrink %b 0 shape=[]    # the load's view doesn't
+%v  = shrink %b %z []   # the store's view depends on %i
+%v0 = shrink %b 0 []    # the load's view doesn't
 %x  = load %v0
 %y  = add %x 1                # depends on no range
 %s  = store %v %y
@@ -135,12 +135,12 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 <div class="prose">
 <p>The row-sum exercise needs a reset per row. The reset store has to depend on <code>%i</code> so it runs inside the i loop, and it does: it stores into <code>shrink %out %i</code>. Then the j loop accumulates into the version after the reset:</p>
 <pre><code>%i    = range 3
-%o    = shrink %out %i shape=[]
+%o    = shrink %out %i []
 %z    = store %o 0              # reset out[i]: runs once per i
 %out0 = after %out %z           # a version that lives inside the i loop
 %j    = range 4
 ...
-%o0   = shrink %out0 %i shape=[]
+%o0   = shrink %out0 %i []
 %cur  = load %o0                # loop-carried in the j loop
 %s    = store %o0 %sum
 %ej   = end %s %j
@@ -159,8 +159,8 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 
 <div class="quiz" data-fill="11">
 <p class="q">The split-use program above, without the second store. What's the final b[0]?</p>
-<pre><code>%b   = buffer 2 dtype=i32 slot=0 data=[5 0]
-%acc = shrink %b 0 shape=[]
+<pre><code>%b   = buffer 2 [5 0] dtype=i32 slot=0
+%acc = shrink %b 0 []
 %cur = load %acc
 %k   = range 3
 %one = add %k 1
@@ -193,7 +193,7 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q">A program has an i loop around a j loop. It also has <code>store %o 0</code> with <code>%o = shrink %acc 0 shape=[]</code>. How often does that store run?</p>
+<p class="q">A program has an i loop around a j loop. It also has <code>store %o 0</code> with <code>%o = shrink %acc 0 []</code>. How often does that store run?</p>
 <div class="opts">
 <button data-k="a">Once per i.</button>
 <button data-k="b">Once per (i, j).</button>

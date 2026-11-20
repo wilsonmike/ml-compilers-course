@@ -44,10 +44,10 @@
 </div>
 <pre><code>%a  = load %A                         # 65536 floats
 %b  = load %B                         # 65536 floats
-%a3 = reshape %a shape=[256 256 1]    # axes: k, m, 1
-%b3 = reshape %b shape=[256 1 256]    # axes: k, 1, n
-%ax = expand %a3 shape=[256 256 256]
-%bx = expand %b3 shape=[256 256 256]
+%a3 = reshape %a [256 256 1]    # axes: k, m, 1
+%b3 = reshape %b [256 1 256]    # axes: k, 1, n
+%ax = expand %a3 [256 256 256]
+%bx = expand %b3 [256 256 256]
 %p  = mul %ax %bx                     # p[k][m][n] = a[k][m] * b[k][n]
 %c  = reduce %p op=add pop=1          # c[m][n] = sum over k, in order k = 0, 1, ...</code></pre>
 <div class="prose">
@@ -66,11 +66,11 @@
 <p>When A arrives as M x K, row-major, add one <code>permute</code> to move <code>k</code> to the front. The reduce still folds the first axis, so whatever you want to sum over has to be first:</p>
 </div>
 <pre><code># %a, %b: loaded values (load the buffers first: memory can't be reshaped)
-%a3 = reshape %a shape=[M K 1]
-%aT = permute %a3 order=[1 0 2]       # K M 1
-%ax = expand %aT shape=[K M N]
-%b3 = reshape %b shape=[K 1 N]
-%bx = expand %b3 shape=[K M N]
+%a3 = reshape %a [M K 1]
+%aT = permute %a3 [1 0 2]       # K M 1
+%ax = expand %aT [K M N]
+%b3 = reshape %b [K 1 N]
+%bx = expand %b3 [K M N]
 %p  = mul %ax %bx
 %C  = reduce %p op=add pop=1          # M N</code></pre>
 <div class="prose">
@@ -86,13 +86,13 @@
 <h2>A convolution is shifted windows and a reduce</h2>
 <p>A 1D convolution (in the machine learning sense, which is a correlation) computes <code>y[i] = x[i-1]·w[0] + x[i]·w[1] + x[i+1]·w[2]</code>, with zeros past the ends of <code>x</code>. Build it from movement: pad <code>x</code> so every window is full, cut one shifted window per tap with <code>shrink</code>, stack the windows, and reduce over the tap axis.</p>
 </div>
-<pre><code>%p   = pad %x pads=[1 1]              # 7: one zero each side
-%s0  = shrink %p 0 shape=[5]          # x[i-1] for every i
-%s1  = shrink %p 1 shape=[5]          # x[i]
-%s2  = shrink %p 2 shape=[5]          # x[i+1]
+<pre><code>%p   = pad %x [1 1]              # 7: one zero each side
+%s0  = shrink %p 0 [5]          # x[i-1] for every i
+%s1  = shrink %p 1 [5]          # x[i]
+%s2  = shrink %p 2 [5]          # x[i+1]
 %win = stack %s0 %s1 %s2              # 3 5: one row per tap
-%w2  = reshape %w shape=[3 1]
-%wx  = expand %w2 shape=[3 5]
+%w2  = reshape %w [3 1]
+%wx  = expand %w2 [3 5]
 %pr  = mul %win %wx
 %y   = reduce %pr op=add pop=1        # 5</code></pre>
 <div class="prose">

@@ -63,7 +63,7 @@ accumulator silently stops accumulating. Give the loop its own load. That's what
 ```
 %acc  = alloc 1 dtype=f32
 %k    = range 4
-%a    = shrink %acc 0 shape=[]
+%a    = shrink %acc 0 []
 %cur  = load %a                 # previous iteration's sum (0.0 on the first)
 %x    = ...                     # this iteration's product, depends on %k
 %sum  = add %cur %x

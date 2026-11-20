@@ -163,7 +163,7 @@ if r.returncode != 0:
 document.addEventListener('DOMContentLoaded', () => {
   const steps = [
     { caption: 'The program. One f32 buffer, slot 0, with two elements. The result should be <code>0.1 + 0.2</code> in f32 at index 0, and <code>-0.0</code> untouched at index 1.',
-      file: 'program.uir', text: '%b  = buffer 2 dtype=f32 slot=0 data=[0.1 -0.0]\n%e  = shrink %b 0 shape=[]\n%x  = load %e\n%y  = add %x 0.2\n%s  = store %e %y\n%b1 = after %b %s', hl: 3 },
+      file: 'program.uir', text: '%b  = buffer 2 [0.1 -0.0] [] dtype=f32 slot=0\n%e  = shrink %b 0\n%x  = load %e\n%y  = add %x 0.2\n%s  = store %e %y\n%b1 = after %b %s', hl: 3 },
     { caption: '<strong>1. Render.</strong> Your compiler prints the kernel. The constant <code>0.2</code> becomes a hex float, so it means exactly one f32.',
       file: 'kernel.c', text: 'void kernel(float *b0) {\n  float v0 = b0[0];\n  float v1 = (v0 + 0x1.99999ap-3f);\n  b0[0] = v1;\n}', hl: 2 },
     { caption: '<strong>2. Generate main.</strong> Arrays from the buffer ops, filled from <code>data</code> (written as hex floats so the start values are exact too; the grader\'s own harness uses raw bits and <code>memcpy</code>), one call to <code>kernel</code>, then one line per element. <code>print_bits</code> stands for whatever prints a float\'s 32 bits.',

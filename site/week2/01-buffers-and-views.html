@@ -139,7 +139,7 @@
 <div class="prose">
 <h2>Memory lives outside the program</h2>
 <p>A <code>buffer</code> is a block of n elements that exists before your program runs and after it ends. The program can read it and write it. When your compiler renders C, each buffer becomes one pointer argument of the kernel.</p>
-<pre><code>%b = buffer 6 dtype=i32 slot=0 data=[10 20 30 40 50 60]
+<pre><code>%b = buffer 6 [10 20 30 40 50 60] dtype=i32 slot=0
 %w = buffer 3 dtype=f32 slot=1</code></pre>
 <ul>
 <li>The operand is the size, an integer literal.</li>
@@ -151,8 +151,8 @@
 
 <h2>A view is a window</h2>
 <p>You rarely want a whole buffer. <code>shrink</code> makes a <strong>view</strong>: a window that starts some number of elements in and covers a fixed number of them. The offset is an i32 operand. It can be a literal or a computed value, and lesson 3 shows how computed offsets are checked. Nothing is copied. A view is just a buffer plus an offset plus a length.</p>
-<pre><code>%v = shrink %b 2 shape=[3]     # elements 2, 3, 4
-%e = shrink %b 5 shape=[]      # just element 5</code></pre>
+<pre><code>%v = shrink %b 2 [3]     # elements 2, 3, 4
+%e = shrink %b 5 []      # just element 5</code></pre>
 <p><code>shape=[k]</code> gives a rank-1 window of k elements. <code>shape=[]</code> gives a single element, a rank-0 view, which is what you load and store scalars through. Step through the picture: the window slides over the same six cells.</p>
 </div>
 
@@ -161,8 +161,8 @@
 <div class="prose">
 <h2>Views of views</h2>
 <p>A view can be shrunk again. The offsets add up, and the new window has to fit inside the <em>view</em> it was cut from, not just inside the buffer.</p>
-<pre><code>%v = shrink %b 2 shape=[3]     # elements 2..4 of %b
-%w = shrink %v 1 shape=[]      # element 1 of %v, which is element 3 of %b</code></pre>
+<pre><code>%v = shrink %b 2 [3]     # elements 2..4 of %b
+%w = shrink %v 1 []      # element 1 of %v, which is element 3 of %b</code></pre>
 <p><code>shrink %v 3 shape=[]</code> would be invalid, even though <code>%b</code> has an element 5: <code>%v</code> only has three elements, numbered 0 to 2.</p>
 </div>
 
@@ -176,7 +176,7 @@
 <h2>Memory is not a value</h2>
 <p>Every week 1 value lived in the <strong>ALU</strong> address space, the <code>addrspace=ALU</code> on every param: numbers your program computes with. Buffers, allocs and views live in <strong>GLOBAL</strong>: they're places, not numbers. (GLOBAL here just means "memory", not a C global variable.) You can't add a buffer to 1, compare it, stack it or pass it to a call. You have to <code>load</code> it first.</p>
 <pre><code>%x = add %b 1          # invalid: memory can't be an operand of add
-%e = shrink %b 0 shape=[]
+%e = shrink %b 0 []
 %y = load %e           # 10, an i32 value
 %z = add %y 1          # 11</code></pre>
 <p>A load takes the view's dtype and shape. Loading a <code>shape=[]</code> view gives a scalar. Loading a <code>shape=[3]</code> view, or a whole buffer, gives a rank-1 value, the same kind of value <code>stack</code> builds, so you can compare it with <code>assert</code> or pick from it with <code>index</code>.</p>
@@ -270,9 +270,9 @@
 
 <div class="quiz" data-fill="40">
 <p class="q">What does <code>%x</code> hold?</p>
-<pre><code>%b = buffer 6 dtype=i32 slot=0 data=[10 20 30 40 50 60]
-%v = shrink %b 2 shape=[3]
-%w = shrink %v 1 shape=[]
+<pre><code>%b = buffer 6 [10 20 30 40 50 60] dtype=i32 slot=0
+%v = shrink %b 2 [3]
+%w = shrink %v 1 []
 %x = load %w</code></pre>
 <div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
 <p class="hint">Offsets add up: where does <code>%v</code> start, and how far into <code>%v</code> is <code>%w</code>?</p>
@@ -316,7 +316,7 @@
 </div>
 
 <div class="quiz" data-answer="d">
-<p class="q">Why is <code>shrink %v 3 shape=[]</code> invalid when <code>%v = shrink %b 2 shape=[3]</code> and <code>%b</code> has six elements?</p>
+<p class="q">Why is <code>shrink %v 3 shape=[]</code> invalid when <code>%v = shrink %b 2 [3]</code> and <code>%b</code> has six elements?</p>
 <div class="opts">
 <button data-k="a">Views can't be shrunk again.</button>
 <button data-k="b"><code>shape=[]</code> views need offset 0.</button>
@@ -344,12 +344,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return h('div', { class: 'row' }, h('span', { class: 'name', text: name }), h('div', { class: 'mem' }, cells));
   }
   const steps = [
-    { caption: 'The buffer: six i32 elements, numbered 0 to 5.', code: '%b = buffer 6 dtype=i32 slot=0 data=[10 20 30 40 50 60]', lo: 0, len: 0, label: '' },
-    { caption: '<code>shrink %b 2 shape=[3]</code>: start 2 elements in, cover 3. Loading it gives the rank-1 value <code>[30 40 50]</code>.', code: '%v = shrink %b 2 shape=[3]', lo: 2, len: 3, label: 'start 2, length 3' },
-    { caption: '<code>shape=[]</code> is a single element. This is how you load or store one scalar.', code: '%e = shrink %b 5 shape=[]', lo: 5, len: 1, label: 'start 5, length 1' },
-    { caption: 'A view of a view: <code>%w</code> is element 1 <em>of %v</em>. Offsets add, 2 + 1 = 3, so it\'s element 3 of the buffer.', code: '%w = shrink %v 1 shape=[]', lo: 3, len: 1, label: 'start 2 + 1 = 3, length 1' },
+    { caption: 'The buffer: six i32 elements, numbered 0 to 5.', code: '%b = buffer 6 [10 20 30 40 50 60] dtype=i32 slot=0', lo: 0, len: 0, label: '' },
+    { caption: '<code>shrink %b 2 shape=[3]</code>: start 2 elements in, cover 3. Loading it gives the rank-1 value <code>[30 40 50]</code>.', code: '%v = shrink %b 2 [3]', lo: 2, len: 3, label: 'start 2, length 3' },
+    { caption: '<code>shape=[]</code> is a single element. This is how you load or store one scalar.', code: '%e = shrink %b 5 []', lo: 5, len: 1, label: 'start 5, length 1' },
+    { caption: 'A view of a view: <code>%w</code> is element 1 <em>of %v</em>. Offsets add, 2 + 1 = 3, so it\'s element 3 of the buffer.', code: '%w = shrink %v 1 []', lo: 3, len: 1, label: 'start 2 + 1 = 3, length 1' },
     { caption: 'The whole buffer is a view too: start 0, all six elements. <code>load %b</code> gives all of them.', code: '%r = load %b', lo: 0, len: 6, label: 'start 0, length 6' },
-    { caption: 'Out of bounds: start 4 with three elements needs index 6, which doesn\'t exist. The compiler rejects this before anything runs.', code: '%bad = shrink %b 4 shape=[3]', lo: 4, len: 3, label: 'start 4, length 3: invalid' },
+    { caption: 'Out of bounds: start 4 with three elements needs index 6, which doesn\'t exist. The compiler rejects this before anything runs.', code: '%bad = shrink %b 4 [3]', lo: 4, len: 3, label: 'start 4, length 3: invalid' },
   ];
   CC.stepper(document.getElementById('win'), steps, (s, body) => body.append(
     h('div', { class: 'strip' }, CC.code(s.code, 0), strip('%b', s.lo, s.len), s.label ? h('span', { class: 'vlab', text: s.label }) : null)));

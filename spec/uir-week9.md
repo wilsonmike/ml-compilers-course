@@ -32,7 +32,7 @@ shared memory.
 
 A fourth dtype, for memory: 8-bit two's complement, -128 to 127.
 
-* `buffer` and `alloc` take `dtype=i8`. A `data=` literal is an integer from -128 to 127. A `url=` file has one byte
+* `buffer` and `alloc` take `dtype=i8`. A literal in its data list is an integer from -128 to 127. A `url=` file has one byte
   per element.
 * `load` of i8 memory gives an i8 value, and `store` takes one.
 * `cast X dtype=i8` takes an `i32` (or an `i8`, unchanged) and keeps its low 8 bits (`200` becomes `-56`). `cast` from i8 to `i32`, `f32`
@@ -51,7 +51,7 @@ A fourth dtype, for memory: 8-bit two's complement, -128 to 127.
 `mma` is an effect, like `store`: it adds the product of two 16x16 tiles into a third.
 
 * `C` is `i32` memory, `A` and `B` are `i8` memory. Each is a buffer or alloc version, or a scalar view
-  (`shrink ... shape=[]`) whose offset is where the tile starts.
+  (`shrink ... []`) whose offset is where the tile starts.
 * `lda`, `ldb` and `ldc` are each tile's row stride: row `i` of `A`'s tile starts `i * lda` elements after its first
   element. Each is a positive literal multiple of 16 (16, 32, 48, ...). Zero is rejected.
 * For `i` and `j` from 0 to 15, `C[i][j] = C[i][j] + A[i][0]*B[0][j] + ... + A[i][15]*B[15][j]`, in `i32` with

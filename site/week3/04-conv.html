@@ -48,17 +48,17 @@
 <div class="prose">
 <p>In .uir that's a loop over <code>i</code> with a loop over <code>k</code> inside it. The accumulator is the output element itself: reset <code>y[i]</code> to zero with a store that depends on <code>i</code>, then add into the version after that store, once per <code>k</code>.</p>
 <pre><code>%i   = range 4
-%yv  = shrink %y %i shape=[]
+%yv  = shrink %y %i []
 %z   = store %yv 0.0          # reset y[i], once per i
 %y0  = after %y %z
 %k   = range 3
 %ik  = add %i %k
-%xv  = shrink %x %ik shape=[] # x[i + k]: interval [0, 3] + [0, 2] = [0, 5]
+%xv  = shrink %x %ik [] # x[i + k]: interval [0, 3] + [0, 2] = [0, 5]
 %xe  = load %xv
-%wv  = shrink %w %k shape=[]
+%wv  = shrink %w %k []
 %we  = load %wv
 %p   = mul %xe %we
-%yv0 = shrink %y0 %i shape=[]
+%yv0 = shrink %y0 %i []
 %cur = load %yv0              # runs inside the k loop: its only use is there
 %sum = add %cur %p
 %s   = store %yv0 %sum
@@ -100,7 +100,7 @@
 %hi = cmplt %j 6              # not off the right end
 %ok = where %lo false %hi     # 0 &lt;= j &lt; 6
 %jm = mod %j 6                # [0, 5]: provably in bounds
-%xv = shrink %x %jm shape=[]
+%xv = shrink %x %jm []
 %xe = load %xv                # a real element, maybe the wrong one
 %xz = where %ok %xe 0.0       # the padding value where j is off the end</code></pre>
 <div class="trap">
@@ -128,7 +128,7 @@ OH = H - KH + 1,  OW = W - KW + 1</code></pre>
 %ox = range 3
 %v5 = mul %oy 3
 %v6 = add %v5 %ox
-%v7 = shrink %Y %v6 shape=[]
+%v7 = shrink %Y %v6 []
 %v8 = store %v7 0.0
 %v9 = after %Y %v8
 %ky = range 2
@@ -137,14 +137,14 @@ OH = H - KH + 1,  OW = W - KW + 1</code></pre>
 %v13 = add %ox %kx
 %v14 = mul %v12 4
 %v15 = add %v14 %v13
-%v16 = shrink %X %v15 shape=[]
+%v16 = shrink %X %v15 []
 %v17 = load %v16
 %v18 = mul %ky 2
 %v19 = add %v18 %kx
-%v20 = shrink %W %v19 shape=[]
+%v20 = shrink %W %v19 []
 %v21 = load %v20
 %v22 = mul %v17 %v21
-%v23 = shrink %v9 %v6 shape=[]
+%v23 = shrink %v9 %v6 []
 %v24 = load %v23
 %v25 = add %v24 %v22
 %v26 = store %v23 %v25

@@ -19,11 +19,11 @@ parameters; the rest is our design, provisional until the official format is pub
 
 | op | attributes | operands | result | element at index `(i0, ..., ik)` |
 |---|---|---|---|---|
-| `reshape x` | `shape=[d0 d1 ...]` | any value | that shape | the same element in row-major order. The element counts must match. |
-| `permute x` | `order=[p0 p1 ...]` | rank-r value | `shape[k] = x.shape[p_k]` | `x` at the index whose axis `p_k` is `i_k` |
-| `pad x` | `pads=[l0 r0 l1 r1 ...]` | rank-r value | each axis grows by `l + r` | `x[i - l]` where every axis is inside, else zero (`0`, `0.0` or `false`) |
-| `shrink x o0 ... o(r-1)` | `shape=[s0 ...]` | rank-r value, r offsets (i32 scalars) | that shape | `x[i0 + o0, ..., ik + ok]` |
-| `expand x` | `shape=[...]` | a scalar, or a value of the same rank | that shape | `x` with each size-1 axis read at 0 |
+| `reshape x [d0 d1 ...]` | none | any value | that shape | the same element in row-major order. The element counts must match. |
+| `permute x [p0 p1 ...]` | none | rank-r value | `shape[k] = x.shape[p_k]` | `x` at the index whose axis `p_k` is `i_k` |
+| `pad x [l0 r0 l1 r1 ...]` | none | rank-r value | each axis grows by `l + r` | `x[i - l]` where every axis is inside, else zero (`0`, `0.0` or `false`) |
+| `shrink x o0 ... o(r-1) [s0 ...]` | none | rank-r value, r offsets (i32 scalars) | that shape | `x[i0 + o0, ..., ik + ok]` |
+| `expand x [d0 d1 ...]` | none | a scalar, or a value of the same rank | that shape | `x` with each size-1 axis read at 0 |
 | `stack a0 ... a(n-1)` | none | values of one shape | `(n,) + shape` | `a_{i0}[i1, ...]` |
 | `index x j0 ... j(m-1)` | none | rank ≥ m, i32 scalars | drops m leading axes | `x[j0, ..., j(m-1), i0, ...]`, each `j` in range at run time |
 | `reduce x` | `op` (`add`, `mul`, `max`), `pop=m` (default 1) | rank ≥ m | drops m leading axes | a left fold over the m leading axes, in row-major order, starting from the first element |
@@ -40,11 +40,11 @@ Some familiar ops aren't primitives; you build them from these. A matrix multipl
 where `%A` and `%B` are loaded values (memory can't be reshaped, so load the buffers first):
 
 ```
-%a3 = reshape %A shape=[M K 1]
-%aT = permute %a3 order=[1 0 2]         # K M 1
-%ax = expand %aT shape=[K M N]
-%b3 = reshape %B shape=[K 1 N]
-%bx = expand %b3 shape=[K M N]
+%a3 = reshape %A [M K 1]
+%aT = permute %a3 [1 0 2]         # K M 1
+%ax = expand %aT [K M N]
+%b3 = reshape %B [K 1 N]
+%bx = expand %b3 [K M N]
 %p  = mul %ax %bx
 %C  = reduce %p op=add pop=1            # M N: sums over k, in order k = 0, 1, ...
 ```

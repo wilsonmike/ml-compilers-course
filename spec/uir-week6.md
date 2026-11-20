@@ -211,7 +211,7 @@ the Taylor series up to `r^13`.
 
 Sugar ops are shorthand. Each one **means** its expansion below, so it has no semantics of its own: a
 compiler can expand it while parsing, and the result is bit-identical. Constants are expanded to the
-operand's shape (`expand c shape=[...]`) when the operand isn't a scalar.
+operand's shape (`expand c [...]`) when the operand isn't a scalar.
 
 | sugar | operands | expands to |
 |---|---|---|
@@ -288,9 +288,9 @@ to `x` receive a share. The gradient is the sum at `x`; don't propagate past `x`
 | `detach a` | nothing |
 | `stage a` | `stage g`: a staged value's gradient is staged too |
 | `reshape a` | `reshape g` to `a`'s shape |
-| `permute a order=p` | `permute g` by the inverse order |
-| `pad a pads=[l0 r0 ...]` | `shrink g l0 l1 ...` with `a`'s shape |
-| `shrink a o0 ...` (value) | `pad g` with `pads=[o0 (d0-o0-s0) ...]` (literal offsets only) |
+| `permute a p` | `permute g` by the inverse order |
+| `pad a [l0 r0 ...]` | `shrink g l0 l1 ...` with `a`'s shape |
+| `shrink a o0 ...` (value) | `pad g [o0 (d0-o0-s0) ...]` (literal offsets only) |
 | `expand a` | sum `g` over the grown axes: `permute` them to the front (in increasing axis order, the rest after), `reduce op=add pop=<how many>`, `reshape` to `a`'s shape. From a scalar: `reshape g [n]`, `reduce`. |
 | `reduce a op=add pop=m` | `reshape g` to `[1 ... 1, rest]`, then `expand` to `a`'s shape |
 | `reduce a op=max pop=m` | `hit = cast (xor (cmplt a ue) true) dtype=f32` where `ue` is `u` reshaped and expanded back to `a`'s shape; `cnt = reduce hit op=add pop=m`; then `mul (expand (mul g (recip cnt))) hit`. Ties split evenly. |
@@ -314,7 +314,7 @@ math. In f32 the cancelling terms round, so the gradient's bits can differ with 
 ```
 
 * `url=` is `https://...`, or a relative path (letters, digits, `_ . -`, separated by `/`, no `..`)
-  resolved against the folder of the `.uir` file. It replaces `data=`; giving both is invalid.
+  resolved against the folder of the `.uir` file. It replaces the data list; giving both is invalid.
 * `sha256=` (64 lowercase hex digits) is required with `url=`. The file's SHA-256 must match, or the
   program is invalid. This is what makes a URL safe to depend on: the bytes can't change under you.
 * The file holds exactly `N` elements, little-endian, with no header: 4 bytes per f32 or i32, 1 byte

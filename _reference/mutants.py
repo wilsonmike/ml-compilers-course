@@ -271,7 +271,7 @@ M = [
   ("w6 url sha unchecked",          [("  if hashlib.sha256(data).hexdigest() != sha: raise UIRError(f\"sha256 mismatch for {url}\")\n", "")]),
   ("w6 url size unchecked",         [("  if len(data) != n * SIZE[dt]: raise UIRError", "  if len(data) < n * SIZE[dt]: raise UIRError")]),
   ("w6 url bool bytes unchecked",   [("  if dt == 'bool' and data.translate(None, b'\\x00\\x01'): raise UIRError(f\"{url}: bool bytes must be 0 or 1\")\n", "")]),
-  ("w6 url with data allowed",    [('need(\'data\' not in attrs, "a buffer takes data= or url=, not both")', "pass")]),
+  ("w6 url with data allowed",    [('need(\'data\' not in attrs, "a buffer takes initial data or url=, not both")', "pass")]),
   ("w6 url big-endian",             [("    return iter(struct.unpack(f\"<{self.n}{dict(f32='f', i8='b').get(self.dtype, 'i')}\", b))", "    return iter(struct.unpack(f\">{self.n}{dict(f32='f', i8='b').get(self.dtype, 'i')}\", b))")]),
   ("w6 render bitcast nan not canonical", [("{ int32_t i; if (isnan(x)) return 0x7fc00000; memcpy(&i, &x, 4); return i; }", "{ int32_t i; memcpy(&i, &x, 4); return i; }")]),
   ("w5 render in-place store fused", [("      if any(n.op == 'load' and storage_of(n.src[0]) is storage_of(view) for n in toposort(val)):", "      if False:")]),

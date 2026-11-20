@@ -123,10 +123,10 @@
   <p>Build in this order. Each check is a tiny program to run through your compiler and through the oracle (<code>python _reference/uirc.py --week=2 FILE</code>, or <code>python _reference/uirc.py render FILE</code>).</p>
   <ol>
     <li><strong>Add f32.</strong> Done when float literals parse and every op rounds to f32. Check: <code>%s = add 0.1 0.2</code>, <code>%t = assert %s 0.3</code> prints MATCH. If you get MISMATCH, you're computing in doubles without rounding after the add.</li>
-    <li><strong>Parse the new ops.</strong> Done when <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code> parse with their attributes. Check: <code>%b = buffer 3 dtype=i32 slot=0 data=[1 2 3]</code>, <code>%v = shrink %b 1 shape=[2]</code>, <code>%l = load %v</code>, <code>%e = index %l 1</code>, <code>%t = assert %e 3</code> prints MATCH.</li>
+    <li><strong>Parse the new ops.</strong> Done when <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code> parse with their attributes. Check: <code>%b = buffer 3 [1 2 3] dtype=i32 slot=0</code>, <code>%v = shrink %b 1 [2]</code>, <code>%l = load %v</code>, <code>%e = index %l 1</code>, <code>%t = assert %e 3</code> prints MATCH.</li>
     <li><strong>Type memory.</strong> Done when memory can't be used as a value. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%a = add %b 1</code>, <code>%t = assert %a 1</code> must be REJECTED.</li>
     <li><strong>Bounds.</strong> Done when views are proven with week 1's intervals. Check: an offset of <code>mod %x 4</code>, with <code>%x</code> loaded, and <code>shape=[2]</code> passes on a 5-element buffer and fails on a 4-element one (the interval is [0, 3], and 3 + 2 must be at most n). If both pass, you aren't checking at all. If both fail, your <code>mod</code> interval is too wide: maybe it still follows C's sign rule.</li>
-    <li><strong>Ordering checks.</strong> Done when two stores into one version, or an unsequenced store, are REJECTED. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%e = shrink %b 0 shape=[]</code>, <code>%s1 = store %e 1</code>, <code>%t = assert 1 1</code> must be REJECTED.</li>
+    <li><strong>Ordering checks.</strong> Done when two stores into one version, or an unsequenced store, are REJECTED. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%e = shrink %b 0 []</code>, <code>%s1 = store %e 1</code>, <code>%t = assert 1 1</code> must be REJECTED.</li>
     <li><strong>Interpret memory.</strong> Done when versions behave. Check: with <code>%b</code> holding <code>[10 20]</code>, load element 0 as <code>%x</code>, store 5 into it, take <code>%b1 = after %b %s</code>, load element 0 of <code>%b1</code> as <code>%y</code>. Then <code>add %x %y</code> must be 15. If you get 10, your load of <code>%b</code> saw the store.</li>
     <li><strong>Render ALU ops.</strong> Done when every op prints UB-free C. Check: <code>python tools/test.py --compiler PATH --week 2 -k i32_ -v</code>. A crash with exit code 132 or similar means the sanitizer trapped undefined behavior.</li>
     <li><strong>Render memory and the schedule.</strong> Done when loads come before the stores that overwrite their version. Check: <code>-k swap -v</code>. A swap that copies the same value into both slots means a store was printed too early.</li>
@@ -139,8 +139,8 @@
   <p class="score"></p>
   <div class="quiz" data-fill="3">
     <p class="q">What does <code>%e</code> hold?</p>
-    <pre><code>%b = buffer 3 dtype=i32 slot=0 data=[1 2 3]
-%v = shrink %b 1 shape=[2]
+    <pre><code>%b = buffer 3 [1 2 3] dtype=i32 slot=0
+%v = shrink %b 1 [2]
 %l = load %v
 %e = index %l 1</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
@@ -155,11 +155,11 @@
   </div>
   <div class="quiz" data-fill="15">
     <p class="q">With <code>%b</code> holding <code>[10 20]</code>, what is <code>%z</code>?</p>
-    <pre><code>%e  = shrink %b 0 shape=[]
+    <pre><code>%e  = shrink %b 0 []
 %x  = load %e
 %s  = store %e 5
 %b1 = after %b %s
-%e1 = shrink %b1 0 shape=[]
+%e1 = shrink %b1 0 []
 %y  = load %e1
 %z  = add %x %y</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
@@ -187,7 +187,7 @@
   <div class="quiz" data-fill="REJECTED | rejected">
     <p class="q">What does your compiler print for this file?</p>
     <pre><code>%b = buffer 2 dtype=i32 slot=0
-%e = shrink %b 0 shape=[]
+%e = shrink %b 0 []
 %s1 = store %e 1
 %t = assert 1 1</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
