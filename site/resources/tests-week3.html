@@ -83,7 +83,7 @@
     <tr><td><code>run/conv1d_padded</code></td><td>run: MATCH</td><td>a padded convolution masks out-of-range taps with where, after clamping the index into a provable range</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/conv1d_valid</code></td><td>run: MATCH</td><td>a valid 1-d convolution: output o sums x[o+k]*w[k]</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/conv2d_valid</code></td><td>run: MATCH</td><td>a valid 2-d convolution: four nested loops</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/gemm_1xK</code></td><td>run: MATCH</td><td>a 1xK @ Kx1 matmul is a dot product</td><td>no hash consing</td></tr>
+    <tr><td><code>run/gemm_1xK</code></td><td>run: MATCH</td><td>a 1xK @ Kx1 matmul is a dot product</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/gemm_2x3x2</code></td><td>run: MATCH</td><td>matmul by hand: three loops, an accumulator reset once per output element</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/gemm_Kx1_outer</code></td><td>run: MATCH</td><td>Kx1 @ 1xN with K=1 inner loop is an outer product</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/gemm_i32_wrap</code></td><td>run: MATCH</td><td>i32 matmul wraps inside the loop</td><td><span class=muted>none recorded</span></td></tr>
@@ -107,22 +107,22 @@
     <tr><td><code>run/reduce_max_plain</code></td><td>run: MATCH</td><td>a max accumulator</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/reduce_product_wrap</code></td><td>run: MATCH</td><td>a product accumulator wraps in i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/reduce_sum_f32_order</code></td><td>run: MATCH</td><td>the sum runs in increasing k: 1e8 + 1 + -1e8 + 1 is 1.0 in f32, not 2.0</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_after_loop_stale_version</code></td><td>run: REJECTED</td><td>after names %o, but the loop stores into %o0, the version after the reset: the versions would fork</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_after_wrong_memory_loop</code></td><td>run: REJECTED</td><td>after names memory the loop never stores into</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_after_loop_stale_version</code></td><td>run: REJECTED</td><td>after names %o, but the loop stores into %o0, the version after the reset: the versions would fork</td><td>after-on-loop accepts a stale version</td></tr>
+    <tr><td><code>run/rejected_after_wrong_memory_loop</code></td><td>run: REJECTED</td><td>after names memory the loop never stores into</td><td>after-on-loop skips memory check</td></tr>
     <tr><td><code>run/rejected_assert_closed_range</code></td><td>run: REJECTED</td><td>an assert can&#x27;t read a range even when the range&#x27;s loop is closed elsewhere</td><td>asserts may read open ranges</td></tr>
     <tr><td><code>run/rejected_assert_open_range</code></td><td>run: REJECTED</td><td>an assert can&#x27;t depend on an open range</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_call_open_range</code></td><td>run: REJECTED</td><td>a call can&#x27;t take an argument that depends on an open range</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_call_open_range</code></td><td>run: REJECTED</td><td>a call can&#x27;t take an argument that depends on an open range</td><td>calls may take open-range args</td></tr>
     <tr><td><code>run/rejected_end_last_not_range</code></td><td>run: REJECTED</td><td>the last operand of end must be a range</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_end_unused_range</code></td><td>run: REJECTED</td><td>end closes a range its effect doesn&#x27;t use</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_end_unused_range_closed</code></td><td>run: REJECTED</td><td>end over j repeats a store that doesn&#x27;t use j. Otherwise j is well formed, so only the &#x27;end must use its range&#x27; rule rejects it</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_end_value_not_effect</code></td><td>run: REJECTED</td><td>end repeats effects, not values</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_loop_never_closed</code></td><td>run: REJECTED</td><td>a store inside a loop that no end closes</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_end_unused_range_closed</code></td><td>run: REJECTED</td><td>end over j repeats a store that doesn&#x27;t use j. Otherwise j is well formed, so only the &#x27;end must use its range&#x27; rule rejects it</td><td>end need not use its range</td></tr>
+    <tr><td><code>run/rejected_end_value_not_effect</code></td><td>run: REJECTED</td><td>end repeats effects, not values</td><td>end accepts values</td></tr>
+    <tr><td><code>run/rejected_loop_never_closed</code></td><td>run: REJECTED</td><td>a store inside a loop that no end closes</td><td>unclosed loops allowed</td></tr>
     <tr><td><code>run/rejected_loop_store_unsequenced</code></td><td>run: REJECTED</td><td>the end runs the store, but no after sequences the loop</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_memory_in_call_body_loop</code></td><td>run: REJECTED</td><td>a call body can&#x27;t read memory, even when called from a loop</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_range_bound_depends</code></td><td>run: REJECTED</td><td>a range&#x27;s bound can&#x27;t depend on another range (no triangular loops in week 3)</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_range_bound_depends</code></td><td>run: REJECTED</td><td>a range&#x27;s bound can&#x27;t depend on another range (no triangular loops in week 3)</td><td>bounds may depend on ranges</td></tr>
     <tr><td><code>run/rejected_range_f32_bound</code></td><td>run: REJECTED</td><td>a range bound is an i32</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_range_overrun</code></td><td>run: REJECTED</td><td>range 4 indexes a 3-element buffer: offset in [0, 3] can&#x27;t be proven inside</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_range_two_ends</code></td><td>run: REJECTED</td><td>a range is closed by exactly one end</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_range_overrun</code></td><td>run: REJECTED</td><td>range 4 indexes a 3-element buffer: offset in [0, 3] can&#x27;t be proven inside</td><td>range interval is [0, 0]<br>range interval one too tight</td></tr>
+    <tr><td><code>run/rejected_range_two_ends</code></td><td>run: REJECTED</td><td>a range is closed by exactly one end</td><td>a range may close twice</td></tr>
     <tr><td><code>run/rejected_range_value_escapes</code></td><td>run: REJECTED</td><td>a value that depends on a range can&#x27;t leak into an assert outside the loop</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_two_stores_one_version_loop</code></td><td>run: REJECTED</td><td>two stores into the same version inside one loop body are unordered</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_wrong_stride</code></td><td>run: REJECTED</td><td>i*3 + k with k &lt; 4 overruns a 6-element buffer at i=1, k=3</td><td><span class=muted>none recorded</span></td></tr>

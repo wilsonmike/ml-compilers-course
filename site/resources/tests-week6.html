@@ -42,7 +42,7 @@
     <tbody>
     <tr><td><code>render/mnist_train</code></td><td>render, slot 4 &gt;= 850</td><td>softmax regression on MNIST: 50 steps of 100 images, learning rate 1.0, then 1000 test digits</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/r_bitcast</code></td><td>render</td><td>bitcast both ways. A NaN made by 0 * inf must still come out as 0x7fc00000</td><td>render bitcast nan not canonical</td></tr>
-    <tr><td><code>render/r_exp2</code></td><td>render</td><td>exp2 over 64 values, special ones first: your C must match the spec bit for bit</td><td>exp2 clamps at -126<br>exp2 nan becomes 1<br>exp2 rounds n down<br>exp2 series one term short<br>floor truncates</td></tr>
+    <tr><td><code>render/r_exp2</code></td><td>render</td><td>exp2 over 64 values, special ones first: your C must match the spec bit for bit</td><td>exp2 clamps at -126<br>exp2 nan becomes 1<br>exp2 rounds n down<br>exp2 series one term short<br>floor truncates<br>no hash consing</td></tr>
     <tr><td><code>render/r_exp_log</code></td><td>render</td><td>exp then log: the sugar, rendered</td><td>exp uses ln 2<br>log2 no sqrt2 fold<br>log2 zero gives nan</td></tr>
     <tr><td><code>render/r_floor</code></td><td>render</td><td>floor in C, past 2^23 included</td><td>floor casts big values</td></tr>
     <tr><td><code>render/r_grad_movement</code></td><td>render</td><td>a gradient through pad, shrink, permute and expand, rendered as loops</td><td>grad expand takes the max<br>grad pad shrinks from the right<br>grad seed is 2<br>grad shrink pads swapped</td></tr>
@@ -156,7 +156,7 @@
     <tr><td><code>run/rejected_grad_through_call</code></td><td>run: REJECTED</td><td>gradients do not go through call</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_grad_through_store_load</code></td><td>run: REJECTED</td><td>a store and a load on the path: memory is not differentiable</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_grad_wrt_i32</code></td><td>run: REJECTED</td><td>x must be f32</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_grad_wrt_literal</code></td><td>run: REJECTED</td><td>equal literals are one shared node: no gradient with respect to 2.0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_grad_wrt_literal</code></td><td>run: REJECTED</td><td>equal literals are one shared node: no gradient with respect to 2.0</td><td>grad wrt literal allowed</td></tr>
     <tr><td><code>run/rejected_grad_wrt_memory</code></td><td>run: REJECTED</td><td>x must be a value, not a buffer</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_math_bool</code></td><td>run: REJECTED</td><td>log2 of a bool</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_math_i32</code></td><td>run: REJECTED</td><td>math ops are f32 only</td><td><span class=muted>none recorded</span></td></tr>
@@ -167,12 +167,12 @@
     <tr><td><code>run/rejected_relu_bool</code></td><td>run: REJECTED</td><td>relu of a bool</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_sha_without_url</code></td><td>run: REJECTED</td><td>sha256= needs url=</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_sugar_arity</code></td><td>run: REJECTED</td><td>neg takes one operand</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_url_and_data</code></td><td>run: REJECTED</td><td>data= and url= together</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_url_bool_bytes</code></td><td>run: REJECTED</td><td>bool bytes must be 0 or 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_url_and_data</code></td><td>run: REJECTED</td><td>data= and url= together</td><td>url with data allowed</td></tr>
+    <tr><td><code>run/rejected_url_bool_bytes</code></td><td>run: REJECTED</td><td>bool bytes must be 0 or 1</td><td>url bool bytes unchecked</td></tr>
     <tr><td><code>run/rejected_url_dotdot</code></td><td>run: REJECTED</td><td>relative paths may not climb out with ..</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_url_file_too_long</code></td><td>run: REJECTED</td><td>the file holds 5 f32, the buffer wants 4: extra bytes are an error too</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_url_file_too_long</code></td><td>run: REJECTED</td><td>the file holds 5 f32, the buffer wants 4: extra bytes are an error too</td><td>url size unchecked</td></tr>
     <tr><td><code>run/rejected_url_missing_file</code></td><td>run: REJECTED</td><td>no such file</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_url_sha_mismatch</code></td><td>run: REJECTED</td><td>the file does not match its sha256</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_url_sha_mismatch</code></td><td>run: REJECTED</td><td>the file does not match its sha256</td><td>url sha unchecked</td></tr>
     <tr><td><code>run/rejected_url_size_mismatch</code></td><td>run: REJECTED</td><td>the file holds 5 f32, the buffer wants 6</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_url_without_sha</code></td><td>run: REJECTED</td><td>url= needs sha256=</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_url_wrong_dtype_size</code></td><td>run: REJECTED</td><td>20 bytes are 5 f32 but 20 bool: as bool they are not 0 or 1</td><td><span class=muted>none recorded</span></td></tr>

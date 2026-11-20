@@ -53,7 +53,7 @@
     <tr><td><code>run/bounds_add</code></td><td>run: MATCH</td><td>add: [a + c, b + d]. [0, 1] + 1 is [1, 2]</td><td>params ignore their limits</td></tr>
     <tr><td><code>run/bounds_call</code></td><td>run: MATCH</td><td>call: the body&#x27;s bounds. The body is mod y 3, so the call is in [0, 2]</td><td>call bounds unknown<br>global memo across calls</td></tr>
     <tr><td><code>run/bounds_cast_bool</code></td><td>run: MATCH</td><td>cast bool to i32: a bool that could be either is [0, 1]</td><td>bool-&gt;num always 1</td></tr>
-    <tr><td><code>run/bounds_cast_round_trip</code></td><td>run: MATCH</td><td>cast to bool normalizes [0, 9] to [0, 1], and back to i32 it stays [0, 1]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_cast_round_trip</code></td><td>run: MATCH</td><td>cast to bool normalizes [0, 9] to [0, 1], and back to i32 it stays [0, 1]</td><td>cast bounds not normalized</td></tr>
     <tr><td><code>run/bounds_cmplt</code></td><td>run: MATCH</td><td>cmplt: [1, 1] when b &lt; c. [0, 3] &lt; 5 is always true, and cast makes it [1, 1]</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/bounds_cmplt_false</code></td><td>run: MATCH</td><td>cmplt: [0, 0] when a &gt;= d. [5, 9] &lt; 5 is always false</td><td>cmplt bounds always [0, 1]</td></tr>
     <tr><td><code>run/bounds_div</code></td><td>run: MATCH</td><td>div by a fixed y: the hull of the endpoint quotients. [0, 9] / 4 is [0, 2]</td><td><span class=muted>none recorded</span></td></tr>
@@ -166,6 +166,7 @@
     <tr><td><code>run/rejected_assert_vector</code></td><td>run: REJECTED</td><td>the left operand is the program&#x27;s return value, and ALU returns are scalar</td><td>vector asserts in week 1</td></tr>
     <tr><td><code>run/rejected_assert_void</code></td><td>run: REJECTED</td><td>[] is void: it can&#x27;t be compared</td><td>void operands allowed</td></tr>
     <tr><td><code>run/rejected_attr_before_operand</code></td><td>run: REJECTED</td><td>attributes follow all sources</td><td>attributes before operands</td></tr>
+    <tr><td><code>run/rejected_attr_control_char</code></td><td>run: REJECTED</td><td>outside comments the file is printable ASCII: this dtype has a control character in it</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_attr_duplicate</code></td><td>run: REJECTED</td><td>attribute keys are unique</td><td>duplicate attributes allowed</td></tr>
     <tr><td><code>run/rejected_attr_space</code></td><td>run: REJECTED</td><td>an attribute is one token, with no spaces inside</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_attr_unknown</code></td><td>run: REJECTED</td><td>add takes no attributes. An unknown attribute is an error, not ignored</td><td>unknown attributes ignored</td></tr>
@@ -174,15 +175,15 @@
     <tr><td><code>run/rejected_bounds_add</code></td><td>run: REJECTED</td><td>add: [0, 1] + 2 is [2, 3], and 3 is past the end</td><td>index not bounds checked</td></tr>
     <tr><td><code>run/rejected_bounds_add_overflow</code></td><td>run: REJECTED</td><td>add: bounds that overflow widen to the full i32 range</td><td>bounds clamp instead of wrap</td></tr>
     <tr><td><code>run/rejected_bounds_cast_bool_i32</code></td><td>run: REJECTED</td><td>cast bool to i32 is [0, 1], and the stack has one element</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_bounds_cmplt_edge</code></td><td>run: REJECTED</td><td>cmplt: [0, 5] &lt; 5 could be either (5 &lt; 5 is false), so where can&#x27;t pick a side: the hull of [1, 1] and [0, 5]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_cmplt_edge</code></td><td>run: REJECTED</td><td>cmplt: [0, 5] &lt; 5 could be either (5 &lt; 5 is false), so where can&#x27;t pick a side: the hull of [1, 1] and [0, 5]</td><td>cmplt bounds off by one</td></tr>
     <tr><td><code>run/rejected_bounds_div_variable</code></td><td>run: REJECTED</td><td>div by a y that isn&#x27;t fixed: the full range</td><td>div bounds for any y</td></tr>
     <tr><td><code>run/rejected_bounds_div_zero</code></td><td>run: REJECTED</td><td>div by a fixed 0 is always -1: bounds [-1, -1]</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_bounds_mod_negative</code></td><td>run: REJECTED</td><td>mod by a fixed y &lt; 0: [y + 1, 0]. mod -3 gives [-2, 0]</td><td>mod bounds ignore sign</td></tr>
     <tr><td><code>run/rejected_bounds_mod_variable</code></td><td>run: REJECTED</td><td>mod by a y that isn&#x27;t fixed: the full range</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_bounds_mod_wrap</code></td><td>run: REJECTED</td><td>mod: [1, 4] mod 3 passes 3, where the quotient changes, so it&#x27;s [0, 2], not the hull of 1 and 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_mod_wrap</code></td><td>run: REJECTED</td><td>mod: [1, 4] mod 3 passes 3, where the quotient changes, so it&#x27;s [0, 2], not the hull of 1 and 1</td><td>mod bounds endpoints only</td></tr>
     <tr><td><code>run/rejected_bounds_mul_square</code></td><td>run: REJECTED</td><td>mul: [-1, 1] * [-1, 1] is hull{1, -1, -1, 1} = [-1, 1]. i*i is never negative, but the rule can&#x27;t see that</td><td>mul bounds from endpoints</td></tr>
     <tr><td><code>run/rejected_bounds_shl_overflow</code></td><td>run: REJECTED</td><td>shl: 1 &lt;&lt; 31 overflows i32, so the bounds widen to the full range</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_bounds_stack_hull</code></td><td>run: REJECTED</td><td>stack: the hull of every element, not just the first. [0 5 1] is in [0, 5]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_stack_hull</code></td><td>run: REJECTED</td><td>stack: the hull of every element, not just the first. [0 5 1] is in [0, 5]</td><td>stack bounds from element 0</td></tr>
     <tr><td><code>run/rejected_bounds_where_hull</code></td><td>run: REJECTED</td><td>where with a p that could be either is the hull of both sides. This clamp is safe in fact, but [-3, 2] hull [0, 0] is [-3, 2]</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_bounds_xor</code></td><td>run: REJECTED</td><td>xor: anything but two singletons is the full range. i xor 1 for i in [0, 1] is really [0, 1], but the rule says I</td><td>xor bounds from endpoints</td></tr>
     <tr><td><code>run/rejected_bounds_xor_exact</code></td><td>run: REJECTED</td><td>xor of two singletons is exact: 0 xor 5 is [5, 5], past the end. (i * 0 is [0, 0] even for an unlimited i)</td><td><span class=muted>none recorded</span></td></tr>
@@ -208,7 +209,7 @@
     <tr><td><code>run/rejected_index_bool</code></td><td>run: REJECTED</td><td>indices are i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_index_negative</code></td><td>run: REJECTED</td><td>index -1 doesn&#x27;t fit the axis</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_index_oob</code></td><td>run: REJECTED</td><td>index 3 is past the end: its bounds [3, 3] don&#x27;t fit the axis</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_index_scalar</code></td><td>run: REJECTED</td><td>you can&#x27;t index a scalar</td><td>index count unchecked</td></tr>
+    <tr><td><code>run/rejected_index_scalar</code></td><td>run: REJECTED</td><td>you can&#x27;t index a scalar</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_index_two</code></td><td>run: REJECTED</td><td>a rank-1 value takes one index</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_index_unlimited</code></td><td>run: REJECTED</td><td>with no limits %i could be anything, so the index isn&#x27;t safe</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_int_too_big</code></td><td>run: REJECTED</td><td>integer literals must fit in i32</td><td><span class=muted>none recorded</span></td></tr>
@@ -241,18 +242,20 @@
     <tr><td><code>run/rejected_parse</code></td><td>run: REJECTED</td><td>a line that isn&#x27;t a binding</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_pdf_index_unsafe</code></td><td>run: REJECTED</td><td>the PDF&#x27;s index example with [0, 3]: index 3 is past the end, even though this call passes 1</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_redefine</code></td><td>run: REJECTED</td><td>each name is defined once</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_redefine_reachable</code></td><td>run: REJECTED</td><td>each name is defined once, even when both definitions are used</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_redefine_reachable</code></td><td>run: REJECTED</td><td>each name is defined once, even when both definitions are used</td><td>redefinition allowed</td></tr>
     <tr><td><code>run/rejected_shl_bool</code></td><td>run: REJECTED</td><td>div, mod and shl are i32 only</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_stack_mixed</code></td><td>run: REJECTED</td><td>stack sources share one dtype</td><td>stack dtypes unchecked</td></tr>
     <tr><td><code>run/rejected_stack_rank2</code></td><td>run: REJECTED</td><td>week 1 shapes have rank 0 or 1, so a stack of stacks is out</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_two_asserts</code></td><td>run: REJECTED</td><td>a test has a single assert</td><td>two asserts allowed</td></tr>
     <tr><td><code>run/rejected_two_atoms</code></td><td>run: REJECTED</td><td>an atom binding has exactly one atom</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_two_identical_asserts</code></td><td>run: REJECTED</td><td>two assert bindings are two asserts, even when they are the same node</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_unclosed_bracket</code></td><td>run: REJECTED</td><td>every [ needs its ]</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_undefined</code></td><td>run: REJECTED</td><td>a REF must name a definition</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_unknown_op</code></td><td>run: REJECTED</td><td>only the ops on page 2 exist</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_unreachable</code></td><td>run: REJECTED</td><td>every node must be reachable from the assertion</td><td>unreachable nodes allowed</td></tr>
     <tr><td><code>run/rejected_unreachable_body</code></td><td>run: REJECTED</td><td>an unused function body is unreachable too</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_use_before_def</code></td><td>run: REJECTED</td><td>names are defined above their first use</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_void_argument</code></td><td>run: REJECTED</td><td>an argument needs a value: [] is void</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_void_operand</code></td><td>run: REJECTED</td><td>[] is void, so it can&#x27;t be an ALU operand</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_where_branches</code></td><td>run: REJECTED</td><td>where&#x27;s two branches share a dtype</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_where_cond</code></td><td>run: REJECTED</td><td>where needs a bool condition</td><td><span class=muted>none recorded</span></td></tr>
@@ -266,6 +269,7 @@
     <tr><td><code>run/shl_7</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/shl_8</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/shl_9</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/slot_leading_zeros</code></td><td>run: MATCH</td><td>slot=00 is slot 0, so these two lines name the same param node</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/stack_and_brackets_same</code></td><td>run: MATCH</td><td>stack 1 2 and [1 2] build the same node</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/stack_bool</code></td><td>run: MATCH</td><td>stack works for bool</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/stack_index_0</code></td><td>run: MATCH</td><td>stack builds a rank-1 value, index reads an element</td><td><span class=muted>none recorded</span></td></tr>

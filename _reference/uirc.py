@@ -710,6 +710,7 @@ def lex(text):
       out.append(('DEF' if m.group(0).endswith('=') else 'REF', m.group(1), line))
       line += m.group(0).count('\n'); i = m.end(); continue
     m = WORD_RE.match(text, i); w = m.group(0); i = m.end()
+    if not all('!' <= ch <= '~' for ch in w): err(f"{w!r} has a character that isn't printable ASCII")
     if (a := ATTR_RE.fullmatch(w)):
       k, v = a.groups()
       if v == '': err(f"attribute {k}= has no value (no spaces inside an attribute)")
@@ -760,7 +761,7 @@ def parse_raw(text):
         k, v = tok()[1]
         if k not in (ATTRS1 if WEEK == 1 else ATTRS).get(op, set()): raise UIRError(f"line {tok()[2]}: {op} has no attribute {k}")
         if k in attrs: raise UIRError(f"line {tok()[2]}: attribute {k} given twice")
-        attrs[k] = v; p += 1
+        attrs[k] = str(int(v)) if k == 'slot' and re.fullmatch(r"[0-9]+", v, re.A) else v; p += 1
       if tok()[0] in ('REF', 'LIT', '['): raise UIRError(f"line {tok()[2]}: operands come before attributes")
       own = name if op in ('range', 'alloc', 'buffer') else None
       u = node(op, src, tuple(sorted(attrs.items())), None, ln, own)
@@ -1774,7 +1775,7 @@ def main(argv):
   if len(argv) < 2: print(usage, file=sys.stderr); return 2
   if argv[1] not in ('simplify', 'render', 'render-cuda'):
     for f in argv[1:]:
-      try: data = read_bytes(f)
+      try: data = open(f, 'rb').read()
       except OSError: print(f"REJECTED {f}"); continue
       print(f"{outcome(data, os.path.dirname(os.path.abspath(f)))[0]} {f}")
     return 0

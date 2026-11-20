@@ -47,11 +47,11 @@
     <tr><td><code>render/bool_ops</code></td><td>render</td><td>bool xor, where on bools, and bool to i32</td><td>C where swapped</td></tr>
     <tr><td><code>render/call_inlined</code></td><td>render</td><td>calls render inline: the body runs on loaded args</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/call_nested_closed</code></td><td>render</td><td>a nested call&#x27;s body keeps its own param 0 when inlined</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/cast_f32_i32_saturates</code></td><td>render</td><td>f32 to i32 truncates and saturates, and nan is 0: C&#x27;s plain (int32_t) cast is undefined for most of these</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/cast_f32_i32_saturates</code></td><td>render</td><td>f32 to i32 truncates and saturates, and nan is 0: C&#x27;s plain (int32_t) cast is undefined for most of these</td><td>C f32-&gt;i32 plain cast</td></tr>
     <tr><td><code>render/casts_to_i32_and_bool</code></td><td>render</td><td>f32 to i32 truncates toward zero, and anything to bool is != 0, nan included</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/copy_scalar</code></td><td>render</td><td>the smallest kernel: one load, one store</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/div_mod_loaded</code></td><td>render</td><td>div and mod of loaded values floor, and a zero divisor gives -1 and x: the C needs more than / and %</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/div_mod_negative_const</code></td><td>render</td><td>a constant positive divisor still needs floor semantics when x can be negative: -7 div 4 is -2, mod is 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/div_mod_loaded</code></td><td>render</td><td>div and mod of loaded values floor, and a zero divisor gives -1 and x: the C needs more than / and %</td><td>C div by zero is 0<br>C div doesn&#x27;t floor<br>C div is C&#x27;s /<br>C mod by zero is 0<br>C mod keeps x&#x27;s sign</td></tr>
+    <tr><td><code>render/div_mod_negative_const</code></td><td>render</td><td>a constant positive divisor still needs floor semantics when x can be negative: -7 div 4 is -2, mod is 1</td><td>C fast path ignores sign</td></tr>
     <tr><td><code>render/dynamic_offset_bool</code></td><td>render</td><td>a bool-derived offset picks one of two elements</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/dynamic_offset_store</code></td><td>render</td><td>store at a masked loaded offset</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/f32_chain</code></td><td>render</td><td>a longer f32 chain where every intermediate rounds</td><td><span class=muted>none recorded</span></td></tr>
@@ -65,7 +65,7 @@
     <tr><td><code>render/f32_where_cmplt</code></td><td>render</td><td>cmplt with nan is false, and where picks a branch</td><td>C cmplt as &lt;=</td></tr>
     <tr><td><code>render/i32_add_wrap</code></td><td>render</td><td>i32 add wraps, and in C that has to go through uint32_t</td><td>C plain signed add</td></tr>
     <tr><td><code>render/i32_div_mod_floor</code></td><td>render</td><td>div floors and mod takes the divisor&#x27;s sign, so C&#x27;s bare / and % are wrong for these signs</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/i32_div_mod_intmin</code></td><td>render</td><td>INT_MIN / -1 and INT_MIN % -1 are UB in C; the kernel must not trap</td><td>C div is C&#x27;s /</td></tr>
+    <tr><td><code>render/i32_div_mod_intmin</code></td><td>render</td><td>INT_MIN / -1 and INT_MIN % -1 are UB in C; the kernel must not trap</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/i32_max_cmp_xor</code></td><td>render</td><td>max, xor and a cmplt-driven where on i32 edges</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/i32_mul_wrap</code></td><td>render</td><td>i32 mul wraps without UB</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/i32_shl_wrap</code></td><td>render</td><td>shl into the sign bit and past it</td><td><span class=muted>none recorded</span></td></tr>
@@ -75,7 +75,7 @@
     <tr><td><code>render/old_version_late_use</code></td><td>render</td><td>an old-version load whose value is used two stores later</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/rank1_copy</code></td><td>render</td><td>load a [3] view and store it into another buffer&#x27;s [3] view</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/rmw_chain</code></td><td>render</td><td>three increments of the same element</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/shl_loaded_amount</code></td><td>render</td><td>shl shifts by y mod 32: loaded amounts of 33, -1 and 32 are 1, 31 and 0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/shl_loaded_amount</code></td><td>render</td><td>shl shifts by y mod 32: loaded amounts of 33, -1 and 32 are 1, 31 and 0</td><td>C shl unmasked</td></tr>
     <tr><td><code>render/special_data_copy</code></td><td>render</td><td>special float data copies through bit for bit</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/stack_index_dynamic</code></td><td>render</td><td>index a stack with a loaded index. mod 3 proves each index fits the stack</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/store_whole_buffer</code></td><td>render</td><td>store a rank-1 value into a whole buffer</td><td><span class=muted>none recorded</span></td></tr>
@@ -168,16 +168,16 @@
     <tr><td><code>run/mismatch_memory_assert</code></td><td>run: MISMATCH</td><td>a failing assert on a loaded value</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_after_not_store</code></td><td>run: REJECTED</td><td>the second operand of after must be a store</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_after_on_view</code></td><td>run: REJECTED</td><td>after takes a whole buffer version, not a view</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_after_stale_version</code></td><td>run: REJECTED</td><td>after names an older version of the right buffer: still wrong</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_after_stale_version</code></td><td>run: REJECTED</td><td>after names an older version of the right buffer: still wrong</td><td>after version unchecked</td></tr>
     <tr><td><code>run/rejected_after_wrong_version</code></td><td>run: REJECTED</td><td>after must name the version the store writes into</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_alloc_slot</code></td><td>run: REJECTED</td><td>alloc has no slot: it isn&#x27;t an input</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_attr_before_operand</code></td><td>run: REJECTED</td><td>operands come before attributes</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_attr_duplicate</code></td><td>run: REJECTED</td><td>an attribute can be given once</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_attr_unknown</code></td><td>run: REJECTED</td><td>add takes no attributes. Unknown attributes are errors, not ignored</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_bounds_mask_too_wide</code></td><td>run: REJECTED</td><td>masking to [0, 4] doesn&#x27;t fit a scalar view in a 4-element buffer</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_bounds_mod_negative</code></td><td>run: REJECTED</td><td>mod by a negative y is in [y + 1, 0], so this offset could be negative</td><td>bounds allow negative<br>bounds unchecked</td></tr>
+    <tr><td><code>run/rejected_bounds_mask_too_wide</code></td><td>run: REJECTED</td><td>masking to [0, 4] doesn&#x27;t fit a scalar view in a 4-element buffer</td><td>bounds off by one<br>bounds unchecked</td></tr>
+    <tr><td><code>run/rejected_bounds_mod_negative</code></td><td>run: REJECTED</td><td>mod by a negative y is in [y + 1, 0], so this offset could be negative</td><td>bounds allow negative</td></tr>
     <tr><td><code>run/rejected_bounds_negative</code></td><td>run: REJECTED</td><td>negative offsets are out of bounds</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_bounds_nested</code></td><td>run: REJECTED</td><td>a nested view must fit its parent view, not just the buffer</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_nested</code></td><td>run: REJECTED</td><td>a nested view must fit its parent view, not just the buffer</td><td>nested view vs storage</td></tr>
     <tr><td><code>run/rejected_bounds_past_end</code></td><td>run: REJECTED</td><td>elements 3 and 4 of a 4-element buffer: 4 is past the end</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_bounds_raw_loaded</code></td><td>run: REJECTED</td><td>a raw loaded index could be anything, so the view can&#x27;t be proven in bounds</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_bounds_scalar_at_n</code></td><td>run: REJECTED</td><td>element 4 of a 4-element buffer doesn&#x27;t exist</td><td><span class=muted>none recorded</span></td></tr>
@@ -188,9 +188,9 @@
     <tr><td><code>run/rejected_call_type_mismatch</code></td><td>run: REJECTED</td><td>arg dtype must match the param</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_call_type_unused</code></td><td>run: REJECTED</td><td>arg dtype checks are static too</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_data_dtype</code></td><td>run: REJECTED</td><td>data values must be literals of the buffer&#x27;s dtype</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_data_length</code></td><td>run: REJECTED</td><td>data= must give exactly n values</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_duplicate_slot</code></td><td>run: REJECTED</td><td>slots are unique</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_duplicate_slot_identical</code></td><td>run: REJECTED</td><td>two identical buffer statements are still two buffers sharing a slot</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_data_length</code></td><td>run: REJECTED</td><td>data= must give exactly n values</td><td>data length unchecked</td></tr>
+    <tr><td><code>run/rejected_duplicate_slot</code></td><td>run: REJECTED</td><td>slots are unique</td><td>duplicate slots ok</td></tr>
+    <tr><td><code>run/rejected_duplicate_slot_identical</code></td><td>run: REJECTED</td><td>two identical buffer statements are still two buffers sharing a slot</td><td>identical buffers merge</td></tr>
     <tr><td><code>run/rejected_index_f32</code></td><td>run: REJECTED</td><td>the index must be i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_literal_infinity</code></td><td>run: REJECTED</td><td>the word is inf, not infinity</td><td>loose float literals</td></tr>
     <tr><td><code>run/rejected_load_value</code></td><td>run: REJECTED</td><td>load reads memory, not a value</td><td><span class=muted>none recorded</span></td></tr>
@@ -198,18 +198,18 @@
     <tr><td><code>run/rejected_mem_assert</code></td><td>run: REJECTED</td><td>assert compares values, not memory</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_mem_call_arg</code></td><td>run: REJECTED</td><td>memory can&#x27;t be passed to a call</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_mem_in_call_body</code></td><td>run: REJECTED</td><td>memory can&#x27;t be used inside a call body</td><td>memory in call body ok</td></tr>
-    <tr><td><code>run/rejected_mem_stack</code></td><td>run: REJECTED</td><td>memory can&#x27;t be stacked</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_mem_stack</code></td><td>run: REJECTED</td><td>memory can&#x27;t be stacked</td><td>memory as ALU operand ok</td></tr>
     <tr><td><code>run/rejected_offset_f32</code></td><td>run: REJECTED</td><td>offsets are i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_old_version_needed_late</code></td><td>run: REJECTED</td><td>the offset of a load from the old version depends on the new version: no order works</td><td>no ordering cycle check</td></tr>
     <tr><td><code>run/rejected_param_two_types</code></td><td>run: REJECTED</td><td>one slot can&#x27;t be two types inside one body</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_param_two_types_b</code></td><td>run: REJECTED</td><td>same as err_param_two_types with the uses in the other order: check every use, not just the first or last</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_shrink_no_shape</code></td><td>run: REJECTED</td><td>shrink needs shape=</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_stack_mixed</code></td><td>run: REJECTED</td><td>stack operands must share a dtype</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_store_dtype</code></td><td>run: REJECTED</td><td>the stored value must have the view&#x27;s dtype</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_store_dtype</code></td><td>run: REJECTED</td><td>the stored value must have the view&#x27;s dtype</td><td>store type unchecked</td></tr>
     <tr><td><code>run/rejected_store_into_value</code></td><td>run: REJECTED</td><td>store writes into memory, not into a value</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_store_shape</code></td><td>run: REJECTED</td><td>the stored value must have the view&#x27;s shape</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_then_static_error</code></td><td>run: REJECTED</td><td>type checking happens before any assert runs, so a later type error beats an earlier failing assert</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_two_stores_one_version</code></td><td>run: REJECTED</td><td>two stores into the same version are unordered</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_two_stores_one_version</code></td><td>run: REJECTED</td><td>two stores into the same version are unordered</td><td>two stores per version</td></tr>
     <tr><td><code>run/rejected_two_stores_unsequenced_second</code></td><td>run: REJECTED</td><td>a second store into a version is invalid even if only one is sequenced</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_assert</code></td><td>run: REJECTED</td><td>assert needs matching dtypes</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_div_f32</code></td><td>run: REJECTED</td><td>div is i32 only</td><td><span class=muted>none recorded</span></td></tr>
@@ -218,7 +218,7 @@
     <tr><td><code>run/rejected_type_static</code></td><td>run: REJECTED</td><td>type errors are static: this bad line is never evaluated, but the program is still invalid</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_where_branches</code></td><td>run: REJECTED</td><td>where branches must have the same dtype</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/rejected_type_xor_f32</code></td><td>run: REJECTED</td><td>xor is not defined on f32</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/rejected_unsequenced_store</code></td><td>run: REJECTED</td><td>a store no after sequences has no effect, so it&#x27;s an error</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_unsequenced_store</code></td><td>run: REJECTED</td><td>a store no after sequences has no effect, so it&#x27;s an error</td><td>unsequenced store ok</td></tr>
     <tr><td><code>run/rejected_view_alu_operand</code></td><td>run: REJECTED</td><td>a view isn&#x27;t a value either</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/special_float_data_t0</code></td><td>run: MATCH</td><td>data can hold nan, inf, -inf and -0.0</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>run/special_float_data_t1</code></td><td>run: MATCH</td><td>data can hold nan, inf, -inf and -0.0</td><td><span class=muted>none recorded</span></td></tr>

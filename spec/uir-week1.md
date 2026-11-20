@@ -37,10 +37,13 @@ The call binds slot 0 to 3, so its body computes 3 + 3 = 6, and the assert check
 | EOF | | The end of the file. |
 
 UIR is case-sensitive ASCII. A comment runs from `#` to the end of the line, and only there may other characters
-appear. A newline is just whitespace: a binding may span lines, and several may share one.
+appear. Outside comments, every character is printable ASCII or whitespace (space, tab, carriage return, newline),
+so a byte-order mark or a control character makes the file invalid. A newline is just whitespace: a binding may span
+lines, and several may share one. A comment can't sit between a name and its `=`.
 
 **Our reading:** every integer literal must fit in i32, so `2147483648` and `0x80000000` are rejected. Hex has no
-sign (`-0x10` is not a literal) and the prefix is a lowercase `0x`.
+sign (`-0x10` is not a literal) and the prefix is a lowercase `0x`. A slot is a number, so `slot=00` and `slot=0`
+are the same attribute and give the same node.
 
 ## 3. Grammar
 
@@ -151,20 +154,26 @@ add), while `mul %a %b` is also 36 but costs 3 (two distinct adds).
 * **Limits.** An argument's bounds must fit inside its param's limits `[l, h]`. A param with no limits is `I`
   (for bool, `[0, 1]`). The argument's bounds come from the rules above, so an outer param passed inward brings its
   own limits: `[0, 3]` fits in `[0, 5]`, `[0, 9]` does not.
-* Week 1 arguments and returns are scalars: the body and every argument has shape `()`.
+* Week 1 arguments and returns are scalar values: the body and every argument is an i32 or a bool of shape `()`.
+  `[]` is void, so it can't be an argument.
 * A param only has a value inside a call. A param reachable from the assert without going through a call body is
   rejected.
 
 ## 7. Test files and outcomes
 
-A test is a program that ends with a single `assert`, never used as an operand. Its left operand is the program's
+A test is a program that ends with a single `assert`, never used as an operand. "Single" counts assert bindings:
+two `assert` lines are two asserts even if they're identical (and hash cons to one node). "Ends with" means the last
+binding names the assert node: `%u = %t` after `%t = assert ...` is fine, anything else is not. Its left operand is the program's
 return value, and in week 1 it is a scalar. Its right operand is a literal, or a stack of literals. Every node must
 be reachable from the assertion, including call bodies and unused arguments.
 
 The compiler checks a file in this order and stops at the first outcome:
 
 1. **OVERBUDGET** if the file is over 4096 bytes. Nothing is parsed.
-2. Parse. A file that doesn't follow sections 2 and 3 is **REJECTED**.
+2. Parse. A file that doesn't follow sections 2 and 3 is **REJECTED**. Parsing covers the tokens and the
+   grammar, names (undefined or defined twice), integer literals that don't fit, unknown ops, and attribute keys
+   (a key the op doesn't take, or the same key twice). Attribute values, operand counts, dtypes and shapes are
+   checked in step 4.
 3. **OVERBUDGET** if parsing made 100 or more nodes, or 300 or more source edges. A node is a distinct (hash
    consed) node, literals and `[]` included. A source edge is one entry in one node's sources.
 4. Validate: dtypes, shapes, index safety, call arguments, limits and the test-file rules. Any failure is
@@ -176,9 +185,12 @@ Nothing can go wrong at run time in week 1: every op is defined on every input, 
 past step 4.
 
 **Static cost** is the sum, over the distinct nodes reachable from the assert, of each node's cost from section 5.
+In week 1 every ALU result is a scalar, so N is 1 for them; a stack of n scalars costs n.
 Each node counts once however many times it's used. Walk call arguments but not call bodies: a call charges its body
 through `1 + C(f)`, where `C(f)` is the same sum over the body. Two different call nodes with the same body each
-charge it.
+charge it. A body's sources include its params' sources, so a param's `[]` costs 1 inside the body, and limits like
+`[0 9]` cost 2 more. For example, `%x = param [] slot=0 dtype=i32 addrspace=ALU`, `%s = add %x %x`,
+`%v = call %s 3`, `%t = assert %v 6` costs 3: the call is 1, and its body is the add (1) plus the `[]` (1).
 
 **Our readings:**
 * The node and edge counts include every parsed node, reachable or not, because they're checked before
