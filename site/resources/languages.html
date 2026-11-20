@@ -78,8 +78,8 @@ def uop(op, dtype, src=(), arg=None) -&gt; UOp:
   ...   # return the node stored under key, or build one and store it</code></pre>
     <div class="trap"><span class="label">Two Python traps in that key</span>
       <ul>
-        <li><strong>The default <code>eq=True</code> hashes the whole subtree.</strong> A frozen dataclass with generated equality hashes every field, recursively, on every lookup, and caches nothing. On a 300-level shared DAG that's exponential. With <code>eq=False</code> the <code>src</code> tuple hashes its children by identity.</li>
-        <li><strong>Python thinks <code>0.0 == -0.0</code> and <code>True == 1</code>.</strong> They also hash the same, so a dict merges <code>const -0.0</code> into <code>const 0.0</code>. That's a wrong answer, not just lost sharing. Build the key from the arg's type and, for floats, its bits (that's the <code>arg_key</code> above), so <code>0.0</code>, <code>-0.0</code>, <code>0</code> and <code>False</code> all get different keys.</li>
+        <li><strong>The default <code>eq=True</code> hashes the whole subtree.</strong> A frozen dataclass with generated equality hashes every field, recursively, on every lookup, and caches nothing. On a deep shared DAG, like week 1's 94 levels of doubling, that's exponential. With <code>eq=False</code> the <code>src</code> tuple hashes its children by identity.</li>
+        <li><strong>Python thinks <code>0.0 == -0.0</code> and <code>True == 1</code>.</strong> They also hash the same, so once floats arrive in week 2, a dict merges the constant <code>-0.0</code> into <code>0.0</code>. That's a wrong answer, not just lost sharing. Build the key from the arg's type and, for floats, its bits (that's the <code>arg_key</code> above), so <code>0.0</code>, <code>-0.0</code>, <code>0</code> and <code>False</code> all get different keys.</li>
       </ul>
     </div>
 
@@ -100,8 +100,8 @@ def uop(op, dtype, src=(), arg=None) -&gt; UOp:
     <p>Python ints never overflow and Python floats are doubles. Neither matches the course's types, so give every arithmetic op one small helper and never use bare <code>+</code> on a value.</p>
     <ul>
       <li><strong>i32.</strong> After each op, keep the low 32 bits (mask with <code>0xFFFFFFFF</code>) and read the top bit as a sign. <code>ctypes.c_int32(n).value</code> does the same and makes a good reference for a test.</li>
-      <li><strong>Division.</strong> <code>//</code> floors and <code>%</code> takes the divisor's sign, and <code>int(a / b)</code> goes through a double. Build truncating division from the quotient of the absolute values.</li>
-      <li><strong>f32.</strong> Round a double to f32 by packing and unpacking it: <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>. Do it after every op and on every literal, not once at the end.</li>
+      <li><strong>Division.</strong> <code>//</code> floors and <code>%</code> takes the divisor's sign, exactly like .uir's <code>div</code> and <code>mod</code>. Two edges differ: Python raises on a zero divisor, where .uir gives <code>-1</code> for <code>div</code> and <code>x</code> for <code>mod</code>, and <code>-2**31 // -1</code> needs the wrap. From week 2 you also print C, whose <code>/</code> truncates. <code>int(a / b)</code> goes through a double, so build truncating division from the quotient of the absolute values.</li>
+      <li><strong>f32, from week 2.</strong> Round a double to f32 by packing and unpacking it: <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>. Do it after every op and on every literal, not once at the end.</li>
     </ul>
 
     <h3>Memoize per call, and know what <code>functools.cache</code> does</h3>
@@ -120,8 +120,8 @@ while stack:
     stack.append((u, True))
     stack.extend((s, False) for s in u.src)</code></pre>
 
-    <h3>Exit codes</h3>
-    <p>An uncaught Python exception prints a traceback and exits 1, which the grader reads as "an assert failed". Catch errors at the top of <code>main</code>, print a line starting <code>invalid:</code>, and <code>sys.exit(2)</code>. Catch <code>RecursionError</code> there too, so a deep graph fails loudly instead of looking like a failed assert.</p>
+    <h3>Outcome lines</h3>
+    <p>The grader reads one line per file on stdout: <code>MATCH</code>, <code>MISMATCH</code>, <code>REJECTED</code> or <code>OVERBUDGET</code>, a space and the path as given. An uncaught Python exception prints a traceback and no outcome line, so the test fails. Raise your own exception class when a program breaks a rule, catch only that one in <code>main</code> and print <code>REJECTED</code> and the path. Let a <code>RecursionError</code> or any other crash stay loud, so a bug never passes for a rejection.</p>
   </div>
 
   <div class="only-ocaml">
@@ -145,7 +145,7 @@ module Table = Hashtbl.Make (Key)
 let table : uop Table.t = Table.create 1024
 let make op dtype src arg = ...            (* find, or build with a fresh id and add *)</code></pre>
     <div class="trap"><span class="label">Floats inside a key</span>
-      <p>Structural equality says <code>0.0 = -0.0</code>, so <code>const -0.0</code> would come back as <code>const 0.0</code>, a wrong answer. And <code>nan = nan</code> is false, so a NaN constant never finds itself. Store float args by their bits in the key (<code>Int32.bits_of_float</code> for an f32), and compare those.</p>
+      <p>Floats arrive in week 2. Structural equality says <code>0.0 = -0.0</code>, so the constant <code>-0.0</code> would come back as <code>0.0</code>, a wrong answer. And <code>nan = nan</code> is false, so a NaN constant never finds itself. Store float args by their bits in the key (<code>Int32.bits_of_float</code> for an f32), and compare those.</p>
     </div>
 
     <h3>Exhaustive matches as a safety net</h3>
@@ -162,13 +162,13 @@ let make op dtype src arg = ...            (* find, or build with a fresh id and
   | _ -&gt; None   (* fine here: most nodes have no rule *)</code></pre>
 
     <h3><code>Int32</code> and f32 rounding</h3>
-    <p>OCaml's <code>int</code> is 63 bits, so it never wraps where i32 does. <code>Int32.add</code>, <code>Int32.mul</code> and <code>Int32.shift_left</code> wrap like C. <code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, and <code>Int32.div Int32.min_int (-1l)</code> gives <code>min_int</code> instead of trapping, which is what the spec wants. Division by zero raises <code>Division_by_zero</code>, so catch it and report it. Floats are doubles, so round each f32 result with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
+    <p>OCaml's <code>int</code> is 63 bits, so it never wraps where i32 does. <code>Int32.add</code>, <code>Int32.mul</code> and <code>Int32.shift_left</code> wrap like C. <code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, like C, but .uir's <code>div</code> and <code>mod</code> floor. Adjust: when the remainder isn't zero and its sign differs from the divisor's, subtract 1 from the quotient and add the divisor to the remainder. <code>Int32.div Int32.min_int (-1l)</code> gives <code>min_int</code> instead of trapping, which is what the spec wants. Division by zero raises <code>Division_by_zero</code>, so check for 0 first: .uir defines <code>div x 0</code> as <code>-1</code> and <code>mod x 0</code> as <code>x</code>. Floats are doubles, so from week 2 round each f32 result with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
 
     <h3>Memoize per call</h3>
     <p>Create the value table inside the function that evaluates one <code>call</code>, not at the top level of a module. A top-level <code>Hashtbl</code> is global, and the same body called with different arguments would return the first answer twice. Local tables keyed by node id are cheap to make.</p>
 
-    <h3>Exit codes</h3>
-    <p>An uncaught exception exits 2 with <code>Fatal error: exception ...</code>, which looks right but has no <code>invalid:</code> line. Wrap <code>main</code> in a <code>try ... with</code> that prints the reason and calls <code>exit 2</code>. While debugging, <code>OCAMLRUNPARAM=b</code> prints a backtrace for any exception that escapes.</p>
+    <h3>Outcome lines</h3>
+    <p>The grader reads one line per file on stdout: <code>MATCH</code>, <code>MISMATCH</code>, <code>REJECTED</code> or <code>OVERBUDGET</code>, a space and the path as given. An uncaught exception prints <code>Fatal error: exception ...</code> and no outcome line, so the test fails. Raise your own exception when a program breaks a rule, and catch only that one in <code>main</code>, with a <code>try ... with</code> that prints <code>REJECTED</code> and the path. While debugging, <code>OCAMLRUNPARAM=b</code> prints a backtrace for any exception that escapes.</p>
   </div>
 
   <h2>Week 2: memory, bounds and rendering C</h2>
@@ -375,7 +375,7 @@ end</code></pre>
 
   <div class="only-python">
     <h3>Profiling</h3>
-    <p><code>python -m cProfile -s cumulative main.py run big.uir</code> prints where time goes by function. <code>py-spy record -o profile.svg -- python main.py run big.uir</code> samples a running program with almost no slowdown and draws a flame graph. The usual finding in this course is a missing memo, a recursive <code>__hash__</code> or an O(n) list lookup inside a loop.</p>
+    <p><code>python -m cProfile -s cumulative main.py big.uir</code> prints where time goes by function. <code>py-spy record -o profile.svg -- python main.py big.uir</code> samples a running program with almost no slowdown and draws a flame graph. The usual finding in this course is a missing memo, a recursive <code>__hash__</code> or an O(n) list lookup inside a loop.</p>
     <h3>Testing</h3>
     <p>With pytest, any function named <code>test_*</code> in a file named <code>test_*.py</code> is a test, and a plain <code>assert</code> reports both sides when it fails. Use it for small facts about your helpers, and keep using <code>tools/test.py</code> for the compiler as a whole. Hypothesis generates inputs for you and shrinks a failure to the smallest one. It's a natural fit for i32 helpers:</p>
     <pre><code>from hypothesis import given, strategies as st
@@ -399,10 +399,10 @@ def test_add_wraps(a, b):
     <p>Alcotest gives you named test cases and readable failures. ppx_expect works differently: you print something and the expected output sits in the source next to it. Expect tests live in a library, not a <code>test</code> stanza: add <code>(inline_tests)</code> and <code>(preprocess (pps ppx_expect))</code> to its <code>dune</code> file. When the output changes, <code>dune test</code> shows a diff and <code>dune promote</code> accepts it. That suits printed .uir and rendered C well.</p>
     <pre><code>let%expect_test "fold add" =
   print_string (to_uir (simplify (parse "...")));
-  [%expect {| %out = const 3 |}]</code></pre>
+  [%expect {| %out = 3 |}]</code></pre>
     <p>For random inputs, QCheck generates them and shrinks a failure to the smallest case. Keep using <code>tools/test.py</code> for the compiler as a whole.</p>
     <h3>Profiling</h3>
-    <p>On Linux, <code>perf record --call-graph dwarf ./_build/default/bin/main.exe run big.uir</code> then <code>perf report</code> works on native OCaml code directly. The landmarks library instruments chosen functions and reports time per function on any platform. The usual finding is a structural <code>=</code> or <code>compare</code> on a whole subtree, or a <code>List.nth</code> inside a loop.</p>
+    <p>On Linux, <code>perf record --call-graph dwarf ./_build/default/bin/main.exe big.uir</code> then <code>perf report</code> works on native OCaml code directly. The landmarks library instruments chosen functions and reports time per function on any platform. The usual finding is a structural <code>=</code> or <code>compare</code> on a whole subtree, or a <code>List.nth</code> inside a loop.</p>
   </div>
 
   <h2>Going further</h2>

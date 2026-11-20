@@ -39,7 +39,7 @@
 <div class="prose">
 <h2>axis=thread</h2>
 <pre><code>%ib = range 192 axis=thread</code></pre>
-<p>Iterations of a <b>thread</b> loop may run in any order, at the same time. <code>run</code> still executes them in order, one after another. The program must be written so that the order doesn't matter, and the spec checks that statically.</p>
+<p>Iterations of a <b>thread</b> loop may run in any order, at the same time. <code>./compile</code> still executes them in order, one after another. The program must be written so that the order doesn't matter, and the spec checks that statically.</p>
 
 <h2>What goes wrong: a race</h2>
 <p>Suppose two iterations both do <code>o[0] = o[0] + 1</code> at the same time. Each loads <code>o[0]</code>, say 5, adds 1, and stores 6. One increment is lost, and which one depends on timing. This is a <b>race</b>. Its result can change from run to run, and the bit-exact grader would catch it only sometimes. So the spec forbids it outright.</p>
@@ -62,8 +62,8 @@
 <div class="prose">
 <h2>Private allocs</h2>
 <p>The GEMM's 32 accumulators are an alloc used only inside the thread loop. Shared between threads, they'd race. So the spec makes them <b>private</b>: an alloc whose every load and store is inside one thread loop gets a fresh copy, all zeros, at the start of every iteration. In C that's an array declared inside the thread's function.</p>
-<p>That's a real semantic difference, and <code>run</code> implements it too. In a plain loop an alloc keeps its contents from one iteration to the next, so an accumulator keeps a running total. In a thread loop each iteration starts from zero. The tests <code>loop_alloc_carries_over</code> and <code>thread_private_alloc_fresh</code> run the same program both ways and get different answers.</p>
-<p>Any other alloc, say one that is also loaded after the loop, is <b>shared</b>, and the slice rule applies to it exactly as to a buffer. Every iteration storing to element 0 is rejected (<code>err_thread_alloc_shared</code>), and iteration <code>r</code> storing to element <code>r</code> is fine (<code>thread_alloc_indexed_by_r</code>).</p>
+<p>That's a real semantic difference, and <code>./compile</code> implements it too. In a plain loop an alloc keeps its contents from one iteration to the next, so an accumulator keeps a running total. In a thread loop each iteration starts from zero. The tests <code>loop_alloc_carries_over</code> and <code>thread_private_alloc_fresh</code> run the same program both ways and get different answers.</p>
+<p>Any other alloc, say one that is also loaded after the loop, is <b>shared</b>, and the slice rule applies to it exactly as to a buffer. Every iteration storing to element 0 is rejected (<code>rejected_thread_alloc_shared</code>), and iteration <code>r</code> storing to element <code>r</code> is fine (<code>thread_alloc_indexed_by_r</code>).</p>
 
 <h2>How the iterations are split</h2>
 <p>The harness gives each hardware thread one contiguous chunk of iterations: with 192 iterations on 8 threads, thread 0 runs 0 to 23, thread 1 runs 24 to 47, and so on. Contiguous chunks mean each thread writes one block of memory, so two threads rarely touch the same cache line. When they do, the line bounces between cores, which is slow even without a race. That's called <b>false sharing</b>.</p>

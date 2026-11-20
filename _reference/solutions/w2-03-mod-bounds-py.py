@@ -1,7 +1,8 @@
-def mod_bounds(r: tuple[int, int], m: int) -> tuple[int, int]:
+def mod_bounds(r: tuple[int, int], y: int) -> tuple[int, int]:
     lo, hi = r
-    if lo >= 0:
-        return (0, min(m - 1, hi))
-    if hi < 0:
-        return (max(-(m - 1), lo), 0)
-    return (max(-(m - 1), lo), min(m - 1, hi))
+    if y == 0:
+        return (lo, hi)
+    if lo // y == hi // y:
+        a, b = lo % y, hi % y
+        return (min(a, b), max(a, b))
+    return (0, y - 1) if y > 0 else (y + 1, 0)

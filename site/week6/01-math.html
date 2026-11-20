@@ -60,7 +60,7 @@
 <li><code>2^f</code> on a small interval is a polynomial. <code>2^f = e^(f ln 2) = Σ (f ln 2)^k / k!</code>. With <code>|f| ≤ 0.5</code>, eight terms (k = 0 to 7) give more precision than f32 can store.</li>
 </ul>
 <p>The spec evaluates the polynomial with <b>Horner's rule</b>: <code>c0 + f(c1 + f(c2 + ...))</code> with <code>c_k = (ln 2)^k / k!</code> (1.0, 0.6931472, 0.2402265, ...), starting from the highest coefficient. That's one multiply and one add per term, and it's also more accurate than adding up powers.</p>
-<p>Two details make the edges right. First, NaN is caught before anything else, because casting NaN to i32 is an error. Second, x is clamped to <code>[-150, 128]</code>. <code>2^128</code> is already infinity in f32, and <code>2^-150</code> already rounds to 0, so clamping changes no answer and keeps <code>n</code> small. The bit trick <code>(n + 127) · 2^23</code> only works for n from -126 to 127, and after the clamp n runs from -150 to 128. Below -126 the result is subnormal, and at 128 a single <code>2^128</code> would already be infinity even when the final result (say <code>exp2 127.9</code>) is finite. So the spec multiplies by <code>2^h</code> and then <code>2^k</code>, with <code>h + k = n</code> and both in <code>[-75, 64]</code>, safely normal.</p>
+<p>Two details make the edges right. First, NaN is caught before anything else, because the answer must be NaN, and casting NaN to i32 would quietly give 0. Second, x is clamped to <code>[-150, 128]</code>. <code>2^128</code> is already infinity in f32, and <code>2^-150</code> already rounds to 0, so clamping changes no answer and keeps <code>n</code> small. The bit trick <code>(n + 127) · 2^23</code> only works for n from -126 to 127, and after the clamp n runs from -150 to 128. Below -126 the result is subnormal, and at 128 a single <code>2^128</code> would already be infinity even when the final result (say <code>exp2 127.9</code>) is finite. So the spec multiplies by <code>2^h</code> and then <code>2^k</code>, with <code>h + k = n</code> and both in <code>[-75, 64]</code>, safely normal.</p>
 </div>
 
 <div class="fig" id="exp2" data-title="exp2 3.3, one step at a time"></div>
@@ -87,7 +87,7 @@
 
 <div class="trap">
 <span class="label">Close is not equal</span>
-<p>A better polynomial, a different reduction, or C's <code>expf</code> can all be more accurate than the spec, and they still fail the tests. <code>exp2_bits_one_ulp_off</code> asserts a value one ulp away from the right one and is marked to fail. A compiler that is one ulp off makes that assert pass, and the test catches it. Implement the steps exactly as written, in the order written. <code>tools/check_spec_w6.py</code> proves the spec text and the oracle are the same graph, so the spec is the thing to copy.</p>
+<p>A better polynomial, a different reduction, or C's <code>expf</code> can all be more accurate than the spec, and they still fail the tests. <code>mismatch_exp2_bits_one_ulp_off</code> asserts a value one ulp away from the right one, and its name says the right outcome is MISMATCH. A compiler that is one ulp off prints MATCH for it, and the test catches it. Implement the steps exactly as written, in the order written. <code>tools/check_spec_w6.py</code> proves the spec text and the oracle are the same graph, so the spec is the thing to copy.</p>
 </div>
 
 <div class="exercise" data-ex="w6-01-norm">
@@ -130,7 +130,7 @@
 <button data-k="c">So <code>n</code> stays small enough to cast to i32 and to build from bits, and the answer is unchanged: <code>2^128</code> is already inf and <code>2^-150</code> already rounds to 0</button>
 </div>
 <p class="hint">What is <code>2^1000</code> in f32?</p>
-<div class="why"><p>Every x above 128 gives inf and every x below -150 gives 0, so clamping is free. Without it, <code>exp2 1e30</code> would cast 1e30 to i32, which is an error.</p></div>
+<div class="why"><p>Every x above 128 gives inf and every x below -150 gives 0, so clamping is free. Without it, <code>exp2 1e30</code> would cast 1e30 to i32, which saturates at <code>2147483647</code>, and the bit trick would build nonsense from that.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">

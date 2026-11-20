@@ -40,7 +40,7 @@
 <main>
 <p class="eyebrow">Week 2 · Lesson 3</p>
 <h1>Proving bounds</h1>
-<p class="lede">The syllabus says loads and stores are "bounds checked to never be out of range". Our compiler doesn't check at run time. It proves, before anything runs, that every view is inside its memory, using the interval analysis you built for symbolic simplification in lesson 1.4.</p>
+<p class="lede">The syllabus says loads and stores are "bounds checked to never be out of range". Our compiler doesn't check at run time. It proves, before anything runs, that every view is inside its memory, using week 1's bounds rules: the same ones that already decide whether an <code>index</code> is safe.</p>
 
 <div class="prose">
 <h2>The rule</h2>
@@ -54,29 +54,30 @@
 <pre><code>%i0  = shrink %ix 0 shape=[]
 %i   = load %i0                 # interval: [INT_MIN, INT_MAX]
 %src = shrink %d %i shape=[]    # can't prove 0 ≤ %i ≤ 3</code></pre>
-<p>To make it valid you shape the interval with ops whose bounds you can compute, using the rules from lesson 1.4 (plus one it didn't cover: a <code>where</code>'s interval is the union of its two branches). We write nested forms like <code>mod (max %i 0) 4</code> as shorthand, but in a <code>.uir</code> file each op is its own statement. Step through: the green line is the allowed range <code>[0, n - k]</code>, and the thick line is the offset's interval.</p>
+<p>To make it valid you shape the interval with ops whose bounds you can compute, using week 1's exact rules (spec section 5). The one that does most of the work is <code>mod</code>. It floors, so a nonzero remainder has the sign of <code>y</code>: <code>mod %i 4</code> is in <code>[0, 3]</code> for <em>every</em> <code>%i</code>, negative ones included. <code>mod -7 4</code> is 1, not -3. We write nested forms like <code>shrink %b (mod %i 4)</code> as shorthand, but in a <code>.uir</code> file each op is its own binding. Step through: the green line is the allowed range <code>[0, n - k]</code>, and the thick line is the offset's interval.</p>
 </div>
 
 <div class="fig" id="nl" data-title="shaping an index until it provably fits"></div>
 
 <div class="trap">
 <span class="label">A guard is not a proof</span>
-<p>In C you'd write <code>if (i &lt; 4) x = d[i];</code>. The <code>.uir</code> equivalent, <code>where (cmplt %i 4) %i 0</code>, doesn't help: the bounds of a <code>where</code> are the union of both branches, so the interval is still everything <code>%i</code> could be. The analysis doesn't look at the condition. The oracle rejects <code>where (cmplt %i 4) (max %i 0) 0</code> with an offset interval of <code>[0, 2147483647]</code>.</p>
+<p>In C you'd write <code>if (i &lt; 4) x = d[i];</code>. The <code>.uir</code> equivalent, <code>where (cmplt %i 4) %i 0</code>, doesn't help: when the condition isn't fixed, the bounds of a <code>where</code> are the hull of both branches, so the interval is still everything <code>%i</code> could be. The analysis doesn't look at the condition. The oracle rejects <code>where (cmplt %i 4) (max %i 0) 0</code> with an offset interval of <code>[0, 2147483647]</code>.</p>
 </div>
 
 <div class="exercise" data-ex="w2-03-gather">
 <h3>A gather the compiler can prove</h3>
 <p>Slot 0 is four i32s of data, slot 1 holds one index and slot 2 is a one-element result. Set <code>res[0] = d[i]</code> for the index <code>i</code> in <code>ix[0]</code>: a negative <code>i</code> reads <code>d[0]</code>, and any other <code>i</code> reads <code>d[i mod 4]</code>. The starter is the natural first try, and the compiler rejects it.</p>
+<p class="muted"><code>mod %i 4</code> on its own is provably in range, but it sends <code>i = -5</code> to <code>d[3]</code>, not <code>d[0]</code>. The negative case needs one more op, before the <code>mod</code>.</p>
 </div>
 
 <div class="prose">
 <h2>Offsets add up, and so do intervals</h2>
 <p>A view of a view is checked against its own parent. An offset built from arithmetic is checked with the interval rules for that arithmetic: <code>add</code> adds the endpoints when nothing can wrap. With an 8-element buffer:</p>
-<pre><code>%m = max %i 0
-%k = mod %m 4         # [0, 3]
+<pre><code>%k = mod %i 4         # [0, 3]
 %o = add %k 4         # [4, 7]: fits shape=[] on 8 elements
 %p = add %k 5         # [5, 8]: 8 + 1 > 8, invalid</code></pre>
 <p>You can also cut the window first and index inside it: <code>shrink %b 4 shape=[4]</code>, then <code>shrink</code> that by <code>%k</code>. The inner view only has to fit the four-element window, and <code>[0, 3]</code> does.</p>
+<p>The week 1 rule for <code>index</code> still applies, and it's the same idea. <code>index [7 8 9] %i</code> with a loaded <code>%i</code> is rejected, and <code>index [7 8 9] %k</code> with <code>%k = mod %i 3</code> is safe. An index into a vector you loaded works the same way: loading a <code>shape=[3]</code> view gives an axis of size 3, just like the stack.</p>
 </div>
 
 <div class="note">
@@ -85,9 +86,9 @@
 </div>
 
 <div class="exercise small" data-ex="w2-03-mod-bounds" data-ex-py="w2-03-mod-bounds-py">
-<h3>Bounds of x mod m</h3>
-<p>Write <span class="only-ocaml"><code>mod_bounds (lo, hi) m</code></span><span class="only-python"><code>mod_bounds(r, m)</code>, with <code>r = (lo, hi)</code>,</span> for <code>m &gt; 0</code>, with C's rule that the result has the sign of <code>x</code>. A non-negative <code>x</code> gives a result in <span class="only-ocaml"><code>[0, min (m-1) x]</code></span><span class="only-python"><code>[0, min(m - 1, x)]</code></span>, and a negative one gives <span class="only-ocaml"><code>[max (-(m-1)) x, 0]</code></span><span class="only-python"><code>[max(-(m - 1), x), 0]</code></span>. Use only these two facts, and return the smallest interval they allow for every <code>x</code> in <code>[lo, hi]</code>. So <span class="only-ocaml"><code>mod_bounds (5, 5) 4</code></span><span class="only-python"><code>mod_bounds((5, 5), 4)</code></span> is <code>(0, 3)</code>, not <code>(1, 1)</code>: the facts only say a non-negative <code>x</code> lands in <span class="only-ocaml"><code>[0, min 3 5]</code></span><span class="only-python"><code>[0, min(3, 5)]</code></span>.</p>
-<p class="muted">The course's oracle uses the looser <code>[-(m-1), m-1]</code> whenever x can be negative. Both are correct.</p>
+<h3>Bounds of x mod y</h3>
+<p>This is the week 1 rule the oracle uses for <code>mod x y</code> when <code>x</code> is in <code>[lo, hi]</code> and <code>y</code> is fixed. Write <span class="only-ocaml"><code>mod_bounds (lo, hi) y</code></span><span class="only-python"><code>mod_bounds(r, y)</code>, with <code>r = (lo, hi)</code></span>. If <code>y</code> is 0, <code>mod</code> returns <code>x</code>, so the answer is <code>(lo, hi)</code>. Otherwise, if <code>lo</code> and <code>hi</code> have the same floor quotient by <code>y</code>, the remainders run from <code>lo mod y</code> to <code>hi mod y</code>, so answer their hull. If the quotients differ, the remainder wraps around: answer <code>(0, y - 1)</code> for a positive <code>y</code> and <code>(y + 1, 0)</code> for a negative one. So <span class="only-ocaml"><code>mod_bounds (9, 11) 8</code></span><span class="only-python"><code>mod_bounds((9, 11), 8)</code></span> is <code>(1, 3)</code>, and <span class="only-ocaml"><code>mod_bounds (7, 9) 8</code></span><span class="only-python"><code>mod_bounds((7, 9), 8)</code></span> is <code>(0, 7)</code>.</p>
+<p class="muted">C's <code>%</code> truncates instead, so its remainder has the sign of <code>x</code> and can be negative. Lesson 4 renders <code>mod</code> with a helper for exactly that reason.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -105,18 +106,18 @@
 <div class="why"><p>Memory is input: the same kernel runs on whatever data the caller passes. The <code>data=[...]</code> in a test file is just one possible input, so a loaded value gets the full i32 range.</p></div>
 </div>
 
-<div class="quiz" data-fill="[-3, 3] | [-3,3] | -3 3 | -3..3 | -3, 3">
+<div class="quiz" data-fill="[0, 3] | [0,3] | 0 3 | 0..3 | 0, 3">
 <p class="q">What's the interval of <code>mod %i 4</code> when <code>%i</code> is a loaded value? Write it as <code>[lo, hi]</code>.</p>
 <div class="fill"><input aria-label="your answer" placeholder="[lo, hi]"><button class="btn">Check</button></div>
-<p class="hint">In C (and in <code>.uir</code>), the sign of <code>mod</code> follows the left operand.</p>
-<div class="why"><p><code>%i</code> can be negative, and then <code>%i mod 4</code> is in <code>[-3, 0]</code>. Together with the non-negative side that's <code>[-3, 3]</code>, which still can't be an offset.</p></div>
+<p class="hint">In <code>.uir</code>, <code>mod</code> floors, so a nonzero remainder has the sign of the right operand, not the left.</p>
+<div class="why"><p><code>[0, 3]</code>. Even a negative <code>%i</code> gives a remainder from 0 to 3: <code>mod -7 4</code> is 1. That's exactly the allowed range for a <code>shape=[]</code> view on 4 elements. C's <code>%</code> would give <code>[-3, 3]</code>.</p></div>
 </div>
 
 <div class="quiz" data-fill="3">
-<p class="q">On a buffer of 4 elements, what's the largest <code>m</code> for which <code>shrink %b (mod (max %i 0) m) shape=[2]</code> can be proven in bounds?</p>
+<p class="q">On a buffer of 4 elements, with <code>%i</code> loaded from memory, what's the largest <code>m</code> for which <code>shrink %b (mod %i m) shape=[2]</code> can be proven in bounds?</p>
 <div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
 <p class="hint">The allowed offsets are <code>[0, n - k]</code>. What's <code>n - k</code> here?</p>
-<p class="hint"><code>mod (max %i 0) m</code> is <code>[0, m - 1]</code>.</p>
+<p class="hint">For a positive <code>m</code>, <code>mod %i m</code> is <code>[0, m - 1]</code>.</p>
 <div class="why"><p>A two-element window on four elements can start at 0, 1, or 2, so <code>hi</code> must be at most 2. <code>[0, m - 1]</code> fits when <code>m - 1 ≤ 2</code>, so <code>m = 3</code>. With <code>m = 4</code> the oracle reports offset <code>[0, 3]</code>, which doesn't fit.</p></div>
 </div>
 
@@ -124,12 +125,12 @@
 <p class="q">Why doesn't <code>where (cmplt %i 4) (max %i 0) 0</code> give a provable index for a 4-element buffer?</p>
 <div class="opts">
 <button data-k="a"><code>where</code> can't be used to compute offsets.</button>
-<button data-k="b">The bounds of a <code>where</code> are the union of its branches, and the condition isn't used.</button>
+<button data-k="b">The bounds of a <code>where</code> are the hull of its branches, and the condition isn't used.</button>
 <button data-k="c"><code>cmplt</code> returns a bool, so the types don't match.</button>
 <button data-k="d">Both branches are evaluated, so the index might be out of range.</button>
 </div>
 <p class="hint">What are the intervals of the two branches?</p>
-<div class="why"><p>The branches are <code>[0, INT_MAX]</code> and <code>[0, 0]</code>, so the union is <code>[0, INT_MAX]</code>. Interval analysis doesn't learn anything from the condition. Shape the value itself with <code>max</code> and <code>mod</code> instead.</p></div>
+<div class="why"><p>The branches are <code>[0, INT_MAX]</code> and <code>[0, 0]</code>, so the hull is <code>[0, INT_MAX]</code>. Interval analysis doesn't learn anything from the condition. Shape the value itself with <code>mod</code> instead.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">
@@ -179,16 +180,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const steps = [
     { caption: 'A raw loaded index on a 4-element buffer, <code>shape=[]</code>. Its interval is all of i32, far outside <code>[0, 3]</code>. Invalid.',
       code: '%i = load %i0', lo: MIN, hi: MAX, n: 3, label: '%i ∈ [MIN, MAX]', ok: false },
-    { caption: '<code>mod %i 4</code> alone: the sign follows <code>%i</code>, so the interval is <code>[-3, 3]</code>. The negative half still sticks out. Invalid.',
-      code: '%k = mod %i 4', lo: -3, hi: 3, n: 3, label: '[-3, 3]', ok: false },
-    { caption: '<code>max %i 0</code> first cuts off everything below zero: <code>[0, MAX]</code>. Still too wide.',
+    { caption: '<code>max %i 0</code> cuts off everything below zero: <code>[0, MAX]</code>. Still too wide.',
       code: '%m = max %i 0', lo: 0, hi: MAX, n: 3, label: '[0, MAX]', ok: false },
-    { caption: 'Then <code>mod %m 4</code> on a value that\'s never negative: <code>[0, 3]</code>, exactly the allowed range. Valid.',
-      code: '%k = mod %m 4', lo: 0, hi: 3, n: 3, label: '[0, 3]', ok: true },
-    { caption: 'Same <code>%k</code>, but a <code>shape=[2]</code> window: the allowed starts shrink to <code>[0, 2]</code>, and 3 + 2 > 4. Invalid.',
+    { caption: '<code>mod %i 4</code> floors, so the remainder takes the sign of 4: <code>[0, 3]</code> even for a negative <code>%i</code>. Exactly the allowed range. Valid.',
+      code: '%k = mod %i 4', lo: 0, hi: 3, n: 3, label: '[0, 3]', ok: true },
+    { caption: 'A negative divisor flips it: <code>mod %i -4</code> is <code>[-3, 0]</code>, and the negative half sticks out. Invalid.',
+      code: '%k = mod %i -4', lo: -3, hi: 0, n: 3, label: '[-3, 0]', ok: false },
+    { caption: 'Back to <code>mod %i 4</code>, now with a <code>shape=[2]</code> window: the allowed starts shrink to <code>[0, 2]</code>, and 3 + 2 > 4. Invalid.',
       code: '%v = shrink %b %k shape=[2]', lo: 0, hi: 3, n: 2, label: '[0, 3]', ok: false },
-    { caption: '<code>mod %m 3</code> gives <code>[0, 2]</code>, which fits the two-element window. Valid.',
-      code: '%k = mod %m 3', lo: 0, hi: 2, n: 2, label: '[0, 2]', ok: true },
+    { caption: '<code>mod %i 3</code> gives <code>[0, 2]</code>, which fits the two-element window. Valid.',
+      code: '%k = mod %i 3', lo: 0, hi: 2, n: 2, label: '[0, 2]', ok: true },
   ];
   CC.stepper(document.getElementById('nl'), steps, (s, body) => body.append(CC.code(s.code, 0), line(s.lo, s.hi, s.n, s.label, !s.ok),
     h('p', { class: 'verdict-line' }, h('span', { class: s.ok ? 'ok' : 'no', text: s.ok ? 'Provably in bounds.' : 'Not provable.' }))));

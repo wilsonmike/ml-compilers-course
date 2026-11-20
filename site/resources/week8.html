@@ -68,18 +68,18 @@
     <li><strong>No barrier between phases.</strong> Caught by <code>c_reverse_shared</code>, <code>c_reverse_shared_1024</code> and the speed test.</li>
     <li><strong>Not clearing shared memory.</strong> On a GPU it holds an earlier block's leftovers. Caught by <code>c_shared_dirty_then_fresh</code>.</li>
     <li><strong>Running a phase on one thread.</strong> The bits stay right, but the GPU sits idle. Caught by <code>s_cuda_gemm_512</code> on a GPU.</li>
-    <li><strong>Letting digits touch.</strong> A coefficient equal to the most the smaller digits add is a collision. Caught by <code>err_digits_exactly_touch</code>.</li>
-    <li><strong>Forgetting the parallel index.</strong> Every block writing <code>o[t]</code>. Caught by <code>err_blocks_write_one_place</code> and <code>err_threads_write_one_cell</code>.</li>
-    <li><strong>Letting a lone <code>div</code> or <code>mod</code> pin down the parallel index.</strong> <code>t mod 4</code> with 8 threads sends threads 0 and 4 to one element. Caught by <code>err_mod_only_race</code> and <code>err_div_only_race</code>. A <code>mod k</code> wider than the loop is the index itself, and <code>mod_wider_than_range</code> must still pass.</li>
-    <li><strong>Checking only stores in a phase.</strong> Caught by <code>err_same_phase_neighbor</code>.</li>
-    <li><strong>Missing a shape rule.</strong> A store outside a local loop, a local loop outside a global one, two block sizes, or two layouts for one buffer. Caught by <code>err_store_outside_local</code>, <code>err_local_outside_global</code>, <code>err_local_sizes_differ</code> and <code>err_block_layouts_differ</code>.</li>
+    <li><strong>Letting digits touch.</strong> A coefficient equal to the most the smaller digits add is a collision. Caught by <code>rejected_digits_exactly_touch</code>.</li>
+    <li><strong>Forgetting the parallel index.</strong> Every block writing <code>o[t]</code>. Caught by <code>rejected_blocks_write_one_place</code> and <code>rejected_threads_write_one_cell</code>.</li>
+    <li><strong>Letting a lone <code>div</code> or <code>mod</code> pin down the parallel index.</strong> <code>t mod 4</code> with 8 threads sends threads 0 and 4 to one element. Caught by <code>rejected_mod_only_race</code> and <code>rejected_div_only_race</code>. A <code>mod k</code> wider than the loop is the index itself, and <code>mod_wider_than_range</code> must still pass.</li>
+    <li><strong>Checking only stores in a phase.</strong> Caught by <code>rejected_same_phase_neighbor</code>.</li>
+    <li><strong>Missing a shape rule.</strong> A store outside a local loop, a local loop outside a global one, two block sizes, or two layouts for one buffer. Caught by <code>rejected_store_outside_local</code>, <code>rejected_local_outside_global</code>, <code>rejected_local_sizes_differ</code> and <code>rejected_block_layouts_differ</code>.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
   <p>Build in this order, and don't move on until the check passes.</p>
   <ol>
-    <li><strong>Axes as plain loops.</strong> Parse <code>global</code> and <code>local</code>, check local bounds, then ignore them. The run tests that expect a result pass, except <code>block_shared_starts_at_zero</code>.</li>
-    <li><strong>Shared memory in run.</strong> Done when this program's buffer is <code>0 1 2 1 2 3</code> (and <code>0 1 2 1 3 5</code> without the axes):
+    <li><strong>Axes as plain loops.</strong> Parse <code>global</code> and <code>local</code>, check local bounds, then ignore them. The run tests that expect MATCH or MISMATCH pass, except <code>block_shared_starts_at_zero</code>.</li>
+    <li><strong>Shared memory.</strong> Done when this prints MATCH, and still does with both axes removed and the expected value changed to <code>[0 1 2 1 3 5]</code>:
 <pre><code>%o = buffer 6 dtype=i32 slot=0
 %sh = alloc 3 dtype=i32
 %b = range 2 axis=global
@@ -100,7 +100,9 @@
 %s2 = store %ov %r
 %e2 = end %s2 %u
 %eb = end %e1 %e2 %b
-%o1 = after %o %eb</code></pre></li>
+%o1 = after %o %eb
+%l = load %o1
+%a = assert %l [0 1 2 1 2 3]</code></pre></li>
     <li><strong>The rules.</strong> Shape rules first, then the mixed-radix rule per phase and per kernel. Done when every run test passes.</li>
     <li><strong>The CPU render.</strong> Reuse your thread-loop outlining. Done when the <code>r_</code> tests pass.</li>
     <li><strong>render-cuda.</strong> Done when every <code>c_</code> test passes in the emulator, then on a GPU with the speed test.</li>

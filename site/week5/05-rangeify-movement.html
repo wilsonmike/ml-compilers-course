@@ -50,7 +50,7 @@
 <tr><td><code>shrink</code></td><td>the operand at <code>(i0 + o0, ...)</code></td></tr>
 <tr><td><code>expand</code></td><td>the operand with every size-1 axis read at 0</td></tr>
 <tr><td><code>stack</code></td><td>item <code>i0</code> at the rest of the index: a chain of <code>where</code>s on <code>i0</code>, or a plain C array index when the items are scalars</td></tr>
-<tr><td><code>index x j0 ...</code></td><td>the operand at <code>(j0, ..., i0, ...)</code>: the <code>j</code>s become its leading coordinates. On a <code>stack</code> of vectors that coordinate goes through the <code>where</code> chain, so with two items a runtime <code>j</code> renders as <code>(j &lt; 1 ? a0 : a1)</code>. The oracle renders a constant <code>j</code> the same way, with a constant condition like <code>(1 &lt; 1)</code> that constant folding (lesson 1.3) could remove</td></tr>
+<tr><td><code>index x j0 ...</code></td><td>the operand at <code>(j0, ..., i0, ...)</code>: the <code>j</code>s become its leading coordinates. On a <code>stack</code> of vectors that coordinate goes through the <code>where</code> chain, so with two items a <code>j</code> that isn't a constant renders as <code>(j &lt; 1 ? a0 : a1)</code>. The oracle renders a constant <code>j</code> the same way, with a constant condition like <code>(1 &lt; 1)</code> that constant folding (lesson 1.3) could remove</td></tr>
 <tr><td><code>reduce pop=m</code></td><td>one accumulator loop over all <code>m</code> leading axes together: a flat counter <code>t</code>, unflattened into the m indices with div and mod</td></tr>
 </tbody></table></div>
 <div class="prose">
@@ -125,6 +125,7 @@ for (int32_t r11 = 0; r11 &lt; 6; r11++) {          /* output element: (m, n) = 
 }</code></pre>
 <div class="prose">
 <p>Inside the k loop, <code>v28 = r26 + 1</code> is k, and <code>v29 = v28 % 2</code> is its coordinate on the k axis of size 2. A's flat index is <code>k·2 + m</code> (<code>v31</code>, reusing <code>v14 = m</code> from the outer loop), and B's is <code>k·3 + n</code> (<code>v36</code>, reusing <code>v18 = n</code>). The two loads are multiplied and added into the accumulator.</p>
+<p>The <code>/</code> and <code>%</code> here are .uir's <code>div</code> and <code>mod</code>. Those floor and C's operators truncate, but the two only differ when an operand is negative. Every left operand here is provably non-negative and every divisor is a positive constant, so the oracle prints C's operators bare. Anywhere else it calls helpers that floor, like the <code>uir_div</code> and <code>uir_mod</code> from <a href="../week2/04-rendering-c.html">lesson 2.4</a>.</p>
 <p>The <code>[K M N]</code> cube from lesson 5.4 is gone. Every element of it was a multiply of two loads, and rangeify only ever asked for the elements the reduce needed, one k at a time.</p>
 
 <h2>Cleaning up the index math</h2>

@@ -51,16 +51,16 @@
 
 <div class="prose">
 <h2>fdiv is not division</h2>
-<p>IEEE division rounds once: <code>10 / 3</code> is the f32 nearest 3.333..., which is <code>3.3333333</code>. <code>fdiv 10.0 3.0</code> rounds twice, once for <code>recip 3.0</code> and once for the multiply, and lands one unit higher, on <code>3.3333335</code>. The spec defines division this way because a reciprocal is cheaper than a divide on most hardware, and tinygrad does the same. It's also why <code>div</code> stays i32-only: week 1 made <code>div</code> on f32 an error, and that test still has to pass.</p>
+<p>IEEE division rounds once: <code>10 / 3</code> is the f32 nearest 3.333..., which is <code>3.3333333</code>. <code>fdiv 10.0 3.0</code> rounds twice, once for <code>recip 3.0</code> and once for the multiply, and lands one unit higher, on <code>3.3333335</code>. The spec defines division this way because a reciprocal is cheaper than a divide on most hardware, and tinygrad does the same. It's also why <code>div</code> stays i32-only: week 2 made <code>div</code> on f32 a rejected program, and that test still has to pass.</p>
 
 <h2>cmpeq, and why not on f32</h2>
 <p>Two integers are equal when neither is less than the other: <code>where (cmplt a b) false (where (cmplt b a) false true)</code>. For bools, <code>xor (xor a b) true</code>. On f32 that trick breaks. NaN is neither less than nor greater than anything, so the formula would call NaN equal to everything. Rather than pick a rule for that, the spec leaves f32 out. The lab uses <code>cmpeq</code> on integer labels, where it's exactly right.</p>
 
 <h2>floor, carefully</h2>
-<p><code>floor</code> needs a cast to i32 and back, which truncates toward zero. Below zero, truncation rounds up (<code>-2.5</code> becomes <code>-2</code>), so a correction subtracts 1. Two edge cases shape the rest. Any f32 with <code>|x| ≥ 2^23</code> is already a whole number, and casting a big one to i32 would be an error, so those go around the cast. So do inf and NaN.</p>
+<p><code>floor</code> needs a cast to i32 and back, which truncates toward zero. Below zero, truncation rounds up (<code>-2.5</code> becomes <code>-2</code>), so a correction subtracts 1. Two edge cases shape the rest. Any f32 with <code>|x| ≥ 2^23</code> is already a whole number, and casting a big one to i32 saturates at <code>INT_MAX</code> or <code>INT_MIN</code>, which is the wrong whole number, so those go around the cast. So do inf and NaN.</p>
 </div>
 
-<pre><code>%x   = param 0 dtype=f32
+<pre><code>%x   = param [] slot=0 dtype=f32 addrspace=ALU
 %nx  = mul %x -1.0
 %ax  = max %x %nx
 %lt  = cmplt %ax 8388608.0
@@ -90,7 +90,7 @@
 
 <div class="key">
 <span class="label">Where to expand</span>
-<p>Expand sugar in the parser, right where you build nodes. Keep <code>exp2</code>, <code>log2</code>, <code>sqrt</code> and <code>sin</code> as nodes through type checking and gradients, and expand them when you lower for <code>run</code> or <code>render</code> (or write a C function per op that performs exactly the spec's steps).</p>
+<p>Expand sugar in the parser, right where you build nodes. Keep <code>exp2</code>, <code>log2</code>, <code>sqrt</code> and <code>sin</code> as nodes through type checking and gradients, and expand them when you lower to run a program or to <code>render</code> it (or write a C function per op that performs exactly the spec's steps).</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -115,7 +115,7 @@
 <button data-k="c">Either: the grader allows one unit of error</button>
 </div>
 <p class="hint">What does sugar mean?</p>
-<div class="why"><p>Sugar means its expansion, nothing else. The grader compares bits, and the test <code>sugar_fdiv</code> expects exactly <code>3.3333335</code>.</p></div>
+<div class="why"><p>Sugar means its expansion, nothing else. The grader compares bits, and the test <code>sugar_fdiv_t1</code> expects exactly <code>3.3333335</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="c">
@@ -140,11 +140,11 @@
 <p class="q">Why does <code>floor</code> skip the cast when <code>|x| ≥ 2^23</code>?</p>
 <div class="opts">
 <button data-k="a">To be faster on big numbers</button>
-<button data-k="b">Every f32 that large is already a whole number, and casting one above <code>2^31</code> to i32 is an error</button>
+<button data-k="b">Every f32 that large is already a whole number, and casting one above <code>2^31</code> to i32 saturates to the wrong value</button>
 <button data-k="c">Because big numbers can't be negative</button>
 </div>
 <p class="hint">How many mantissa bits does an f32 have?</p>
-<div class="why"><p>23. From <code>2^23</code> up, the spacing between f32s is 1 or more, so there's no fraction left to drop. Sending those around the cast avoids the out-of-range error for values like <code>1e10</code>.</p></div>
+<div class="why"><p>23. From <code>2^23</code> up, the spacing between f32s is 1 or more, so there's no fraction left to drop. Sending those around the cast keeps values like <code>1e10</code> from saturating to <code>2147483647</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">

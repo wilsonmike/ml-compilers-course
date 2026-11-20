@@ -40,7 +40,7 @@
   <h3><a href="../week9/05-flash-attention.html">9.5 Flash attention</a></h3>
   <p>Keep a running max <code>m</code> and sum <code>l</code>, and rescale by <code>exp(m_old - m_new)</code> when the max grows. Then attention streams keys and values through shared memory and never writes the <code>S×S</code> scores. Each thread's query row, sums and running max are per-thread memory. Flash gives the same math as the obvious version, not the same bits.</p>
   <h3><a href="../week9/06-lab.html">9.6 Lab</a></h3>
-  <p>The suite has 53 tests: run tests for <code>i8</code>, <code>mma</code>, warp loops and their rules, <code>r_</code> tests for the CPU render, <code>c_</code> tests for CUDA, and four GPU speed tests. Weeks 1 to 8 must stay green.</p>
+  <p>The suite has 52 tests: run tests for <code>i8</code>, <code>mma</code>, warp loops and their rules, <code>r_</code> tests for the CPU render, <code>c_</code> tests for CUDA, and four GPU speed tests. Weeks 1 to 8 must stay green.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -74,13 +74,13 @@
     <li><strong>Putting memory read across threads in registers.</strong> Caught by <code>c_shared_not_per_thread</code>.</li>
     <li><strong>Leaving per-thread memory in shared memory.</strong> The bits stay right. Caught by the speed tests on a GPU.</li>
     <li><strong>Letting a store overwrite A before an mma reads it.</strong> Caught by <code>r_mma_reads_before_overwrite</code>.</li>
-    <li><strong>Missing an mma rule.</strong> Alignment, bounds, an mma outside a warp loop, or overlapping warp tiles. Caught by <code>err_mma_a_misaligned</code>, <code>err_mma_out_of_bounds</code>, <code>err_mma_in_local_loop</code> and <code>err_warp_tiles_overlap</code>.</li>
+    <li><strong>Missing an mma rule.</strong> Alignment, bounds, an mma outside a warp loop, or overlapping warp tiles. Caught by <code>rejected_mma_a_misaligned</code>, <code>rejected_mma_out_of_bounds</code>, <code>rejected_mma_in_local_loop</code> and <code>rejected_warp_tiles_overlap</code>.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
   <p>Build in this order, and don't move on until the check passes.</p>
   <ol>
-    <li><strong>i8.</strong> Done when this program's slot 1 is <code>-56 127 -24</code>:
+    <li><strong>i8.</strong> Done when this prints MATCH:
 <pre><code>%x = buffer 3 dtype=i32 slot=0 data=[200 -129 1000]
 %y = buffer 3 dtype=i8 slot=1
 %r = range 3
@@ -90,8 +90,11 @@
 %yv = shrink %y %r shape=[]
 %s = store %yv %c
 %e = end %s %r
-%y1 = after %y %e</code></pre></li>
-    <li><strong>mma in run.</strong> Execute it, check its rules, and order it like a store into C and a load of A and B. Done when the <code>mma_*</code> and <code>err_mma_*</code> run tests pass.</li>
+%y1 = after %y %e
+%l = load %y1
+%w = cast %l dtype=i32
+%t = assert %w [-56 127 -24]</code></pre></li>
+    <li><strong>mma.</strong> Execute it, check its rules, and order it like a store into C and a load of A and B. Done when the <code>mma_*</code> and <code>rejected_mma_*</code> run tests pass.</li>
     <li><strong>Warp loops.</strong> Where they may be, the block size, and the tile's digits. Done when every run test passes.</li>
     <li><strong>The CPU render.</strong> Done when the <code>r_</code> tests pass.</li>
     <li><strong>render-cuda.</strong> First <code>wmma</code>, then per-thread arrays. Done when every <code>c_</code> test passes in the emulator, then on a GPU with the speed tests.</li>

@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Buffers and Views</title>
+<title>Floats, Buffers and Views</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Week 1 programs computed values from constants and call arguments. Real kernels read and write memory that lives outside the program: model weights...">
+<meta name="description" content="Week 1 programs computed with i32 and bool, from constants and call arguments. Real kernels compute with floats, and they read and write memory that lives...">
 <link rel="canonical" href="https://sharpterminal.com/site/week2/01-buffers-and-views">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Buffers and Views">
-<meta property="og:description" content="Week 1 programs computed values from constants and call arguments. Real kernels read and write memory that lives outside the program: model weights, activations, the output you hand back. This week...">
+<meta property="og:title" content="Floats, Buffers and Views">
+<meta property="og:description" content="Week 1 programs computed with i32 and bool, from constants and call arguments. Real kernels compute with floats, and they read and write memory that lives outside the program: model weights...">
 <meta property="og:url" content="https://sharpterminal.com/site/week2/01-buffers-and-views">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -29,13 +29,112 @@
   .mem .cell.out { border-style: dashed; color: var(--ink-3); } /* design-ok: dashed is the diagram notation for padding and out-of-bounds cells, named in the captions */
   .mem .cell.bad { border-color: var(--bad); color: var(--bad); }
   .vlab { font: 0.875rem var(--mono); color: var(--ink-2); }
+  td.ok { color: var(--good); font-family: var(--mono); } td.no { color: var(--bad); font-family: var(--mono); }
 </style>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 2 · Lesson 1</p>
-<h1>Buffers and views</h1>
-<p class="lede">Week 1 programs computed values from constants and call arguments. Real kernels read and write memory that lives outside the program: model weights, activations, the output you hand back. This week adds that memory, and this lesson starts with the two things you can name: buffers and windows into them.</p>
+<h1>Floats, buffers and views</h1>
+<p class="lede">Week 1 programs computed with i32 and bool, from constants and call arguments. Real kernels compute with floats, and they read and write memory that lives outside the program: model weights, activations, the output you hand back. This lesson adds the f32 dtype first, then starts on memory with the two things you can name: buffers and windows into them.</p>
+
+<div class="prose">
+<h2>What's new this week</h2>
+<p>Everything from week 1 still holds, except for these changes:</p>
+<ul>
+<li><strong>A new dtype, <code>f32</code>,</strong> with float literals and one new op, <code>recip</code>. The first half of this lesson covers it.</li>
+<li><strong>Rank-1 params and asserts.</strong> A param may have a shape like <code>[3]</code>, so a call can pass and return vectors, and an assert's left side may be a vector, compared with a stack literal like <code>[1 2 3]</code>.</li>
+<li><strong>List attributes.</strong> An attribute may hold a bracketed list with spaces, like <code>data=[1 2 3]</code> or <code>shape=[2 3]</code>. It's one attribute, from the <code>[</code> to the <code>]</code>.</li>
+<li><strong>No budgets.</strong> The week 1 limits (4096 bytes, 100 nodes, 300 edges, cost 1,000,000) are lifted. Week 2 programs are bigger, and nothing is OVERBUDGET.</li>
+</ul>
+<p>A vector param in action. ALU ops work element by element on two vectors of the same shape:</p>
+<pre><code>%x = param [3] slot=0 dtype=i32 addrspace=ALU
+%y = add %x [10 20 30]
+%r = call %y [1 2 3]
+%t = assert %r [11 22 33]</code></pre>
+<p>The official week 2 reference isn't out yet, so the week 2 rules in <a href="../../spec/uir-week2.md">spec/uir-week2.md</a> are the course's own reading. They'll move to the official format when it's published.</p>
+
+<h2>f32 literals</h2>
+<p>A literal with a <code>.</code> or an exponent is an <code>f32</code>. Without either, it's an <code>i32</code>, so <code>1.0</code> and <code>1</code> are different constants with different dtypes.</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>you write</th><th>it means</th></tr>
+<tr><td><code>1.5</code>, <code>-2.25</code></td><td>the usual decimal form</td></tr>
+<tr><td><code>1.</code>, <code>.5</code>, <code>-.5</code></td><td>digits on only one side of the point are fine: 1.0, 0.5 and -0.5</td></tr>
+<tr><td><code>2e3</code>, <code>1E5</code>, <code>1e+5</code>, <code>2.5e-3</code></td><td>an exponent makes a float even with no point: <code>2e3</code> is 2000.0</td></tr>
+<tr><td><code>inf</code>, <code>-inf</code>, <code>nan</code></td><td>the special values, spelled exactly like that (<code>infinity</code> is rejected)</td></tr>
+<tr><td><code>0.1</code></td><td>not exactly 0.1: the f32 nearest to it, 0.100000001490116...</td></tr>
+<tr><td><code>1e39</code>, <code>1e-50</code></td><td>too big rounds to <code>inf</code>, too small rounds to <code>0.0</code></td></tr>
+</table></div>
+<div class="prose">
+<p>The exact rule: read the literal as a 64-bit double, then round that to the nearest f32, ties to even. <code>16777217.0</code> becomes <code>16777216.0</code>, because f32 can't hold 16777217.</p>
+</div>
+
+<div class="trap"><span class="label">No implicit conversion</span><p><code>add 1.5 1</code> is REJECTED, not <code>2.5</code>. <code>1</code> is an <code>i32</code> and <code>1.5</code> is an <code>f32</code>, and binary ops need matching dtypes. Write <code>add 1.5 1.0</code>, or <code>cast</code> one side. The same goes for a param: with <code>%x</code> an f32 param, <code>add %x 1</code> is rejected. C would quietly convert for you. Here, the conversion has to be its own visible node.</p></div>
+
+<div class="prose">
+<h2>Rounding after every step</h2>
+<p>An <code>f32</code> is IEEE-754 single precision, with 24 bits of precision. After every op, the exact result is rounded to the nearest representable f32. A tie goes to the even neighbor, like rounding 2.5 to 2 and 3.5 to 4. If your language computes in 64-bit doubles, round back to 32 bits after <em>each</em> op, not once at the end.</p>
+<p><code>add</code>, <code>mul</code>, <code>max</code>, <code>cmplt</code> and <code>where</code> take f32 operands too, and <code>stack</code>, <code>index</code> and <code>cast</code> work on f32 values. Four ops stay integer only: <code>xor</code>, <code>shl</code>, <code>div</code> and <code>mod</code>. There's no float division op. Instead there's <code>recip a</code>, which is <code>1 / a</code> for an f32 and rejects anything else.</p>
+<p>f32 also has special values that integers don't. They show up in the tests all the time:</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>value</th><th>one way to get it</th><th>watch out</th></tr>
+<tr><td><code>inf</code>, <code>-inf</code></td><td><code>recip 0.0</code>, or a result too big for f32</td><td><code>add inf -inf</code> is <code>nan</code>.</td></tr>
+<tr><td><code>nan</code></td><td><code>mul inf 0.0</code></td><td>"Not a number". Arithmetic on a NaN gives NaN.</td></tr>
+<tr><td><code>-0.0</code></td><td><code>mul -3.0 0.0</code></td><td>It equals <code>0.0</code>, but <code>recip</code> tells them apart: <code>recip -0.0</code> is <code>-inf</code>, <code>recip 0.0</code> is <code>inf</code>.</td></tr>
+</table></div>
+<div class="trap"><span class="label">16777216 + 1</span><p>2²⁴ = 16777216 is where f32 runs out of integers. <code>add 16777216.0 1.0</code> is exactly halfway between 16777216 and 16777218, and it rounds to even, giving <code>16777216.0</code>. The 1 just disappears.</p></div>
+<div class="trap"><span class="label">0.1 + 0.2</span><p>In 64-bit doubles, <code>0.1 + 0.2 == 0.3</code> is famously false. In f32 it happens to be <strong>true</strong>: <code>%s = add 0.1 0.2</code> then <code>%t = assert %s 0.3</code> is a MATCH. If your interpreter uses doubles and forgets to round, it gets this wrong.</p></div>
+
+<div class="exercise small" data-ex="w2-01-f32-round" data-ex-py="w2-01-f32-round-py">
+<h3>Round to f32</h3>
+<p><span class="only-ocaml">OCaml's <code>float</code></span><span class="only-python">Python's <code>float</code></span> is a 64-bit double. Write <code>f32</code>, which rounds <code>x</code> to the nearest f32 (ties to even, overflow to <code>inf</code>), and <code>add32</code>, which adds two f32 values <code>a</code> and <code>b</code> the way your interpreter must: compute, then round.</p>
+<p class="muted only-ocaml">The <code>Int32</code> module can move a float through its 32-bit bit pattern. Look for <code>bits_of_float</code>.</p>
+<p class="muted only-python">The <code>struct</code> module can move a float through its 32-bit encoding, as in lesson 0.7. Remember what it does on overflow.</p>
+</div>
+
+<div class="prose">
+<h2>max, cmplt and assert on floats</h2>
+<ul>
+<li><code>max</code> with a NaN operand is NaN, whichever side it's on.</li>
+<li><code>max -0.0 0.0</code> and <code>max 0.0 -0.0</code> are both <code>+0.0</code>. <span class="only-python">Python's built-in <code>max</code> gets this wrong: <code>max(-0.0, 0.0)</code> returns <code>-0.0</code>, because it keeps the first of two equal values.</span><span class="only-ocaml">OCaml's <code>Stdlib.max</code> gets this wrong: <code>max (-0.0) 0.0</code> returns <code>-0.0</code>, because it keeps the first of two equal values. <code>Float.max</code> gets both zeros and NaN right.</span></li>
+<li><code>cmplt</code> with a NaN on either side is <code>false</code>. So is <code>cmplt -0.0 0.0</code>: the two zeros are equal.</li>
+</ul>
+<p><code>assert</code> compares f32 by value, with a rule for NaN:</p>
+<ul>
+<li><code>0.0</code> equals <code>-0.0</code>, so <code>assert -0.0 0.0</code> is a MATCH. To check the sign of a zero, assert on its <code>recip</code>.</li>
+<li>Two NaNs count as equal, so <code>assert nan nan</code> is a MATCH. In IEEE, <code>nan == nan</code> is false. The course picks this rule so a test can say "this should be NaN".</li>
+</ul>
+
+<h2>Casts</h2>
+<p><code>cast</code> is the only way between f32 and the other dtypes:</p>
+<ul>
+<li>i32 to f32 rounds to the nearest f32, ties to even. <code>cast 16777217 dtype=f32</code> is <code>16777216.0</code>.</li>
+<li>f32 to i32 truncates toward zero: <code>cast 3.9 dtype=i32</code> is 3 and <code>cast -3.9 dtype=i32</code> is -3.</li>
+<li>f32 to i32 also <strong>saturates</strong>. Anything at or past the ends of the i32 range clamps: <code>cast 3000000000.0 dtype=i32</code> is 2147483647, and <code>cast -inf dtype=i32</code> is -2147483648. NaN becomes 0. Like everything else in the course, a cast never fails at run time.</li>
+<li>f32 to bool means "not zero": <code>0.0</code> and <code>-0.0</code> give <code>false</code>, and NaN gives <code>true</code>. bool to f32 gives <code>0.0</code> or <code>1.0</code>.</li>
+</ul>
+
+<h2>Simplifying floats</h2>
+<p>i32 arithmetic is arithmetic mod 2<sup>32</sup>, so identities built from <code>+</code> and <code>×</code> hold even when values wrap. f32 has none of that. Every op rounds, and <code>inf</code>, <code>nan</code> and <code>-0.0</code> break identities you'd expect to hold. The <code>simplify</code> grader compares f32 results <strong>bit for bit</strong>, so there <code>0.0</code> and <code>-0.0</code> differ (any NaN still matches any NaN).</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>rule</th><th>i32</th><th>f32</th><th>why</th></tr></thead>
+<tbody>
+<tr><td><code>mul(x, 1) → x</code></td><td class="ok">valid</td><td class="ok">valid</td><td>Multiplying by one is exact, even for <code>nan</code>, <code>inf</code> and <code>-0.0</code>.</td></tr>
+<tr><td><code>mul(x, 0) → 0</code></td><td class="ok">valid</td><td class="no">wrong</td><td><code>nan × 0.0</code> and <code>inf × 0.0</code> are <code>nan</code>, and <code>-3.0 × 0.0</code> is <code>-0.0</code>.</td></tr>
+<tr><td><code>add(x, 0) → x</code></td><td class="ok">valid</td><td class="no">wrong</td><td><code>-0.0 + 0.0 = +0.0</code>, so x changes from <code>-0.0</code> to <code>+0.0</code>. <code>add(x, -0.0) → x</code> <em>is</em> valid: adding <code>-0.0</code> changes nothing.</td></tr>
+<tr><td><code>add(add(x, c1), c2) → add(x, c1 + c2)</code></td><td class="ok">valid</td><td class="no">wrong</td><td>f32 rounds after each add, so regrouping changes the result.</td></tr>
+</tbody></table></div>
+<div class="prose">
+<p>Printing an f32 constant in your <code>simplify</code> output needs care too. Print enough digits to round-trip (<code>%.9g</code> is enough for any f32), and always include a <code>.</code> or an <code>e</code>: <code>%.9g</code> prints <code>3.0</code> as <code>3</code>, which reads back as an i32. Print the specials as <code>inf</code>, <code>-inf</code> and <code>nan</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-01-f32-zero">
+<h3>The f32 zero trap</h3>
+<p>You are the rewrite engine: <code>%out = (x * 1.0) * 0.0</code>, on an f32 <code>x</code>. Rewrite it with at most one op, computing the same f32 for every <code>x</code>, bit for bit. The tests feed in <code>nan</code>, <code>inf</code>, <code>-inf</code> and negative numbers, and the oracle (the course's reference compiler, which the grader compares you against) prints <code>-0.0</code> as <code>-0.0</code>.</p>
+</div>
 
 <div class="prose">
 <h2>Memory lives outside the program</h2>
@@ -75,15 +174,15 @@
 
 <div class="prose">
 <h2>Memory is not a value</h2>
-<p>Every week 1 value lived in what we'll call the <strong>ALU</strong> address space: numbers your program computes with. Buffers, allocs and views live in <strong>GLOBAL</strong>: they're places, not numbers. (GLOBAL here just means "memory", not a C global variable.) You can't add a buffer to 1, compare it, stack it or pass it to a call. You have to <code>load</code> it first.</p>
+<p>Every week 1 value lived in the <strong>ALU</strong> address space, the <code>addrspace=ALU</code> on every param: numbers your program computes with. Buffers, allocs and views live in <strong>GLOBAL</strong>: they're places, not numbers. (GLOBAL here just means "memory", not a C global variable.) You can't add a buffer to 1, compare it, stack it or pass it to a call. You have to <code>load</code> it first.</p>
 <pre><code>%x = add %b 1          # invalid: memory can't be an operand of add
 %e = shrink %b 0 shape=[]
 %y = load %e           # 10, an i32 value
 %z = add %y 1          # 11</code></pre>
 <p>A load takes the view's dtype and shape. Loading a <code>shape=[]</code> view gives a scalar. Loading a <code>shape=[3]</code> view, or a whole buffer, gives a rank-1 value, the same kind of value <code>stack</code> builds, so you can compare it with <code>assert</code> or pick from it with <code>index</code>.</p>
 <pre><code>%r = load %v           # the rank-1 value [30 40 50]
-%s = stack 30 40 50
-%t = assert %r %s      # passes</code></pre>
+%t = assert %r [30 40 50]</code></pre>
+<p>That file is a MATCH. A week 2 assert may compare a vector, as long as the expected side is a stack of literals.</p>
 </div>
 
 <div class="note">
@@ -98,6 +197,69 @@
 
 <h2>Check yourself</h2>
 <p class="score"></p>
+
+<div class="quiz" data-answer="c">
+<p class="q">What does the compiler print for this file?</p>
+<pre><code>%a = add 1.5 1
+%t = assert %a 2.5</code></pre>
+<div class="opts">
+<button data-k="a"><code>MATCH</code>, since 1.5 + 1 = 2.5</button>
+<button data-k="b"><code>MISMATCH</code></button>
+<button data-k="c"><code>REJECTED</code></button>
+</div>
+<p class="hint">Look at the dtypes of the two literals. Does .uir ever convert between them for you?</p>
+<div class="why"><p><code>1</code> is an i32 literal and <code>1.5</code> is f32. There's no implicit conversion, so <code>add</code> rejects mismatched dtypes during validation, before anything runs.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Is this a MATCH?</p>
+<pre><code>%s = add 16777216.0 1.0
+%t = assert %s 16777216.0</code></pre>
+<div class="opts">
+<button data-k="a">Yes. The sum rounds back to 16777216.0.</button>
+<button data-k="b">No. The sum is 16777217.0.</button>
+<button data-k="c">No, it's REJECTED. The number is too big for f32.</button>
+</div>
+<p class="hint">f32 has 24 bits of precision, and 16777216 is 2 to the 24th. Can f32 represent 16777217?</p>
+<p class="hint">When a value sits exactly halfway between two f32 numbers, the tie goes to the one whose last bit is even.</p>
+<div class="why"><p>16777217 isn't representable in f32. It's a tie between 16777216 and 16777218, and ties round to even.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Is <code>%t = assert nan nan</code> a MATCH?</p>
+<div class="opts">
+<button data-k="a">Yes. Assert treats two NaNs as equal.</button>
+<button data-k="b">No. In IEEE, NaN never equals NaN.</button>
+</div>
+<p class="hint">IEEE says NaN never equals NaN, but the course defines assert equality on purpose. Check the section on max, cmplt and assert above.</p>
+<div class="why"><p>Assert equality is defined so a test can check for NaN. Inside the program, <code>cmplt</code> still follows IEEE: any NaN gives <code>false</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="-3">
+<p class="q">What is <code>cast -3.9 dtype=i32</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Casting f32 to i32 truncates toward zero. Which integer is closer to zero, -3 or -4?</p>
+<div class="why"><p>Truncate toward zero, not floor. Unlike <code>div</code>, which floors, a cast just drops the fraction.</p></div>
+</div>
+
+<div class="quiz" data-fill="2147483647">
+<p class="q">What is <code>cast 3000000000.0 dtype=i32</code>?</p>
+<div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">Check</button></div>
+<p class="hint">3 billion is past the largest i32. f32 to i32 doesn't wrap and doesn't fail.</p>
+<div class="why"><p>It saturates to <code>INT_MAX</code>, 2147483647. A value past the bottom of the range gives <code>INT_MIN</code>, and NaN gives 0.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Which rewrite is valid for every f32 <code>x</code>, bit for bit?</p>
+<div class="opts">
+<button data-k="a"><code>mul(x, 0.0) → 0.0</code></button>
+<button data-k="b"><code>mul(x, 1.0) → x</code></button>
+<button data-k="c"><code>add(add(x, 3.0), 4.0) → add(x, 7.0)</code></button>
+<button data-k="d"><code>add(x, 0.0) → x</code></button>
+</div>
+<p class="hint">Try each rule on the awkward floats: <code>nan</code>, <code>inf</code> and <code>-0.0</code>.</p>
+<div class="why"><p>Only multiplying by one is exact for every float. <code>nan × 0.0</code> is nan, regrouping changes rounding, and <code>-0.0 + 0.0</code> is <code>+0.0</code>.</p></div>
+</div>
 
 <div class="quiz" data-fill="2 3 4 | 2, 3, 4 | [2 3 4] | [2, 3, 4] | 2..4 | 2-4">
 <p class="q">Which element indices of <code>%b</code> does <code>shrink %b 2 shape=[3]</code> cover?</p>
@@ -134,11 +296,11 @@
 <div class="opts">
 <button data-k="a">It adds 1 to every element.</button>
 <button data-k="b">It adds 1 to element 0.</button>
-<button data-k="c">The program is invalid (exit 2).</button>
+<button data-k="c">The program is REJECTED.</button>
 <button data-k="d">It moves the buffer's start by one element.</button>
 </div>
 <p class="hint">Is a buffer a value or a place?</p>
-<div class="why"><p>A buffer is memory, not a value. ALU ops only take values, so you have to <code>load</code> first. The oracle reports "memory can't be an operand here (load it first)".</p></div>
+<div class="why"><p>A buffer is memory, not a value. ALU ops only take values, so you have to <code>load</code> first. The oracle's <code>render</code> command gives the reason: "memory can't be an operand here (load it first)".</p></div>
 </div>
 
 <div class="quiz" data-answer="a">
@@ -147,7 +309,7 @@
 <button data-k="a">The rank-1 value <code>[0.0 0.0 0.0]</code></button>
 <button data-k="b">Whatever was in memory before: undefined</button>
 <button data-k="c">The scalar <code>0.0</code></button>
-<button data-k="d">Nothing: the program is invalid</button>
+<button data-k="d">Nothing: the program is REJECTED</button>
 </div>
 <p class="hint">The spec says what an alloc starts as. And loading a whole 3-element alloc keeps its shape.</p>
 <div class="why"><p>Allocs start as zeros, and loading all three elements gives a rank-1 value. In C, a local array starts as garbage, so your renderer will have to initialize it.</p></div>

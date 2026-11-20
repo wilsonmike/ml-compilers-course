@@ -40,9 +40,9 @@
   <h3><a href="../week0/05-matmul.html">0.5 Matrix multiply</a></h3>
   <p>Each output of <code>A @ B</code> is a dot product of a row of A with a column of B. For M×K times K×N, that's M·N outputs and 2·M·N·K floating-point operations. The syllabus writes it as a broadcast multiply followed by a sum over the shared axis.</p>
   <h3><a href="../week0/06-ocaml.html">0.6 OCaml crash course</a></h3>
-  <p>Variants plus pattern matching are the heart of a compiler written in OCaml. OCaml's <code>int</code> is 63 bits, so the course's 32-bit integers need <code>Int32</code> or explicit wrapping. Floats are doubles, so round to f32 with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
+  <p>Variants plus pattern matching are the heart of a compiler written in OCaml. OCaml's <code>int</code> is 63 bits, so the course's 32-bit integers need <code>Int32</code> or explicit wrapping. OCaml's <code>/</code> truncates, while the course's <code>div</code> floors. Floats are doubles, so from week 2 round to f32 with <code>Int32.float_of_bits (Int32.bits_of_float x)</code>.</p>
   <h3><a href="../week0/07-python.html">0.7 Python for this course</a></h3>
-  <p>Dataclasses hold IR nodes, dicts do the hash consing, and <code>match</code> with class patterns branches on a node's shape. Python's ints never overflow, so i32 needs explicit wrapping, and <code>//</code> floors where C truncates. Floats are doubles, so round to f32 with <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>.</p>
+  <p>Dataclasses hold IR nodes, dicts do the hash consing, and <code>match</code> with class patterns branches on a node's shape. Python's ints never overflow, so i32 needs explicit wrapping, and <code>//</code> floors where C truncates (the course's <code>div</code> floors too). Floats are doubles, so from week 2 round to f32 with <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>.</p>
   <p>You only need the lesson for your track. The sidebar's Language picker chooses it, and <a href="languages.html">Python and OCaml, deeper</a> goes further in both.</p>
 
   <h2>Cheat sheet</h2>
@@ -96,13 +96,13 @@
   <h2>Mistakes people make</h2>
   <ol>
     <li><strong>Adding two <code>int32_t</code> and expecting wraparound.</strong> Signed overflow is undefined, so the optimizer may assume it never happens. Add as <code>uint32_t</code> and convert back. The <code>w0-01-wrap-add</code> exercise is built around this.</li>
-    <li><strong>Treating C's <code>/</code> like Python's <code>//</code>.</strong> C truncates toward zero (<code>-7 / 2 == -3</code>) and Python floors (<code>-4</code>). Week 1's i32 division follows C, and the week 1 test <code>i32_div_trunc</code> catches the Python version.</li>
+    <li><strong>Treating C's <code>/</code> like Python's <code>//</code>.</strong> C truncates toward zero (<code>-7 / 2 == -3</code>) and Python floors (<code>-4</code>). Week 1's <code>div</code> floors like Python, and the week 1 test <code>div_floor_1</code> catches the C version. From week 2 your compiler prints C, so it has to floor on top of C's <code>/</code>.</li>
     <li><strong>Mixing up bytes and elements.</strong> Lesson 0.2 counts addresses in bytes, and lesson 0.4 counts strides in elements. A float at element 5 is at byte 20.</li>
     <li><strong>Computing a size in <code>int</code> before widening.</strong> <code>4 * n</code> overflows before it reaches a <code>long long</code>. Write <code>4LL * n</code>.</li>
     <li><strong>Forgetting the mask on a padded read.</strong> Reading <code>x[-1]</code> is undefined even if you throw the value away. Check the index first.</li>
     <li class="only-ocaml"><strong>Assuming OCaml's <code>int</code> is 32 bits.</strong> It's 63, so <code>2147483647 + 1</code> is <code>2147483648</code>, not <code>INT_MIN</code>. Use <code>Int32</code> or wrap by hand.</li>
     <li class="only-python"><strong>Assuming Python's <code>int</code> wraps somewhere.</strong> It never does, so <code>2147483647 + 1</code> is <code>2147483648</code>, not <code>INT_MIN</code>. Wrap to 32 bits after every i32 op.</li>
-    <li><strong>Comparing floats with <code>=</code> and expecting NaN to equal itself.</strong> <code>nan = nan</code> is false in OCaml and C, and <code>nan == nan</code> is false in Python. Week 1's <code>assert</code> deliberately treats two NaNs as equal, and your own code has to do the same on purpose.</li>
+    <li><strong>Comparing floats with <code>=</code> and expecting NaN to equal itself.</strong> <code>nan = nan</code> is false in OCaml and C, and <code>nan == nan</code> is false in Python. From week 2, when floats arrive, the course's <code>assert</code> deliberately treats two NaNs as equal, and your own code has to do the same on purpose.</li>
   </ol>
 
   <h2>Stuck on an exercise?</h2>

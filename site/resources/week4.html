@@ -40,7 +40,7 @@
   <h3><a href="../week4/05-rendering-vectors.html">4.5 Rendering vectors</a></h3>
   <p>Rendered C must be at most 20,000 bytes, so a 4096-element vector has to become a loop. A whole <code>x / sum(x)</code> kernel is about a kilobyte (1,041 bytes with the current oracle): a reduce loop, a scalar computed once between loops, and a store loop.</p>
   <h3><a href="../week4/06-lab.html">4.6 Lab</a></h3>
-  <p>Same commands as week 3. <code>render</code> may print <code>for</code> loops when the program has a range, a reduce, expand or stage, an elementwise op on a vector, or any rank-1 value over 32 elements. The suite has 78 tests.</p>
+  <p>Same commands as week 3. <code>render</code> may print <code>for</code> loops when the program has a range, a reduce, expand or stage, an elementwise op on a vector, or any rank-1 value over 32 elements. The suite has 90 tests.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -74,36 +74,36 @@
   <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week4.html">week 4 test guide</a> lists every test with the bugs known to fail it.</p>
   <ol>
     <li><strong>Folding right to left.</strong> Caught by <code>reduce_add_f32_order</code>, where the other order gives 0.0 instead of the right answer.</li>
-    <li><strong>Folding from zero instead of <code>x[0]</code>.</strong> <code>0.0 + -0.0</code> is <code>+0.0</code>, and 0 is wrong for max over negatives. Caught by <code>reduce_add_negzero</code>, <code>reduce_max_i32</code> and <code>reduce_max_signed_zero</code>.</li>
+    <li><strong>Folding from zero instead of <code>x[0]</code>.</strong> <code>0.0 + -0.0</code> is <code>+0.0</code>, and 0 is wrong for max over negatives. Caught by <code>reduce_add_negzero_t0</code>, <code>reduce_add_negzero_t1</code>, <code>reduce_max_i32</code> and the <code>reduce_max_signed_zero</code> tests.</li>
     <li><strong>A max reduce that skips NaN.</strong> Any NaN makes the result NaN. Caught by <code>reduce_max_nan</code>.</li>
-    <li><strong>Elementwise ops that read element 0 for every index.</strong> Caught by <code>add_i32_vec</code>, <code>add_i32_wrap_vec</code> and <code>cast_vec</code>.</li>
-    <li><strong>An expand that produces zeros.</strong> Caught by <code>expand_dtypes</code>, <code>chained_reduce</code> and <code>cmplt_where_vec</code>.</li>
+    <li><strong>Elementwise ops that read element 0 for every index.</strong> Caught by <code>add_i32_vec</code>, <code>add_i32_wrap_vec</code> and the <code>cast_vec</code> tests.</li>
+    <li><strong>An expand that produces zeros.</strong> Caught by the <code>expand_dtypes</code> tests, <code>chained_reduce</code> and the <code>cmplt_where_vec</code> tests.</li>
     <li><strong>Forgetting to rangeify something.</strong> If your kernel's size grows with n, a vector reached the printer unrolled. Caught by <code>r_add_f32_2048</code> and every 4096-element test.</li>
     <li><strong>A plain large copy rendered loopless.</strong> A 4096-element load and store has no ALU op, but it still has to be a loop to fit in 20 KB. Caught by <code>r_copy_4096</code>.</li>
     <li><strong>A stage that reads the wrong element, or zeroes its temp.</strong> Caught by <code>r_stage_twice_4096</code>, <code>r_used_twice_stage_2048</code> and <code>normalize_small_stage</code>.</li>
-    <li><strong>Accepting implicit broadcasts or bad reduces.</strong> <code>add %v 1.0</code>, a reduce of a scalar, and a reduce of bools are all invalid. Caught by <code>err_missing_expand</code>, <code>err_reduce_scalar</code> and <code>err_reduce_bool</code>.</li>
+    <li><strong>Accepting implicit broadcasts or bad reduces.</strong> <code>add %v 1.0</code>, a reduce of a scalar, and a reduce of bools are all <code>REJECTED</code>. Caught by <code>rejected_missing_expand</code>, <code>rejected_reduce_scalar</code> and <code>rejected_reduce_bool</code>.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
-  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py run FILE</code> or <code>render FILE</code>).</p>
+  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py --week=4 FILE</code>, or <code>python _reference/uirc.py render FILE</code>).</p>
   <ol>
-    <li><strong>Shapes on ALU ops.</strong> Done when this exits 2 with <code>invalid:</code> (no implicit broadcast), and every week 1 test still passes:
+    <li><strong>Shapes on ALU ops.</strong> Done when this prints <code>REJECTED</code> (no implicit broadcast), and every week 1 test still passes:
 <pre><code>%v = stack 1.0 2.0 3.0
 %w = add %v 1.0
-%t = assert 1 1</code></pre></li>
-    <li><strong>Parse and type expand, reduce and stage.</strong> Done when the suite's <code>err_reduce_scalar</code>, <code>err_reduce_bool</code> and <code>err_expand_no_shape</code> exit 2.</li>
-    <li><strong>Vectors in run.</strong> Done when these fold in the right order and from the right start:
+%t = assert %w [2.0 3.0 4.0]</code></pre></li>
+    <li><strong>Parse and type expand, reduce and stage.</strong> Done when the suite's <code>rejected_reduce_scalar</code>, <code>rejected_reduce_bool</code> and <code>rejected_expand_no_shape</code> print <code>REJECTED</code>.</li>
+    <li><strong>Evaluate vectors.</strong> Done when both of these print <code>MATCH</code>, so you fold in the right order and from the right start:
 <pre><code>%v = stack 1e8 1.0 -1e8 1.0 1.0
 %s = reduce %v op=add
-%t = assert %s 2.0
-%z = stack -0.0
+%t = assert %s 2.0</code></pre>
+<pre><code>%z = stack -0.0
 %q = reduce %z op=add
 %r = recip %q
-%u = assert %r -inf</code></pre>
-      If the first assert fails, you're not folding left to right (or not rounding each step). If the second fails, you started from 0.0 instead of <code>x[0]</code>.</li>
+%t = assert %r -inf</code></pre>
+      If the first gives <code>MISMATCH</code>, you're not folding left to right (or not rounding each step). If the second does, you started from 0.0 instead of <code>x[0]</code>.</li>
     <li><strong>The element at an index.</strong> Done when a 64-element copy (load a buffer, store it into another) renders with one loop, while the same copy of 8 elements may stay loopless. If the 64-element version prints 64 stores, the size rule never triggered.</li>
     <li><strong>Stores and reduces become loops.</strong> Done when <code>r_dot_4096</code> passes bit for bit. A reduce is week 3's accumulator: a one-element alloc seeded with element 0, then a loop over the remaining n - 1 elements.</li>
-    <li><strong>Stage becomes a temp.</strong> Done when staged and unstaged versions agree. Check:
+    <li><strong>Stage becomes a temp.</strong> Done when staged and unstaged versions agree. This check adds the two, so it only matches when both are right:
 <pre><code>%x  = stack 1.0 2.0 3.0 4.0
 %s  = reduce %x op=add
 %e  = expand %s shape=[4]
@@ -112,7 +112,8 @@
 %s2 = reduce %xs op=add
 %e2 = expand %s2 shape=[4]
 %n2 = mul %xs %e2
-%t  = assert %n %n2</code></pre></li>
+%d  = add %n %n2
+%t  = assert %d [20.0 40.0 60.0 80.0]</code></pre></li>
     <li><strong>Check the size.</strong> Done when your largest kernel is around a kilobyte, whatever n is, and every render test passes.</li>
   </ol>
   <div class="trap"><span class="label">When a render is bit-for-bit wrong</span>

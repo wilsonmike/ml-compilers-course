@@ -91,7 +91,7 @@
 <pre><code>y[i] = x[i-1]*w[0] + x[i]*w[1] + x[i+1]*w[2]     with x = 0 outside [0, 6)</code></pre>
 <p>Write the index as <code>j = i + k - 1</code>. With <code>i</code> in [0, 5] and <code>k</code> in [0, 2], <code>j</code> is in [-1, 6], and a <code>shrink</code> at <code>j</code> fails the bounds proof from lesson 2.3. You need two separate things:</p>
 <ol>
-<li><strong>An offset that's always legal</strong>, even when it points at the wrong element. <code>max j 0</code> is in [0, 6], still one too many. <code>mod (max j 0) 6</code> is in [0, 5]: provably inside <code>x</code>.</li>
+<li><strong>An offset that's always legal</strong>, even when it points at the wrong element. <code>max j 0</code> is in [0, 6], still one too many. <code>mod j 6</code> is in [0, 5], because <code>mod</code> floors: by a fixed positive 6, the result is never negative and never reaches 6, whatever <code>j</code> is. That's provably inside <code>x</code>.</li>
 <li><strong>A mask</strong> that throws the wrong element away. <code>j</code> is a real element exactly when <code>0 ≤ j</code> and <code>j &lt; 6</code>. When it isn't, use <code>0.0</code> instead of the loaded value.</li>
 </ol>
 </div>
@@ -99,14 +99,13 @@
 %lo = cmplt %j 0              # off the left end
 %hi = cmplt %j 6              # not off the right end
 %ok = where %lo false %hi     # 0 &lt;= j &lt; 6
-%jp = max %j 0                # [0, 6]
-%jm = mod %jp 6               # [0, 5]: provably in bounds
+%jm = mod %j 6                # [0, 5]: provably in bounds
 %xv = shrink %x %jm shape=[]
 %xe = load %xv                # a real element, maybe the wrong one
 %xz = where %ok %xe 0.0       # the padding value where j is off the end</code></pre>
 <div class="trap">
 <span class="label">The mask doesn't prove anything</span>
-<p>It's tempting to think <code>where %ok ...</code> makes the raw index safe, because the bad element is never used. But the load still happens, and the bounds proof only looks at the offset's interval. A <code>where</code> doesn't narrow an interval (lesson 2.3). The offset itself has to be provably legal, which is why you need both the clamp and the mask.</p>
+<p>It's tempting to think <code>where %ok ...</code> makes the raw index safe, because the bad element is never used. But the load still happens, and the bounds proof only looks at the offset's interval. A <code>where</code> doesn't narrow an interval (lesson 2.3). The offset itself has to be provably legal, which is why you need both the <code>mod</code> and the mask.</p>
 </div>
 
 <div class="exercise" data-ex="w3-04-conv1d-pad">
@@ -203,17 +202,17 @@ OH = H - KH + 1,  OW = W - KW + 1</code></pre>
 <div class="why"><p><code>-2</code>: 3*1 + 4*0 + 5*(-1). Every output of this kernel is the difference of two elements two apart, and <code>x</code> rises by 1 per element, so all four outputs are -2.</p></div>
 </div>
 
-<div class="quiz" data-answer="c">
+<div class="quiz" data-answer="a">
 <p class="q">For the padded convolution, <code>j = i + k - 1</code> with <code>i</code> in [0, 5] and <code>k</code> in [0, 2]. Which offset can you shrink a 6-element <code>x</code> at?</p>
 <div class="opts">
 <button data-k="a"><code>mod %j 6</code></button>
 <button data-k="b"><code>max %j 0</code></button>
-<button data-k="c"><code>mod (max %j 0) 6</code>, written as two statements</button>
+<button data-k="c"><code>add %j 1</code></button>
 <button data-k="d"><code>%j</code>, since <code>where</code> discards the bad loads</button>
 </div>
-<p class="hint">Work out each interval. C's <code>mod</code> takes the sign of the left operand.</p>
+<p class="hint">Work out each interval. In .uir, <code>mod</code> floors: a nonzero remainder has the sign of the right operand.</p>
 <p class="hint">A view of one element at offset [lo, hi] needs lo ≥ 0 and hi + 1 ≤ 6.</p>
-<div class="why"><p><code>mod j 6</code> is in [-5, 5] by the oracle's rule, because <code>j</code> can be negative. Lesson 2.3's tighter rule gives [-1, 5]. Both are sound, and both start below 0. <code>max j 0</code> is in [0, 6], one past the end. Only <code>mod (max j 0) 6</code> is in [0, 5]. The oracle rejects the other three. A <code>where</code> never narrows an interval.</p></div>
+<div class="why"><p><code>mod j 6</code> floors, so it's in [0, 5] even though <code>j</code> can be -1 (<code>mod -1 6</code> is 5). <code>max j 0</code> is in [0, 6] and <code>add j 1</code> is in [0, 7], both past the end, and <code>j</code> itself starts at -1. The oracle rejects the other three. A <code>where</code> never narrows an interval. In C, <code>-1 % 6</code> is -1, so a renderer can't print <code>mod</code> as a bare <code>%</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="b">

@@ -103,7 +103,7 @@
   </div>
   <div class="g-term" id="t-assert">
     <h3>assert</h3>
-    <p>The .uir op that checks two values are equal. A program&#x27;s asserts are its roots: they decide what gets evaluated.</p>
+    <p>The .uir op that checks two values are equal. A test ends with exactly one assert, its root: every node must be reachable from it, and its right side is a literal.</p>
     <p class="g-ex"><code>%t = assert %sum 5</code></p>
     <p class="g-where">Taught in <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></p>
   </div>
@@ -207,7 +207,7 @@
   </div>
   <div class="g-term" id="t-cast">
     <h3>cast</h3>
-    <p>Converting a value to another dtype. f32 to i32 truncates toward zero, and out-of-range values are an error.</p>
+    <p>Converting a value to another dtype. To bool is x != 0, and from bool gives 0 or 1. From week 2, f32 to i32 truncates toward zero and saturates: NaN gives 0, and out-of-range values clamp to INT_MIN or INT_MAX.</p>
     <p class="g-ex"><code>cast 3.7 dtype=i32 gives 3</code></p>
     <p class="g-where">Taught in <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></p>
   </div>
@@ -279,8 +279,8 @@
   </div>
   <div class="g-term" id="t-const">
     <h3>const</h3>
-    <p>The .uir op for a fixed value. A bare number in an operand position is a const.</p>
-    <p class="g-ex"><code>%c = const 3 dtype=f32 is 3.0</code></p>
+    <p>The .uir op for a fixed value. In text a constant is written as its literal, like 3, 0xff or true, and there&#x27;s no const keyword.</p>
+    <p class="g-ex"><code>%c = 3 names the i32 constant 3</code></p>
     <p class="g-where">Taught in <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></p>
   </div>
   <div class="g-term" id="t-constant-folding">
@@ -346,7 +346,7 @@
   </div>
   <div class="g-term" id="t-dtype">
     <h3>dtype</h3>
-    <p>A value&#x27;s element type. In .uir: void, bool, i32 or f32.</p>
+    <p>A value&#x27;s element type. In .uir: void, bool and i32 in week 1, and f32 from week 2.</p>
     
     <p class="g-where">Taught in <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></p>
   </div>
@@ -359,7 +359,7 @@
   <h2 id="g-E" class="g-letter">E</h2>
   <div class="g-term" id="t-edge-values">
     <h3>edge values</h3>
-    <p>The inputs the grader tries in every param slot to check a simplification: 16 hand-picked values per dtype, including INT_MIN, -0.0, infinity and NaN, plus 8 random ones. With two params, every pair is tried. f32 results must match bit for bit.</p>
+    <p>The inputs the grader tries in every param slot to check a simplification: 16 hand-picked values per dtype, including INT_MIN, and from week 2 -0.0, infinity and NaN, plus 8 random ones, all inside each param&#x27;s limits. With two params, every pair is tried. f32 results must match bit for bit.</p>
     
     <p class="g-where">Taught in <a href="../week1/04-symbolic.html">1.4 Symbolic simplification</a>, <a href="../week1/06-lab.html">1.6 Lab: your compiler</a></p>
   </div>
@@ -413,7 +413,7 @@
   </div>
   <div class="g-term" id="t-exit-code">
     <h3>exit code</h3>
-    <p>The number a program returns to whoever ran it. Your compiler&#x27;s run command uses 0 (pass), 1 (assert failed) and 2 (invalid).</p>
+    <p>The number a program returns to whoever ran it, 0 for success. The grader doesn&#x27;t read it for a test file, where your compiler prints an outcome line instead. render and render-cuda exit 2 for a program they refuse.</p>
     
     <p class="g-where">Taught in <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a>, <a href="../week1/06-lab.html">1.6 Lab: your compiler</a></p>
   </div>
@@ -426,7 +426,7 @@
   <h2 id="g-F" class="g-letter">F</h2>
   <div class="g-term" id="t-f32">
     <h3>f32</h3>
-    <p>A 32-bit floating-point number (IEEE binary32). Every f32 op rounds its result to the nearest representable value.</p>
+    <p>A 32-bit floating-point number (IEEE binary32), in .uir from week 2. Every f32 op rounds its result to the nearest representable value.</p>
     <p class="g-ex"><code>0.1 + 0.2 == 0.3 in f32, though not in doubles</code></p>
     <p class="g-where">Taught in <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></p>
   </div>
@@ -603,8 +603,8 @@
   </div>
   <div class="g-term" id="t-index">
     <h3>index</h3>
-    <p>The .uir op that picks elements by position, dropping leading axes.</p>
-    <p class="g-ex"><code>index (stack 10 20 30) 1 gives 20</code></p>
+    <p>The .uir op that picks elements by position, dropping leading axes. Bounds must prove every index in range, or the program is rejected.</p>
+    <p class="g-ex"><code>index [10 20 30] 1 gives 20</code></p>
     <p class="g-where">Taught in <a href="../week1/05-call-and-param.html">1.5 CALL, PARAM, STACK, INDEX</a>, <a href="../week5/01-shapes.html">5.1 Any rank, flat memory</a></p>
   </div>
   <div class="g-term" id="t-inline">
@@ -756,8 +756,8 @@
   </div>
   <div class="g-term" id="t-max-ops">
     <h3>max_ops</h3>
-    <p>A simplify test&#x27;s op budget: the most ops your output may print, not counting consts and params. Duplicate statements count twice, so hash cons what you print.</p>
-    <p class="g-ex"><code>max_ops=0 allows only consts and params</code></p>
+    <p>A simplify test&#x27;s op budget: the most ops your output may print, not counting literals, atom bindings like %y = %x, and params. Duplicate statements count twice, so hash cons what you print.</p>
+    <p class="g-ex"><code>max_ops=0 allows only literals and params</code></p>
     <p class="g-where">Taught in <a href="../week1/04-symbolic.html">1.4 Symbolic simplification</a>, <a href="../week1/06-lab.html">1.6 Lab: your compiler</a></p>
   </div>
   <div class="g-term" id="t-memoization">
@@ -861,8 +861,14 @@
   <div class="g-term" id="t-oracle">
     <h3>oracle</h3>
     <p>The reference compiler, _reference/uirc.py. Run it to see what any program should do. The grader compares you to it. Don&#x27;t read its source.</p>
-    <p class="g-ex"><code>python _reference/uirc.py run FILE</code></p>
+    <p class="g-ex"><code>python _reference/uirc.py --week=1 FILE</code></p>
     <p class="g-where">Taught in <a href="../week1/06-lab.html">1.6 Lab: your compiler</a></p>
+  </div>
+  <div class="g-term" id="t-outcome">
+    <h3>outcome</h3>
+    <p>What your compiler prints for each test file: MATCH, MISMATCH, REJECTED or OVERBUDGET, a space and the path. A test&#x27;s file name says which one it expects.</p>
+    <p class="g-ex"><code>REJECTED tests/week1/run/rejected_index_oob.uir</code></p>
+    <p class="g-where">Taught in <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a>, <a href="../week1/06-lab.html">1.6 Lab: your compiler</a></p>
   </div>
   <div class="g-term" id="t-outer-product">
     <h3>outer product</h3>
@@ -891,8 +897,8 @@
   </div>
   <div class="g-term" id="t-param">
     <h3>param</h3>
-    <p>A function input in .uir: param N is slot N of the enclosing call.</p>
-    <p class="g-ex"><code>%x = param 0 dtype=i32</code></p>
+    <p>A function input in .uir: a param with slot=N is slot N of the enclosing call. Its first source is the shape, [] for a scalar, and an optional second source gives limits that every argument must fit.</p>
+    <p class="g-ex"><code>%x = param [] [0 9] slot=0 dtype=i32 addrspace=ALU</code></p>
     <p class="g-where">Taught in <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a>, <a href="../week1/05-call-and-param.html">1.5 CALL, PARAM, STACK, INDEX</a></p>
   </div>
   <div class="g-term" id="t-parser">
@@ -1177,7 +1183,7 @@
   <div class="g-term" id="t-stack">
     <h3>stack</h3>
     <p>The .uir op that joins values of one shape along a new leading axis.</p>
-    <p class="g-ex"><code>stack 10 20 30 has shape (3,)</code></p>
+    <p class="g-ex"><code>stack 10 20 30, or [10 20 30], has shape (3,)</code></p>
     <p class="g-where">Taught in <a href="../week1/05-call-and-param.html">1.5 CALL, PARAM, STACK, INDEX</a>, <a href="../week5/03-pad-shrink-expand.html">5.3 Pad, shrink, expand, stack</a></p>
   </div>
   <div class="g-term" id="t-stage">
@@ -1273,7 +1279,7 @@
   </div>
   <div class="g-term" id="t-truncation">
     <h3>truncation</h3>
-    <p>Rounding toward zero. C&#x27;s integer division truncates, so -7 / 2 is -3.</p>
+    <p>Rounding toward zero. C&#x27;s integer division truncates, so -7 / 2 is -3. The course&#x27;s div floors instead, so div -7 2 is -4.</p>
     
     <p class="g-where">Taught in <a href="../week0/01-c-and-pointers.html">0.1 C and pointers</a>, <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></p>
   </div>

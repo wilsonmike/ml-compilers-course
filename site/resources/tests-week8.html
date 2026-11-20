@@ -40,48 +40,48 @@
   <table class="guide">
     <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
     <tbody>
-    <tr><td><code>render/c_block_shared_fresh</code></td><td>cuda</td><td>shared memory starts at zero in every block, so the kernel must zero it</td><td>render private allocs shared</td></tr>
+    <tr><td><code>render/c_block_shared_fresh</code></td><td>cuda</td><td>shared memory starts at zero in every block, so the kernel must zero it</td><td>cuda shared memory not zeroed</td></tr>
     <tr><td><code>render/c_err_alloc_in_two_kernels</code></td><td>cuda: invalid</td><td>an alloc used by two global loops isn&#x27;t any one block&#x27;s shared memory, so it has nowhere to live on the GPU</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/c_err_kernel_uses_outer_loop</code></td><td>cuda: invalid</td><td>a global loop inside a plain loop uses the plain loop&#x27;s index, which only the CPU knows</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/c_err_thread_loop</code></td><td>cuda: invalid</td><td>a week 7 thread loop runs on CPU threads: render-cuda wants global and local loops</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/c_err_work_outside_kernel</code></td><td>cuda: invalid</td><td>a load at the top level would run on the CPU: render-cuda needs every bit of work inside a kernel</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/c_gemm_row_strips</code></td><td>cuda</td><td>a GEMM with one block per strip of rows, looping over column tiles inside</td><td>render private allocs shared</td></tr>
-    <tr><td><code>render/c_gemm_tile_per_block</code></td><td>cuda</td><td>the textbook GEMM: a block per 4x4 tile of C, shared A and B tiles, one accumulator per thread</td><td>render private allocs shared</td></tr>
-    <tr><td><code>render/c_reverse_shared</code></td><td>cuda</td><td>two phases through shared memory: without __syncthreads between them, threads read before others write</td><td>cuda no barrier between phases<br>render private allocs shared</td></tr>
-    <tr><td><code>render/c_reverse_shared_1024</code></td><td>cuda</td><td>the reversal with 1024-thread blocks: on a real GPU, 32 warps make a missing __syncthreads show</td><td>cuda no barrier between phases</td></tr>
+    <tr><td><code>render/c_gemm_row_strips</code></td><td>cuda</td><td>a GEMM with one block per strip of rows, looping over column tiles inside</td><td>cuda no barrier between phases</td></tr>
+    <tr><td><code>render/c_gemm_tile_per_block</code></td><td>cuda</td><td>the textbook GEMM: a block per 4x4 tile of C, shared A and B tiles, one accumulator per thread</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_reverse_shared</code></td><td>cuda</td><td>two phases through shared memory: without __syncthreads between them, threads read before others write</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/c_reverse_shared_1024</code></td><td>cuda</td><td>the reversal with 1024-thread blocks: on a real GPU, 32 warps make a missing __syncthreads show</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/c_scale</code></td><td>cuda</td><td>one thread per element: blockIdx and threadIdx</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/c_shared_dirty_then_fresh</code></td><td>cuda</td><td>kernel 1 fills shared memory with 7s. Kernel 2 must still see its own shared memory start at zero, so the kernel has to zero it</td><td>cuda shared memory not zeroed</td></tr>
+    <tr><td><code>render/c_shared_dirty_then_fresh</code></td><td>cuda</td><td>kernel 1 fills shared memory with 7s. Kernel 2 must still see its own shared memory start at zero, so the kernel has to zero it</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/c_tiles_2d_layout</code></td><td>cuda</td><td>a 2D grid of blocks, written through div and mod</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/c_two_kernels</code></td><td>cuda</td><td>two kernels in a row: the second reads what the first wrote</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/c_zero_blocks</code></td><td>cuda</td><td>a grid of zero blocks: nothing runs, nothing breaks</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/r_gemm_tile_per_block_cpu</code></td><td>render</td><td>the same GPU program rendered for the CPU: global as threads, local as loops</td><td>render private allocs shared</td></tr>
+    <tr><td><code>render/local_bound_1024</code></td><td>render</td><td>1024 threads is allowed in a local loop</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/r_gemm_tile_per_block_cpu</code></td><td>render</td><td>the same GPU program rendered for the CPU: global as threads, local as loops</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>render/r_reverse_shared_cpu</code></td><td>render</td><td>phases on the CPU are just consecutive loops</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>render/s_cuda_gemm_512</code></td><td>cuda, speed 0.5</td><td>a 512x512 GEMM on the GPU: at least half the reference kernel&#x27;s speed. Without a GPU it only has to build.</td><td>cuda local loops run in one thread<br>cuda no barrier between phases<br>cuda shared memory not zeroed<br>render private allocs shared</td></tr>
-    <tr><td><code>run/block_shared_starts_at_zero</code></td><td>run: pass</td><td>shared memory used only in one global loop starts at zero in every block: o = b + t</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/digits_just_apart</code></td><td>run: pass</td><td>o[3b + t] with t up to 2 is fine: 3 is more than 2</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_block_layouts_differ</code></td><td>run: invalid</td><td>one buffer written with two different block layouts</td><td>block layouts may differ</td></tr>
-    <tr><td><code>run/err_blocks_write_one_place</code></td><td>run: invalid</td><td>the block index is missing from the offset: every block writes o[t]</td><td>parallel index may be missing</td></tr>
-    <tr><td><code>run/err_coefficient_not_literal</code></td><td>run: invalid</td><td>block offsets use literal coefficients</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_digits_exactly_touch</code></td><td>run: invalid</td><td>o[2b + t] with t up to 2: block 1 thread 0 and block 0 thread 2 both write o[2]. The coefficient 2 must be more than 2, not equal.</td><td>digits may touch</td></tr>
-    <tr><td><code>run/err_div_only_race</code></td><td>run: invalid</td><td>4 threads write o[2b + (t div 2)]: threads 0 and 1 share a slot, so do 2 and 3</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_local_nested</code></td><td>run: invalid</td><td>a local loop inside another local loop</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_local_not_literal</code></td><td>run: invalid</td><td>the block size is a literal</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_local_outside_global</code></td><td>run: invalid</td><td>a local loop runs inside a block, so it needs a global loop around it</td><td>local outside global allowed</td></tr>
-    <tr><td><code>run/err_local_sizes_differ</code></td><td>run: invalid</td><td>all local loops in one kernel are the same block: one size</td><td>block sizes may differ</td></tr>
-    <tr><td><code>run/err_local_too_big</code></td><td>run: invalid</td><td>a block has at most 1024 threads</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_mod_only_race</code></td><td>run: invalid</td><td>8 threads write o[4b + (t mod 4)]: the digits pass the coefficient check, but threads 0 and 4 share a slot</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_same_phase_neighbor</code></td><td>run: invalid</td><td>reading sh[t + 1] in the same phase that writes sh: thread t + 1 may not have written it yet</td><td>phase loads unchecked</td></tr>
-    <tr><td><code>run/err_store_outside_local</code></td><td>run: invalid</td><td>a store in a block but outside any local loop would run on every thread of the block</td><td>store outside local allowed</td></tr>
-    <tr><td><code>run/err_thread_in_global</code></td><td>run: invalid</td><td>CPU threads inside a GPU block</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_threads_write_one_cell</code></td><td>run: invalid</td><td>every thread of the block writes sh[0]: a race</td><td>parallel index may be missing</td></tr>
-    <tr><td><code>run/err_tiles_2d_overlap</code></td><td>run: invalid</td><td>by*4 + bx*2 + ty*2 + tx: bx and ty share a coefficient, so blocks overlap</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/global_local_same_result</code></td><td>run: pass</td><td>two blocks of four threads compute exactly what plain loops do</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/global_local_wrong_value</code></td><td>run: assert_fail</td><td>and a wrong value still fails</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/later_phase_reads_anywhere</code></td><td>run: pass</td><td>a later phase may read any shared element an earlier phase wrote: reverse each block of 4</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/local_bound_1024</code></td><td>run: pass</td><td>1024 threads is allowed</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/mod_wider_than_range</code></td><td>run: pass</td><td>t mod 8 with t in 0..3 is just t, so it pins the thread down on its own</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/plain_loop_alloc_carries_over</code></td><td>run: pass</td><td>the same program as plain loops carries the alloc from b = 0 into b = 1</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/tiles_2d_layout</code></td><td>run: pass</td><td>a 4x4 matrix as 2x2 blocks of 2x2 threads: by*8 + bx*2 + ty*4 + tx, a unique mixed-radix number</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>render/s_cuda_gemm_512</code></td><td>cuda, speed 0.5</td><td>a 512x512 GEMM on the GPU: at least half the reference kernel&#x27;s speed. Without a GPU it only has to build.</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/block_shared_starts_at_zero</code></td><td>run: MATCH</td><td>shared memory used only in one global loop starts at zero in every block: o = b + t</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/digits_just_apart</code></td><td>run: MATCH</td><td>o[3b + t] with t up to 2 is fine: 3 is more than 2</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/global_local_same_result</code></td><td>run: MATCH</td><td>two blocks of four threads compute exactly what plain loops do</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/later_phase_reads_anywhere</code></td><td>run: MATCH</td><td>a later phase may read any shared element an earlier phase wrote: reverse each block of 4</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mismatch_global_local_wrong_value</code></td><td>run: MISMATCH</td><td>and a wrong value still fails</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_wider_than_range</code></td><td>run: MATCH</td><td>t mod 8 with t in 0..3 is just t, so it pins the thread down on its own</td><td>mod never pins an index alone</td></tr>
+    <tr><td><code>run/plain_loop_alloc_carries_over</code></td><td>run: MATCH</td><td>the same program as plain loops carries the alloc from b = 0 into b = 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_block_layouts_differ</code></td><td>run: REJECTED</td><td>one buffer written with two different block layouts</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_blocks_write_one_place</code></td><td>run: REJECTED</td><td>the block index is missing from the offset: every block writes o[t]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_coefficient_not_literal</code></td><td>run: REJECTED</td><td>block offsets use literal coefficients</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_digits_exactly_touch</code></td><td>run: REJECTED</td><td>o[2b + t] with t up to 2: block 1 thread 0 and block 0 thread 2 both write o[2]. The coefficient 2 must be more than 2, not equal.</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_div_only_race</code></td><td>run: REJECTED</td><td>4 threads write o[2b + (t div 2)]: threads 0 and 1 share a slot, so do 2 and 3</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_local_nested</code></td><td>run: REJECTED</td><td>a local loop inside another local loop</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_local_not_literal</code></td><td>run: REJECTED</td><td>the block size is a literal</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_local_outside_global</code></td><td>run: REJECTED</td><td>a local loop runs inside a block, so it needs a global loop around it</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_local_sizes_differ</code></td><td>run: REJECTED</td><td>all local loops in one kernel are the same block: one size</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_local_too_big</code></td><td>run: REJECTED</td><td>a block has at most 1024 threads</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_mod_only_race</code></td><td>run: REJECTED</td><td>8 threads write o[4b + (t mod 4)]: the digits pass the coefficient check, but threads 0 and 4 share a slot</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_same_phase_neighbor</code></td><td>run: REJECTED</td><td>reading sh[t + 1] in the same phase that writes sh: thread t + 1 may not have written it yet</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_store_outside_local</code></td><td>run: REJECTED</td><td>a store in a block but outside any local loop would run on every thread of the block</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_thread_in_global</code></td><td>run: REJECTED</td><td>CPU threads inside a GPU block</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_threads_write_one_cell</code></td><td>run: REJECTED</td><td>every thread of the block writes sh[0]: a race</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_tiles_2d_overlap</code></td><td>run: REJECTED</td><td>by*4 + bx*2 + ty*2 + tx: bx and ty share a coefficient, so blocks overlap</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/tiles_2d_layout</code></td><td>run: MATCH</td><td>a 4x4 matrix as 2x2 blocks of 2x2 threads: by*8 + bx*2 + ty*4 + tx, a unique mixed-radix number</td><td><span class=muted>none recorded</span></td></tr>
     </tbody>
   </table>
   </div>

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Week 5 Lab</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Lift the rank limit. Your type checker learns shapes of any rank and the new movement ops (reshape, permute, pad and value shrink), run evaluates them, and...">
+<meta name="description" content="Lift the rank limit. Your type checker learns shapes of any rank and the new movement ops (reshape, permute, pad and value shrink), your evaluator runs them...">
 <link rel="canonical" href="https://sharpterminal.com/site/week5/06-lab">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Week 5 Lab">
-<meta property="og:description" content="Lift the rank limit. Your type checker learns shapes of any rank and the new movement ops (reshape, permute, pad and value shrink), run evaluates them, and your rangeify pass turns each one into...">
+<meta property="og:description" content="Lift the rank limit. Your type checker learns shapes of any rank and the new movement ops (reshape, permute, pad and value shrink), your evaluator runs them, and your rangeify pass turns each one...">
 <meta property="og:url" content="https://sharpterminal.com/site/week5/06-lab">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -40,7 +40,7 @@
 <main>
 <p class="eyebrow">Week 5 · Lesson 6</p>
 <h1>The week 5 lab</h1>
-<p class="lede">Lift the rank limit. Your type checker learns shapes of any rank and the new movement ops (<code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code>), <code>run</code> evaluates them, and your rangeify pass turns each one into index arithmetic. You're done when every week 5 test passes, weeks 1 to 4 still pass, and you've written 10 new tests of your own.</p>
+<p class="lede">Lift the rank limit. Your type checker learns shapes of any rank and the new movement ops (<code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code>), your evaluator runs them, and your rangeify pass turns each one into index arithmetic. You're done when every week 5 test passes, weeks 1 to 4 still pass, and you've written 10 new tests of your own.</p>
 
 <div class="prose">
 <h2>Warm up</h2>
@@ -58,7 +58,7 @@
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 5 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td>Values may have any rank. <code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> are new, and <code>expand</code>, <code>stack</code>, <code>index</code> and <code>reduce pop=m</code> work at any rank. Static errors (exit 2 with an <code>invalid:</code> line) include: a reshape that changes the element count, an order that isn't a permutation, the wrong number of pads, a shrink offset that can't be proven in range, an expand that grows an axis that isn't size 1, a reduce popping more axes than the value has, storing a value whose shape isn't the view's (buffers stay rank 1), a param of rank 2 or more, a negative pad, more indices than axes, and stacking values of different shapes. An index that is out of range at run time also exits 2, as in week 1.</td></tr>
+<tr><td><code>your.exe FILE...</code></td><td>Values may have any rank. <code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> are new, and <code>expand</code>, <code>stack</code>, <code>index</code> and <code>reduce pop=m</code> work at any rank. Static errors (print <code>REJECTED FILE</code>) include: a reshape that changes the element count, an order that isn't a permutation, the wrong number of pads, a shrink offset that can't be proven in range, an expand that grows an axis that isn't size 1, a reduce popping more axes than the value has, storing a value whose shape isn't the view's (buffers stay rank 1), a param of rank 2 or more, a negative pad, more indices than axes, and stacking values of different shapes. An <code>index</code> that the bounds can't prove in range is rejected too, as in week 1: nothing fails at run time.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>Still at most 20,000 bytes, bit-exact. <code>for</code> loops are allowed when the program has a <code>range</code>, any shape op (<code>reduce</code>, <code>expand</code>, <code>stage</code>, <code>reshape</code>, <code>permute</code>, <code>pad</code>, value <code>shrink</code>), an elementwise op on a shaped value, a value of rank 2 or more, or a rank-1 value with more than 32 elements. Otherwise it stays loopless, as in week 2.</td></tr>
 </tbody></table></div>
 
@@ -87,15 +87,15 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 
 <h2>Write your 10 tests</h2>
 <p>Ten tests in <code>path/to/your-repo/tests/week5/</code>, each aimed at a rule someone will get wrong. Check them against the oracle:</p>
-<pre><code>python tools/test.py --check-tests path/to/your-repo/tests/week5</code></pre>
-<p>Good targets: a transpose tested with distinct values (constant data hides every bug), a reshape after a permute versus before it, and a pad on the right only. Also try a shrink whose offset comes from a <code>mod</code> mask, plus one that can't be proven (invalid). Then add a <code>reduce pop=2</code> whose bits depend on the fold order, the syllabus GEMM with A stored the wrong way, and a large render test that must stay under the size limit.</p>
+<pre><code>python tools/test.py --check-tests path/to/your-repo/tests/week5 --week 5</code></pre>
+<p>Good targets: a transpose tested with distinct values (constant data hides every bug), a reshape after a permute versus before it, and a pad on the right only. Also try a shrink whose offset comes from a <code>mod</code> mask, plus one that can't be proven (a <code>rejected_</code> test). Then add a <code>reduce pop=2</code> whose bits depend on the fold order, the syllabus GEMM with A stored the wrong way, and a large render test that must stay under the size limit.</p>
 </div>
 
 <h2>A build order that works</h2>
 <ol class="build">
 <li><h3>Shapes of any rank</h3><p>Lift the rank limit everywhere except memory and params. ALU ops, <code>where</code>, <code>cast</code> and <code>assert</code> take one shared shape of any rank. <code>stack</code> takes items of one shape and adds a leading axis, and <code>index</code> pops one leading axis per index.</p><p class="check">Checkpoint: every week 1 to 4 test still passes.</p></li>
-<li><h3>Type the movement ops</h3><p><code>reshape</code> (same element count), <code>permute</code> (a permutation), <code>pad</code> (two numbers per axis), value <code>shrink</code> (one provable offset per axis, using your week 1 bounds), <code>expand</code> (scalar, or size-1 axes only), <code>reduce pop=m</code>.</p><p class="check">Checkpoint: every file in <code>tests/week5/run/</code> parses or is rejected with exit 2.</p></li>
-<li><h3>Evaluate them</h3><p>In <code>run</code>, represent a value as a shape and a flat row-major array. Each movement op is a function from output index to input index. Tabulate it over the output shape.</p><p class="check">Checkpoint: every week 5 run test passes.</p></li>
+<li><h3>Type the movement ops</h3><p><code>reshape</code> (same element count), <code>permute</code> (a permutation), <code>pad</code> (two numbers per axis), value <code>shrink</code> (one provable offset per axis, using your week 1 bounds), <code>expand</code> (scalar, or size-1 axes only), <code>reduce pop=m</code>.</p><p class="check">Checkpoint: every file in <code>tests/week5/run/</code> parses, or is <code>REJECTED</code>.</p></li>
+<li><h3>Evaluate them</h3><p>In your evaluator, represent a value as a shape and a flat row-major array. Each movement op is a function from output index to input index. Tabulate it over the output shape.</p><p class="check">Checkpoint: every week 5 run test passes.</p></li>
 <li><h3>Index tuples in rangeify</h3><p>Change "your element at index i" to take one index per axis. Write flatten and unflatten once, as helpers that build <code>mul</code>, <code>add</code>, <code>div</code> and <code>mod</code> nodes.</p><p class="check">Checkpoint: a reshape round trip renders to one loop that passes. Its index math (a flatten, an unflatten and a leftover <code>% n</code>) needn't be simplified to a plain copy. Correct is enough this week.</p></li>
 <li><h3>Each op as index arithmetic</h3><p>Permute reorders the tuple, shrink adds offsets, expand reads size-1 axes at 0, and pad clamps the index and masks the value with <code>where</code>.</p><p class="check">Checkpoint: the pad and transpose render tests pass bit for bit.</p></li>
 <li><h3>Reduce over several axes</h3><p>Use one accumulator, seeded with the first element, and one loop over a flat counter covering the other <code>T - 1</code> combinations of the leading axes (T is the product of the popped axis sizes), unflattened in row-major order.</p><p class="check">Checkpoint: the movement GEMM tests pass, including the large one.</p></li>
@@ -108,7 +108,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <li><label><input type="checkbox" data-k="rank"><span>Values of any rank type check, and memory and params stay rank 0 or 1</span></label></li>
 <li><label><input type="checkbox" data-k="ops"><span><code>reshape</code>, <code>permute</code>, <code>pad</code> and value <code>shrink</code> parse, type check and reject bad attributes</span></label></li>
 <li><label><input type="checkbox" data-k="bcast"><span><code>expand</code> grows only size-1 axes, and <code>stack</code> and <code>index</code> work at any rank</span></label></li>
-<li><label><input type="checkbox" data-k="run"><span><code>run</code> evaluates every movement op, and <code>reduce pop=m</code> folds in row-major order</span></label></li>
+<li><label><input type="checkbox" data-k="run"><span>Your evaluator runs every movement op, and <code>reduce pop=m</code> folds in row-major order</span></label></li>
 <li><label><input type="checkbox" data-k="lower"><span>Rangeify asks for elements by index tuple, with flatten and unflatten helpers</span></label></li>
 <li><label><input type="checkbox" data-k="pad"><span>Padded reads clamp their index and mask the value</span></label></li>
 <li><label><input type="checkbox" data-k="gemm"><span>The movement GEMM renders to loops and passes bit for bit</span></label></li>
@@ -134,7 +134,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <button data-k="c">Yes, but only for f32</button>
 </div>
 <p class="hint">What shape is a whole-buffer view?</p>
-<div class="why"><p>The view has shape <code>(4,)</code> and the value <code>(2, 2)</code>. The oracle exits 2: "the value must match the view's dtype and shape".</p></div>
+<div class="why"><p>The view has shape <code>(4,)</code> and the value <code>(2, 2)</code>. The oracle prints <code>REJECTED</code>: "the value must match the view's dtype and shape".</p></div>
 </div>
 
 <div class="quiz" data-answer="c">

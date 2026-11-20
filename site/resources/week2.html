@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Week 2 Study Guide</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Week 2 adds memory and turns your compiler into one that prints C. The ideas are few but strict: memory comes in versions, every access has to be provably in...">
+<meta name="description" content="Week 2 adds floats and memory, and turns your compiler into one that prints C. The ideas are few but strict: f32 rounds after every op, memory comes in...">
 <link rel="canonical" href="https://sharpterminal.com/site/resources/week2">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Week 2 Study Guide">
-<meta property="og:description" content="Week 2 adds memory and turns your compiler into one that prints C. The ideas are few but strict: memory comes in versions, every access has to be provably in range, and the C you print must have no...">
+<meta property="og:description" content="Week 2 adds floats and memory, and turns your compiler into one that prints C. The ideas are few but strict: f32 rounds after every op, memory comes in versions, every access has to be provably in...">
 <meta property="og:url" content="https://sharpterminal.com/site/resources/week2">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -26,23 +26,47 @@
 <body data-root="../">
 <main>
   <h1>Week 2 study guide</h1>
-  <p class="lede">Week 2 adds memory and turns your compiler into one that prints C. The ideas are few but strict: memory comes in versions, every access has to be provably in range, and the C you print must have no undefined behavior.</p>
+  <p class="lede">Week 2 adds floats and memory, and turns your compiler into one that prints C. The ideas are few but strict: f32 rounds after every op, memory comes in versions, every access has to be provably in range, and the C you print must have no undefined behavior.</p>
 
   <h2>The week in one page</h2>
-  <h3><a href="../week2/01-buffers-and-views.html">2.1 Buffers and views</a></h3>
-  <p>A <code>buffer</code> is memory outside the program, given to the kernel by slot. An <code>alloc</code> is scratch memory inside it, zeroed. <code>shrink</code> makes a view: a window starting some elements in, either <code>[k]</code> elements or a single element (<code>shape=[]</code>). Memory is never an ALU operand, so you <code>load</code> it first.</p>
+  <h3><a href="../week2/01-buffers-and-views.html">2.1 Floats, buffers and views</a></h3>
+  <p>Floats arrive: the <code>f32</code> dtype, float literals and <code>recip</code>. f32 rounds to nearest-even after every op, never converts implicitly to or from i32, and has its own rules for NaN and <code>-0.0</code>. Params and asserts may be rank 1, attributes may hold lists, and the week 1 budgets are gone. Then memory. A <code>buffer</code> is memory outside the program, given to the kernel by slot. An <code>alloc</code> is scratch memory inside it, zeroed. <code>shrink</code> makes a view: a window starting some elements in, either <code>[k]</code> elements or a single element (<code>shape=[]</code>). Memory is never an ALU operand, so you <code>load</code> it first.</p>
   <h3><a href="../week2/02-load-store-after.html">2.2 Load, store, after</a></h3>
   <p>A store doesn't change a buffer in the graph. <code>after %b %s</code> is the new version with the write applied, and loads read whichever version they name. "Fully ordered" means one store per version, every store sequenced by an <code>after</code>, and every load of a version able to run before the store that overwrites it.</p>
   <h3><a href="../week2/03-bounds.html">2.3 Proving bounds</a></h3>
-  <p>Every view must be provably inside its parent, using week 1's intervals: the offset's interval needs <code>lo ≥ 0</code> and <code>hi + k ≤ n</code>. A value loaded from memory could be anything, so you mask it (<code>max</code>, <code>mod</code>) into range before using it as an offset.</p>
+  <p>Every view must be provably inside its parent, using week 1's bounds rules: the offset's interval needs <code>lo ≥ 0</code> and <code>hi + k ≤ n</code>. A value loaded from memory could be anything, so you shape it into range before using it as an offset. <code>mod %i 4</code> alone does it: <code>mod</code> floors, so the result is in <code>[0, 3]</code> even for a negative <code>%i</code>.</p>
   <h3><a href="../week2/04-rendering-c.html">2.4 Rendering C</a></h3>
-  <p>Rendering schedules the DAG into straight-line C: sources first, and loads of a version before the store that overwrites it. Each i32 op is written so C has no undefined behavior (wrap through <code>uint32_t</code>, guard <code>INT_MIN / -1</code>), f32 literals are printed as exact hex floats, and the grader forbids fused multiply-add.</p>
+  <p>Rendering schedules the DAG into straight-line C: sources first, and loads of a version before the store that overwrites it. Each op is written so C means what .uir means and has no undefined behavior (wrap through <code>uint32_t</code>, floor <code>div</code> and <code>mod</code> helpers that handle 0 and -1, <code>shl</code> by <code>b &amp; 31</code>, a saturating f32 to i32 cast), f32 literals are printed as exact hex floats, and the grader forbids fused multiply-add.</p>
   <h3><a href="../week2/05-the-runtime.html">2.5 The runtime</a></h3>
   <p>To run the C, write the kernel and a generated <code>main</code> to a temp folder, compile, run and read the results back, printing f32 as raw bits so nothing is lost. It's optional this week, but kernels get timed from week 6.</p>
   <h3><a href="../week2/06-lab.html">2.6 Lab</a></h3>
-  <p><code>run</code> keeps its week 1 contract with memory added, and <code>render</code> prints a <code>kernel</code> the grader compiles with UB trapping and compares bit for bit against the oracle. The week 2 suite has 100 tests. Keep week 1 green too.</p>
+  <p><code>./compile FILE...</code> prints week 1's <code>MATCH</code>, <code>MISMATCH</code> or <code>REJECTED</code> lines, with floats and memory added and no budgets. <code>render</code> prints a <code>kernel</code> the grader compiles with UB trapping and compares bit for bit against the oracle. The week 2 suite has 195 tests. Keep week 1 green too.</p>
 
   <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>f32</th><th>rule</th></tr></thead>
+    <tbody>
+      <tr><td>literals</td><td>a <code>.</code> or an exponent makes a float: <code>1.5</code>, <code>1.</code>, <code>.5</code>, <code>2e3</code>, plus <code>inf</code>, <code>-inf</code>, <code>nan</code>. Read as a double, then rounded to f32</td></tr>
+      <tr><td>rounding</td><td>to nearest-even after every op, not once at the end</td></tr>
+      <tr><td>conversions</td><td>none implicit: <code>add 1.5 1</code> is REJECTED. Write <code>1.0</code> or <code>cast</code></td></tr>
+      <tr><td>integer only</td><td><code>xor</code>, <code>shl</code>, <code>div</code>, <code>mod</code></td></tr>
+      <tr><td><code>recip a</code></td><td><code>1 / a</code>, f32 only. <code>recip 0.0 = inf</code>, <code>recip -0.0 = -inf</code></td></tr>
+      <tr><td><code>max</code></td><td>NaN if either side is NaN, and <code>max(-0.0, 0.0) = +0.0</code> in either order</td></tr>
+      <tr><td><code>cmplt</code></td><td>any NaN gives <code>false</code></td></tr>
+      <tr><td><code>cast</code></td><td>i32 to f32 rounds. f32 to i32 truncates toward zero and saturates: NaN is 0, out of range is <code>INT_MIN</code> or <code>INT_MAX</code>. f32 to bool is <code>!= 0</code>, so NaN is true</td></tr>
+      <tr><td><code>assert</code></td><td>by value: <code>0.0</code> equals <code>-0.0</code>, and two NaNs are equal</td></tr>
+      <tr><td><code>simplify</code></td><td>compared bit for bit: <code>x * 0.0 → 0.0</code> and <code>x + 0.0 → x</code> are wrong, <code>x * 1.0 → x</code> and <code>x + -0.0 → x</code> are fine</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>also new</th><th>rule</th></tr></thead>
+    <tbody>
+      <tr><td>rank-1 params</td><td><code>%x = param [3] slot=0 dtype=i32 addrspace=ALU</code>, and a call can pass and return vectors</td></tr>
+      <tr><td>rank-1 asserts</td><td>the left side may be a vector, compared with a stack literal: <code>assert %r [1 2 3]</code></td></tr>
+      <tr><td>list attributes</td><td><code>data=[1 2 3]</code> or <code>shape=[2 3]</code> is one attribute, spaces and all</td></tr>
+      <tr><td>budgets</td><td>none: nothing is OVERBUDGET in week 2</td></tr>
+    </tbody>
+  </table></div>
   <div class="tablewrap"><table>
     <thead><tr><th>op</th><th>gives</th><th>remember</th></tr></thead>
     <tbody>
@@ -60,15 +84,17 @@
       <tr><td>one store per version</td><td>two stores into the same version are unordered, even into different elements</td></tr>
       <tr><td>every store sequenced</td><td>a store no <code>after</code> names has no effect and is invalid</td></tr>
       <tr><td>loads before stores</td><td>a load of version V runs before the store that makes the next version, even if its value is used much later. Your C must schedule it that way. If the load's inputs depend on the new version, no order works and the program is invalid</td></tr>
-      <tr><td>bounds</td><td>offset interval: <code>lo ≥ 0</code> and <code>hi + k ≤ n</code> (<code>k = 1</code> for <code>shape=[]</code>), and loaded values are full range</td></tr>
+      <tr><td>bounds</td><td>offset interval: <code>lo ≥ 0</code> and <code>hi + k ≤ n</code> (<code>k = 1</code> for <code>shape=[]</code>), and loaded values are full range. <code>mod %i k</code> with a positive <code>k</code> is <code>[0, k - 1]</code></td></tr>
       <tr><td>outputs</td><td>the final version of each buffer: the one no <code>after</code> builds on</td></tr>
     </tbody>
   </table></div>
   <div class="tablewrap"><table>
     <thead><tr><th>rendering</th><th>write it as</th></tr></thead>
     <tbody>
-      <tr><td>i32 <code>add</code>, <code>mul</code>, <code>shl</code></td><td><code>(int32_t)((uint32_t)a + (uint32_t)b)</code></td></tr>
-      <tr><td>i32 <code>div</code>, <code>mod</code></td><td>guard <code>b == -1</code>: <code>INT_MIN / -1</code> is undefined in C</td></tr>
+      <tr><td>i32 <code>add</code>, <code>mul</code></td><td><code>(int32_t)((uint32_t)a + (uint32_t)b)</code></td></tr>
+      <tr><td><code>shl</code></td><td><code>(int32_t)((uint32_t)a &lt;&lt; ((uint32_t)b &amp; 31u))</code></td></tr>
+      <tr><td><code>div</code>, <code>mod</code></td><td>a helper: C truncates and .uir floors. <code>b == 0</code> gives -1 and <code>a</code>, <code>b == -1</code> gives <code>-a</code> (wrapped) and 0, otherwise adjust C's answer when the remainder is nonzero and its sign differs from <code>b</code>'s. Plain <code>/</code> and <code>%</code> only when <code>a</code> is provably ≥ 0 and <code>b</code> is a positive constant</td></tr>
+      <tr><td>f32 to i32 <code>cast</code></td><td>a saturating helper: NaN is 0, <code>x &gt;= 2147483648.0f</code> is <code>INT32_MAX</code>, <code>x &lt;= -2147483648.0f</code> is <code>INT32_MIN</code>, else <code>(int32_t)x</code></td></tr>
       <tr><td>f32 constants</td><td>hex floats, e.g. <code>0x1.99999ap-4f</code>, plus <code>NAN</code> and <code>INFINITY</code></td></tr>
       <tr><td>f32 <code>max</code></td><td>a same-file helper: NaN if either is NaN, <code>max(-0.0, 0.0) = +0.0</code> (not <code>fmaxf</code>)</td></tr>
       <tr><td>grader flags</td><td><code>clang -std=c11 -O2 -ffp-contract=off -fsanitize=undefined -fsanitize-trap=undefined</code></td></tr>
@@ -80,24 +106,27 @@
   <p>Each was planted in the reference compiler and caught by the suite. The <a href="tests-week2.html">week 2 test guide</a> lists every test with the bugs known to fail it.</p>
   <ol>
     <li><strong>Forgetting that nested shrink offsets add up.</strong> A view of a view starts at the sum of both offsets. Caught by <code>view_shrink_of_shrink</code> and the render test <code>nested_view_offsets</code>.</li>
-    <li><strong>Letting two stores share a version.</strong> Even two stores into different elements of the same version are unordered. Caught by <code>err_two_stores_one_version</code>.</li>
-    <li><strong>Allowing a store nothing sequences.</strong> Caught by <code>err_unsequenced_store</code>.</li>
+    <li><strong>Letting two stores share a version.</strong> Even two stores into different elements of the same version are unordered. Caught by <code>rejected_two_stores_one_version</code>.</li>
+    <li><strong>Allowing a store nothing sequences.</strong> Caught by <code>rejected_unsequenced_store</code>.</li>
     <li><strong>Treating every alloc as the same memory.</strong> Two allocs of the same size are separate storage. Caught by <code>alloc_distinct</code> and <code>alloc_two_distinct</code>.</li>
-    <li><strong>Skipping the bounds proof for a loaded index.</strong> A raw loaded value can be anything. Caught by <code>err_bounds_raw_loaded</code>. The masked version passes in <code>bounds_masked_offset</code>.</li>
+    <li><strong>Skipping the bounds proof for a loaded index.</strong> A raw loaded value can be anything. Caught by <code>rejected_bounds_raw_loaded</code>. The masked version passes in <code>bounds_masked_offset</code>.</li>
     <li><strong>Scheduling a store before a load of the version it overwrites.</strong> In C, memory is updated in place. Caught by <code>swap</code>, <code>old_version_late_use</code> and <code>swap_schedule</code>.</li>
     <li><strong>Printing plain signed C.</strong> <code>a + b</code> on <code>int32_t</code> traps under the grader's UB sanitizer. Caught by <code>i32_add_wrap</code>, <code>i32_mul_wrap</code> and <code>i32_shl_wrap</code>.</li>
+    <li><strong>Printing C's <code>/</code> and <code>%</code> for div and mod.</strong> They truncate, and .uir floors. Caught by <code>i32_div_mod_trunc</code>.</li>
     <li><strong>No <code>-1</code> guard on div and mod.</strong> Caught by <code>i32_div_mod_intmin</code>. On Windows the unguarded version can hang instead of trapping.</li>
+    <li><strong>Treating an f32 to i32 cast of NaN as an error.</strong> It's 0, and out-of-range values saturate. Caught by <code>cast_nan_i32</code>.</li>
     <li><strong>Using <code>fmaxf</code> for <code>max</code>.</strong> <code>fmaxf(NAN, 1.0f)</code> is 1, but the course's max gives NaN. Caught by <code>f32_max</code>.</li>
     <li><strong>Printing f32 constants with too few digits.</strong> Six decimal digits can't round-trip every float. Caught by <code>f32_exact_literals</code>.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
-  <p>Build in this order. Each check is a tiny program to run through your compiler and through the oracle (<code>python _reference/uirc.py run FILE</code>, or <code>render FILE</code>).</p>
+  <p>Build in this order. Each check is a tiny program to run through your compiler and through the oracle (<code>python _reference/uirc.py --week=2 FILE</code>, or <code>python _reference/uirc.py render FILE</code>).</p>
   <ol>
-    <li><strong>Parse the new ops.</strong> Done when <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code> parse with their attributes. Check: <code>%b = buffer 3 dtype=i32 slot=0 data=[1 2 3]</code>, <code>%v = shrink %b 1 shape=[2]</code>, <code>%l = load %v</code>, <code>%e = index %l 1</code>, <code>%t = assert %e 3</code> exits 0.</li>
-    <li><strong>Type memory.</strong> Done when memory can't be used as a value. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%a = add %b 1</code>, <code>%t = assert 1 1</code> must exit 2.</li>
-    <li><strong>Bounds.</strong> Done when views are proven with week 1's intervals. Check: an offset of <code>mod (max %x 0) 4</code> with <code>shape=[2]</code> passes on a 5-element buffer and fails on a 4-element one (the interval is [0, 3], and 3 + 2 must be at most n). If both pass, you aren't checking at all. If both fail, your <code>mod</code> interval is too wide.</li>
-    <li><strong>Ordering checks.</strong> Done when two stores into one version, or an unsequenced store, exit 2. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%e = shrink %b 0 shape=[]</code>, <code>%s1 = store %e 1</code>, <code>%t = assert 1 1</code> must exit 2.</li>
+    <li><strong>Add f32.</strong> Done when float literals parse and every op rounds to f32. Check: <code>%s = add 0.1 0.2</code>, <code>%t = assert %s 0.3</code> prints MATCH. If you get MISMATCH, you're computing in doubles without rounding after the add.</li>
+    <li><strong>Parse the new ops.</strong> Done when <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code> parse with their attributes. Check: <code>%b = buffer 3 dtype=i32 slot=0 data=[1 2 3]</code>, <code>%v = shrink %b 1 shape=[2]</code>, <code>%l = load %v</code>, <code>%e = index %l 1</code>, <code>%t = assert %e 3</code> prints MATCH.</li>
+    <li><strong>Type memory.</strong> Done when memory can't be used as a value. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%a = add %b 1</code>, <code>%t = assert %a 1</code> must be REJECTED.</li>
+    <li><strong>Bounds.</strong> Done when views are proven with week 1's intervals. Check: an offset of <code>mod %x 4</code>, with <code>%x</code> loaded, and <code>shape=[2]</code> passes on a 5-element buffer and fails on a 4-element one (the interval is [0, 3], and 3 + 2 must be at most n). If both pass, you aren't checking at all. If both fail, your <code>mod</code> interval is too wide: maybe it still follows C's sign rule.</li>
+    <li><strong>Ordering checks.</strong> Done when two stores into one version, or an unsequenced store, are REJECTED. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%e = shrink %b 0 shape=[]</code>, <code>%s1 = store %e 1</code>, <code>%t = assert 1 1</code> must be REJECTED.</li>
     <li><strong>Interpret memory.</strong> Done when versions behave. Check: with <code>%b</code> holding <code>[10 20]</code>, load element 0 as <code>%x</code>, store 5 into it, take <code>%b1 = after %b %s</code>, load element 0 of <code>%b1</code> as <code>%y</code>. Then <code>add %x %y</code> must be 15. If you get 10, your load of <code>%b</code> saw the store.</li>
     <li><strong>Render ALU ops.</strong> Done when every op prints UB-free C. Check: <code>python tools/test.py --compiler PATH --week 2 -k i32_ -v</code>. A crash with exit code 132 or similar means the sanitizer trapped undefined behavior.</li>
     <li><strong>Render memory and the schedule.</strong> Done when loads come before the stores that overwrite their version. Check: <code>-k swap -v</code>. A swap that copies the same value into both slots means a store was printed too early.</li>
@@ -119,9 +148,9 @@
     <div class="why">The view covers buffer elements 1 and 2, so it holds <code>[2 3]</code>, and index 1 is 3.</div>
   </div>
   <div class="quiz" data-fill="5">
-    <p class="q">An offset is <code>mod (max %x 0) 4</code> with <code>%x</code> loaded from memory, and the view is <code>shape=[2]</code>. What's the smallest buffer size for which the view is provably in bounds?</p>
+    <p class="q">An offset is <code>mod %x 4</code> with <code>%x</code> loaded from memory, and the view is <code>shape=[2]</code>. What's the smallest buffer size for which the view is provably in bounds?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
-    <p class="hint">The offset's interval is [0, 3]. The rule is <code>hi + k ≤ n</code>.</p>
+    <p class="hint"><code>mod</code> floors, so the offset's interval is [0, 3] even though <code>%x</code> can be negative. The rule is <code>hi + k ≤ n</code>.</p>
     <div class="why"><code>3 + 2 = 5</code>, so n must be at least 5. On a 4-element buffer the oracle reports "offset in [0, 3], 2 element(s), parent has 4".</div>
   </div>
   <div class="quiz" data-fill="15">
@@ -138,10 +167,10 @@
     <div class="why"><code>%x</code> reads the original version (10) and <code>%y</code> reads the version after the store (5), so 15.</div>
   </div>
   <div class="quiz" data-answer="c">
-    <p class="q">Two stores write to <em>different</em> elements of the same buffer version, and one <code>after</code> sequences the first. What does <code>run</code> exit with?</p>
-    <div class="opts"><button data-k="a">0: they don't overlap</button><button data-k="b">1</button><button data-k="c">2: the program is invalid</button></div>
+    <p class="q">Two stores write to <em>different</em> elements of the same buffer version, and one <code>after</code> sequences the first. What does your compiler print for the file?</p>
+    <div class="opts"><button data-k="a">MATCH: they don't overlap</button><button data-k="b">MISMATCH</button><button data-k="c">REJECTED: the program is invalid</button></div>
     <p class="hint">The rule is about versions, not elements.</p>
-    <div class="why">Two stores into one version are unordered no matter which elements they touch, and the second store isn't sequenced either. The oracle exits 2.</div>
+    <div class="why">Two stores into one version are unordered no matter which elements they touch, and the second store isn't sequenced either. The oracle prints REJECTED.</div>
   </div>
   <div class="quiz" data-answer="b">
     <p class="q">Which line is safe C for an i32 <code>add</code> under the grader's flags?</p>
@@ -155,21 +184,33 @@
     <p class="hint">A fused multiply-add rounds once instead of twice.</p>
     <div class="why">The spec rounds after every op. A fused multiply-add skips the rounding of the product, which can change the last bit and fail a bit-exact comparison.</div>
   </div>
-  <div class="quiz" data-fill="2">
-    <p class="q">What does <code>run</code> exit with?</p>
+  <div class="quiz" data-fill="REJECTED | rejected">
+    <p class="q">What does your compiler print for this file?</p>
     <pre><code>%b = buffer 2 dtype=i32 slot=0
 %e = shrink %b 0 shape=[]
 %s1 = store %e 1
 %t = assert 1 1</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
     <p class="hint">Is the store sequenced by anything?</p>
-    <div class="why">No <code>after</code> names <code>%s1</code>, so it has no effect, which the spec makes an error: exit 2.</div>
+    <div class="why">No <code>after</code> names <code>%s1</code>, so it has no effect, which the spec makes invalid: REJECTED.</div>
   </div>
   <div class="quiz" data-answer="b">
     <p class="q">What does C's <code>fmaxf(NAN, 1.0f)</code> return, and what must your rendered <code>max</code> return for the same inputs?</p>
     <div class="opts"><button data-k="a">NaN and NaN</button><button data-k="b">1.0 and NaN</button><button data-k="c">1.0 and 1.0</button></div>
     <p class="hint"><code>fmaxf</code> treats NaN as "missing data".</p>
     <div class="why"><code>fmaxf</code> returns the other operand when one is NaN. The course's <code>max</code> propagates NaN, so you need your own helper.</div>
+  </div>
+  <div class="quiz" data-fill="0">
+    <p class="q">What is <code>cast nan dtype=i32</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Nothing fails at run time, and f32 to i32 saturates. What's left for NaN?</p>
+    <div class="why">NaN becomes 0. Values past the ends of the i32 range clamp to <code>INT_MIN</code> or <code>INT_MAX</code>. In C, <code>(int32_t)NAN</code> is undefined, so the renderer needs a helper.</div>
+  </div>
+  <div class="quiz" data-fill="-4">
+    <p class="q">What is <code>div -7 2</code> in .uir, and so what must your rendered C compute?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">.uir's <code>div</code> floors. C's <code>-7 / 2</code> truncates to -3.</p>
+    <div class="why">The floor of -3.5 is -4. Printing C's plain <code>/</code> would give -3, so the renderer calls a helper unless both sides are provably non-negative.</div>
   </div>
   <p>More practice: the <a href="review.html?week=2">week 2 quiz review</a>.</p>
 
@@ -186,9 +227,9 @@
   </ul>
   <h3>Challenges</h3>
   <ol>
-    <li><strong>Smallest correct C.</strong> Make your renderer skip the <code>-1</code> guard when the divisor is a constant that isn't <code>-1</code>, and skip the <code>uint32_t</code> casts when bounds prove an add can't overflow. Check that every render test still passes.</li>
-    <li><strong>A program the ordering rules reject but C could run.</strong> Find one, and explain which rule rejects it and why the rule is still worth having. Use <code>python _reference/uirc.py run FILE</code> to confirm it's rejected.</li>
-    <li><strong>Tighter bounds through <code>where</code>.</strong> <code>where (cmplt %i 4) %i 0</code> is in [0, 3] when <code>%i ≥ 0</code>, but the interval of a <code>where</code> is the union of its branches. Sketch an analysis that uses the condition, and find a program it would accept that the oracle rejects.</li>
+    <li><strong>Smallest correct C.</strong> Make your renderer print plain <code>/</code> and <code>%</code> when bounds prove the dividend is never negative and the divisor is a positive constant, and skip the <code>uint32_t</code> casts when bounds prove an add can't overflow. Check that every render test still passes.</li>
+    <li><strong>A program the ordering rules reject but C could run.</strong> Find one, and explain which rule rejects it and why the rule is still worth having. Use <code>python _reference/uirc.py --week=2 FILE</code> to confirm it's REJECTED.</li>
+    <li><strong>Tighter bounds through <code>where</code>.</strong> <code>where (cmplt %i 4) %i 0</code> is in [0, 3] when <code>%i ≥ 0</code>, but the interval of a <code>where</code> is the hull of its branches. Sketch an analysis that uses the condition, and find a program it would accept that the oracle rejects.</li>
   </ol>
 </main>
 </body>

@@ -3,7 +3,7 @@
  "lang": "ocaml",
  "title": "Bounds of x mod m",
  "show": "(fun (a, b) -> Printf.sprintf \"%d %d\" a b)",
- "starter": "(* x is somewhere in [lo, hi] and m > 0. Return an interval for (x mod m), C style:\n   the result has the sign of x. Use exactly these two facts:\n     - a non-negative x gives a result in [0, min (m - 1) x]\n     - a negative x gives a result in [max (-(m - 1)) x, 0]\n   and return the smallest interval covering every x in [lo, hi]. *)\nlet mod_bounds ((lo, hi) : int * int) (m : int) : int * int =\n  (0, m - 1)\n",
+ "starter": "let mod_bounds ((lo, hi) : int * int) (y : int) : int * int =\n  (0, y - 1)\n",
  "tests": [
   {
    "expr": "mod_bounds (0, 100) 8",
@@ -11,8 +11,8 @@
    "sample": true
   },
   {
-   "expr": "mod_bounds (-100, 100) 8",
-   "expect": "-7 7",
+   "expr": "mod_bounds ((-100), 100) 8",
+   "expect": "0 7",
    "sample": true
   },
   {
@@ -20,30 +20,40 @@
    "expect": "0 3"
   },
   {
-   "expr": "mod_bounds (-3, 100) 8",
-   "expect": "-3 7"
+   "expr": "mod_bounds (9, 11) 8",
+   "expect": "1 3"
   },
   {
-   "expr": "mod_bounds (-100, -1) 8",
-   "expect": "-7 0"
-  },
-  {
-   "expr": "mod_bounds (-2, -1) 8",
-   "expect": "-2 0"
+   "expr": "mod_bounds ((-3), (-1)) 8",
+   "expect": "5 7"
   },
   {
    "expr": "mod_bounds (5, 5) 4",
-   "expect": "0 3"
+   "expect": "1 1"
   },
   {
-   "expr": "mod_bounds (-2147483648, 2147483647) 4",
-   "expect": "-3 3"
+   "expr": "mod_bounds (7, 9) 8",
+   "expect": "0 7"
+  },
+  {
+   "expr": "mod_bounds ((-100), 100) (-8)",
+   "expect": "-7 0"
+  },
+  {
+   "expr": "mod_bounds (3, 7) 0",
+   "expect": "3 7"
+  },
+  {
+   "expr": "mod_bounds ((-2147483648), 2147483647) 4",
+   "expect": "0 3"
   }
  ],
  "hints": [
-  "Split `[lo, hi]` into its negative part and its non-negative part. Each part follows one of the two facts.",
-  "If `lo >= 0` there's no negative part. If `hi < 0` there's no non-negative part. Otherwise you have both, and the answer covers both.",
-  "With both parts: the low end comes from the negative facts, `max (-(m - 1)) lo`, and the high end from the non-negative facts, `min (m - 1) hi`."
+  "Floor division and floor mod are what you need: the quotient of x by y is floor(x / y), and the remainder is x - y * floor(x / y), which has the sign of y.",
+  "In OCaml, `/` and `mod` truncate toward zero. Write a floor division first: subtract 1 from `a / b` when `a mod b <> 0` and the signs of a and b differ.",
+  "Handle y = 0 first. Then compare the floor quotients of lo and hi. Equal quotients mean no wrap, so the two endpoint remainders bound everything between them.",
+  "Different quotients mean some x in the range crosses a multiple of y, so the remainder takes every value in the full range for that sign of y."
  ],
- "explain": "The solution handles three cases: all non-negative gives `(0, min (m-1) hi)`, all negative gives `(max (-(m-1)) lo, 0)` and mixed takes the low end from the negative case and the high end from the other. Forgetting the negative case is exactly the bug that would let `mod %i 4` pass as an index."
+ "explain": "This is the oracle's rule for `mod` with a fixed divisor. Inside one stretch between multiples of y the remainder grows with x, so the endpoints bound it. Once the range crosses a multiple of y, the remainder wraps, and all the rule can say is the full range of remainders for that y: [0, y - 1] for a positive y, [y + 1, 0] for a negative one.",
+ "prompt": "<p>Write <code>mod_bounds((lo, hi), y)</code>: the week 1 bounds rule for <code>mod x y</code> when x is in <code>[lo, hi]</code> and y is a fixed value. If y is 0, <code>mod</code> returns x, so the answer is <code>(lo, hi)</code>. Otherwise, if <code>lo</code> and <code>hi</code> have the same floor quotient by y, every x in between does too, and the remainders run from <code>lo mod y</code> to <code>hi mod y</code>: answer their hull. If the quotients differ, the remainder wraps around, so answer <code>(0, y - 1)</code> for y &gt; 0 and <code>(y + 1, 0)</code> for y &lt; 0.</p>"
 }

@@ -66,6 +66,12 @@ def grade_outcome(cmd, text, base, want):
   if not m: return f"expected one line '{want} FILE' on stdout, got {out.strip()[:200]!r}" + tail
   if m.group(1) != want: return f"expected {want}, got {m.group(1)}" + tail
   if not m.group(2).endswith('case.uir'): return f"print the file path as it was given, got {m.group(2)!r}"
+  if want == 'REJECTED' and O.WEEK >= 2:
+    try: O.render_c(O.parse(text, base)[0]); return None
+    except O.UIRError as e: reason = str(e)
+    rc, _, err = call(cmd, 'render', text, base)
+    if rc != 2 or not re.search(r"^invalid:", err, re.M):
+      return f"REJECTED is right, but render must refuse this program too (exit 2 with an 'invalid:' line), got exit {rc}\n    oracle: {reason}"
   return None
 
 # ---- simplify grading: ops counted on your text, then equivalence on edge-case inputs ----

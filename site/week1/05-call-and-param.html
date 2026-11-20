@@ -42,24 +42,33 @@
 <p>In the 1930s Alonzo Church showed that a language with only three things (variables, function definitions and function application) can express any computation. Evaluation is one move, <strong>beta reduction</strong>: to apply a function, replace its variable with the argument everywhere it appears. In math notation, <code>λx. x + 1</code> is "the function taking x to x + 1". Applying it to 41, written <code>(λx. x + 1) 41</code>, becomes <code>41 + 1</code>. That's exactly what <code>call</code> does to a graph.</p>
 
 <h2>param and call</h2>
-<pre><code>%x    = param 0 dtype=i32     # hole number 0, holds an i32
+<pre><code>%x    = param [] slot=0 dtype=i32 addrspace=ALU     # hole number 0, holds an i32
 %body = add %x 1              # a graph with a hole: "x + 1"
 %r    = call %body 41         # fill hole 0 with 41 and evaluate
 %t    = assert %r 42</code></pre>
-<p><code>call</code>'s first source is the <strong>body</strong>. The rest are the <strong>args</strong>: arg i fills every <code>param i</code> reachable from the body. Args are checked statically. A missing arg, or one with the wrong dtype or shape, is a type error (exit 2). Extra args are allowed, but a call evaluates every arg before its body, so <code>call %b 1 %e</code> with <code>%e = div 1 0</code> is still a runtime error (exit 2) when an assert needs it.</p>
-<p>A body is just an ordinary UOp. Nothing marks <code>%body</code> as "a function". It becomes one when a <code>call</code> uses it as src 0. In the graphs below, that src 0 edge is drawn dashed.</p>
+<p><code>call</code>'s first source is the <strong>body</strong>. The rest are the <strong>args</strong>: arg i fills the slot <code>i</code> param reachable from the body. Args are checked statically. A missing arg, or one with the wrong dtype or shape, makes the file <code>REJECTED</code>. Extra args and unused slots are allowed. An extra arg is still a source of the call, so it counts as reachable from the assert.</p>
+<p>A body is just an ordinary UOp. Nothing marks <code>%body</code> as "a function". It becomes one when a <code>call</code> uses it as src 0. In the graphs below, that src 0 edge is drawn dashed. In week 1 the body and every arg are scalars: a call takes numbers and returns a number.</p>
+
+<h2>Writing a param</h2>
+<pre><code>%x = param [] [0 9] slot=0 dtype=i32 addrspace=ALU</code></pre>
+<ul>
+<li><strong>The shape</strong>, <code>[]</code>, is the first source. It means a scalar, and week 1 requires it. Later weeks write things like <code>[3]</code> here.</li>
+<li><strong>The limits</strong>, <code>[0 9]</code>, are an optional second source: two literals of the param's dtype, low first. They promise every argument is in <code>[0, 9]</code>. Leave them out and the param is the full range (for a bool, <code>[0, 1]</code>).</li>
+<li><strong>The attributes</strong>: <code>slot=k</code> (a plain decimal number), <code>dtype=i32</code> or <code>dtype=bool</code>, and <code>addrspace=ALU</code>, which every week 1 value has. All three are required.</li>
+</ul>
+<p>The limits are checked at every call, with the bounds from lesson 4. An argument's bounds must fit inside its param's limits. <code>call %body 5</code> fits <code>[0, 9]</code>, and <code>call %body 10</code> is rejected. When the argument is an outer param, it brings its own limits: an outer <code>[0, 3]</code> fits an inner <code>[0, 5]</code>, but an outer <code>[0, 9]</code> doesn't, even if the call that runs passes 2. An outer param with no limits never fits an inner one that has them.</p>
 </div>
 
 <div class="exercise small" data-ex="w1-05-sum-squares">
 <h3>Call one body twice</h3>
-<p>Define <code>%out</code> as <code>x*x + y*y</code> for i32 params <code>x</code> (slot 0) and <code>y</code> (slot 1). Write the squaring <strong>once</strong>, as a body over its own <code>param 0</code>, and <code>call</code> it twice.</p>
-<p class="muted">Your body's param 0 and the outer <code>%x</code> are the same hash-consed node. Why is that fine?</p>
+<p>Define <code>%out</code> as <code>x*x + y*y</code> for i32 params <code>x</code> (slot 0) and <code>y</code> (slot 1). Write the squaring <strong>once</strong>, as a body over its own slot 0 param, and <code>call</code> it twice.</p>
+<p class="muted">Your body's slot 0 param and the outer <code>%x</code> are the same hash-consed node. Why is that fine?</p>
 </div>
 
 <h2>Beta reduction on a graph</h2>
-<p class="prose">The spec's nested example, traced. <code>%inner</code> doubles its param. <code>%outer</code> passes its <em>own</em> param 0 into inner's slot 0.</p>
+<p class="prose">The spec's nested example, traced. <code>%inner</code> doubles its param. <code>%outer</code> passes its <em>own</em> slot 0 param into inner's slot 0.</p>
 <div class="split">
-<pre><code>%p0    = param 0 dtype=i32
+<pre><code>%p0    = param [] slot=0 dtype=i32 addrspace=ALU
 %inner = mul %p0 2
 %outer = call %inner %p0
 %r     = call %outer 5
@@ -74,8 +83,8 @@
 
 <div class="prose">
 <p>Why does this matter? Look at this variant, where inner uses slot 0 and outer passes its slot 1:</p>
-<pre><code>%p0    = param 0 dtype=i32
-%p1    = param 1 dtype=i32
+<pre><code>%p0    = param [] slot=0 dtype=i32 addrspace=ALU
+%p1    = param [] slot=1 dtype=i32 addrspace=ALU
 %inner = add %p0 100
 %outer = call %inner %p1      # inner's slot 0 := outer's slot 1
 %r     = call %outer 1 2      # outer: slot 0 := 1, slot 1 := 2</code></pre>
@@ -96,15 +105,15 @@
 
 <div class="trap">
 <span class="label">Params are hash consed too</span>
-<p><code>%a = param 0 dtype=i32</code> and <code>%b = param 0 dtype=i32</code> are the <strong>same UOp</strong>, even when they're written for two different functions. That's fine: a param doesn't have a value on its own. Its value comes from whichever <code>call</code> is evaluating it right now. So never cache "the value of this node" globally. Cache it per call.</p>
+<p><code>%a = param [] slot=0 dtype=i32 addrspace=ALU</code> and <code>%b = param [] slot=0 dtype=i32 addrspace=ALU</code> are the <strong>same UOp</strong>, even when they're written for two different functions. That's fine: a param doesn't have a value on its own. Its value comes from whichever <code>call</code> is evaluating it right now. So never cache "the value of this node" globally. Cache it per call.</p>
 <p>Substitution, as traced above, is the mental model. The usual implementation doesn't build new nodes: it evaluates the body with an <strong>environment</strong>, a map from slot number to value for the current call, and a fresh cache for that call.</p>
 </div>
 
 <div class="prose">
-<p>Two more rules. A <code>param</code> evaluated outside of any call has no value, so it's a runtime error (exit 2). And a <code>call</code> has no side effects (it's <strong>pure</strong>), so the simplifier can always <strong>inline</strong> it: replace the call with its body, params substituted, then keep folding. That works whether the args are constants or params. <code>call %body 41</code> with <code>%body = add %x 1</code> simplifies all the way to <code>const 42</code>.</p>
+<p>Two more rules. A <code>param</code> only has a value inside a call, so a param the assert can reach without going through a call body makes the file <code>REJECTED</code>. It's caught before anything runs. And a <code>call</code> has no side effects (it's <strong>pure</strong>), so the simplifier can always <strong>inline</strong> it: replace the call with its body, params substituted, then keep folding. That works whether the args are constants or params. <code>call %body 41</code> with <code>%body = add %x 1</code> simplifies all the way to <code>42</code>.</p>
 
 <h2>stack and index: rank 1</h2>
-<p><code>stack</code> takes scalars of one dtype and adds a new leading axis: <code>stack 10 20 30</code> has shape <code>(3,)</code>, a shape with one axis of size 3. When a <code>param</code> needs that shape, you write it as the attribute <code>shape=[3]</code>. <code>index x i</code> pops that axis back off and returns one element as a scalar. The index is checked at runtime: <code>i &lt; 0</code> or <code>i ≥ n</code> is a runtime error.</p>
+<p><code>stack</code> takes scalars of one dtype and adds a new leading axis: <code>stack 10 20 30</code> has shape <code>(3,)</code>, a shape with one axis of size 3. The bracket form <code>[10 20 30]</code> builds the very same node. <code>index x i</code> pops that axis back off and returns one element as a scalar. The index is checked before anything runs, by its bounds (lesson 4): every value the index could have must be in <code>[0, n - 1]</code>, or the file is <code>REJECTED</code>.</p>
 </div>
 
 <div class="fig">
@@ -118,26 +127,27 @@
 </div>
 
 <div class="prose">
-<p>ALU ops only take rank-0 operands, so a rank-1 value can only be passed around, indexed or compared whole with <code>assert</code>. A <code>param</code> can be rank 1 too, which makes it look like an array argument:</p>
-<pre><code>%v = param 0 dtype=i32 shape=[3]
-%k = param 1 dtype=i32
-%f = index %v %k
-%s = stack 7 8 9
-%r = call %f %s 1             # 8</code></pre>
+<p>ALU ops only take rank-0 operands, and in week 1 a call's args and result are scalars too, so a rank-1 value can only be indexed. A typical week 1 use is a small table inside a body, read at a limited index:</p>
+<pre><code>%k = param [] [0 2] slot=0 dtype=i32 addrspace=ALU
+%f = index [7 8 9] %k
+%r = call %f 1             # 8</code></pre>
+<p>Params with a shape like <code>[3]</code>, vector args and vector asserts arrive in week 2.</p>
 </div>
 <div class="prose">
-<h2>Invalid even if nothing calls it</h2>
-<p>These are static errors. They make the program exit 2 wherever they appear, used or not:</p>
+<h2>Rejected before anything runs</h2>
+<p>These are static errors. Each makes the file <code>REJECTED</code>:</p>
 <ul>
-<li>One node that reaches the same slot with two dtypes or shapes, like <code>add %a %c</code> where <code>%a = param 0 dtype=i32</code> and <code>%c</code> casts a <code>param 0 dtype=f32</code>. No <code>call</code> is needed for this to be an error. Two such params in unrelated expressions are fine.</li>
-<li>A <code>shape</code> other than <code>[k]</code> with <code>k ≥ 1</code>. <code>shape=[0]</code> and <code>shape=[2 3]</code> are both invalid in week 1, because rank is at most 1.</li>
+<li>Two different param nodes for one slot in one body, like <code>add %a %c</code> where <code>%a</code> is a slot 0 i32 param and <code>%c</code> casts a slot 0 bool param. Each slot a body uses has exactly one param node: one dtype, one shape, one set of limits. The same slot can mean different things in <em>different</em> bodies.</li>
+<li>A param shape other than <code>[]</code>, limits written high first like <code>[9 0]</code>, or limits of the wrong dtype.</li>
+<li>A call whose body or args aren't scalars, or whose args don't fit their params' limits.</li>
+<li>A body nothing calls. Every node must be reachable from the assert, so a function you define and never use is rejected too.</li>
 </ul>
 </div>
 
 <div class="exercise small" data-ex="w1-05-rotate">
 <h3>Rotate with stack and index</h3>
-<p>Params <code>a</code>, <code>b</code>, <code>c</code> and <code>i</code> are i32. Stack <code>a b c</code>. Compute <code>j = i + 1</code> with i32 <code>add</code> (so <code>INT_MAX + 1</code> wraps to <code>INT_MIN</code>), then return the element at position <code>j mod 3</code>. <code>mod</code> keeps the sign of <code>j</code>, so shift a negative result into the range 0 to 2 first. For example, <code>i = 0</code> gives <code>b</code> and <code>i = 2</code> gives <code>a</code>.</p>
-<p class="muted">The tests include <code>i = 300</code>, <code>i = -2</code> and <code>i = INT_MAX</code>. Remember that <code>mod</code> keeps the sign of the dividend, and that an out-of-range <code>index</code> is a runtime error.</p>
+<p>Params <code>a</code>, <code>b</code>, <code>c</code> and <code>i</code> are i32. Stack <code>a b c</code>. Compute <code>j = i + 1</code> with i32 <code>add</code> (so <code>INT_MAX + 1</code> wraps to <code>INT_MIN</code>), then return the element at position <code>j mod 3</code>. For example, <code>i = 0</code> gives <code>b</code> and <code>i = 2</code> gives <code>a</code>.</p>
+<p class="muted">The tests include <code>i = 300</code>, <code>i = -2</code> and <code>i = INT_MAX</code>. Because <code>mod</code> floors, <code>j mod 3</code> is always 0, 1 or 2, even for a negative <code>j</code>, and its bounds say so. That's what makes the <code>index</code> valid, with no fixing up.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -145,8 +155,8 @@
 
 <div class="quiz" data-fill="102">
 <p class="q">Predict <code>%r</code>.</p>
-<pre><code>%p0    = param 0 dtype=i32
-%p1    = param 1 dtype=i32
+<pre><code>%p0    = param [] slot=0 dtype=i32 addrspace=ALU
+%p1    = param [] slot=1 dtype=i32 addrspace=ALU
 %inner = add %p0 100
 %outer = call %inner %p1
 %r     = call %outer 1 2</code></pre>
@@ -157,7 +167,7 @@
 
 <div class="quiz" data-fill="7">
 <p class="q">Predict <code>%r</code>. Careful with the closed-body rule.</p>
-<pre><code>%p0    = param 0 dtype=i32
+<pre><code>%p0    = param [] slot=0 dtype=i32 addrspace=ALU
 %inc   = add %p0 1
 %twice = call %inc %inc
 %r     = call %twice 5</code></pre>
@@ -168,62 +178,65 @@
 </div>
 
 <div class="quiz" data-answer="b">
-<p class="q">What does <code>run</code> do with this program?</p>
-<pre><code>%x    = param 0 dtype=i32
+<p class="q">What does <code>./compile</code> print for this program?</p>
+<pre><code>%x    = param [] slot=0 dtype=i32 addrspace=ALU
 %body = add %x 1
 %r    = call %body
 %t    = assert %r 1</code></pre>
 <div class="opts">
-<button data-k="a">Exit 0: a missing param defaults to 0</button>
-<button data-k="b">Exit 2: param 0 has no arg, which is a type error</button>
-<button data-k="c">Exit 1: the assert fails</button>
-<button data-k="d">Exit 0: the call is never evaluated</button>
+<button data-k="a"><code>MATCH</code>: a missing param defaults to 0</button>
+<button data-k="b"><code>REJECTED</code>: slot 0 has no arg</button>
+<button data-k="c"><code>MISMATCH</code>: the assert fails</button>
+<button data-k="d"><code>MATCH</code>: the call is never evaluated</button>
 </div>
-<p class="hint">The call passes zero args, but the body uses <code>param 0</code>. Is that caught before anything runs, or only when the assert is evaluated?</p>
-<div class="why"><p>Every param reachable from the body needs a matching arg, and that's checked statically, before anything runs. It's an invalid program.</p></div>
+<p class="hint">The call passes zero args, but the body uses slot 0. Is that caught before anything runs, or only when the assert is evaluated?</p>
+<div class="why"><p>Every slot the body uses needs a matching arg, and that's checked statically, before anything runs. It's an invalid program.</p></div>
 </div>
 
 <div class="quiz" data-fill="1">
-<p class="q">How many distinct UOps do these two lines create?</p>
-<pre><code>%a = param 0 dtype=i32
-%b = param 0 dtype=i32</code></pre>
+<p class="q">How many distinct param nodes do these two lines create?</p>
+<pre><code>%a = param [] slot=0 dtype=i32 addrspace=ALU
+%b = param [] slot=0 dtype=i32 addrspace=ALU</code></pre>
 <div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">check</button></div>
 <p class="hint">Hash consing keys a node on (op, src, arg), with dtype and shape as part of the key. Compare the two lines on each of those.</p>
-<div class="why"><p>One. Same op, same sources (none), same arg and dtype, so hash consing returns the existing node.</p></div>
+<div class="why"><p>One. Same op, same source (the shape <code>[]</code>), same arg and dtype, so hash consing returns the existing node.</p></div>
 </div>
 
-<div class="quiz" data-fill="2">
-<p class="q">What exit code does <code>run</code> give?</p>
+<div class="quiz" data-fill="REJECTED">
+<p class="q">What does <code>./compile</code> print for this file? Just the outcome word.</p>
 <pre><code>%s = stack 10 20 30
 %i = index %s 3
 %t = assert %i 30</code></pre>
-<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">check</button></div>
-<p class="hint"><code>%s</code> has shape (3,). Which indices are in range, and what kind of error is an out-of-range index?</p>
-<div class="why"><p><code>2</code>. Index 3 is out of range for shape (3,), so it's a runtime error in a value the assert depends on.</p></div>
+<div class="fill"><input aria-label="outcome"><button class="btn">check</button></div>
+<p class="hint"><code>%s</code> has shape (3,). Which indices are in range, and when is an index checked?</p>
+<div class="why"><p><code>REJECTED</code>. The index's bounds are <code>[3, 3]</code>, which don't fit in <code>[0, 2]</code>, so validation stops it before anything runs.</p></div>
 </div>
 
-<div class="quiz" data-fill="8">
-<p class="q">Predict <code>%r</code>.</p>
-<pre><code>%v = param 0 dtype=i32 shape=[3]
-%k = param 1 dtype=i32
-%f = index %v %k
-%s = stack 7 8 9
-%r = call %f %s 1</code></pre>
-<div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
-<p class="hint">The call binds <code>%v</code> to the stack and <code>%k</code> to 1. Indexing counts from 0.</p>
-<div class="why"><p><code>8</code>, element 1 of <code>[7 8 9]</code>. The rank-1 arg matches the param's <code>shape=[3]</code>.</p></div>
+<div class="quiz" data-answer="c">
+<p class="q">What does <code>./compile</code> print for this file?</p>
+<pre><code>%x    = param [] [0 9] slot=0 dtype=i32 addrspace=ALU
+%body = add %x 1
+%r    = call %body 10
+%t    = assert %r 11</code></pre>
+<div class="opts">
+<button data-k="a"><code>MATCH</code>, since 10 + 1 is 11</button>
+<button data-k="b"><code>MISMATCH</code></button>
+<button data-k="c"><code>REJECTED</code></button>
+</div>
+<p class="hint">The literal 10 has bounds <code>[10, 10]</code>. Do they fit inside the param's limits?</p>
+<div class="why"><p>The limits promise every argument is in <code>[0, 9]</code>, and 10 breaks the promise. A call whose argument's bounds don't fit is rejected, even though the arithmetic would work.</p></div>
 </div>
 
 <div class="quiz" data-answer="d">
-<p class="q">What does <code>run</code> do with <code>%x = param 0 dtype=i32</code> followed by <code>%t = assert %x 1</code>?</p>
+<p class="q">What does <code>./compile</code> print for <code>%x = param [] slot=0 dtype=i32 addrspace=ALU</code> followed by <code>%t = assert %x 1</code>?</p>
 <div class="opts">
-<button data-k="a">Exit 0</button>
-<button data-k="b">Exit 1</button>
-<button data-k="c">Asks for input</button>
-<button data-k="d">Exit 2: a param evaluated outside any call is a runtime error</button>
+<button data-k="a"><code>MATCH</code></button>
+<button data-k="b"><code>MISMATCH</code></button>
+<button data-k="c">It asks for input</button>
+<button data-k="d"><code>REJECTED</code>: a param outside any call has no value</button>
 </div>
 <p class="hint">Is there any call around this <code>param</code> to give slot 0 a value?</p>
-<div class="why"><p>There's no call supplying slot 0, so <code>%x</code> has no value. The program is invalid.</p></div>
+<div class="why"><p>There's no call supplying slot 0, so <code>%x</code> has no value. That's visible from the graph alone, so the file is rejected before anything runs.</p></div>
 </div>
 
 <nav class="pager">
@@ -252,7 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
               N('n1', 'call', ['in', 'c5'], 'hit', '%r', [BH])] },
     { caption: 'That gives <code>mul 5 2</code>. There are no params left, so this is an ordinary expression.',
       nodes: [N('c5', '5'), N('c2', '2'), N('m', 'mul', ['c5', 'c2'], 'new', '%r')] },
-    { caption: 'Constant folding finishes the job: <code>%r = 10</code>, and <code>assert %r 10</code> passes.',
+    { caption: 'Constant folding finishes the job: <code>%r = 10</code>, and <code>assert %r 10</code> is a MATCH.',
       nodes: [N('k', '10', [], 'new', '%r')] },
   ];
   CC.stepper(document.getElementById('beta'), steps, (s, body) => body.append(CC.graph(s.nodes)));
@@ -263,7 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cells.replaceChildren(...vals.map((v, k) => h('div', { class: 'cell' + (k === i ? ' on' : '') }, h('span', { class: 'addr', text: '[' + k + ']' }), String(v))));
     const ok = i >= 0 && i < vals.length;
     res.className = 'out' + (ok ? '' : ' err');
-    res.textContent = ok ? `index %s ${i}  =  ${vals[i]}` : `index %s ${i}  →  runtime error: index ${i} out of range (exit 2)`;
+    res.textContent = ok ? `index %s ${i}  =  ${vals[i]}` : `index %s ${i}  →  REJECTED: ${i} is not in [0, 2]`;
   };
   for (const i of [-1, 0, 1, 2, 3]) { const b = h('button', { class: 'btn', type: 'button', 'data-i': i, text: String(i) }); b.onclick = () => show(i); picks.append(b); }
   show(1);

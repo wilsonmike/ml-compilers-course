@@ -77,13 +77,13 @@
 
 <div class="prose">
 <h2>The mma rules</h2>
-<p>All of these are checked statically, and breaking one exits 2. One example each:</p>
+<p>All of these are checked statically, and breaking one makes the program REJECTED (and makes <code>render</code> and <code>render-cuda</code> exit 2). One example each:</p>
 <ul>
-<li><b>Row strides are multiples of 16.</b> <code>lda</code>, <code>ldb</code> and <code>ldc</code> are positive literals: 16, 32, 48 and so on. <code>lda=8</code> exits 2 (<code>err_mma_lda_not_16</code>).</li>
-<li><b>Every tile is in bounds.</b> A tile reaches <code>15·ld + 16</code> elements past its offset, so offset + <code>15·ld + 16</code> must be at most the memory's size. With <code>lda=32</code>, a tile at offset 0 reaches 496 elements, too many for a 256-element A (<code>err_mma_out_of_bounds</code>).</li>
-<li><b>Every offset term is a provable multiple.</b> Of 32 for A and B, of 8 for C. A term is a provable multiple of <code>k</code> when it's a literal divisible by <code>k</code>, an <code>add</code> of two provable multiples, or a <code>mul</code> with at least one factor a provable multiple. Nothing smarter: <code>mul (mul k 2) 16</code> is a multiple of 32 in fact, but neither factor is, so it exits 2. Write <code>mul k 32</code>. An A offset of <code>32k + j</code> fails because <code>j</code> isn't one (<code>err_mma_offset_not_provable</code>).</li>
-<li><b>The tile is part of the offset expression.</b> Week 8's one-offset-expression rule compares layouts, not just offsets. An mma tile and a plain load or store of the same memory differ even at the same offset, and so do two tiles with different row strides. Two mmas into the same C tile in one kernel, one with <code>ldc=16</code> and one with <code>ldc=32</code>, exit 2.</li>
-<li><b>In a week 7 thread loop, an mma follows the slice rule</b> like a store, with size the whole tile, <code>15·ld + 16</code> elements. That covers its C, and its A or B when the loop also writes that memory. With <code>%r = range 2 axis=thread</code> and C at <code>256r</code>, <code>ldc=16</code> fills each 256-element slice exactly, and <code>ldc=32</code> reaches 496 elements and exits 2.</li>
+<li><b>Row strides are multiples of 16.</b> <code>lda</code>, <code>ldb</code> and <code>ldc</code> are positive literals: 16, 32, 48 and so on. <code>lda=8</code> is rejected (<code>rejected_mma_lda_not_16</code>).</li>
+<li><b>Every tile is in bounds.</b> A tile reaches <code>15·ld + 16</code> elements past its offset, so offset + <code>15·ld + 16</code> must be at most the memory's size. With <code>lda=32</code>, a tile at offset 0 reaches 496 elements, too many for a 256-element A (<code>rejected_mma_out_of_bounds</code>).</li>
+<li><b>Every offset term is a provable multiple.</b> Of 32 for A and B, of 8 for C. A term is a provable multiple of <code>k</code> when it's a literal divisible by <code>k</code>, an <code>add</code> of two provable multiples, or a <code>mul</code> with at least one factor a provable multiple. Nothing smarter: <code>mul (mul k 2) 16</code> is a multiple of 32 in fact, but neither factor is, so it's rejected. Write <code>mul k 32</code>. An A offset of <code>32k + j</code> fails because <code>j</code> isn't one (<code>rejected_mma_offset_not_provable</code>).</li>
+<li><b>The tile is part of the offset expression.</b> Week 8's one-offset-expression rule compares layouts, not just offsets. An mma tile and a plain load or store of the same memory differ even at the same offset, and so do two tiles with different row strides. Two mmas into the same C tile in one kernel, one with <code>ldc=16</code> and one with <code>ldc=32</code>, are rejected.</li>
+<li><b>In a week 7 thread loop, an mma follows the slice rule</b> like a store, with size the whole tile, <code>15·ld + 16</code> elements. That covers its C, and its A or B when the loop also writes that memory. With <code>%r = range 2 axis=thread</code> and C at <code>256r</code>, <code>ldc=16</code> fills each 256-element slice exactly, and <code>ldc=32</code> reaches 496 elements and is rejected.</li>
 </ul>
 
 <h2>The CUDA</h2>
@@ -154,7 +154,7 @@
 <button data-k="c">Yes: the two warps are different</button>
 </div>
 <p class="hint">The digits are 128, 16 and 1. Does 128 beat what the smaller ones add up to?</p>
-<div class="why"><p>The tile's rows add up to <code>15·16 = 240</code> and its columns 15, so 128 must be more than 255. It isn't: warp 0's rows 8 to 15 are warp 1's rows 0 to 7. That's the test <code>err_warp_tiles_overlap</code>.</p></div>
+<div class="why"><p>The tile's rows add up to <code>15·16 = 240</code> and its columns 15, so 128 must be more than 255. It isn't: warp 0's rows 8 to 15 are warp 1's rows 0 to 7. That's the test <code>rejected_warp_tiles_overlap</code>.</p></div>
 </div>
 
 <nav class="pager">

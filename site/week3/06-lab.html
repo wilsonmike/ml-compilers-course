@@ -48,8 +48,8 @@
 <li><strong>Two new ops.</strong> <code>range n</code> is a loop counter named by its statement, and <code>end x1 ... xk r</code> repeats its effects for every value of <code>r</code>. See <a href="../../spec/uir-week3.md">spec/uir-week3.md</a>.</li>
 <li><strong>Open ranges on every node</strong>, and the checks that use them. Asserts, calls and range bounds have none. An <code>end</code> must close a range its effects use. Each range is closed by exactly one <code>end</code>, which is what makes the loop nesting well defined. Every range a store depends on is closed by an <code>end</code> before the buffer's final <code>after</code>. A buffer's output version sits outside every loop.</li>
 <li><strong>Bounds through ranges.</strong> A range's interval is <code>[0, n-1]</code>, so your week 1 analysis proves <code>i*K + k</code> in range with no new code beyond that one case.</li>
-<li><strong>Placement and linearization.</strong> Each value at the depth of its deepest range, loads by the placement rule, each <code>end</code> as a block. One structure that both <code>run</code> and <code>render</code> walk.</li>
-<li><strong>Loop-carried memory in <code>run</code>.</strong> Week 2's "a version is a value" interpreter can't express an accumulator. Executing the linearized blocks against mutable arrays can.</li>
+<li><strong>Placement and linearization.</strong> Each value at the depth of its deepest range, loads by the placement rule, each <code>end</code> as a block. One structure that both your evaluator and <code>render</code> walk.</li>
+<li><strong>Loop-carried memory in your evaluator.</strong> Week 2's "a version is a value" interpreter can't express an accumulator. Executing the linearized blocks against mutable arrays can.</li>
 <li><strong>Nested <code>for</code> loops in <code>render</code></strong>, with loop-invariant values hoisted.</li>
 </ul>
 </div>
@@ -63,12 +63,12 @@
 
 <div class="prose">
 <h2>The command-line contract</h2>
-<p>Nothing new on the command line. <code>run</code>, <code>simplify</code> and <code>render</code> keep their contracts from weeks 1 and 2. What changes is which programs they accept and what <code>render</code> may print.</p>
+<p>Nothing new on the command line. <code>your.exe FILE...</code> (one outcome line per file), <code>simplify</code> and <code>render</code> keep their contracts from weeks 1 and 2. What changes is which programs they accept and what <code>render</code> may print.</p>
 </div>
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 3 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td>Programs may contain <code>range</code> and <code>end</code>. Loop rule violations (an <code>end</code> closing an unused range, a range closed twice, a store whose range is never closed, an assert or call depending on an open range) are static errors: exit 2 with an <code>invalid:</code> line.</td></tr>
+<tr><td><code>your.exe FILE...</code></td><td>Programs may contain <code>range</code> and <code>end</code>. Loop rule violations (an <code>end</code> closing an unused range, a range closed twice, a store whose range is never closed, an assert or call depending on an open range) are static errors: print <code>REJECTED FILE</code>.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>For a program that contains a <code>range</code>, the C may use <code>for</code> loops. <code>while</code>, <code>do</code>, <code>goto</code> and recursion are still out. For a program with no <code>range</code>, the C must stay loopless.</td></tr>
 </tbody></table></div>
 
@@ -95,18 +95,18 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 
 <h2>Write your 10 tests</h2>
 <p>Ten tests in <code>&lt;your compiler repo&gt;/tests/week3/</code>, each aimed at a rule someone will get wrong. Check them against the oracle:</p>
-<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week3</code></pre>
-<p>Good targets: an accumulator whose load has to run inside the loop, a reset store indexed by the outer ranges, and a range bound of 0 (the loop runs zero times). Invalid cases make good targets too, such as an <code>end</code> that closes a range its effect doesn't use, or a range closed by two <code>end</code>s. Also try one <code>end</code> with two effects writing two buffers, and a padded convolution whose raw index is invalid but whose masked index passes.</p>
+<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week3 --week 3</code></pre>
+<p>Good targets: an accumulator whose load has to run inside the loop, a reset store indexed by the outer ranges, and a range bound of 0 (the loop runs zero times). Rejected cases make good targets too (give the file a <code>rejected_</code> name), such as an <code>end</code> that closes a range its effect doesn't use, or a range closed by two <code>end</code>s. Also try one <code>end</code> with two effects writing two buffers, and a padded convolution whose raw index is rejected but whose masked index matches.</p>
 </div>
 
 <h2>A build order that works</h2>
 <ol class="build">
-<li><h3>Parse and type the new ops</h3><p><code>range</code> takes one i32 operand and is named by its statement, so two ranges with the same bound are still different loops. <code>end</code> takes one or more effects and a range last. Effects are <code>void</code>, and only <code>end</code> and <code>after</code> may consume them.</p><p class="check">Checkpoint: every file in <code>tests/week3/run/</code> parses or is rejected with exit 2.</p></li>
-<li><h3>Open ranges</h3><p>One memoized pass: a range is open in itself, <code>end</code> removes its range, everything else takes the union of its sources. Then the static checks from the spec.</p><p class="check">Checkpoint: the loop-rule invalid tests exit 2.</p></li>
-<li><h3>Bounds through ranges</h3><p>Add one case to your interval analysis: a range's interval is <code>[0, hi(n) - 1]</code>, where <code>hi(n)</code> is the upper bound of its operand. If <code>hi(n)</code> is 0 or less, the loop never runs. Use <code>[0, 0]</code> then, so the interval stays well formed.</p><p class="check">Checkpoint: looped matmul and convolution offsets type check, and an unmasked padded index exits 2.</p></li>
+<li><h3>Parse and type the new ops</h3><p><code>range</code> takes one i32 operand and is named by its statement, so two ranges with the same bound are still different loops. <code>end</code> takes one or more effects and a range last. Effects are <code>void</code>, and only <code>end</code> and <code>after</code> may consume them.</p><p class="check">Checkpoint: every file in <code>tests/week3/run/</code> parses, or is <code>REJECTED</code>.</p></li>
+<li><h3>Open ranges</h3><p>One memoized pass: a range is open in itself, <code>end</code> removes its range, everything else takes the union of its sources. Then the static checks from the spec.</p><p class="check">Checkpoint: the loop-rule <code>rejected_</code> tests print <code>REJECTED</code>.</p></li>
+<li><h3>Bounds through ranges</h3><p>Add one case to your interval analysis: a range's interval is <code>[0, hi(n) - 1]</code>, where <code>hi(n)</code> is the upper bound of its operand. If <code>hi(n)</code> is 0 or less, the loop never runs. Use <code>[0, 0]</code> then, so the interval stays well formed.</p><p class="check">Checkpoint: looped matmul and convolution offsets type check, and an unmasked padded index is <code>REJECTED</code>.</p></li>
 <li><h3>Loop order and placement</h3><p>Find each range's outer loops from its <code>end</code>. Give every node a path of loops, outermost first, and move accumulator loads to their uses. Place loads on the graph as written: if your builder folds <code>mul %k 0</code> to <code>0</code>, lesson 3.2's two-views trick merges back into one load. Keep this a separate pass: it's the part the syllabus says wants a rewrite engine.</p><p class="check">Checkpoint: print each node with its path and check the convolution by eye.</p></li>
-<li><h3>Linearize</h3><p>Build nested blocks: each block lists its nodes and its loops in an order where sources come first and loads of a version come before the store that overwrites it.</p><p class="check">Checkpoint: the "old version needed after it was overwritten" tests still exit 2.</p></li>
-<li><h3>Execute the blocks in <code>run</code></h3><p>Mutable arrays per storage, a value table, and a loop that sets each range's counter and runs its body.</p><p class="check">Checkpoint: every week 3 run test passes, and weeks 1 and 2 still do.</p></li>
+<li><h3>Linearize</h3><p>Build nested blocks: each block lists its nodes and its loops in an order where sources come first and loads of a version come before the store that overwrites it.</p><p class="check">Checkpoint: the "old version needed after it was overwritten" tests are still <code>REJECTED</code>.</p></li>
+<li><h3>Execute the blocks</h3><p>To run a test: mutable arrays per storage, a value table, and a loop that sets each range's counter and runs its body.</p><p class="check">Checkpoint: every week 3 run test passes, and weeks 1 and 2 still do.</p></li>
 <li><h3>Render the blocks</h3><p>The same walk, printing <code>for</code> headers, indented bodies and closing braces. Your week 2 expression printer doesn't change.</p><p class="check">Checkpoint: every render test passes, bit for bit.</p></li>
 <li><h3>Your 10 tests</h3><p>Write them, check them with <code>--check-tests</code>, and use them to break your compiler before the suite does.</p></li>
 </ol>
@@ -118,8 +118,8 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <li><label><input type="checkbox" data-k="bounds"><span>A range's interval is <code>[0, n-1]</code>, so looped offsets are proven in bounds</span></label></li>
 <li><label><input type="checkbox" data-k="order"><span>Loop order comes from the <code>end</code>s, and a range closed twice, or a store whose range is never closed, is rejected</span></label></li>
 <li><label><input type="checkbox" data-k="place"><span>Values live at the depth of their deepest range, and accumulator loads move to their uses</span></label></li>
-<li><label><input type="checkbox" data-k="lin"><span>One linearized structure, walked by both <code>run</code> and <code>render</code></span></label></li>
-<li><label><input type="checkbox" data-k="exec"><span><code>run</code> executes loops with loop-carried memory</span></label></li>
+<li><label><input type="checkbox" data-k="lin"><span>One linearized structure, walked by both the evaluator and <code>render</code></span></label></li>
+<li><label><input type="checkbox" data-k="exec"><span>The evaluator executes loops with loop-carried memory</span></label></li>
 <li><label><input type="checkbox" data-k="render"><span><code>render</code> prints nested <code>for</code> loops with hoisted invariants, and no loops for programs without ranges</span></label></li>
 <li><label><input type="checkbox" data-k="suite3"><span><code>python tools/test.py --compiler ... --week 3</code> passes everything</span></label></li>
 <li><label><input type="checkbox" data-k="suite12"><span>Weeks 1 and 2 still pass everything</span></label></li>
@@ -151,8 +151,8 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <div class="why"><p><code>for</code> is allowed only for programs that contain a <code>range</code>. Zero an <code>alloc</code> with <code>= {0}</code> and the problem disappears.</p></div>
 </div>
 
-<div class="quiz" data-fill="2">
-<p class="q">What exit code should <code>run</code> give?</p>
+<div class="quiz" data-fill="REJECTED">
+<p class="q">What outcome should <code>./compile</code> print for this file?</p>
 <pre><code>%b  = buffer 4 dtype=i32 slot=0
 %c  = buffer 4 dtype=i32 slot=1
 %i  = range 4
@@ -164,9 +164,9 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 %s2 = store %w 8
 %e2 = end %s2 %i
 %c1 = after %c %e2</code></pre>
-<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">Check</button></div>
+<div class="fill"><input aria-label="outcome"><button class="btn">Check</button></div>
 <p class="hint">Count the <code>end</code>s that close <code>%i</code>.</p>
-<div class="why"><p><code>2</code>: <code>%i</code> is closed twice. A range is one loop and gets one <code>end</code>. To write both buffers in it, use <code>end %s %s2 %i</code>.</p></div>
+<div class="why"><p><code>REJECTED</code>: <code>%i</code> is closed twice. A range is one loop and gets one <code>end</code>. To write both buffers in it, use <code>end %s %s2 %i</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="c">

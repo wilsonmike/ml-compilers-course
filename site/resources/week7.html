@@ -67,19 +67,19 @@
     <li><strong>Rendering thread loops as plain loops.</strong> Correct, and far too slow. Caught by <code>s_gemm_768_threads</code> and <code>s_gemm_768_threads_and_upcast</code>.</li>
     <li><strong>Rendering upcast loops as plain loops.</strong> The accumulators stay in memory. Caught by <code>s_gemm_768_upcast</code> and <code>s_gemm_768_threads_and_upcast</code>.</li>
     <li><strong>Unrolling one copy short.</strong> Caught by <code>r_upcast_sum_order</code> and the <code>r_gemm_tiled_*</code> tests.</li>
-    <li><strong>Forgetting that private allocs start at zero.</strong> In <code>run</code>, caught by <code>thread_private_alloc_fresh</code>. In render, a shared array is caught by <code>r_thread_private_alloc</code> and the threaded speed tests.</li>
-    <li><strong>Checking a slice without the access size.</strong> A vector store can spill into the next slice. Caught by <code>err_thread_vector_store_overflows</code>.</li>
-    <li><strong>Checking only stores.</strong> A load of a neighbor's element races too. Caught by <code>err_thread_load_neighbor</code>.</li>
-    <li><strong>Allowing nested thread loops, or two strides on one buffer.</strong> Caught by <code>err_thread_nested</code> and <code>err_thread_mixed_strides</code>.</li>
-    <li><strong>Accepting any upcast bound.</strong> Caught by <code>err_upcast_not_literal</code>, <code>err_upcast_too_big</code> and <code>err_upcast_zero</code>.</li>
+    <li><strong>Forgetting that private allocs start at zero.</strong> When run, caught by <code>thread_private_alloc_fresh</code>. In render, a shared array is caught by <code>r_thread_private_alloc</code> and the threaded speed tests.</li>
+    <li><strong>Checking a slice without the access size.</strong> A vector store can spill into the next slice. Caught by <code>rejected_thread_vector_store_overflows</code>.</li>
+    <li><strong>Checking only stores.</strong> A load of a neighbor's element races too. Caught by <code>rejected_thread_load_neighbor</code>.</li>
+    <li><strong>Allowing nested thread loops, or two strides on one buffer.</strong> Caught by <code>rejected_thread_nested</code> and <code>rejected_thread_mixed_strides</code>.</li>
+    <li><strong>Accepting any upcast bound.</strong> Caught by <code>rejected_upcast_not_literal</code>, <code>rejected_upcast_too_big</code> and <code>rejected_upcast_zero</code>.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
   <p>Build in this order, and don't move on until the check passes.</p>
   <ol>
     <li><strong>Axes as plain loops.</strong> Parse and validate <code>axis=</code>, then ignore it. Every week 7 render test except <code>r_thread_private_alloc</code> already passes with correct bits. The speed tests, the thread rules and the private-alloc tests fail.</li>
-    <li><strong>The slice rule.</strong> Flatten the offset's adds into terms, find the one term with the thread range, and bound the others. Done when every <code>err_thread_*</code> test exits 2 and <code>thread_store_own_slice</code> runs.</li>
-    <li><strong>Private allocs in run.</strong> Done when this program's buffer is <code>0 1 2 3</code> (and <code>0 1 3 6</code> without <code>axis=thread</code>):
+    <li><strong>The slice rule.</strong> Flatten the offset's adds into terms, find the one term with the thread range, and bound the others. Done when every <code>rejected_thread_*</code> test prints REJECTED and <code>thread_store_own_slice</code> prints MATCH.</li>
+    <li><strong>Private allocs.</strong> Done when this prints MATCH, and still does with <code>axis=thread</code> removed and the expected value changed to <code>[0 1 3 6]</code>:
 <pre><code>%o = buffer 4 dtype=i32 slot=0
 %acc = alloc 1 dtype=i32
 %r = range 4 axis=thread
@@ -93,7 +93,9 @@
 %ov = shrink %o %r shape=[]
 %so = store %ov %got
 %e = end %st %so %r
-%o1 = after %o %e</code></pre></li>
+%o1 = after %o %e
+%l = load %o1
+%t = assert %l [0 1 2 3]</code></pre></li>
     <li><strong>Upcast in the renderer.</strong> Copy the body per value. Done when <code>s_gemm_768_upcast</code> passes.</li>
     <li><strong>Outlining.</strong> Done when <code>r_thread_captures_values</code> passes, then the threaded speed tests.</li>
   </ol>

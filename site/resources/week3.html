@@ -40,7 +40,7 @@
   <h3><a href="../week3/05-rendering-loops.html">3.5 Rendering loops</a></h3>
   <p>Give every node a path of loops, outermost first, from its open ranges. Linearize into nested blocks where sources come first and loads of a version come before the store that overwrites it, then print each block as a <code>for</code> loop. Values that depend on no range end up outside the loops for free.</p>
   <h3><a href="../week3/06-lab.html">3.6 Lab</a></h3>
-  <p><code>run</code> and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>goto</code> or recursion). The suite has 90 tests, and weeks 1 and 2 must stay green.</p>
+  <p>Running tests and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>goto</code> or recursion). The suite has 94 tests, and weeks 1 and 2 must stay green.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -70,21 +70,21 @@ python _reference/uirc.py render FILE                            # the oracle's 
   <p>Each of these is a bug that was planted in the reference compiler to prove the suite catches it. The <a href="tests-week3.html">week 3 test guide</a> lists every test with the bugs known to fail it.</p>
   <ol>
     <li><strong>Never moving loads into loops.</strong> An accumulator load whose only use is inside the k loop is then read once, and each iteration overwrites the sum instead of adding to it. Caught by <code>r_conv1d_padded</code> and <code>r_conv1d_valid</code>.</li>
-    <li><strong>Moving a load to its deepest use instead of the loop holding all of its uses.</strong> A load used both inside and after a loop must run once, before it. Caught by <code>split_use_across_asserts</code>.</li>
-    <li><strong>Deciding load placement from one assert at a time.</strong> Where a load runs depends on every use in the program, so <code>run</code> and <code>render</code> must agree. Caught by <code>split_use_across_asserts</code> and <code>r_split_use_across_asserts</code>.</li>
+    <li><strong>Moving a load to its deepest use instead of the loop holding all of its uses.</strong> A load used both inside and after a loop must run once, before it. Caught by <code>split_use_across_loop</code>.</li>
+    <li><strong>Deciding load placement from only some of the uses.</strong> Where a load runs depends on every use in the program, including the ones that only feed the assert, so your evaluator and <code>render</code> must agree even though <code>render</code> ignores the assert. Caught by <code>split_use_across_loop</code> and <code>r_split_use_across_asserts</code>.</li>
     <li><strong>Off-by-one loops.</strong> Printing <code>&lt;=</code>, starting at 1 or running one extra trip. Caught by <code>r_conv2d_valid</code>, <code>r_bounds_from_ranges</code> and <code>bounds_from_ranges</code>.</li>
     <li><strong>Running a zero-trip loop once.</strong> <code>range 0</code> and negative bounds run zero times. Caught by <code>zero_trip</code> and <code>negative_trip</code>.</li>
     <li><strong>Running a loop backwards.</strong> f32 sums depend on the order: <code>1e8 + 1 + -1e8 + 1</code> is 1.0 left to right. Caught by <code>reduce_sum_f32_order</code> and <code>prefix_sum</code>.</li>
-    <li><strong>Too-tight or missing range bounds.</strong> A range's interval must be <code>[0, n-1]</code>, no tighter, or an overrunning view slips through. Caught by <code>err_range_overrun</code> and <code>err_wrong_stride</code>.</li>
+    <li><strong>Too-tight or missing range bounds.</strong> A range's interval must be <code>[0, n-1]</code>, no tighter, or an overrunning view slips through. Caught by <code>rejected_range_overrun</code> and <code>rejected_wrong_stride</code>.</li>
     <li><strong>Treating an after inside a loop as an output.</strong> Only top-level afters are outputs. Caught by <code>inloop_after_not_output</code> in week 4's suite.</li>
-    <li><strong>Skipping the static loop rules.</strong> A range closed twice, a loop never closed, an <code>end</code> that doesn't use its range, an assert that reads a range: all exit 2. Caught by <code>err_range_two_ends</code>, <code>err_loop_never_closed</code>, <code>err_end_unused_range_closed</code> and <code>err_assert_closed_range</code>.</li>
+    <li><strong>Skipping the static loop rules.</strong> A range closed twice, a loop never closed, an <code>end</code> that doesn't use its range, an assert that reads a range: all <code>REJECTED</code>. Caught by <code>rejected_range_two_ends</code>, <code>rejected_loop_never_closed</code>, <code>rejected_end_unused_range_closed</code> and <code>rejected_assert_closed_range</code>.</li>
     <li><strong>Hoisting a value out of a loop it depends on.</strong> Caught by <code>r_bounds_from_ranges</code> and <code>r_conv1d_padded</code>.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
-  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py run FILE</code>), comparing exit codes.</p>
+  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py --week=3 FILE</code>), comparing the outcome lines.</p>
   <ol>
-    <li><strong>Parse and type range and end.</strong> Done when this exits 0: a loop that writes <code>b[i] = i</code>, then reads <code>b[3]</code>.
+    <li><strong>Parse and type range and end.</strong> Done when this prints <code>MATCH</code>: a loop that writes <code>b[i] = i</code>, then reads <code>b[3]</code>.
 <pre><code>%b  = buffer 4 dtype=i32 slot=0
 %i  = range 4
 %v  = shrink %b %i shape=[]
@@ -94,9 +94,9 @@ python _reference/uirc.py render FILE                            # the oracle's 
 %v3 = shrink %b1 3 shape=[]
 %x  = load %v3
 %t  = assert %x 3</code></pre>
-      If it exits 1, check the trip count and the start value.</li>
-    <li><strong>Open ranges and the static rules.</strong> Done when closing a range the effect doesn't use exits 2 with <code>invalid:</code>. Check: the same program with an extra <code>%j = range 2</code>, an <code>%ej = end %e %j</code> wrapped around the i loop, and <code>%b1 = after %b %ej</code>. Nothing inside uses <code>%j</code>, so the program must exit 2.</li>
-    <li><strong>Bounds through ranges.</strong> Done when <code>range 5</code> indexing a 4-element buffer exits 2 (the offset is in <code>[0, 4]</code>), while <code>shrink %b (mul %k 2) shape=[2]</code> with <code>%k = range 5</code> on a 10-element buffer exits 0 (offset in <code>[0, 8]</code>, plus 2, fits in 10). If both pass or both fail, look at the range case of your interval analysis.</li>
+      If it prints <code>MISMATCH</code>, check the trip count and the start value.</li>
+    <li><strong>Open ranges and the static rules.</strong> Done when closing a range the effect doesn't use prints <code>REJECTED</code>. Check: the same program with an extra <code>%j = range 2</code>, an <code>%ej = end %e %j</code> wrapped around the i loop, and <code>%b1 = after %b %ej</code>. Nothing inside uses <code>%j</code>, so the program must be <code>REJECTED</code>.</li>
+    <li><strong>Bounds through ranges.</strong> Done when <code>range 5</code> indexing a 4-element buffer is <code>REJECTED</code> (the offset is in <code>[0, 4]</code>), while <code>shrink %b (mul %k 2) shape=[2]</code> with <code>%k = range 5</code> on a 10-element buffer is accepted (offset in <code>[0, 8]</code>, plus 2, fits in 10). If both are accepted or both rejected, look at the range case of your interval analysis.</li>
     <li><strong>Loop placement and the load rule.</strong> Done when this sums 1 to 4 into <code>o</code>:
 <pre><code>%x   = buffer 4 dtype=i32 slot=0 data=[1 2 3 4]
 %o   = buffer 1 dtype=i32 slot=1
@@ -116,8 +116,8 @@ python _reference/uirc.py render FILE                            # the oracle's 
 %r   = load %ov1
 %t   = assert %r 10</code></pre>
       If you get 4, <code>%cur</code> was loaded once before the loop: its only use, <code>%sum</code>, depends on <code>%k</code>, and the loop stores into its version, so it must move in.</li>
-    <li><strong>Linearize.</strong> Done when the suite's <code>old_version_after_loop</code> passes: a load of the version before a loop, used after the loop, must run before the loop overwrites it.</li>
-    <li><strong>Execute in run.</strong> Done when every week 3 run test passes and weeks 1 and 2 still do.</li>
+    <li><strong>Linearize.</strong> Done when the suite's <code>old_version_after_loop_t0</code> and <code>old_version_after_loop_t1</code> pass: a load of the version before a loop, used after the loop, must run before the loop overwrites it.</li>
+    <li><strong>Execute the blocks.</strong> Done when every week 3 run test passes and weeks 1 and 2 still do.</li>
     <li><strong>Render.</strong> Done when <code>python _reference/uirc.py render</code> and your <code>render</code> agree on the program from step 4 (same results, not necessarily the same text), and every render test passes.</li>
   </ol>
   <div class="trap"><span class="label">The pinned load</span>
@@ -202,7 +202,7 @@ python _reference/uirc.py render FILE                            # the oracle's 
   <ol>
     <li><strong>Loop order without changing results.</strong> Write the 2×3 by 3×2 matmul twice, once with the k loop innermost and once with j innermost. Check with the oracle that both leave identical bits. Then explain why an f32 matmul would change bits if you moved k outermost and accumulated partial sums differently.</li>
     <li><strong>A strided view.</strong> Write a loop that copies every other element of an 8-element buffer into a 4-element one. Prove the offsets in bounds in your head first, then confirm that the oracle accepts it and rejects a stride of 3.</li>
-    <li><strong>A 2D running max.</strong> For a 3×4 buffer, write each row's running maximum into an output of the same shape, with a reset per row. Compare your expected values (computed by hand or in Python) with <code>python _reference/uirc.py run</code>.</li>
+    <li><strong>A 2D running max.</strong> For a 3×4 buffer, write each row's running maximum into an output of the same shape, with a reset per row. Work out the expected values by hand or in Python, put them in the assert, and check that <code>python _reference/uirc.py --week=3 FILE</code> prints <code>MATCH</code>.</li>
   </ol>
 </main>
 </body>

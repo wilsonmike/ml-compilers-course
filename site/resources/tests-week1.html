@@ -40,120 +40,247 @@
   <table class="guide">
     <thead><tr><th>test</th><th>kind</th><th>what it checks</th><th>bugs known to fail it</th></tr></thead>
     <tbody>
-    <tr><td><code>run/basic_add</code></td><td>run: pass</td><td>the syllabus example</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/basic_chain</code></td><td>run: pass</td><td>names refer to earlier statements</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/call_basic</code></td><td>run: pass</td><td>the spec&#x27;s first call example</td><td>evaluates everything</td></tr>
-    <tr><td><code>run/call_closed_body</code></td><td>run: pass</td><td>substitution must not go inside a nested call&#x27;s body: inner&#x27;s param 0 is NOT outer&#x27;s param 0</td><td>evaluates everything<br>global memo across calls<br>nested body sees outer env</td></tr>
-    <tr><td><code>run/call_composition</code></td><td>run: pass</td><td>f(f(x)) built from calls</td><td>evaluates everything<br>global memo across calls<br>nested body sees outer env</td></tr>
-    <tr><td><code>run/call_extra_args</code></td><td>run: pass</td><td>extra args are ignored</td><td>evaluates everything<br>global memo across calls</td></tr>
-    <tr><td><code>run/call_f32_bool</code></td><td>run: pass</td><td>params of other dtypes</td><td>evaluates everything<br>global memo across calls<br>where branches swapped</td></tr>
-    <tr><td><code>run/call_memo_per_call</code></td><td>run: pass</td><td>the same body called with different args gives different results (memoize per call, not globally)</td><td>evaluates everything<br>global memo across calls</td></tr>
-    <tr><td><code>run/call_no_params</code></td><td>run: pass</td><td>a body with no params is just a value</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/call_rank1_param</code></td><td>run: pass</td><td>a param can be rank 1</td><td>evaluates everything</td></tr>
-    <tr><td><code>run/call_runtime_error_inside</code></td><td>run: invalid</td><td>a runtime error inside a call body is still a runtime error</td><td>div by zero returns 0<br>global memo across calls</td></tr>
-    <tr><td><code>run/call_shared_param_node</code></td><td>run: pass</td><td>two functions that use the same param node (hash consed) still mean different things</td><td>evaluates everything<br>global memo across calls</td></tr>
-    <tr><td><code>run/call_spec_inner_outer</code></td><td>run: pass</td><td>the spec&#x27;s closed-body example</td><td>evaluates everything<br>global memo across calls</td></tr>
-    <tr><td><code>run/call_two_params</code></td><td>run: pass</td><td>arg i binds param i</td><td>evaluates everything<br>global memo across calls</td></tr>
-    <tr><td><code>run/cast_basic</code></td><td>run: pass</td><td>cast rules from the spec</td><td>bool-&gt;num always 1<br>f32-&gt;i32 rounds<br>i32-&gt;f32 not rounded</td></tr>
-    <tr><td><code>run/cast_i32_edges</code></td><td>run: pass</td><td>the largest f32 below 2^31 still fits in i32</td><td>i32-&gt;f32 not rounded</td></tr>
-    <tr><td><code>run/cmplt_basic</code></td><td>run: pass</td><td>cmplt is strict less-than and returns bool</td><td>cmplt is &lt;=</td></tr>
-    <tr><td><code>run/cmplt_nan_zero</code></td><td>run: pass</td><td>any NaN compare is false; -0.0 is not less than 0.0</td><td>cmplt is &lt;=</td></tr>
-    <tr><td><code>run/comments_whitespace</code></td><td>run: pass</td><td>comments, blank lines, and extra spaces a comment line</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/const_dtype</code></td><td>run: pass</td><td>const with an explicit dtype</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/dag_sharing_300</code></td><td>run: pass</td><td>300 levels of doubling: a tree walk is 2^300 steps, a memoized DAG walk is 300</td><td>add doesn&#x27;t wrap</td></tr>
-    <tr><td><code>run/dag_sharing_mix</code></td><td>run: pass</td><td>every level uses the previous one twice, so it needs memoization</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/empty_program</code></td><td>run: pass</td><td>a program with no asserts trivially passes nothing here</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_alu_rank1</code></td><td>run: invalid</td><td>ALU ops only take scalars</td><td>implicit broadcast allowed</td></tr>
-    <tr><td><code>run/err_arity</code></td><td>run: invalid</td><td>add takes exactly two operands</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_assert_shape</code></td><td>run: invalid</td><td>assert needs matching shapes</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_attr_before_operand</code></td><td>run: invalid</td><td>operands come before attributes</td><td>attributes before operands</td></tr>
-    <tr><td><code>run/err_attr_duplicate</code></td><td>run: invalid</td><td>an attribute can be given once</td><td>duplicate attributes allowed</td></tr>
-    <tr><td><code>run/err_attr_unknown</code></td><td>run: invalid</td><td>add takes no attributes. Unknown attributes are errors, not ignored</td><td>unknown attributes ignored</td></tr>
-    <tr><td><code>run/err_call_missing_arg</code></td><td>run: invalid</td><td>every param in the body needs an arg</td><td>missing args not checked</td></tr>
-    <tr><td><code>run/err_call_missing_arg_unused</code></td><td>run: invalid</td><td>arg checks are static: this call is never evaluated, but it&#x27;s still a type error</td><td>missing args not checked</td></tr>
-    <tr><td><code>run/err_call_shape_mismatch</code></td><td>run: invalid</td><td>arg shape must match the param</td><td>arg types not checked</td></tr>
-    <tr><td><code>run/err_call_type_mismatch</code></td><td>run: invalid</td><td>arg dtype must match the param</td><td>arg types not checked</td></tr>
-    <tr><td><code>run/err_call_type_unused</code></td><td>run: invalid</td><td>arg dtype checks are static too</td><td>arg types not checked</td></tr>
-    <tr><td><code>run/err_call_void_body</code></td><td>run: invalid</td><td>a void body can&#x27;t be called</td><td>void operands allowed</td></tr>
-    <tr><td><code>run/err_cast_big_i32</code></td><td>run: invalid</td><td>2^31 doesn&#x27;t fit in i32</td><td>f32-&gt;i32 no range check</td></tr>
-    <tr><td><code>run/err_cast_inf_i32</code></td><td>run: invalid</td><td>inf can&#x27;t become an i32</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_cast_nan_i32</code></td><td>run: invalid</td><td>NaN can&#x27;t become an i32</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_const_float_as_i32</code></td><td>run: invalid</td><td>a float literal is not an i32: const 1.5 dtype=i32 is an error, not a truncation</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_const_not_literal</code></td><td>run: invalid</td><td>const needs a literal, not a word</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_const_two_literals</code></td><td>run: invalid</td><td>const takes exactly one literal</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_div_zero</code></td><td>run: invalid</td><td>div by zero is a runtime error</td><td>div by zero returns 0</td></tr>
-    <tr><td><code>run/err_index_f32</code></td><td>run: invalid</td><td>the index must be i32</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_index_neg</code></td><td>run: invalid</td><td>negative index</td><td>index allows negative</td></tr>
-    <tr><td><code>run/err_index_oob</code></td><td>run: invalid</td><td>index past the end</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_int_too_big</code></td><td>run: invalid</td><td>integer literals must fit in i32</td><td>int literals unbounded</td></tr>
-    <tr><td><code>run/err_literal_hex</code></td><td>run: invalid</td><td>no hex literals</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_literal_infinity</code></td><td>run: invalid</td><td>the word is inf, not infinity</td><td>loose float literals</td></tr>
-    <tr><td><code>run/err_literal_plus</code></td><td>run: invalid</td><td>a literal can&#x27;t start with +</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_literal_underscore</code></td><td>run: invalid</td><td>no digit separators</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_mod_zero</code></td><td>run: invalid</td><td>mod by zero is a runtime error</td><td>div by zero returns 0</td></tr>
-    <tr><td><code>run/err_param_outside_call</code></td><td>run: invalid</td><td>a param evaluated outside any call is a runtime error</td><td>global memo across calls<br>param outside call is 0</td></tr>
-    <tr><td><code>run/err_param_slot_not_number</code></td><td>run: invalid</td><td>a param slot is a number</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_param_two_types</code></td><td>run: invalid</td><td>one slot can&#x27;t be two types inside one body</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_param_two_types_b</code></td><td>run: invalid</td><td>same as err_param_two_types with the uses in the other order: check every use, not just the first or last</td><td>param slot types unchecked</td></tr>
-    <tr><td><code>run/err_param_two_types_uncalled</code></td><td>run: invalid</td><td>one slot used with two types is a static error even if the body is never called</td><td>param slot types unchecked<br>slot types checked on call only</td></tr>
-    <tr><td><code>run/err_parse</code></td><td>run: invalid</td><td>a line that isn&#x27;t a statement</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_redefine</code></td><td>run: invalid</td><td>a name can be defined once</td><td>redefinition allowed</td></tr>
-    <tr><td><code>run/err_shape_rank2</code></td><td>run: invalid</td><td>week 1 shapes are [k] with one k &gt;= 1</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_shape_zero</code></td><td>run: invalid</td><td>a shape of [0] isn&#x27;t allowed in week 1</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_shl_32</code></td><td>run: invalid</td><td>shift amounts outside [0, 31] are runtime errors</td><td>shl allows 32</td></tr>
-    <tr><td><code>run/err_shl_neg</code></td><td>run: invalid</td><td>shift amounts outside [0, 31] are runtime errors</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_stack_mixed</code></td><td>run: invalid</td><td>stack operands must share a dtype</td><td>stack dtypes unchecked</td></tr>
-    <tr><td><code>run/err_stack_mixed_shapes</code></td><td>run: invalid</td><td>stack operands must share one shape (stacking vectors is fine from week 5; mixing shapes never is)</td><td>stack shapes unchecked</td></tr>
-    <tr><td><code>run/err_type_assert</code></td><td>run: invalid</td><td>assert needs matching dtypes</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_type_bool_add</code></td><td>run: invalid</td><td>add is not defined on bool</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_type_cast_void</code></td><td>run: invalid</td><td>you can&#x27;t cast to void</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_type_cmplt_bool</code></td><td>run: invalid</td><td>cmplt is defined on numbers only</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_type_div_f32</code></td><td>run: invalid</td><td>div is i32 only</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_type_mix</code></td><td>run: invalid</td><td>no implicit conversion between i32 and f32</td><td>implicit dtype mixing</td></tr>
-    <tr><td><code>run/err_type_recip_i32</code></td><td>run: invalid</td><td>recip is f32 only</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_type_static</code></td><td>run: invalid</td><td>type errors are static: this bad line is never evaluated, but the program is still invalid</td><td>implicit dtype mixing</td></tr>
-    <tr><td><code>run/err_type_void_operand</code></td><td>run: invalid</td><td>an assert&#x27;s value (void) can&#x27;t be an operand</td><td>void operands allowed</td></tr>
-    <tr><td><code>run/err_type_where_branches</code></td><td>run: invalid</td><td>where branches must have the same dtype</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_type_where_cond</code></td><td>run: invalid</td><td>where needs a bool condition</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_type_xor_f32</code></td><td>run: invalid</td><td>xor is not defined on f32</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_undefined</code></td><td>run: invalid</td><td>names must be defined before use</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_unknown_op</code></td><td>run: invalid</td><td>unknown op</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_use_before_def</code></td><td>run: invalid</td><td>names must be defined above their first use</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/err_where_strict</code></td><td>run: invalid</td><td>where is strict: an error in the untaken branch is still an error</td><td>div by zero returns 0</td></tr>
-    <tr><td><code>run/error_before_fail</code></td><td>run: invalid</td><td>an error in an earlier assert wins over a later failure</td><td>asserts in reverse order<br>div by zero returns 0</td></tr>
-    <tr><td><code>run/f32_assert_equality</code></td><td>run: pass</td><td>assert compares f32 by value, and NaN counts as equal to NaN</td><td>-0.0 != 0.0 in assert<br>NaN != NaN in assert</td></tr>
-    <tr><td><code>run/f32_literals</code></td><td>run: pass</td><td>float literal forms</td><td>f32 consts not rounded</td></tr>
-    <tr><td><code>run/f32_nan_sources</code></td><td>run: pass</td><td>inf - inf and inf * 0 are NaN</td><td>NaN != NaN in assert</td></tr>
-    <tr><td><code>run/f32_overflow</code></td><td>run: pass</td><td>f32 overflow goes to inf</td><td>f32 ops not rounded</td></tr>
-    <tr><td><code>run/f32_product_rounds</code></td><td>run: pass</td><td>every op rounds to f32, so 3 * (1/3) is exactly 1 but 1/3 is not 0.333333333</td><td>cmplt is &lt;=<br>f32 consts not rounded<br>f32 ops not rounded</td></tr>
-    <tr><td><code>run/f32_recip</code></td><td>run: pass</td><td>recip, including signed zero and inf</td><td>recip 0 ignores sign</td></tr>
-    <tr><td><code>run/f32_rounding_step</code></td><td>run: pass</td><td>f32 has 24 bits of mantissa: 2^24 + 1 rounds back to 2^24</td><td>f32 ops not rounded</td></tr>
-    <tr><td><code>run/f32_signed_zero_visible</code></td><td>run: pass</td><td>-0.0 and 0.0 compare equal but recip tells them apart</td><td>recip 0 ignores sign</td></tr>
-    <tr><td><code>run/f32_tenths</code></td><td>run: pass</td><td>in f32, 0.1 + 0.2 rounds to exactly 0.3 (unlike f64)</td><td>f32 consts not rounded<br>f32 ops not rounded</td></tr>
-    <tr><td><code>run/fail_basic</code></td><td>run: assert_fail</td><td>a failing assert exits 1 and names itself</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/fail_before_error</code></td><td>run: assert_fail</td><td>asserts run in file order, so this fails before the later div by zero is reached</td><td>asserts in reverse order</td></tr>
-    <tr><td><code>run/fail_first_in_order</code></td><td>run: assert_fail</td><td>report the first failing assert in file order</td><td>asserts in reverse order</td></tr>
-    <tr><td><code>run/fail_then_static_error</code></td><td>run: invalid</td><td>type checking happens before any assert runs, so a later type error beats an earlier failing assert</td><td>implicit dtype mixing</td></tr>
-    <tr><td><code>run/hash_consing_same_node</code></td><td>run: pass</td><td>identical statements are one node. Nothing observable changes, but the program must still work</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/i32_div_intmin</code></td><td>run: pass</td><td>INT_MIN / -1 wraps to INT_MIN, and INT_MIN mod -1 is 0</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/i32_div_trunc</code></td><td>run: pass</td><td>div truncates toward zero, like C (not floor like Python)</td><td>div floors like Python</td></tr>
-    <tr><td><code>run/i32_mod_sign</code></td><td>run: pass</td><td>mod takes the sign of the dividend, like C</td><td>div floors like Python<br>mod uses Python %</td></tr>
-    <tr><td><code>run/i32_shl</code></td><td>run: pass</td><td>shl wraps</td><td>shl doesn&#x27;t wrap</td></tr>
-    <tr><td><code>run/i32_wrap_add</code></td><td>run: pass</td><td>i32 add wraps around (two&#x27;s complement)</td><td>add doesn&#x27;t wrap</td></tr>
-    <tr><td><code>run/i32_wrap_mul</code></td><td>run: pass</td><td>i32 mul keeps the low 32 bits</td><td>mul doesn&#x27;t wrap</td></tr>
-    <tr><td><code>run/lazy_unused_runtime_error</code></td><td>run: pass</td><td>runtime errors only matter if an assert depends on them</td><td>evaluates everything</td></tr>
-    <tr><td><code>run/literal_float_forms</code></td><td>run: pass</td><td>1., .5, -.5, 1E5 and 1e+5 are all float literals</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/literal_float_out_of_range</code></td><td>run: pass</td><td>a float literal too big for f32 rounds to inf, and one too small rounds to 0</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/max_basic</code></td><td>run: pass</td><td>max on i32 and f32</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/max_nan</code></td><td>run: pass</td><td>max propagates NaN from either side</td><td>NaN != NaN in assert<br>max ignores NaN</td></tr>
-    <tr><td><code>run/max_signed_zero</code></td><td>run: pass</td><td>max(-0.0, 0.0) is +0.0 in either order, and recip tells the zeros apart</td><td>max(-0.0, 0.0) order-dependent</td></tr>
-    <tr><td><code>run/stack_assert</code></td><td>run: pass</td><td>assert compares rank-1 values elementwise</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/stack_assert_fail</code></td><td>run: assert_fail</td><td>one element differs</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/stack_f32_bool</code></td><td>run: pass</td><td>stack works for any dtype</td><td>-0.0 != 0.0 in assert<br>NaN != NaN in assert</td></tr>
-    <tr><td><code>run/stack_index</code></td><td>run: pass</td><td>stack builds a rank-1 value, index reads it</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>run/where_basic</code></td><td>run: pass</td><td>where picks a branch</td><td>where branches swapped</td></tr>
-    <tr><td><code>run/xor_i32_bool</code></td><td>run: pass</td><td>xor is bitwise on i32 and logical on bool</td><td>xor bool is equality</td></tr>
-    <tr><td><code>simplify/add_negzero_f32</code></td><td>simplify, max_ops=0</td><td>x + -0.0 IS x on f32, for every x including -0.0 and nan</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/add_bool</code></td><td>run: MATCH</td><td>add on bool: values are 0 and 1, and a nonzero sum is true</td><td>bool add not normalized</td></tr>
+    <tr><td><code>run/add_i32_0</code></td><td>run: MATCH</td><td>add wraps around: two&#x27;s complement i32</td><td>add doesn&#x27;t wrap</td></tr>
+    <tr><td><code>run/add_i32_1</code></td><td>run: MATCH</td><td>add wraps around: two&#x27;s complement i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/add_i32_2</code></td><td>run: MATCH</td><td>add wraps around: two&#x27;s complement i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/alias_bracket</code></td><td>run: MATCH</td><td>a bracket literal is a stack: [10 20 30] has shape (3,)</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/alias_literal</code></td><td>run: MATCH</td><td>a binding can be a single atom: %x = 5 names the constant 5</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/alias_ref</code></td><td>run: MATCH</td><td>%y = %x is another name for the same node</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/attrs_any_order</code></td><td>run: MATCH</td><td>attributes are unordered</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/basic_add</code></td><td>run: MATCH</td><td>the syllabus example</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/basic_chain</code></td><td>run: MATCH</td><td>names refer to earlier bindings</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_add</code></td><td>run: MATCH</td><td>add: [a + c, b + d]. [0, 1] + 1 is [1, 2]</td><td>params ignore their limits</td></tr>
+    <tr><td><code>run/bounds_call</code></td><td>run: MATCH</td><td>call: the body&#x27;s bounds. The body is mod y 3, so the call is in [0, 2]</td><td>call bounds unknown<br>global memo across calls</td></tr>
+    <tr><td><code>run/bounds_cast_bool</code></td><td>run: MATCH</td><td>cast bool to i32: a bool that could be either is [0, 1]</td><td>bool-&gt;num always 1</td></tr>
+    <tr><td><code>run/bounds_cast_round_trip</code></td><td>run: MATCH</td><td>cast to bool normalizes [0, 9] to [0, 1], and back to i32 it stays [0, 1]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_cmplt</code></td><td>run: MATCH</td><td>cmplt: [1, 1] when b &lt; c. [0, 3] &lt; 5 is always true, and cast makes it [1, 1]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_cmplt_false</code></td><td>run: MATCH</td><td>cmplt: [0, 0] when a &gt;= d. [5, 9] &lt; 5 is always false</td><td>cmplt bounds always [0, 1]</td></tr>
+    <tr><td><code>run/bounds_div</code></td><td>run: MATCH</td><td>div by a fixed y: the hull of the endpoint quotients. [0, 9] / 4 is [0, 2]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_div_negative</code></td><td>run: MATCH</td><td>div by a fixed y: [-9, -1] / -4 is hull{2, 0} = [0, 2]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_max</code></td><td>run: MATCH</td><td>max: [max(a, c), max(b, d)]. max([-5, 2], 0) is [0, 2]: a clamp from below</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_mod_any</code></td><td>run: MATCH</td><td>mod by a fixed y &gt; 0: [0, y - 1] when the endpoint quotients differ, so mod 3 makes any index safe</td><td>mod takes the sign of x</td></tr>
+    <tr><td><code>run/bounds_mod_same_quotient</code></td><td>run: MATCH</td><td>mod by a fixed y: when both endpoints have the same floor quotient, the hull of their remainders. [3, 4] mod 3 is [0, 1]</td><td>mod bounds skip quotients</td></tr>
+    <tr><td><code>run/bounds_mod_zero</code></td><td>run: MATCH</td><td>mod by a fixed 0 is x, so the bounds are x&#x27;s: [0, 2]</td><td>mod by zero returns 0</td></tr>
+    <tr><td><code>run/bounds_mul</code></td><td>run: MATCH</td><td>mul: hull{ac, ad, bc, bd}. [0, 2] * 2 is [0, 4]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_shl</code></td><td>run: MATCH</td><td>shl: the hull of a*2^k and b*2^k over the possible k. [0, 1] &lt;&lt; 1 is [0, 2]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_shl_amount</code></td><td>run: MATCH</td><td>shl: 1 &lt;&lt; [0, 2] is hull{1, 2, 4} = [1, 4]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_shl_mod32</code></td><td>run: MATCH</td><td>shl: k = y mod 32, so 1 &lt;&lt; [32, 33] is 1 &lt;&lt; [0, 1], which is [1, 2]</td><td>shl bounds ignore mod 32<br>shl doesn&#x27;t take y mod 32</td></tr>
+    <tr><td><code>run/bounds_stack_hull</code></td><td>run: MATCH</td><td>stack: the hull of its elements, and index keeps them. [2 0 1] at any index is in [0, 2]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bounds_where_fixed</code></td><td>run: MATCH</td><td>where with a fixed p takes the selected side&#x27;s bounds</td><td>where bounds always the hull<br>where bounds sides swapped<br>where branches swapped</td></tr>
+    <tr><td><code>run/bounds_xor_fixed</code></td><td>run: MATCH</td><td>xor: exact for two singletons. 3 xor 1 is 2</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bracket_operand</code></td><td>run: MATCH</td><td>brackets work anywhere an operand goes</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bracket_with_refs</code></td><td>run: MATCH</td><td>a bracket literal can hold references too</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/bytes_4096</code></td><td>run: MATCH</td><td>exactly 4096 bytes: the limit is bytes &gt; 4096, so this one is fine .........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................</td><td>byte limit is &gt;=</td></tr>
+    <tr><td><code>run/call_basic</code></td><td>run: MATCH</td><td>a body and its call</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_bool_param</code></td><td>run: MATCH</td><td>params can be bool</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_closed_body</code></td><td>run: MATCH</td><td>bodies are closed: inner&#x27;s slot 0 is not outer&#x27;s slot 0</td><td>nested body sees outer env</td></tr>
+    <tr><td><code>run/call_composition</code></td><td>run: MATCH</td><td>f(f(f(x))), one call inside another</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_extra_args</code></td><td>run: MATCH</td><td>extra arguments are allowed</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_literal_body</code></td><td>run: MATCH</td><td>a body can be a literal</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_memo_per_call</code></td><td>run: MATCH</td><td>one body called with different arguments gives different results: memoize per call, not globally</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_no_params</code></td><td>run: MATCH</td><td>a body with no params is just a value</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_pass_inward</code></td><td>run: MATCH</td><td>an outer body passes its own param into an inner call</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_same_slot_two_bodies</code></td><td>run: MATCH</td><td>slot 0 can be i32 in one body and bool in another</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_shared_param_node</code></td><td>run: MATCH</td><td>the same param node in two bodies means each body&#x27;s own slot 0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_two_params</code></td><td>run: MATCH</td><td>argument i binds slot i</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/call_unused_slot</code></td><td>run: MATCH</td><td>unused slots are allowed: this body only reads slot 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cast_0</code></td><td>run: MATCH</td><td>cast converts between i32 and bool: nonzero is true, true is 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cast_1</code></td><td>run: MATCH</td><td>cast converts between i32 and bool: nonzero is true, true is 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cast_2</code></td><td>run: MATCH</td><td>cast converts between i32 and bool: nonzero is true, true is 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cast_3</code></td><td>run: MATCH</td><td>cast converts between i32 and bool: nonzero is true, true is 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cast_4</code></td><td>run: MATCH</td><td>cast converts between i32 and bool: nonzero is true, true is 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cast_5</code></td><td>run: MATCH</td><td>cast converts between i32 and bool: nonzero is true, true is 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cmplt_bool</code></td><td>run: MATCH</td><td>cmplt works on bools too (false &lt; true): it only needs both sides to share a dtype</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cmplt_i32_0</code></td><td>run: MATCH</td><td>cmplt is strict less-than and returns bool</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cmplt_i32_1</code></td><td>run: MATCH</td><td>cmplt is strict less-than and returns bool</td><td>cmplt is &lt;=</td></tr>
+    <tr><td><code>run/cmplt_i32_2</code></td><td>run: MATCH</td><td>cmplt is strict less-than and returns bool</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/comments_whitespace</code></td><td>run: MATCH</td><td>comments run from # to the end of the line, and may hold any UTF-8: é ü →</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/cost_under</code></td><td>run: MATCH</td><td>each level calls the one below twice, through two different call nodes (one has an extra argument). A call costs 1 plus its body, so the static cost doubles per level: 16 levels cost 393,213</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/dag_sharing</code></td><td>run: MATCH</td><td>94 levels of doubling: walking it as a tree is 2^94 steps, as a DAG 95. 1 doubled 94 times is 2^94, which wraps to 0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/def_across_lines</code></td><td>run: MATCH</td><td>a newline is just whitespace, so a binding can span lines</td><td>DEF needs a space before =</td></tr>
+    <tr><td><code>run/def_no_space</code></td><td>run: MATCH</td><td>%x= and %x = are both one DEF token</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/div_floor_0</code></td><td>run: MATCH</td><td>div is the floor quotient: it rounds toward minus infinity, not toward zero like C</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/div_floor_1</code></td><td>run: MATCH</td><td>div is the floor quotient: it rounds toward minus infinity, not toward zero like C</td><td>div truncates like C</td></tr>
+    <tr><td><code>run/div_floor_2</code></td><td>run: MATCH</td><td>div is the floor quotient: it rounds toward minus infinity, not toward zero like C</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/div_floor_3</code></td><td>run: MATCH</td><td>div is the floor quotient: it rounds toward minus infinity, not toward zero like C</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/div_floor_4</code></td><td>run: MATCH</td><td>div is the floor quotient: it rounds toward minus infinity, not toward zero like C</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/div_floor_5</code></td><td>run: MATCH</td><td>div is the floor quotient: it rounds toward minus infinity, not toward zero like C</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/div_int_min</code></td><td>run: MATCH</td><td>INT_MIN / -1 is 2^31, which wraps to INT_MIN</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/div_zero</code></td><td>run: MATCH</td><td>div by zero is -1, not an error</td><td>div by zero returns 0</td></tr>
+    <tr><td><code>run/div_zero_negative</code></td><td>run: MATCH</td><td>div by zero is -1 whatever x is</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/edges_299</code></td><td>run: MATCH</td><td>299 source edges, one under the limit</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/expected_named_literal</code></td><td>run: MATCH</td><td>a named literal is still a literal: %e and 2 are the same node</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/limits_arg_computed</code></td><td>run: MATCH</td><td>an argument&#x27;s bounds come from the bounds rules: add 1 1 is [2, 2]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/limits_basic</code></td><td>run: MATCH</td><td>limits [l h] promise every argument is in that range</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/limits_bool</code></td><td>run: MATCH</td><td>a bool param can have limits too</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/limits_endpoints</code></td><td>run: MATCH</td><td>the endpoints are included</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/limits_from_outer_param</code></td><td>run: MATCH</td><td>an argument that is an outer param brings that param&#x27;s limits</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/literal_bool</code></td><td>run: MATCH</td><td>true and false are bool literals</td><td>xor bool is equality</td></tr>
+    <tr><td><code>run/literal_hex</code></td><td>run: MATCH</td><td>hex literals: 0x followed by hex digits</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/literal_hex_int_max</code></td><td>run: MATCH</td><td>the largest hex literal is 0x7fffffff, the largest i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/literal_hex_leading_zeros</code></td><td>run: MATCH</td><td>leading zeros work in hex too</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/literal_hex_upper</code></td><td>run: MATCH</td><td>hex digits can be upper or lower case</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/literal_int_min</code></td><td>run: MATCH</td><td>the most negative i32 is a valid literal</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/literal_leading_zeros</code></td><td>run: MATCH</td><td>leading zeros are allowed, and the literal is still decimal</td><td>hex literals are decimal</td></tr>
+    <tr><td><code>run/literal_negative_zero</code></td><td>run: MATCH</td><td>-0 is the integer 0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/max_bool</code></td><td>run: MATCH</td><td>max on bool is or</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/max_i32_0</code></td><td>run: MATCH</td><td>max picks the larger</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/max_i32_1</code></td><td>run: MATCH</td><td>max picks the larger</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mismatch_basic</code></td><td>run: MISMATCH</td><td>the PDF&#x27;s MISMATCH example: values differ</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mismatch_bool</code></td><td>run: MISMATCH</td><td>bools compare too</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mismatch_computed</code></td><td>run: MISMATCH</td><td>a failing assert</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mismatch_div_not_c</code></td><td>run: MISMATCH</td><td>C would give -3 here, but div floors to -4</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mismatch_mod_not_c</code></td><td>run: MISMATCH</td><td>C would give -1 here, but mod follows the sign of y</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_floor_0</code></td><td>run: MATCH</td><td>mod is x - y*floor(x/y): a nonzero result has the sign of y</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_floor_1</code></td><td>run: MATCH</td><td>mod is x - y*floor(x/y): a nonzero result has the sign of y</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_floor_2</code></td><td>run: MATCH</td><td>mod is x - y*floor(x/y): a nonzero result has the sign of y</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_floor_3</code></td><td>run: MATCH</td><td>mod is x - y*floor(x/y): a nonzero result has the sign of y</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_floor_4</code></td><td>run: MATCH</td><td>mod is x - y*floor(x/y): a nonzero result has the sign of y</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_floor_5</code></td><td>run: MATCH</td><td>mod is x - y*floor(x/y): a nonzero result has the sign of y</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_int_min</code></td><td>run: MATCH</td><td>INT_MIN mod -1 is 0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_zero</code></td><td>run: MATCH</td><td>mod by zero is x</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mod_zero_negative</code></td><td>run: MATCH</td><td>mod by zero is x, sign and all</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mul_bool</code></td><td>run: MATCH</td><td>mul on bool is and</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mul_i32_0</code></td><td>run: MATCH</td><td>mul keeps the low 32 bits</td><td>mul doesn&#x27;t wrap</td></tr>
+    <tr><td><code>run/mul_i32_1</code></td><td>run: MATCH</td><td>mul keeps the low 32 bits</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mul_i32_2</code></td><td>run: MATCH</td><td>mul keeps the low 32 bits</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/mul_i32_3</code></td><td>run: MATCH</td><td>mul keeps the low 32 bits</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/nodes_99</code></td><td>run: MATCH</td><td>99 parsed nodes, one under the limit</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/one_line</code></td><td>run: MATCH</td><td>bindings don&#x27;t need their own lines: the next DEF starts the next binding</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/overbudget_bytes</code></td><td>run: OVERBUDGET</td><td>a file over 4096 bytes is over budget before parsing, comments and all padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/overbudget_cost</code></td><td>run: OVERBUDGET</td><td>the same tower with 18 levels costs 1,572,861: over 1,000,000, so it&#x27;s never run</td><td>cost charges a body once<br>cost skips call bodies</td></tr>
+    <tr><td><code>run/overbudget_edges</code></td><td>run: OVERBUDGET</td><td>300 source edges: the stack has 296, the index 2 and the assert 2</td><td>edge limit is &gt;</td></tr>
+    <tr><td><code>run/overbudget_nodes</code></td><td>run: OVERBUDGET</td><td>100 parsed nodes: the literals 0 and 1, %x0 to %x95, the expected 96 and the assert</td><td>node limit is &gt;</td></tr>
+    <tr><td><code>run/overbudget_nodes_unreachable</code></td><td>run: OVERBUDGET</td><td>the node limit is checked right after parsing, before the unreachable %b is rejected</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/pdf_cost_distinct</code></td><td>run: MATCH</td><td>the PDF&#x27;s cost example: two distinct adds, cost 3. Same value</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/pdf_cost_shared</code></td><td>run: MATCH</td><td>the PDF&#x27;s cost example: the shared add is counted once, cost 2</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/pdf_example</code></td><td>run: MATCH</td><td>the first program in the week 1 PDF: the call binds slot 0 to 3, so the body computes 3 + 3</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/pdf_index_safe</code></td><td>run: MATCH</td><td>the PDF&#x27;s index example: with %i in [0, 2], all three indices exist</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/pdf_same_node</code></td><td>run: MATCH</td><td>the PDF&#x27;s note: %y = add %x %x names the same node as %s</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_alu_vector</code></td><td>run: REJECTED</td><td>ALU ops take scalars</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_arity</code></td><td>run: REJECTED</td><td>add takes exactly two operands</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_assert_dtype</code></td><td>run: REJECTED</td><td>the PDF&#x27;s REJECTED example: the two sides have different dtypes</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_assert_not_last</code></td><td>run: REJECTED</td><td>the assert is the last binding</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_assert_operand</code></td><td>run: REJECTED</td><td>the assert is never used as an operand</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_assert_vector</code></td><td>run: REJECTED</td><td>the left operand is the program&#x27;s return value, and ALU returns are scalar</td><td>vector asserts in week 1</td></tr>
+    <tr><td><code>run/rejected_assert_void</code></td><td>run: REJECTED</td><td>[] is void: it can&#x27;t be compared</td><td>void operands allowed</td></tr>
+    <tr><td><code>run/rejected_attr_before_operand</code></td><td>run: REJECTED</td><td>attributes follow all sources</td><td>attributes before operands</td></tr>
+    <tr><td><code>run/rejected_attr_duplicate</code></td><td>run: REJECTED</td><td>attribute keys are unique</td><td>duplicate attributes allowed</td></tr>
+    <tr><td><code>run/rejected_attr_space</code></td><td>run: REJECTED</td><td>an attribute is one token, with no spaces inside</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_attr_unknown</code></td><td>run: REJECTED</td><td>add takes no attributes. An unknown attribute is an error, not ignored</td><td>unknown attributes ignored</td></tr>
+    <tr><td><code>run/rejected_before_cost</code></td><td>run: REJECTED</td><td>validation comes before the cost check: this tower is over budget but also has a type error</td><td>arg types not checked</td></tr>
+    <tr><td><code>run/rejected_bool_caps</code></td><td>run: REJECTED</td><td>UIR is case-sensitive: True is not a literal</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_add</code></td><td>run: REJECTED</td><td>add: [0, 1] + 2 is [2, 3], and 3 is past the end</td><td>index not bounds checked</td></tr>
+    <tr><td><code>run/rejected_bounds_add_overflow</code></td><td>run: REJECTED</td><td>add: bounds that overflow widen to the full i32 range</td><td>bounds clamp instead of wrap</td></tr>
+    <tr><td><code>run/rejected_bounds_cast_bool_i32</code></td><td>run: REJECTED</td><td>cast bool to i32 is [0, 1], and the stack has one element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_cmplt_edge</code></td><td>run: REJECTED</td><td>cmplt: [0, 5] &lt; 5 could be either (5 &lt; 5 is false), so where can&#x27;t pick a side: the hull of [1, 1] and [0, 5]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_div_variable</code></td><td>run: REJECTED</td><td>div by a y that isn&#x27;t fixed: the full range</td><td>div bounds for any y</td></tr>
+    <tr><td><code>run/rejected_bounds_div_zero</code></td><td>run: REJECTED</td><td>div by a fixed 0 is always -1: bounds [-1, -1]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_mod_negative</code></td><td>run: REJECTED</td><td>mod by a fixed y &lt; 0: [y + 1, 0]. mod -3 gives [-2, 0]</td><td>mod bounds ignore sign</td></tr>
+    <tr><td><code>run/rejected_bounds_mod_variable</code></td><td>run: REJECTED</td><td>mod by a y that isn&#x27;t fixed: the full range</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_mod_wrap</code></td><td>run: REJECTED</td><td>mod: [1, 4] mod 3 passes 3, where the quotient changes, so it&#x27;s [0, 2], not the hull of 1 and 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_mul_square</code></td><td>run: REJECTED</td><td>mul: [-1, 1] * [-1, 1] is hull{1, -1, -1, 1} = [-1, 1]. i*i is never negative, but the rule can&#x27;t see that</td><td>mul bounds from endpoints</td></tr>
+    <tr><td><code>run/rejected_bounds_shl_overflow</code></td><td>run: REJECTED</td><td>shl: 1 &lt;&lt; 31 overflows i32, so the bounds widen to the full range</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_stack_hull</code></td><td>run: REJECTED</td><td>stack: the hull of every element, not just the first. [0 5 1] is in [0, 5]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_where_hull</code></td><td>run: REJECTED</td><td>where with a p that could be either is the hull of both sides. This clamp is safe in fact, but [-3, 2] hull [0, 0] is [-3, 2]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_bounds_xor</code></td><td>run: REJECTED</td><td>xor: anything but two singletons is the full range. i xor 1 for i in [0, 1] is really [0, 1], but the rule says I</td><td>xor bounds from endpoints</td></tr>
+    <tr><td><code>run/rejected_bounds_xor_exact</code></td><td>run: REJECTED</td><td>xor of two singletons is exact: 0 xor 5 is [5, 5], past the end. (i * 0 is [0, 0] even for an unlimited i)</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_call_dtype</code></td><td>run: REJECTED</td><td>an argument&#x27;s dtype matches its param</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_call_missing_arg</code></td><td>run: REJECTED</td><td>every used slot needs an argument</td><td>missing args not checked</td></tr>
+    <tr><td><code>run/rejected_call_no_body</code></td><td>run: REJECTED</td><td>call needs a body</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_call_vector_arg</code></td><td>run: REJECTED</td><td>ALU arguments are scalar</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_call_vector_body</code></td><td>run: REJECTED</td><td>ALU returns are scalar</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_call_void_body</code></td><td>run: REJECTED</td><td>a call needs a body with a value</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_cast_no_dtype</code></td><td>run: REJECTED</td><td>cast needs dtype=</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_cast_void</code></td><td>run: REJECTED</td><td>cast goes to i32 or bool</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_cmplt_mixed</code></td><td>run: REJECTED</td><td>cmplt requires both sides to share a dtype</td><td>implicit dtype mixing</td></tr>
+    <tr><td><code>run/rejected_const_op</code></td><td>run: REJECTED</td><td>a constant is written as its literal, not with const</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_div_bool</code></td><td>run: REJECTED</td><td>div, mod and shl are i32 only</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_empty</code></td><td>run: REJECTED</td><td>a file needs at least one binding: file := binding+ EOF (this file is only comments)</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_expected_computed</code></td><td>run: REJECTED</td><td>the expected value is a literal, or a stack of literals, not a computation</td><td>computed expected allowed</td></tr>
+    <tr><td><code>run/rejected_float</code></td><td>run: REJECTED</td><td>week 1 has no floats: i32 and bool only</td><td>floats in week 1</td></tr>
+    <tr><td><code>run/rejected_float_in_op</code></td><td>run: REJECTED</td><td>week 1 has no floats, even ones that look like integers</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_hex_negative</code></td><td>run: REJECTED</td><td>hex literals have no sign: the grammar is 0x[0-9a-fA-F]+</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_hex_no_digits</code></td><td>run: REJECTED</td><td>0x needs at least one hex digit</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_hex_too_big</code></td><td>run: REJECTED</td><td>0x80000000 is 2147483648, which doesn&#x27;t fit in i32</td><td>int literals unbounded</td></tr>
+    <tr><td><code>run/rejected_hex_upper_x</code></td><td>run: REJECTED</td><td>the prefix is a lowercase 0x</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_index_bool</code></td><td>run: REJECTED</td><td>indices are i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_index_negative</code></td><td>run: REJECTED</td><td>index -1 doesn&#x27;t fit the axis</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_index_oob</code></td><td>run: REJECTED</td><td>index 3 is past the end: its bounds [3, 3] don&#x27;t fit the axis</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_index_scalar</code></td><td>run: REJECTED</td><td>you can&#x27;t index a scalar</td><td>index count unchecked</td></tr>
+    <tr><td><code>run/rejected_index_two</code></td><td>run: REJECTED</td><td>a rank-1 value takes one index</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_index_unlimited</code></td><td>run: REJECTED</td><td>with no limits %i could be anything, so the index isn&#x27;t safe</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_int_too_big</code></td><td>run: REJECTED</td><td>integer literals must fit in i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_int_too_small</code></td><td>run: REJECTED</td><td>integer literals must fit in i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_limits_arg_outside</code></td><td>run: REJECTED</td><td>an argument whose bounds don&#x27;t fit the param&#x27;s limits is rejected</td><td>call args ignore limits</td></tr>
+    <tr><td><code>run/rejected_limits_backwards</code></td><td>run: REJECTED</td><td>limits need l &lt;= h</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_limits_bool_arg</code></td><td>run: REJECTED</td><td>false is outside [true, true]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_limits_computed</code></td><td>run: REJECTED</td><td>limits are literals, not computations</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_limits_dtype</code></td><td>run: REJECTED</td><td>limits are literals of the param&#x27;s dtype</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_limits_from_outer_param</code></td><td>run: REJECTED</td><td>[0, 9] doesn&#x27;t fit inside [0, 5], even though 2 would</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_limits_three</code></td><td>run: REJECTED</td><td>limits are [l h]: two literals</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_limits_unlimited_into_limited</code></td><td>run: REJECTED</td><td>a param with no limits is the full i32 range, which doesn&#x27;t fit [0, 5]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_literal_plus</code></td><td>run: REJECTED</td><td>a literal can&#x27;t start with +</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_literal_underscore</code></td><td>run: REJECTED</td><td>no digit separators</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_name_chars</code></td><td>run: REJECTED</td><td>a name is ASCII letters, digits and underscores</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_no_assert</code></td><td>run: REJECTED</td><td>a test ends with a single assert</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_non_ascii</code></td><td>run: REJECTED</td><td>outside comments the file is ASCII</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_op_caps</code></td><td>run: REJECTED</td><td>UIR is case-sensitive: ops are lowercase</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_addrspace_global</code></td><td>run: REJECTED</td><td>week 1 params live in addrspace=ALU</td><td>addrspace unchecked</td></tr>
+    <tr><td><code>run/rejected_param_no_addrspace</code></td><td>run: REJECTED</td><td>week 1 needs addrspace=ALU</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_no_dtype</code></td><td>run: REJECTED</td><td>a param needs dtype=</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_no_shape</code></td><td>run: REJECTED</td><td>a param&#x27;s first source is its shape: [] for a scalar</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_no_slot</code></td><td>run: REJECTED</td><td>a param needs slot=</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_outside_call</code></td><td>run: REJECTED</td><td>a param only has a value inside a call</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_slot_negative</code></td><td>run: REJECTED</td><td>a slot is an unsigned decimal</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_slot_word</code></td><td>run: REJECTED</td><td>a slot is an unsigned decimal</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_two_limits</code></td><td>run: REJECTED</td><td>two params for slot 0 with different limits are two different nodes</td><td>two param nodes for a slot</td></tr>
+    <tr><td><code>run/rejected_param_two_nodes</code></td><td>run: REJECTED</td><td>one param node per used slot: slot 0 can&#x27;t be both i32 and bool in one body</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_param_vector</code></td><td>run: REJECTED</td><td>week 1 params are scalars: their shape is []</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_parse</code></td><td>run: REJECTED</td><td>a line that isn&#x27;t a binding</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_pdf_index_unsafe</code></td><td>run: REJECTED</td><td>the PDF&#x27;s index example with [0, 3]: index 3 is past the end, even though this call passes 1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_redefine</code></td><td>run: REJECTED</td><td>each name is defined once</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_redefine_reachable</code></td><td>run: REJECTED</td><td>each name is defined once, even when both definitions are used</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_shl_bool</code></td><td>run: REJECTED</td><td>div, mod and shl are i32 only</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_stack_mixed</code></td><td>run: REJECTED</td><td>stack sources share one dtype</td><td>stack dtypes unchecked</td></tr>
+    <tr><td><code>run/rejected_stack_rank2</code></td><td>run: REJECTED</td><td>week 1 shapes have rank 0 or 1, so a stack of stacks is out</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_two_asserts</code></td><td>run: REJECTED</td><td>a test has a single assert</td><td>two asserts allowed</td></tr>
+    <tr><td><code>run/rejected_two_atoms</code></td><td>run: REJECTED</td><td>an atom binding has exactly one atom</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_unclosed_bracket</code></td><td>run: REJECTED</td><td>every [ needs its ]</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_undefined</code></td><td>run: REJECTED</td><td>a REF must name a definition</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_unknown_op</code></td><td>run: REJECTED</td><td>only the ops on page 2 exist</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_unreachable</code></td><td>run: REJECTED</td><td>every node must be reachable from the assertion</td><td>unreachable nodes allowed</td></tr>
+    <tr><td><code>run/rejected_unreachable_body</code></td><td>run: REJECTED</td><td>an unused function body is unreachable too</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_use_before_def</code></td><td>run: REJECTED</td><td>names are defined above their first use</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_void_operand</code></td><td>run: REJECTED</td><td>[] is void, so it can&#x27;t be an ALU operand</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_where_branches</code></td><td>run: REJECTED</td><td>where&#x27;s two branches share a dtype</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/rejected_where_cond</code></td><td>run: REJECTED</td><td>where needs a bool condition</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_0</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_1</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td>shl doesn&#x27;t wrap</td></tr>
+    <tr><td><code>run/shl_2</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_3</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_4</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_5</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_6</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_7</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_8</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/shl_9</code></td><td>run: MATCH</td><td>shl shifts x left by k = y mod 32 and wraps</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/stack_and_brackets_same</code></td><td>run: MATCH</td><td>stack 1 2 and [1 2] build the same node</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/stack_bool</code></td><td>run: MATCH</td><td>stack works for bool</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/stack_index_0</code></td><td>run: MATCH</td><td>stack builds a rank-1 value, index reads an element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/stack_index_1</code></td><td>run: MATCH</td><td>the index can be computed, as long as its bounds fit</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/stack_one</code></td><td>run: MATCH</td><td>a stack of one element has shape (1,)</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/unused_arg_is_reachable</code></td><td>run: MATCH</td><td>an unused call argument is still reachable: it&#x27;s a source of the call</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/where_bool</code></td><td>run: MATCH</td><td>where works on any dtype, as long as x and y share it</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/where_div_zero</code></td><td>run: MATCH</td><td>nothing in week 1 can fail at run time: div 1 0 is just -1</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/where_false</code></td><td>run: MATCH</td><td>where picks y when p is false</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/where_true</code></td><td>run: MATCH</td><td>where picks x when p is true</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/xor_bool_0</code></td><td>run: MATCH</td><td>xor on bool is exclusive or</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/xor_bool_1</code></td><td>run: MATCH</td><td>xor on bool is exclusive or</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/xor_i32_0</code></td><td>run: MATCH</td><td>xor is bitwise on i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/xor_i32_1</code></td><td>run: MATCH</td><td>xor is bitwise on i32</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>run/xor_i32_2</code></td><td>run: MATCH</td><td>xor is bitwise on i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/add_zero</code></td><td>simplify, max_ops=0</td><td>x + 0 -&gt; x on i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/bounds_cmplt</code></td><td>simplify, max_ops=0</td><td>max(x, 0) mod 8 is in [0, 7], so it is always &lt; 8</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/bounds_cmplt_false</code></td><td>simplify, max_ops=0</td><td>max(x, 0) is never &lt; 0</td><td><span class=muted>none recorded</span></td></tr>
@@ -164,30 +291,33 @@
     <tr><td><code>simplify/call_inline</code></td><td>simplify, max_ops=0</td><td>inline the call, then simplify through it</td><td>no call inlining</td></tr>
     <tr><td><code>simplify/cast_same</code></td><td>simplify, max_ops=0</td><td>a cast to the same dtype is a no-op</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/chain_of_identities</code></td><td>simplify, max_ops=0</td><td>a pile of no-ops</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>simplify/cmplt_self</code></td><td>simplify, max_ops=0</td><td>x &lt; x -&gt; false (also true for f32: nan &lt; nan is false)</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/const_fold</code></td><td>simplify, max_ops=1</td><td>fold the constant part</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>simplify/div_mul_bounded</code></td><td>simplify, max_ops=1</td><td>(b * 2) / 2 -&gt; b when bounds prove b * 2 can&#x27;t wrap</td><td>div elim off by one<br>no hash consing</td></tr>
+    <tr><td><code>simplify/div_mul_bounded</code></td><td>simplify, max_ops=1</td><td>(b * 2) / 2 -&gt; b when bounds prove b * 2 can&#x27;t wrap</td><td>div elim off by one</td></tr>
+    <tr><td><code>simplify/div_zero</code></td><td>simplify, max_ops=0</td><td>x div 0 is -1 for every x</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/index_stack</code></td><td>simplify, max_ops=0</td><td>index of a stack with a const index picks the element</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/limits_cmplt</code></td><td>simplify, max_ops=0</td><td>with limits [0, 9], x &lt; 10 is always true</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/limits_div_elim</code></td><td>simplify, max_ops=0</td><td>with limits [0, 3], x div 4 is 0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/limits_max</code></td><td>simplify, max_ops=0</td><td>with limits [3, 9], max(x, 2) is x</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/limits_mod_elim</code></td><td>simplify, max_ops=0</td><td>with limits [0, 7], x mod 8 is x itself</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/mod_floor_nonneg</code></td><td>simplify, max_ops=0</td><td>x mod 8 is in [0, 7]: a floor remainder has the sign of y, so it is never &lt; 0</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/mod_one</code></td><td>simplify, max_ops=0</td><td>x mod 1 -&gt; 0 on i32: every remainder by 1 is 0, even at INT_MIN</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>simplify/mul_one_f32</code></td><td>simplify, max_ops=0</td><td>x * 1.0 -&gt; x is exact on f32, even for nan and -0.0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/mod_zero</code></td><td>simplify, max_ops=0</td><td>x mod 0 is x for every x</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/mul_zero_i32</code></td><td>simplify, max_ops=0</td><td>x * 0 -&gt; 0 on i32</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/reassoc_i32</code></td><td>simplify, max_ops=1</td><td>(1 + x) + 2 -&gt; x + 3: i32 is a ring mod 2^32, so reassociation is safe even with wraparound</td><td>no const-right canonicalize</td></tr>
-    <tr><td><code>simplify/shared_subexpr</code></td><td>simplify, max_ops=2</td><td>hash consing: (x*x) + (x*x) is two ops, not three</td><td>no hash consing</td></tr>
-    <tr><td><code>simplify/trap_add_zero_f32</code></td><td>simplify, max_ops=1</td><td>TRAP: x + 0.0 is NOT x on f32: -0.0 + 0.0 is +0.0, and the grader compares bit patterns</td><td>i32 rules applied to f32<br>x + 0.0 -&gt; x on f32</td></tr>
-    <tr><td><code>simplify/trap_bounds_edge</code></td><td>simplify, max_ops=3</td><td>TRAP: a value in [0, 7] is not always &lt; 7</td><td>cmplt bounds off by one</td></tr>
-    <tr><td><code>simplify/trap_bounds_wrap</code></td><td>simplify, max_ops=3</td><td>TRAP: max(x, 0) + 1 wraps to INT_MIN when x = INT_MAX, so it CAN be &lt; 0</td><td>bounds clamp instead of wrap</td></tr>
-    <tr><td><code>simplify/trap_div_elim_edge</code></td><td>simplify, max_ops=3</td><td>TRAP: a value in [0, 7] div 7 is not always 0</td><td>div elim off by one</td></tr>
+    <tr><td><code>simplify/shared_subexpr</code></td><td>simplify, max_ops=2</td><td>hash consing: (x*x) + (x*x) is two ops, not three</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/trap_bounds_edge</code></td><td>simplify, max_ops=3</td><td>TRAP: a value in [0, 7] is not always &lt; 7</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/trap_bounds_wrap</code></td><td>simplify, max_ops=3</td><td>TRAP: max(x, 0) + 1 wraps to INT_MIN when x = INT_MAX, so it CAN be &lt; 0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/trap_div_elim_edge</code></td><td>simplify, max_ops=3</td><td>TRAP: a value in [0, 7] div 7 is not always 0</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/trap_div_mul_wrap</code></td><td>simplify, max_ops=2</td><td>TRAP: (x * 2) / 2 is NOT x on i32 (2^30 * 2 wraps)</td><td>(x*c)/c ignores wrap</td></tr>
-    <tr><td><code>simplify/trap_f32_reassoc</code></td><td>simplify, max_ops=2</td><td>TRAP: (x + 1e8) - 1e8 is NOT x on f32 (1.0 + 1e8 rounds to 1e8)</td><td>i32 rules applied to f32</td></tr>
+    <tr><td><code>simplify/trap_limits_mod_edge</code></td><td>simplify, max_ops=1</td><td>TRAP: with limits [0, 8], x mod 8 is not x: 8 mod 8 is 0</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/trap_minus_one_less</code></td><td>simplify, max_ops=2</td><td>TRAP: x - 1 &lt; x is false at INT_MIN (it wraps to INT_MAX)</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>simplify/trap_mod_negative</code></td><td>simplify, max_ops=3</td><td>TRAP: x mod 8 can be negative (sign follows x), so this can&#x27;t fold</td><td>mod bounds ignore sign</td></tr>
-    <tr><td><code>simplify/trap_mul_zero_f32</code></td><td>simplify, max_ops=1</td><td>TRAP: x * 0.0 is NOT 0.0 on f32 (nan * 0 = nan, inf * 0 = nan)</td><td>i32 rules applied to f32<br>x*0 -&gt; 0 on f32</td></tr>
-    <tr><td><code>simplify/trap_nested_call</code></td><td>simplify, max_ops=1</td><td>TRAP: inline correctly. The param 0 of inner is bound by outer&#x27;s call, not by out&#x27;s args</td><td>no call inlining<br>top-down inline enters bodies</td></tr>
+    <tr><td><code>simplify/trap_mod_negative_divisor</code></td><td>simplify, max_ops=2</td><td>TRAP: x mod -8 is in [-7, 0], so it CAN be &lt; 0</td><td><span class=muted>none recorded</span></td></tr>
+    <tr><td><code>simplify/trap_nested_call</code></td><td>simplify, max_ops=1</td><td>TRAP: inline correctly. The param 0 of inner is bound by outer&#x27;s call, not by out&#x27;s args</td><td>top-down inline enters bodies</td></tr>
     <tr><td><code>simplify/trap_xor_two_bools</code></td><td>simplify, max_ops=1</td><td>TRAP: xor of two different params can&#x27;t fold</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/where_const_cond</code></td><td>simplify, max_ops=0</td><td>the condition folds, then the where does</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/where_same</code></td><td>simplify, max_ops=0</td><td>where c x x -&gt; x</td><td><span class=muted>none recorded</span></td></tr>
     <tr><td><code>simplify/xor_self</code></td><td>simplify, max_ops=0</td><td>x ^ x -&gt; 0</td><td><span class=muted>none recorded</span></td></tr>
-    <tr><td><code>simplify/zero_add</code></td><td>simplify, max_ops=0</td><td>0 + x -&gt; x: put consts on the right first</td><td>no const-right canonicalize</td></tr>
+    <tr><td><code>simplify/zero_add</code></td><td>simplify, max_ops=0</td><td>0 + x -&gt; x: put consts on the right first</td><td><span class=muted>none recorded</span></td></tr>
     </tbody>
   </table>
   </div>

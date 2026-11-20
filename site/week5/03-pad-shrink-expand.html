@@ -54,7 +54,7 @@
 <h2>shrink cuts a window</h2>
 <div class="prose">
 <p><code>shrink %x o0 o1 shape=[s0 s1]</code> takes one offset per axis and a window size: element <code>[i][j]</code> is <code>x[i + o0][j + o1]</code>. It's week 2's memory view, applied to a value. The first operand decides which one you get: memory gives a view, a value gives a window.</p>
-<p>The offsets can be any i32 expression, but as with views they must be <b>provably</b> in range, using the same interval check as week 2's views (lesson 2.3): for every axis, <code>lo ≥ 0</code> and <code>hi + s ≤ size</code>. A window of 2 over 4 elements at offset <code>mod (max %i 0) 3</code> is fine, since the offset is in <code>[0, 2]</code> and <code>2 + 2 ≤ 4</code>. At <code>mod (max %i 0) 4</code> the offset can reach 3, and <code>3 + 2 &gt; 4</code>, so it's rejected. A raw loaded <code>%i</code> could be anything, so it's rejected too.</p>
+<p>The offsets can be any i32 expression, but as with views they must be <b>provably</b> in range, using the same interval check as week 2's views (lesson 2.3): for every axis, <code>lo ≥ 0</code> and <code>hi + s ≤ size</code>. A window of 2 over 4 elements at offset <code>mod %i 3</code> is fine, since <code>mod</code> floors, so the offset is in <code>[0, 2]</code> whatever <code>%i</code> is, and <code>2 + 2 ≤ 4</code>. At <code>mod %i 4</code> the offset can reach 3, and <code>3 + 2 &gt; 4</code>, so it's rejected. A raw loaded <code>%i</code> could be anything, so it's rejected too.</p>
 </div>
 
 <div class="note">
@@ -120,13 +120,13 @@
 <div class="quiz" data-answer="a">
 <p class="q"><code>%v</code> has shape <code>(4,)</code> and <code>%i</code> is a loaded i32. Which <code>shrink %v %o shape=[2]</code> is valid?</p>
 <div class="opts">
-<button data-k="a"><code>%o = mod (max %i 0) 3</code></button>
-<button data-k="b"><code>%o = mod (max %i 0) 4</code></button>
+<button data-k="a"><code>%o = mod %i 3</code></button>
+<button data-k="b"><code>%o = mod %i 4</code></button>
 <button data-k="c"><code>%o = %i</code></button>
 <button data-k="d">None: shrink offsets must be constants.</button>
 </div>
 <p class="hint">The rule is <code>lo ≥ 0</code> and <code>hi + 2 ≤ 4</code>. What's each offset's interval?</p>
-<div class="why"><p><code>mod (max %i 0) 3</code> is in <code>[0, 2]</code>, and <code>2 + 2 ≤ 4</code>. With <code>mod ... 4</code> it can reach 3, and a raw load can be anything, so both are rejected. Offsets can be symbolic as long as they're provable.</p></div>
+<div class="why"><p><code>mod %i 3</code> is in <code>[0, 2]</code>, even for a negative <code>%i</code>, and <code>2 + 2 ≤ 4</code>. With <code>mod ... 4</code> it can reach 3, and a raw load can be anything, so both are rejected. Offsets can be symbolic as long as they're provable.</p></div>
 </div>
 
 <div class="quiz" data-fill="2 2 2 | (2, 2, 2) | [2 2 2] | 2, 2, 2 | (2,2,2)">

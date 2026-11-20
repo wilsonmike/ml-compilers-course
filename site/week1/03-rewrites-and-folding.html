@@ -53,7 +53,7 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 <h2>Watch it, one rule per step</h2>
 <p class="prose">This is the program being simplified. Use the buttons or the arrow keys. A bold outline means a pattern matched. Green means the rule just built that node. Faded nodes are no longer used by anything.</p>
 <div class="split bleed">
-<pre><code>%x   = param 0 dtype=i32
+<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
 %a   = add 2 3
 %b   = add 4 %a
 %c   = mul %b %x
@@ -74,20 +74,20 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 <div class="prose">
 
 <h2>Constant folding</h2>
-<p><strong>Constant folding</strong> is the rule family "every input is a <code>const</code>, so compute the answer now." For each arithmetic or logic op (the spec calls these ALU ops) it's one rule, and it evaluates the op with <em>exactly the same semantics as your interpreter</em>: i32 wraps around, f32 rounds to nearest-even, division truncates toward zero.</p>
+<p><strong>Constant folding</strong> is the rule family "every input is a <code>const</code>, so compute the answer now." For each arithmetic or logic op (the spec calls these ALU ops) it's one rule, and it evaluates the op with <em>exactly the same semantics as your interpreter</em>: i32 wraps around, division floors, and <code>shl</code> shifts by its amount mod 32.</p>
 <p>That last part matters. If your folder computes <code>mul 1073741824 4</code> with 64-bit integers, it gets <code>4294967296</code>, which isn't an i32. The interpreter would give <code>0</code>. A simplifier that changes the answer is a bug, so share one implementation of each op between folding and interpreting.</p>
 </div>
 
 <div class="trap">
-<span class="label">Don't fold errors into values</span>
-<p><code>div 1 0</code> has two constant inputs, so the folding rule matches it. But there's no i32 that is "one divided by zero". It's a runtime error, and a program whose asserts depend on it must exit 2. If your folder catches the error and returns something like <code>const 0</code>, the program silently "works". The right move is to <strong>not fire</strong>: leave <code>div 1 0</code> in the graph, and let evaluation report it.</p>
+<span class="label">Folding can't fail, so don't crash</span>
+<p><code>div 1 0</code> has two constant inputs, so the folding rule matches it. In .uir that's an ordinary value: <code>div x 0</code> is -1 and <code>mod x 0</code> is <code>x</code>, so it folds to <code>-1</code>, and <code>mod 7 0</code> folds to <code>7</code>. Every week 1 op is defined on every input, so constant folding always produces a constant. The danger is your own language. <span class="only-ocaml">OCaml's <code>/</code> raises <code>Division_by_zero</code></span><span class="only-python">Python's <code>//</code> raises <code>ZeroDivisionError</code></span>, so a folder that calls it directly crashes on a valid program. Fold with the same function your interpreter uses.</p>
 </div>
 
 <div class="prose">
 <h2>Canonicalization: one way to write it</h2>
 <p><code>add 3 %x</code> and <code>add %x 3</code> mean the same thing. Without help, every rule would need two versions, one for each side. Instead we add one <strong>canonicalization</strong> rule for each commutative op (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>):</p>
 <pre><code>op(c, x) → op(x, c)      when c is a const and x is not</code></pre>
-<p class="muted"><code>max</code> is only commutative because the spec pins down its two tricky f32 cases: <code>max(-0.0, 0.0)</code> is <code>+0.0</code> in either order, and a NaN on either side gives NaN. A naive <code>if a &gt; b then a else b</code> returns <code>b</code> in both cases, so swapping the operands changes the answer. That matters, because <code>recip -0.0</code> is <code>-inf</code> and <code>recip 0.0</code> is <code>inf</code>.</p>
+<p class="muted">On i32 and bool all four really are commutative. When floats arrive in week 2, <code>max</code> stays commutative only because the spec pins down its <code>-0.0</code> and NaN cases, and that lesson comes back to it.</p>
 <p>Now every other rule can assume constants sit on the right. Canonical forms also help hash consing, because two equivalent expressions are more likely to become the <em>same</em> node.</p>
 
 <h2>Why hash consing makes this cheap</h2>
@@ -159,7 +159,7 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 
 <div class="quiz" data-fill="1">
 <p class="q">How many ops (non-const, non-param nodes) are left after simplifying this?</p>
-<pre><code>%x   = param 0 dtype=i32
+<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
 %a   = add 2 3
 %b   = mul %a %x
 %out = add %b 0</code></pre>
@@ -178,23 +178,20 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 <div class="quiz" data-answer="c">
 <p class="q">The folding rule matches <code>div 1 0</code>. What should the simplifier do?</p>
 <div class="opts">
-<button data-k="a">Replace it with <code>const 0</code></button>
-<button data-k="b">Exit 2 immediately, since the program is invalid</button>
-<button data-k="c">Leave the node alone and let evaluation report the error</button>
-<button data-k="d">Replace it with <code>const inf</code></button>
+<button data-k="a">Replace it with <code>0</code></button>
+<button data-k="b">Reject the program, since it divides by zero</button>
+<button data-k="c">Replace it with <code>-1</code></button>
+<button data-k="d">Leave the node alone, since folding it would raise an error</button>
 </div>
-<p class="hint">Is <code>div 1 0</code> always an error, or only when an assert needs its value?</p>
-<p class="hint">The simplifier only sees one node at a time. It can't know whether anything depends on it.</p>
-<div class="why"><p>Only programs that <em>depend</em> on the error are invalid, and the simplifier can't know that by looking at one node (an unused <code>div 1 0</code> is fine). Leaving the node in place keeps the error exactly where the interpreter will find it.</p></div>
+<p class="hint">Is division by zero an error in .uir at all? Look at what the spec says <code>div x 0</code> is.</p>
+<div class="why"><p><code>div x 0</code> is -1 for every <code>x</code>, so <code>div 1 0</code> is just the constant -1. Nothing in week 1 can fail at run time, so folding never has a reason to hold back.</p></div>
 </div>
 
-<div class="quiz" data-fill="0">
-<p class="q">Predict the exit code of <code>run</code> on this program.</p>
-<pre><code>%d = div 1 0
-%t = assert 1 1</code></pre>
-<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">check</button></div>
-<p class="hint">Which nodes do the asserts actually depend on?</p>
-<div class="why"><p>Exit 0. The roots are the asserts, and <code>assert 1 1</code> doesn't depend on <code>%d</code>, so <code>%d</code> is never evaluated. (It is still type-checked. <code>div 1 0</code> is well typed.)</p></div>
+<div class="quiz" data-fill="7">
+<p class="q">What constant does the folder build for <code>mod 7 0</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
+<p class="hint">The spec defines <code>mod x 0</code> so that it can't fail. What's the one answer that keeps <code>x = y * (x div y) + (x mod y)</code> true when <code>y</code> is 0?</p>
+<div class="why"><p><code>mod x 0</code> is <code>x</code>, so the answer is 7. With <code>y = 0</code>, the identity <code>x = y * q + r</code> becomes <code>x = r</code>, whatever the quotient is.</p></div>
 </div>
 
 <div class="quiz" data-answer="b">
@@ -223,7 +220,7 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 
 <div class="quiz" data-fill="2">
 <p class="q">How many ops are left after simplifying this?</p>
-<pre><code>%x   = param 0 dtype=i32
+<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
 %a   = add %x 1
 %b   = add %x 1
 %out = mul %a %b</code></pre>
@@ -249,12 +246,12 @@ document.addEventListener('DOMContentLoaded', () => {
     { caption: 'Sources first, the first node with a match is <code>add 2 3</code>. Rule: <code>add(c1, c2) → const(c1 + c2)</code>.',
       nodes: [x(), N('c2', '2', [], 'hit'), N('c3', '3', [], 'hit'), N('c4', '4'), N('c0', '0'), N('a', 'add', ['c2', 'c3'], 'hit'), N('b', 'add', ['c4', 'a']),
               N('c', 'mul', ['b', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
-    { caption: 'Built <code>const 5</code>. The old <code>add</code> and its inputs are unused now.',
+    { caption: 'Built the constant <code>5</code>. The old <code>add</code> and its inputs are unused now.',
       nodes: [x(), N('c2', '2', [], 'dead'), N('c3', '3', [], 'dead'), N('a', 'add', ['c2', 'c3'], 'dead'), N('c4', '4'), N('k5', '5', [], 'new'), N('c0', '0'),
               N('b', 'add', ['c4', 'k5']), N('c', 'mul', ['b', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
     { caption: 'Next up: <code>add 4 5</code>. It can fold because its source was simplified first.',
       nodes: [x(), N('c4', '4', [], 'hit'), N('k5', '5', [], 'hit'), N('c0', '0'), N('b', 'add', ['c4', 'k5'], 'hit'), N('c', 'mul', ['b', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
-    { caption: 'Built <code>const 9</code>.',
+    { caption: 'Built the constant <code>9</code>.',
       nodes: [x(), N('c4', '4', [], 'dead'), N('k5', '5', [], 'dead'), N('b', 'add', ['c4', 'k5'], 'dead'), N('k9', '9', [], 'new'), N('c0', '0'),
               N('c', 'mul', ['k9', 'x']), N('out', 'add', ['c', 'c0'], '', '%out')] },
     { caption: '<code>mul 9 %x</code> has its const on the left. Canonicalize: <code>mul(c, x) → mul(x, c)</code>.',
@@ -270,9 +267,9 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
   CC.stepper(document.getElementById('steps'), steps, (s, body) => body.append(CC.graph(s.nodes)));
 
-  const hc = document.getElementById('hc'), src = '%x = param 0 dtype=i32\n%a = add %x 1\n%b = add %x 1\n%out = mul %a %b';
+  const hc = document.getElementById('hc'), src = '%x = param [] slot=0 dtype=i32 addrspace=ALU\n%a = add %x 1\n%b = add %x 1\n%out = mul %a %b';
   hc.replaceChildren(CC.h('div', { class: 'head' }, CC.h('span', { class: 'title', text: hc.dataset.title })),
-    CC.h('div', { class: 'body split' }, CC.code(src), CC.graph(CC.parseUir(src).nodes)));
+    CC.h('div', { class: 'body split' }, CC.code(src), CC.graph(CC.parseUir(src).nodes.map(n => n.op === 'param' ? { ...n, sub: '0 i32' } : n))));
 });
 </script>
 </body>

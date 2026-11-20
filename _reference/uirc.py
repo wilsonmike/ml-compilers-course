@@ -795,6 +795,7 @@ def build_param(src, attrs, need):
   need(dt in DTYPES() and dt != 'i8', f"bad dtype {dt}")
   need(attrs['addrspace'] == 'ALU', "a param lives in addrspace=ALU")
   if WEEK == 1: need(dims == [], "week 1 params are scalars: shape []")
+  need(len(dims) <= 1, "params have rank 0 or 1")
   if len(src) > 1:
     lim = src[1]
     need(dt in ('i32', 'bool'), "limits are for i32 and bool params")

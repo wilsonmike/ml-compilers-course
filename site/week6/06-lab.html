@@ -45,19 +45,19 @@
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 6 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td>New ops: <code>exp2</code>, <code>log2</code>, <code>sqrt</code>, <code>sin</code> (exactly as the spec defines them), <code>bitcast</code>, <code>detach</code>, <code>gradient</code>. New sugar: <code>neg</code>, <code>sub</code>, <code>fdiv</code>, <code>relu</code>, <code>exp</code>, <code>log</code>, <code>floor</code>, <code>cmpeq</code>, <code>matmul</code>. Buffers may take <code>url=</code> and <code>sha256=</code>, read relative to the program's folder. Op names may contain digits. New static errors (exit 2) include a math op on i32, <code>cmpeq</code> on f32, <code>fdiv</code> on i32, a gradient with a non-scalar loss or with respect to a literal, a call, load or <code>reduce op=mul</code> on a gradient path, a missing data file, a hash or size mismatch, and a <code>..</code> in a url.</td></tr>
+<tr><td><code>your.exe FILE...</code></td><td>New ops: <code>exp2</code>, <code>log2</code>, <code>sqrt</code>, <code>sin</code> (exactly as the spec defines them), <code>bitcast</code>, <code>detach</code>, <code>gradient</code>. New sugar: <code>neg</code>, <code>sub</code>, <code>fdiv</code>, <code>relu</code>, <code>exp</code>, <code>log</code>, <code>floor</code>, <code>cmpeq</code>, <code>matmul</code>. Buffers may take <code>url=</code> and <code>sha256=</code>, read relative to the program's folder. Op names may contain digits. New REJECTED cases include a math op on i32, <code>cmpeq</code> on f32, <code>fdiv</code> on i32, a gradient with a non-scalar loss or with respect to a literal, a call, load or <code>reduce op=mul</code> on a gradient path, a missing data file, a hash or size mismatch, and a <code>..</code> in a url.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>Math ops become their exact steps in C (inline, or one C function per op). <code>bitcast</code> uses <code>memcpy</code> and turns any NaN into <code>0x7fc00000</code>. The harness fills <code>url=</code> buffers before calling your kernel. A store whose value reads the buffer it overwrites must still use the old contents.</td></tr>
 </tbody></table></div>
 
 <div class="prose">
 <h2>How the tests are graded</h2>
-<p><code># expect:</code> and <code># render</code> tests work as before. Three headers are new:</p>
+<p>Run tests (outcome in the file name) and <code># render</code> tests work as before. Three headers are new:</p>
 <ul>
 <li><code># render check: slot S &gt;= V</code>: the grader reads element 0 of slot <code>S</code> after your kernel runs and needs it to be at least <code>V</code>. The MNIST test uses it for accuracy, and <code>r_url_check</code> uses it on a small example. Nothing else is compared, because no two compilers are required to train to the same bits.</li>
 <li><code># time: T</code>: your compiler's render, the C compile and the kernel each get <code>T</code> seconds instead of 10. MNIST gets 120.</li>
 <li><code># max_bytes: B</code>: the size limit on your C, raised for MNIST's 50 written-out steps.</li>
 </ul>
-<p>The run tests check exact bits: the math ops against their definitions, each gradient against the rules and the share order, every sugar against its expansion. Several tests come in pairs: <code>*_one_ulp_off</code> asserts one value one ulp (one unit in the last place) away from the right one and is marked to fail. A compiler that is only close makes that assert pass, so the test catches it.</p>
+<p>The run tests check exact bits: the math ops against their definitions, each gradient against the rules and the share order, every sugar against its expansion. Several tests come in pairs: <code>mismatch_*_one_ulp_off</code> asserts one value one ulp (one unit in the last place) away from the right one, so the right outcome is MISMATCH. A compiler that is only close prints MATCH for it, so the test catches it.</p>
 
 <h2>Running the suite</h2>
 <p>Stuck on a failing test? The <a href="../resources/tests-week6.html">week 6 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week6.html">week 6 study guide</a> has a cheat sheet and a step-by-step way out.</p>
@@ -78,7 +78,7 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 
 <h2>Write your 10 tests</h2>
 <p>Ten tests in <code>path/to/your-repo/tests/week6/</code>. Check them against the oracle:</p>
-<pre><code>python tools/test.py --check-tests path/to/your-repo/tests/week6</code></pre>
+<pre><code>python tools/test.py --check-tests path/to/your-repo/tests/week6 --week 6</code></pre>
 <p>Good targets: an exp2 result in the subnormal range, log2 on both sides of the 1.414 fold, sin of a negative number of turns, and a <code>bitcast</code> of a NaN made by arithmetic. For gradients, try a node used three times with values whose sum depends on the order, a gradient of a gradient, and an x that the loss reaches only through an i32 cast. Then a file whose size is off by one byte, and an in-place update whose render would be wrong if fused.</p>
 </div>
 
@@ -86,9 +86,9 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <ol class="build">
 <li><h3>Digits in op names, bitcast, detach</h3><p>The parser accepts <code>exp2</code>. <code>bitcast</code> reinterprets 32 bits, mapping every NaN to <code>0x7fc00000</code>. <code>detach</code> is the identity, for now.</p><p class="check">Checkpoint: the <code>bitcast_*</code> and <code>detach_*</code> tests pass, and weeks 1 to 5 still pass.</p></li>
 <li><h3>floor, then exp2</h3><p>Build <code>floor</code> as sugar from the spec's 12 lines, then <code>exp2</code> exactly as written. Keep exp2 as one node, and evaluate it with its body.</p><p class="check">Checkpoint: <code>exp2_*</code> and <code>sugar_floor*</code> pass, including the subnormal results.</p></li>
-<li><h3>log2, sqrt, sin</h3><p>Same approach. Compare against <code>python _reference/uirc.py run</code> on your own one-line programs when a bit is off. A wrong constant or a swapped operand shows up immediately.</p><p class="check">Checkpoint: every math run test passes, including the special values.</p></li>
+<li><h3>log2, sqrt, sin</h3><p>Same approach. Compare against <code>python _reference/uirc.py --week=6</code> on your own small programs when a bit is off. A wrong constant or a swapped operand shows up immediately.</p><p class="check">Checkpoint: every math run test passes, including the special values.</p></li>
 <li><h3>The rest of the sugar</h3><p><code>neg</code>, <code>sub</code>, <code>fdiv</code>, <code>relu</code>, <code>exp</code>, <code>log</code>, <code>cmpeq</code>, <code>matmul</code>, each expanded in the parser.</p><p class="check">Checkpoint: every <code>sugar_*</code> test passes.</p></li>
-<li><h3>Gradient, elementwise</h3><p>Compute which nodes reach x, check the path, then walk the reverse post-order, adding shares in arrival order. Start with <code>add</code>, <code>mul</code> and the math ops, then <code>max</code>, <code>where</code>, <code>recip</code> and the casts.</p><p class="check">Checkpoint: the scalar <code>grad_*</code> tests and every <code>err_grad_*</code> test pass.</p></li>
+<li><h3>Gradient, elementwise</h3><p>Compute which nodes reach x, check the path, then walk the reverse post-order, adding shares in arrival order. Start with <code>add</code>, <code>mul</code> and the math ops, then <code>max</code>, <code>where</code>, <code>recip</code> and the casts.</p><p class="check">Checkpoint: the scalar <code>grad_*</code> tests and every <code>rejected_grad_*</code> test pass.</p></li>
 <li><h3>Gradient through shapes</h3><p>Reshape, permute, pad, shrink, expand, reduce add and max, stack, index, stage.</p><p class="check">Checkpoint: every week 6 run test passes.</p></li>
 <li><h3>File buffers</h3><p>Resolve the path against the program's folder, reject <code>..</code>, check SHA-256 and size, decode little-endian. <span class="only-python"><code>hashlib.sha256</code> is in the standard library.</span><span class="only-ocaml">OCaml's standard library has no SHA-256. Write one (it's about 60 lines, and a good exercise), or run <code>sha256sum</code>.</span></p><p class="check">Checkpoint: the <code>url_*</code> tests pass.</p></li>
 <li><h3>Render</h3><p>Lower math ops to their bodies, render <code>bitcast</code> with <code>memcpy</code>, and stage a stored value that reads the buffer it overwrites.</p><p class="check">Checkpoint: every render test except MNIST passes.</p></li>

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Week 1 Lab</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Build a compiler that parses .uir, type-checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You&#x27;re done...">
+<meta name="description" content="Build a compiler that parses .uir, checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You&#x27;re done when...">
 <link rel="canonical" href="https://sharpterminal.com/site/week1/06-lab">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Week 1 Lab">
-<meta property="og:description" content="Build a compiler that parses .uir, type-checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You&#x27;re done when every week 1 test passes and...">
+<meta property="og:description" content="Build a compiler that parses .uir, checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You&#x27;re done when every week 1 test passes and you&#x27;ve...">
 <meta property="og:url" content="https://sharpterminal.com/site/week1/06-lab">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -40,37 +40,37 @@
 <main>
 <p class="eyebrow">Week 1 · Lesson 6</p>
 <h1>The week 1 lab</h1>
-<p class="lede">Build a compiler that parses .uir, type-checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You're done when every week 1 test passes and you've written 10 tests of your own.</p>
+<p class="lede">Build a compiler that parses .uir, checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You're done when every week 1 test passes and you've written 10 tests of your own.</p>
 
 <div class="prose">
 <h2>What you're building</h2>
 <ul>
-<li><strong>A parser</strong> for the .uir lines in <a href="../../spec/uir-week1.md">spec/uir-week1.md</a>: names, ops, literals, <code>key=value</code> attributes.</li>
+<li><strong>A parser</strong> for the .uir tokens and grammar in <a href="../../spec/uir-week1.md">spec/uir-week1.md</a>: definitions, names, ops, decimal and hex literals, brackets and <code>key=value</code> attributes.</li>
 <li><strong>Hash-consed UOps.</strong> One constructor that returns the existing node whenever the same <code>(op, src, arg)</code>, where dtype and shape are part of the key, was built before. Everything else depends on this.</li>
-<li><strong>A type checker</strong> that gives every node a dtype and a shape, and rejects bad programs (exit 2) before anything runs.</li>
-<li><strong>A memoized interpreter</strong> that evaluates the asserts in file order, with i32 wrapping, f32 rounding, C-style div and mod and per-call evaluation for <code>call</code>/<code>param</code>.</li>
+<li><strong>A validator</strong> that gives every node a dtype, a shape and bounds, checks index safety, call arguments, limits and the test-file rules, and says <code>REJECTED</code> before anything runs. Around it, the budgets: bytes, nodes and edges, and static cost, each one <code>OVERBUDGET</code>.</li>
+<li><strong>A memoized interpreter</strong> that evaluates the assert, with i32 wrapping, floor div and mod, shifts by <code>y mod 32</code> and per-call evaluation for <code>call</code>/<code>param</code>.</li>
 <li><strong>A rewrite-based simplifier</strong>: a sources-first rewrite engine run to a fixpoint, with constant folding, canonicalization, identities and bounds-powered rules.</li>
 </ul>
 
 </div>
 
 <h2>Warm up</h2>
-<p class="prose">Five minutes in .uir before the big build. It makes you use C-style <code>div</code> and <code>mod</code> exactly as your interpreter will have to.</p>
-<div class="exercise small" data-ex="w1-06-floor-div">
-<h3>Floor division from C division</h3>
-<p><code>div</code> truncates toward zero, so <code>div -7 2</code> is <code>-3</code>. Python's <code>//</code> floors, so <code>-7 // 2</code> is <code>-4</code>. Build floor division for i32 params <code>a</code> and <code>b</code> (b is never 0) from <code>div</code>, <code>mod</code>, <code>cmplt</code>, <code>xor</code>, <code>where</code> and <code>add</code> (there's no subtract, so <code>add %q -1</code>).</p>
-<p class="muted">The two only differ when the remainder is nonzero and its sign differs from <code>b</code>'s.</p>
+<p class="prose">Five minutes in .uir before the big build. It makes you use floor <code>div</code> and <code>mod</code> exactly as your interpreter will have to.</p>
+<div class="exercise small" data-ex="w1-06-trunc-div">
+<h3>C's division from floor division</h3>
+<p><code>div</code> floors, so <code>div -7 2</code> is <code>-4</code>. C's <code>/</code> truncates toward zero, so <code>-7 / 2</code> is <code>-3</code> in C. You'll render C in week 2, so it pays to know exactly where they differ. Build C's truncating division as <code>%out</code> for i32 params <code>a</code> and <code>b</code> (b is never 0) from <code>div</code>, <code>mod</code>, <code>cmplt</code>, <code>xor</code>, <code>where</code> and <code>add</code>.</p>
+<p class="muted">The two only differ when the remainder is nonzero and <code>a</code> and <code>b</code> have opposite signs. Then truncation is one higher.</p>
 </div>
 
 <div class="prose">
 <h2>The command-line contract</h2>
-<p>The grader sees your exit code, your stdout (for <code>simplify</code>), and your stderr (the <code>invalid:</code> and <code>assert failed:</code> lines). A crash is not an answer: exit 2 only counts if stderr has a line starting <code>invalid:</code>, so an uncaught exception (<span class="only-ocaml"><code>Fatal error: exception ...</code></span><span class="only-python">a Python traceback</span>) fails the test.</p>
+<p>The official course runs your compiler as <code>./compile FILE...</code>. Yours can have any name: the grader takes its path. What the grader reads is your stdout, one line per file. The exit code and stderr aren't graded, so print whatever diagnosis helps you on stderr. A crash is not an answer: an uncaught exception (<span class="only-ocaml"><code>Fatal error: exception ...</code></span><span class="only-python">a Python traceback</span>) prints no outcome line, and the test fails.</p>
 </div>
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>result</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td>Exit <code>0</code> if every assert passed. Exit <code>1</code> if one failed: print <code>assert failed: %name</code> to stderr, naming the <em>first</em> failure in file order. Exit <code>2</code> for an invalid program: a parse error, type error, undefined name or runtime error that an assert depends on. Print a line starting <code>invalid:</code> to stderr. Every statement is type-checked first. Then asserts run in file order and stop at the first one that fails (exit 1) or errors (exit 2).</td></tr>
-<tr><td><code>your.exe simplify FILE</code></td><td>Print a valid .uir program to stdout that defines <code>%out</code> with the same dtype and shape, and computes the same value wherever the original doesn't error. It's graded on equivalence (every edge value in every param slot, f32 compared bit for bit) and on an op budget, <code>max_ops</code>, counted on the statements you print: duplicate statements count twice, so hash cons your output.</td></tr>
+<tr><td><code>./compile FILE...</code></td><td>For each file, print one line to stdout: <code>MATCH</code>, <code>MISMATCH</code>, <code>REJECTED</code> or <code>OVERBUDGET</code>, one space, and the path exactly as it was given. Decide in the spec's order and stop at the first outcome: over 4096 bytes, then parse, then 100 nodes or 300 edges, then validation, then a static cost of 1,000,000, then run. The grader runs one test at a time, copied to a file named <code>case.uir</code>.</td></tr>
+<tr><td><code>./compile simplify FILE</code></td><td>Print a valid .uir program to stdout that defines <code>%out</code> with the same dtype and shape, and computes the same value for every input inside the params' limits, then exit 0. It's graded on equivalence (every edge value in every param slot, plus random values) and on an op budget, <code>max_ops</code>, counted on the op bindings you print: duplicate bindings count twice, so hash cons your output.</td></tr>
 </tbody></table></div>
 
 <div class="prose">
@@ -80,50 +80,48 @@
 <pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 1
 python tools/test.py --compiler "C:/path/to/your.exe" --week 1 -k div     # only tests whose name contains "div"
 python tools/test.py --compiler "C:/path/to/your.exe" --week 1 -v         # show what differed
-python tools/test.py --compiler "C:/path/to/your.exe" --week 1 --jobs 1   # one test at a time</code></pre>
+python tools/test.py --compiler "C:/path/to/your.exe" --week 1 --jobs 1   # one test at a time
+python _reference/uirc.py --week=1 FILE...                                 # the oracle's outcome for any file</code></pre>
 <p class="only-ocaml">Pass the built executable (for dune, <code>_build/default/bin/main.exe</code>), not <code>dune exec</code>: the suite runs tests in parallel, and parallel <code>dune exec</code> calls fight over dune's build lock.</p>
-<p class="only-python">Pass your wrapper from <a href="../week0/07-python.html">lesson 0.7</a>: <code>C:/path/to/my-ml-compiler/mlc.cmd</code> on Windows, or the executable <code>mlc</code> script on macOS and Linux. The runner calls it as <code>mlc.cmd run FILE</code> from the course repo, so the wrapper must find your package from any folder.</p>
-<p>Tests live in <code>tests/week1/run/</code> and <code>tests/week1/simplify/</code>, and you <em>should</em> read them. Each one is a small, readable .uir file.</p>
+<p class="only-python">Pass your wrapper from <a href="../week0/07-python.html">lesson 0.7</a>: <code>C:/path/to/my-ml-compiler/mlc.cmd</code> on Windows, or the executable <code>mlc</code> script on macOS and Linux. The runner calls it as <code>mlc.cmd FILE</code> and <code>mlc.cmd simplify FILE</code> from the course repo, so the wrapper must find your package from any folder.</p>
+<p>Tests live in <code>tests/week1/run/</code> and <code>tests/week1/simplify/</code>, and you <em>should</em> read them. Each one is a small, readable .uir file whose first comment says what it checks.</p>
 
 <h2>Write your 10 tests</h2>
-<p>The real course has students hand in 10 tests every week, graded against an oracle. Do the same: put them in <code>&lt;your compiler repo&gt;/tests/week1/</code>, one <code>.uir</code> file each, starting with a header.</p>
-<pre><code># expect: pass
-# C division truncates toward zero, and mod takes the sign of the dividend
-%a = div -7 2
-%t = assert %a -3
-%b = mod -7 2
-%u = assert %b -1</code></pre>
-<p><code># expect:</code> is <code>pass</code>, <code>assert_fail</code> or <code>invalid</code>. A simplify test has no asserts, defines <code>%out</code>, and uses <code># simplify: max_ops=N</code>. Then check them against the oracle. <code>--check-tests</code> confirms each <code># expect:</code> header, and for simplify tests it checks that the oracle's own simplifier reaches your <code>max_ops</code>, so you can't write an impossible target:</p>
-<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week1</code></pre>
-<p>A good test targets one rule you think someone (maybe you) will get wrong: <code>INT_MIN / -1</code>, <code>nan</code> in <code>max</code>, a nested call that reuses slot 0, an <code>index</code> one past the end. A test that every compiler passes teaches nothing.</p>
+<p>The official course has students hand in tests every week, and grades them on how many <em>other</em> students' compilers they catch: a test that every compiler passes earns nothing. Do the same: put 10 in <code>&lt;your compiler repo&gt;/tests/week1/</code>, one <code>.uir</code> file each, following the test-file rules from lesson 2. A test ends with one assert, its expected side is written as a literal, every node is reachable from the assert, and the file name says the outcome. Here's <code>mismatch_div_is_not_c.uir</code>:</p>
+<pre><code>%a = div -7 2
+%t = assert %a -3</code></pre>
+<p>.uir's <code>div -7 2</code> is -4, so the right answer is <code>MISMATCH</code>. A compiler that divides like C prints <code>MATCH</code>, and your test catches it. A simplify test has no assert, defines <code>%out</code>, and starts with <code># simplify: max_ops=N</code>. Then check them against the oracle. <code>--check-tests</code> confirms each file name's outcome, and for simplify tests it checks that the oracle's own simplifier reaches your <code>max_ops</code>, so you can't write an impossible target:</p>
+<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week1 --week 1</code></pre>
+<p>A good test targets one rule you think someone (maybe you) will get wrong: <code>div INT_MIN -1</code>, <code>mod</code> bounds when both ends have the same quotient, a nested call that reuses slot 0, limits that are one too wide for an <code>index</code>, a file of exactly 4096 bytes.</p>
 </div>
 
 <h2>A build order that works</h2>
-<p class="prose">Start small. Your first goal is the two simplest tests: <code>tests/week1/run/basic_add.uir</code> should exit 0 and <code>fail_basic.uir</code> should exit 1. After that, run the whole suite after every step below. Most tests fail at first, and that's expected: each checkpoint says which ones should pass by then.</p>
+<p class="prose">Start small. Your first goal is the two simplest tests: <code>tests/week1/run/basic_add.uir</code> should print <code>MATCH</code> and <code>mismatch_basic.uir</code> should print <code>MISMATCH</code>. After that, run the whole suite after every step below. Most tests fail at first, and that's expected: each checkpoint says which ones should pass by then.</p>
 <ol class="build">
 <li><h3>Set up your repo</h3><p>Make a new folder outside the course repo, then <code>git init</code> inside it. <span class="only-ocaml">Run <code>dune init project mlc</code> there (<a href="../week0/06-ocaml.html">lesson 0.6</a> shows dune).</span><span class="only-python">Add the <code>mlc</code> package and the wrapper script from <a href="../week0/07-python.html">lesson 0.7</a>.</span> Copy <code>templates/AGENTS.md</code> from the course repo into your repo's root: it tells an AI assistant to explain and ask questions but never write your compiler code.</p><p class="check only-ocaml">Checkpoint: <code>dune build</code> succeeds and <code>_build/default/bin/main.exe</code> runs.</p><p class="check only-python">Checkpoint: running the wrapper from the course repo's folder prints your usage message and exits 2.</p></li>
-<li><h3>Parse and print</h3><p>Turn every line into (name, op, operands, attributes). Print each statement back in .uir form and check it matches the input line, ignoring spacing and comments.</p><p class="check">Checkpoint: every file in <code>tests/week1/run/</code> parses or is rejected with exit 2, and none crash.</p></li>
-<li><h3>The hash-consed UOp</h3><p>One table keyed on (op, src, arg), with dtype and shape as part of the key. Sources are already unique, so compare them by identity. <span class="only-ocaml">In OCaml, <code>==</code> is physical equality and <code>=</code> is structural. Generic <code>Hashtbl</code> and <code>compare</code> treat <code>0.0</code> and <code>-0.0</code> as equal, so key float constants by <code>Int32.bits_of_float</code> to keep them apart.</span><span class="only-python">In Python, <code>is</code> is identity, and <code>==</code> on a dataclass compares every field. Key float constants by their bits, so <code>0.0</code> and <code>-0.0</code> stay apart.</span> Know which one you're using.</p><p class="check">Checkpoint: building <code>add x 1</code> twice returns the same physical node.</p></li>
-<li><h3>Types</h3><p>dtype and shape for every op, following the table in the spec. No implicit conversions.</p><p class="check">Checkpoint: all <code>expect: invalid</code> type-error tests exit 2.</p></li>
-<li><h3>Interpreter</h3><p>Evaluate the asserts in file order, with each node computed once. Look these up for your language: how to do 32-bit wrapping arithmetic <span class="only-ocaml">(OCaml's native <code>int</code> is 63 bits)</span><span class="only-python">(Python ints never overflow)</span>, and how to round a double to binary32 <span class="only-ocaml">(OCaml floats are doubles, so see <code>Int32.bits_of_float</code>)</span><span class="only-python">(Python floats are doubles, so see <code>struct</code> in lesson 0.7)</span>.<span class="only-python"> A deep chain of nodes will hit Python's recursion limit, so walk it with your own stack or raise the limit.</span></p><p class="check">Checkpoint: the arithmetic tests pass, and the deep shared-DAG test finishes in milliseconds.</p></li>
-<li><h3>call and param</h3><p>Evaluate a body with an environment (a map from slot number to value for the current call). Keep the memo per call. Bodies are closed.</p><p class="check">Checkpoint: the nested-call tests pass, including the ones that reuse slot 0.</p></li>
+<li><h3>Parse and print</h3><p>Split the file into tokens, then group them into bindings with the grammar. Remember that a newline is just whitespace and <code>%x=</code> is one token. Print each binding back in .uir form and check it matches the input, ignoring spacing and comments. Count bytes before you parse, and nodes and edges right after.</p><p class="check">Checkpoint: every file in <code>tests/week1/run/</code> parses or is <code>REJECTED</code>, none crash, and the <code>overbudget_bytes</code>, <code>overbudget_nodes</code> and <code>overbudget_edges</code> tests pass.</p></li>
+<li><h3>The hash-consed UOp</h3><p>One table keyed on (op, src, arg), with dtype and shape as part of the key. Sources are already unique, so compare them by identity. <span class="only-ocaml">In OCaml, <code>==</code> is physical equality and <code>=</code> is structural.</span><span class="only-python">In Python, <code>is</code> is identity, and <code>==</code> on a dataclass compares every field.</span> Know which one you're using. <code>[1 2]</code> and <code>stack 1 2</code> must come out as one node.</p><p class="check">Checkpoint: building <code>add x 1</code> twice returns the same physical node.</p></li>
+<li><h3>Types and test-file rules</h3><p>dtype and shape for every op, following the table in the spec. No implicit conversions. Then the test-file rules: one final assert, a literal expected side, a scalar left side, every node reachable.</p><p class="check">Checkpoint: the <code>rejected_</code> tests about dtypes, shapes, attributes and asserts pass.</p></li>
+<li><h3>Interpreter</h3><p>Evaluate the assert, with each node computed once. Look up how to do 32-bit wrapping arithmetic in your language <span class="only-ocaml">(OCaml's native <code>int</code> is 63 bits)</span><span class="only-python">(Python ints never overflow)</span>, and check your division against the floor table in lesson 2, zero divisors included.<span class="only-python"> A deep chain of nodes will hit Python's recursion limit, so walk it with your own stack or raise the limit.</span></p><p class="check">Checkpoint: the arithmetic tests pass, and <code>dag_sharing</code> finishes in milliseconds.</p></li>
+<li><h3>call and param</h3><p>Evaluate a body with an environment (a map from slot number to value for the current call). Keep the memo per call. Bodies are closed. Check that each used slot has one param node and an arg of the right dtype, and reject a param outside any call.</p><p class="check">Checkpoint: the <code>call_</code> tests pass, including the ones that reuse slot 0.</p></li>
+<li><h3>Bounds and cost</h3><p>Give every node bounds with the rules in spec section 5, exactly as written. Reject an index whose bounds don't fit its axis, and a call whose args don't fit their params' limits. Then add up the static cost.</p><p class="check">Checkpoint: the <code>bounds_</code>, <code>limits_</code>, <code>rejected_bounds_</code>, <code>rejected_limits_</code> and cost tests pass.</p></li>
 <li><h3>The rewrite engine</h3><p>A sources-first pass that tries rules at each node, repeated until nothing changes. Start with constant folding, using the <em>same</em> op semantics as the interpreter, then add canonicalization.</p><p class="check">Checkpoint: the folding simplify tests pass their <code>max_ops</code>.</p></li>
-<li><h3>Symbolic rules and bounds</h3><p>i32 identities, f32-safe identities only, call inlining, then interval bounds and the rules they power.</p><p class="check">Checkpoint: every simplify test passes, including the ones designed to catch <code>x * 0</code> on f32 and <code>(x * 2) / 2</code>.</p></li>
+<li><h3>Symbolic rules and bounds</h3><p>i32 identities, call inlining, then the rules that bounds and limits power.</p><p class="check">Checkpoint: every simplify test passes, including the ones designed to catch <code>(x * 2) / 2</code> and <code>x mod 8 → x</code> with limits that are one too wide.</p></li>
 <li><h3>Your 10 tests</h3><p>Write them, and check them with <code>--check-tests</code>. Then try to break your own compiler with them.</p></li>
 </ol>
 
 <h2>Checklist</h2>
 <ul class="checklist" id="checklist">
-<li><label><input type="checkbox" data-k="parse"><span>Parser handles comments, blank lines, literals (<code>3</code>, <code>-7</code>, <code>1.5</code>, <code>1e5</code>, <code>inf</code>, <code>nan</code>, <code>true</code>), lists and attributes</span></label></li>
-<li><label><input type="checkbox" data-k="hc"><span>UOps are hash consed. Identical statements are one node.</span></label></li>
-<li><label><input type="checkbox" data-k="types"><span>Type errors exit 2 before anything is evaluated</span></label></li>
-<li><label><input type="checkbox" data-k="i32"><span>i32 wraps, div truncates, mod follows the dividend, shl range-checked</span></label></li>
-<li><label><input type="checkbox" data-k="f32"><span>f32 rounds after every op, and handles <code>nan</code>, <code>inf</code>, <code>-0.0</code> as specced</span></label></li>
+<li><label><input type="checkbox" data-k="parse"><span>Parser works on tokens: comments, newlines as whitespace, <code>%x=</code>, literals (<code>-7</code>, <code>0xff</code>, <code>007</code>, <code>true</code>), brackets, atom bindings and attributes</span></label></li>
+<li><label><input type="checkbox" data-k="hc"><span>UOps are hash consed. Identical bindings are one node.</span></label></li>
+<li><label><input type="checkbox" data-k="types"><span>Invalid programs are <code>REJECTED</code> before anything is evaluated</span></label></li>
+<li><label><input type="checkbox" data-k="i32"><span>i32 wraps, div and mod floor, <code>div x 0</code> is -1, <code>mod x 0</code> is x, shl shifts by <code>y mod 32</code></span></label></li>
+<li><label><input type="checkbox" data-k="bounds"><span>Bounds follow the spec's rules exactly, and unsafe indexes and limits that don't fit are rejected</span></label></li>
 <li><label><input type="checkbox" data-k="memo"><span>Evaluation is memoized: shared work is done once</span></label></li>
 <li><label><input type="checkbox" data-k="call"><span>call/param with closed bodies, and the memo is kept per call</span></label></li>
-<li><label><input type="checkbox" data-k="exit"><span>Exit codes 0 / 1 / 2, with <code>assert failed: %name</code> on stderr</span></label></li>
-<li><label><input type="checkbox" data-k="rw"><span>Rewrite engine reaches a fixpoint and never folds an error into a value</span></label></li>
-<li><label><input type="checkbox" data-k="sym"><span>Symbolic rules are valid per dtype, and bounds are conservative</span></label></li>
+<li><label><input type="checkbox" data-k="outcome"><span>One <code>OUTCOME FILE</code> line per file, with the checks in the spec's order and every budget enforced</span></label></li>
+<li><label><input type="checkbox" data-k="rw"><span>Rewrite engine reaches a fixpoint and folds with the interpreter's own op semantics</span></label></li>
+<li><label><input type="checkbox" data-k="sym"><span>Symbolic rules hold for every input inside the params' limits</span></label></li>
 <li><label><input type="checkbox" data-k="suite"><span><code>python tools/test.py --compiler ... --week 1</code> passes everything</span></label></li>
 <li><label><input type="checkbox" data-k="mine"><span>10 tests of my own, passing <code>--check-tests</code></span></label></li>
 </ul>
@@ -142,32 +140,28 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1 --jobs 1   # one 
 <h2>Check yourself</h2>
 <p class="score"></p>
 
-<div class="quiz" data-fill="1">
-<p class="q">What exit code should <code>run</code> give?</p>
+<div class="quiz" data-fill="MISMATCH">
+<p class="q">What outcome should your compiler print for this file? Just the outcome word.</p>
 <pre><code>%t = assert 2 3</code></pre>
-<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">check</button></div>
-<p class="hint">Exit 0 means every assert passed, 1 means an assert failed, and 2 means the program is invalid. Which one is this?</p>
-<div class="why"><p><code>1</code>, a failing assert, with <code>assert failed: %t</code> on stderr.</p></div>
+<div class="fill"><input aria-label="outcome"><button class="btn">check</button></div>
+<p class="hint">The file is valid and tiny. It runs, and then the two sides are compared.</p>
+<div class="why"><p><code>MISMATCH</code>: a valid program whose values differ. As a course test it would be named <code>mismatch_something.uir</code>.</p></div>
 </div>
 
-<div class="quiz" data-fill="2">
+<div class="quiz" data-fill="REJECTED">
 <p class="q">And this one?</p>
 <pre><code>%a = add 1 1.0
 %t = assert %a 2</code></pre>
-<div class="fill"><input aria-label="exit code" inputmode="numeric"><button class="btn">check</button></div>
-<p class="hint">Look at the dtypes of <code>1</code> and <code>1.0</code>. Does .uir ever convert between them for you?</p>
-<div class="why"><p><code>2</code>. <code>1</code> is i32 and <code>1.0</code> is f32, and there's no implicit conversion, so it's a type error.</p></div>
+<div class="fill"><input aria-label="outcome"><button class="btn">check</button></div>
+<p class="hint">What dtypes does week 1 have?</p>
+<div class="why"><p><code>REJECTED</code>. Week 1 is i32 and bool only, so <code>1.0</code> isn't a valid literal yet. Even in week 2, adding an i32 to an f32 is a type error, because there's no implicit conversion.</p></div>
 </div>
 
-<div class="quiz" data-fill="%u | u">
-<p class="q">Which assert should the stderr message name?</p>
-<pre><code>%a = add 2 3
-%t = assert %a 5
-%u = assert %a 6
-%v = assert %a 7</code></pre>
-<div class="fill"><input aria-label="your answer" placeholder="%name"><button class="btn">check</button></div>
-<p class="hint">Asserts are checked in file order. Which one is the first to fail?</p>
-<div class="why"><p><code>%u</code>: the first failing assert in file order. <code>%t</code> passes, and both <code>%u</code> and <code>%v</code> fail.</p></div>
+<div class="quiz" data-fill="rejected_">
+<p class="q">You wrote a test your compiler should refuse to run. What must its file name start with?</p>
+<div class="fill"><input aria-label="your answer" placeholder="prefix"><button class="btn">check</button></div>
+<p class="hint">The expected outcome lives in the file name. There's one prefix per outcome except MATCH.</p>
+<div class="why"><p><code>rejected_</code>. The other prefixes are <code>mismatch_</code> and <code>overbudget_</code>, and a name with none of them expects <code>MATCH</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="c">

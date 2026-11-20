@@ -44,7 +44,7 @@
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 7 changes</th></tr></thead>
 <tbody>
-<tr><td><code>your.exe run FILE</code></td><td><code>range</code> takes <code>axis=loop|upcast|thread</code>. Every axis runs as an ordinary loop, except that a private alloc starts at zero in every iteration of its thread loop. New static errors (exit 2): an unknown axis, an upcast bound that isn't a literal from 1 to 32, a thread loop inside a thread loop, and a store (or a load of memory the loop stores into) that isn't at <code>r·S + e</code> with <code>0 ≤ e</code>, <code>e + size ≤ S</code>, one <code>S</code> per buffer.</td></tr>
+<tr><td><code>your.exe FILE...</code></td><td><code>range</code> takes <code>axis=loop|upcast|thread</code>. Every axis runs as an ordinary loop, except that a private alloc starts at zero in every iteration of its thread loop. New REJECTED cases: an unknown axis, an upcast bound that isn't a literal from 1 to 32, a thread loop inside a thread loop, and a store (or a load of memory the loop stores into) that isn't at <code>r·S + e</code> with <code>0 ≤ e</code>, <code>e + size ≤ S</code>, one <code>S</code> per buffer.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>Unroll upcast loops. Outline thread loops into a function and call <code>uir_parallel_for</code>, declared in your C. Private allocs are declared inside the outlined function.</td></tr>
 </tbody></table></div>
 
@@ -64,14 +64,14 @@ python tools/bench.py --compiler "C:/path/to/your.exe" tests/week7/render/s_gemm
 <p>Then run weeks 1 to 6 again, one <code>--week</code> at a time. Pass <span class="only-ocaml">the built executable, not <code>dune exec</code>.</span><span class="only-python">the same wrapper script as in week 1.</span> The speed tests read <code>data/a768.f32</code> and <code>data/b768.f32</code> next to them, 2.4 MB each.</p>
 
 <h2>Write your 10 tests</h2>
-<p>Ten tests in <code>path/to/your-repo/tests/week7/</code>, checked with <code>python tools/test.py --check-tests path/to/your-repo/tests/week7</code>. Good targets: a store at <code>r·S + e</code> where <code>e</code> just fits and one where it's one over, a vector store whose size pushes it out of its slice, a load of a neighbor's element, a private alloc read before it's written, a thread loop inside a plain loop that captures the outer counter, and an upcast loop of 32.</p>
+<p>Ten tests in <code>path/to/your-repo/tests/week7/</code>, checked with <code>python tools/test.py --check-tests path/to/your-repo/tests/week7 --week 7</code>. Good targets: a store at <code>r·S + e</code> where <code>e</code> just fits and one where it's one over, a vector store whose size pushes it out of its slice, a load of a neighbor's element, a private alloc read before it's written, a thread loop inside a plain loop that captures the outer counter, and an upcast loop of 32.</p>
 </div>
 
 <h2>A build order that works</h2>
 <ol class="build">
 <li><h3>Parse axis=</h3><p>Store the axis on the range. Validate it, and check upcast bounds. Treat every axis as a plain loop everywhere else.</p><p class="check">Checkpoint: weeks 1 to 6 pass, and every week 7 run test passes except the thread-rule and private-alloc ones.</p></li>
-<li><h3>The thread rules</h3><p>After linearizing, walk each thread loop's body. Reject nesting. For each store, and each load of memory the body stores into, split the flat offset into a sum of terms, find the one term with <code>r</code>, and bound the rest with your week 1 bounds.</p><p class="check">Checkpoint: every <code>err_thread_*</code> test exits 2, and the valid ones run.</p></li>
-<li><h3>Private allocs</h3><p>An alloc whose every load and store is inside one thread loop is private. Re-zero it at the start of each iteration in <code>run</code>.</p><p class="check">Checkpoint: <code>thread_private_alloc_fresh</code> and <code>loop_alloc_carries_over</code> both pass.</p></li>
+<li><h3>The thread rules</h3><p>After linearizing, walk each thread loop's body. Reject nesting. For each store, and each load of memory the body stores into, split the flat offset into a sum of terms, find the one term with <code>r</code>, and bound the rest with your week 1 bounds.</p><p class="check">Checkpoint: every <code>rejected_thread_*</code> test prints REJECTED, and the valid ones print MATCH.</p></li>
+<li><h3>Private allocs</h3><p>An alloc whose every load and store is inside one thread loop is private. Re-zero it at the start of each iteration when you run the program.</p><p class="check">Checkpoint: <code>thread_private_alloc_fresh</code> and <code>loop_alloc_carries_over</code> both pass.</p></li>
 <li><h3>Render upcast</h3><p>In the emitter, emit an upcast loop's body once per value, with the range as a literal.</p><p class="check">Checkpoint: <code>r_upcast_sum_order</code> and the <code>r_gemm_tiled_*</code> tests pass, bit for bit.</p></li>
 <li><h3>Render thread loops</h3><p>Emit the body into its own list of lines, collect its free names and their C types, and write a struct, a static function and the <code>uir_parallel_for</code> call. Declare private allocs inside the function.</p><p class="check">Checkpoint: every render test passes.</p></li>
 <li><h3>Speed</h3><p>Run the speed tests with <code>-v</code>. If one is slow, compare your C with <code>python _reference/uirc.py render</code>. Look for an upcast loop left as a loop, missing <code>restrict</code>, or a private alloc that ended up shared.</p><p class="check">Checkpoint: all three speed tests pass.</p></li>
@@ -81,7 +81,7 @@ python tools/bench.py --compiler "C:/path/to/your.exe" tests/week7/render/s_gemm
 <ul class="checklist" id="checklist">
 <li><label><input type="checkbox" data-k="parse"><span><code>axis=</code> parses and is validated, and upcast bounds are literals from 1 to 32</span></label></li>
 <li><label><input type="checkbox" data-k="rules"><span>Thread loops: no nesting, and every store (and load of written memory) owns its slice</span></label></li>
-<li><label><input type="checkbox" data-k="private"><span>Private allocs start at zero in every iteration, in <code>run</code> and in render</span></label></li>
+<li><label><input type="checkbox" data-k="private"><span>Private allocs start at zero in every iteration, when run and in render</span></label></li>
 <li><label><input type="checkbox" data-k="upcast"><span>Upcast loops are unrolled in the rendered C</span></label></li>
 <li><label><input type="checkbox" data-k="outline"><span>Thread loops are outlined, with a context struct, and run through <code>uir_parallel_for</code></span></label></li>
 <li><label><input type="checkbox" data-k="speed"><span>The three speed tests pass</span></label></li>

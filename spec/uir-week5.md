@@ -13,7 +13,7 @@ parameters; the rest is our design, provisional until the official format is pub
 * **Memory stays flat.** Buffers, allocs and memory `shrink` views are still rank 0 or 1. You load a
   rank-1 value and `reshape` it; you `reshape` back to rank 1 before a `store`.
 * Elementwise ALU ops, `where`, `cast` and `assert` take operands of one shared shape, any rank.
-* Params keep their week 1 rule (rank 0 or 1).
+* Params keep their week 2 rule: rank 0 or 1.
 
 ## 2. Movement ops (on values)
 

@@ -34,22 +34,26 @@
 python tools/test.py --compiler YOUR_COMPILER --week 1 -k div -v</code></pre>
   <p><code>YOUR_COMPILER</code> is the command that runs your compiler. <span class="only-python">For a Python compiler that's the wrapper script from lesson 0.7, such as <code>"C:/path/to/my-ml-compiler/mlc.cmd"</code> on Windows or <code>~/my-ml-compiler/mlc</code> on macOS and Linux.</span><span class="only-ocaml">For an OCaml compiler it's the path to the executable dune built, such as <code>C:/path/to/_build/default/bin/main.exe</code>.</span></p>
   <p>Each failure is a <code>FAIL</code> line with the test's path, then one or more indented lines saying what was wrong. These are real messages from the grader:</p>
-  <pre><code>FAIL tests/week1/run/i32_div_trunc.uir
-    expected exit 0 (pass), got 1
-    stderr: assert failed: %t0</code></pre>
-  <p>Your compiler said an assert failed, but the oracle says every assert passes. So one of your values is wrong, and <code>%t0</code> is the first assert that saw it.</p>
-  <pre><code>FAIL tests/week1/run/err_div_zero.uir
-    exit 2 is right, but stderr needs a line starting 'invalid:' (an uncaught exception isn't a diagnosis)</code></pre>
-  <p>Your compiler exited 2, but by crashing. OCaml exits 2 on an uncaught exception, so the grader also requires an <code>invalid:</code> line on stderr. Catch your errors and print the reason.<span class="only-python"> In Python an uncaught exception exits 1 instead, so it shows up as a failed assert with no <code>assert failed:</code> line. The fix is the same: catch it, print <code>invalid:</code> and the reason, and exit 2.</span></p>
+  <pre><code>FAIL tests/week1/run/div_floor_1.uir
+    expected MATCH, got MISMATCH</code></pre>
+  <p>Your compiler printed <code>MISMATCH</code>, but the oracle says the assert holds. So one of your values is wrong. A test has one assert, so the wrong value is somewhere under it.</p>
+  <pre><code>FAIL tests/week1/run/div_zero.uir
+    expected one line 'MATCH FILE' on stdout, got ''
+    stderr: Traceback (most recent call last):
+  ...
+ZeroDivisionError: integer division or modulo by zero</code></pre>
+  <p>Your compiler crashed, so it printed no outcome line at all. Here the crash is the bug: .uir defines <code>div x 0</code> as -1, and nothing in week 1 can fail at run time. In OCaml the same crash shows up as <code>Fatal error: exception Division_by_zero</code>. When your compiler rejects a program on purpose, catch your own exception and print <code>REJECTED</code> and the file name.</p>
 
-  <h3>The run contract in one table</h3>
+  <h3>The outcome contract in one table</h3>
+  <p>Your compiler runs as <code>COMPILER FILE...</code> and prints one line per file: the outcome, one space and the path exactly as it was given. The test's file name says which outcome it expects: a <code>mismatch_</code>, <code>rejected_</code> or <code>overbudget_</code> prefix, and <code>MATCH</code> otherwise. The grader hands your compiler a copy named <code>case.uir</code>, so the name tells it nothing.</p>
   <div class="tablewrap">
   <table>
-    <thead><tr><th>exit</th><th>meaning</th><th>stderr must contain</th></tr></thead>
+    <thead><tr><th>outcome</th><th>meaning</th></tr></thead>
     <tbody>
-      <tr><td>0</td><td>every assert passed</td><td>anything</td></tr>
-      <tr><td>1</td><td>an assert failed</td><td>exactly one line <code>assert failed: %name</code>, naming the first failing assert in file order</td></tr>
-      <tr><td>2</td><td>invalid program: parse error, type error or a runtime error an assert depends on</td><td>a line starting with <code>invalid:</code></td></tr>
+      <tr><td><code>MATCH</code></td><td>the program is valid, and the assert's two sides are equal</td></tr>
+      <tr><td><code>MISMATCH</code></td><td>the program is valid, and the two sides differ</td></tr>
+      <tr><td><code>REJECTED</code></td><td>the program breaks a rule: a parse error, a type error, an <code>index</code> that bounds can't prove in range, an argument outside its param's limits, or a broken test-file rule</td></tr>
+      <tr><td><code>OVERBUDGET</code></td><td>week 1 only: over 4096 bytes, 100 or more nodes, 300 or more source edges, or a static cost of 1,000,000 or more</td></tr>
     </tbody>
   </table>
   </div>
@@ -58,14 +62,16 @@ python tools/test.py --compiler YOUR_COMPILER --week 1 -k div -v</code></pre>
   <table>
     <thead><tr><th>message starts with</th><th>look at</th></tr></thead>
     <tbody>
-      <tr><td><code>expected exit 2 (invalid), got 0</code></td><td>a check you don't do yet: a type rule, a bounds proof, an ordering rule. The <code>oracle:</code> line under it says which.</td></tr>
-      <tr><td><code>oracle: a load of an old buffer version is needed after that version was overwritten</code></td><td>week 2's ordering rule. No order of loads and stores works, for example because the offset of a load from the old version depends on the new one (<code>err_old_version_needed_late</code>).</td></tr>
-      <tr><td><code>oracle: two stores into the same buffer version are unordered</code></td><td>week 2: a version takes one store at most. A second store must go into the version the first one's <code>after</code> made (<code>err_two_stores_one_version</code>, <code>err_two_stores_unsequenced_second</code>).</td></tr>
-      <tr><td><code>oracle: a store that no after sequences has no effect</code></td><td>week 2: every store must be named by an <code>after</code>, or the program is invalid (<code>err_unsequenced_store</code>).</td></tr>
+      <tr><td><code>expected REJECTED, got MATCH</code></td><td>a check you don't do yet: a type rule, a bounds proof, a param's limits, an ordering rule. The <code>oracle:</code> line under it says which.</td></tr>
+      <tr><td><code>expected OVERBUDGET, got ...</code></td><td>a budget check you don't do yet, or one done in the wrong order: the file size comes before parsing, the node and edge counts before validation, and the static cost after it (spec section 7)</td></tr>
+      <tr><td><code>print the file path as it was given</code></td><td>your outcome line changed the path: printed it absolute, or with a different separator</td></tr>
+      <tr><td><code>oracle: a load of an old buffer version is needed after that version was overwritten</code></td><td>week 2's ordering rule. No order of loads and stores works, for example because the offset of a load from the old version depends on the new one (<code>rejected_old_version_needed_late</code>).</td></tr>
+      <tr><td><code>oracle: two stores into the same buffer version are unordered</code></td><td>week 2: a version takes one store at most. A second store must go into the version the first one's <code>after</code> made (<code>rejected_two_stores_one_version</code>, <code>rejected_two_stores_unsequenced_second</code>).</td></tr>
+      <tr><td><code>oracle: a store that no after sequences has no effect</code></td><td>week 2: every store must be named by an <code>after</code>, or the program is invalid (<code>rejected_unsequenced_store</code>).</td></tr>
       <tr><td><code>N ops in your output, the target is &lt;= M</code></td><td>a simplification you're missing, or duplicate statements in your output (hash cons what you print)</td></tr>
       <tr><td><code>wrong value: original gives ..., yours gives ...</code></td><td>a rewrite that isn't true for every input. The <code>args:</code> line is the input that breaks it.</td></tr>
-      <tr><td><code>your output is not valid .uir</code></td><td>simplify printed something the oracle can't parse. The usual cause is an f32 constant printed as an integer: <code>add %x 1</code> with an f32 <code>%x</code> fails with <code>add: two operands of the same dtype</code>. Print f32 constants with a decimal point, as <code>1.0</code>.</td></tr>
-      <tr><td><code>%out changed type: f32[] -&gt; i32[]</code></td><td>the same printing bug on <code>%out</code> itself: <code>const 1</code> is an i32, <code>const 1.0</code> an f32</td></tr>
+      <tr><td><code>your output is not valid .uir</code></td><td>simplify printed something the oracle can't parse. The usual cause, from week 2, is an f32 constant printed as an integer: <code>add %x 1</code> with an f32 <code>%x</code> fails with <code>add: two operands of the same dtype</code>. Print f32 constants with a decimal point, as <code>1.0</code>.</td></tr>
+      <tr><td><code>%out changed type: f32[] -&gt; i32[]</code></td><td>the same printing bug on <code>%out</code> itself: <code>1</code> is an i32, <code>1.0</code> an f32</td></tr>
       <tr><td><code>rendered C is N bytes; the limit is 20000</code></td><td>a vector you unrolled instead of looping over</td></tr>
       <tr><td><code>your C doesn't compile</code></td><td>the compiler's error is printed right below, so check names, types and missing semicolons in your printer</td></tr>
       <tr><td><code>your kernel crashed</code></td><td>undefined behavior caught by the sanitizer (see section 5)</td></tr>
@@ -79,29 +85,24 @@ python tools/test.py --compiler YOUR_COMPILER --week 1 -k div -v</code></pre>
 
   <h2>3. Shrink the failing test</h2>
   <p>A test with ten statements has ten places for the bug. Copy it to a scratch file and delete lines until it stops failing, then put back the last thing you removed. What's left is the bug.</p>
-  <p>Here's <code>i32_div_trunc.uir</code>, which failed above:</p>
-  <pre><code>%a = div -7 2
-%t0 = assert %a -3
-%b = div 7 -2
-%t1 = assert %b -3
-%c = div -7 -2
-%t2 = assert %c 3
-%d = div 7 2
-%t3 = assert %d 3</code></pre>
-  <p>The failure named <code>%t0</code>, so keep only what <code>%t0</code> needs:</p>
-  <pre><code>%a = div -7 2
-%t0 = assert %a -3</code></pre>
-  <p>Ask the oracle what should happen, then try your own guess for the value:</p>
-  <pre><code>&gt; python _reference/uirc.py run small.uir
-(exit 0: -7 div 2 really is -3)
-
-&gt; python _reference/uirc.py run guess.uir      # the same program asserting -4
-assert failed: %t0
-(exit 1)</code></pre>
-  <p>Your compiler computes -4: it rounds toward minus infinity, like Python's <code>//</code> or a <code>floor</code> on floats. The spec says division truncates toward zero, like C. Two lines, one rule.</p>
+  <p>Say your compiler prints <code>MISMATCH</code> for this test, <code>halves.uir</code>:</p>
+  <pre><code>%x = param [] slot=0 dtype=i32 addrspace=ALU
+%h = div %x 2
+%m = mod %x 2
+%s = add %h %m
+%v = call %s -7
+%t = assert %v -3</code></pre>
+  <p>The assert sees one value, built from three. Put the call's argument in by hand and check one piece at a time, starting with the division:</p>
+  <pre><code>%h = div -7 2
+%t = assert %h -4</code></pre>
+  <p>Ask the oracle what should happen. Then save the same program asserting your compiler's value, -3, as <code>guess.uir</code>:</p>
+  <pre><code>&gt; python _reference/uirc.py --week=1 small.uir guess.uir
+MATCH small.uir
+MISMATCH guess.uir</code></pre>
+  <p>Your compiler computes -3: it truncates toward zero, like C or OCaml's <code>/</code>. The spec says <code>div</code> floors, so <code>div -7 2</code> is -4 and <code>mod -7 2</code> is 1. Two lines, one rule.</p>
   <div class="key"><span class="label">Shrinking tips</span>
     <ul>
-      <li>Delete asserts after the failing one first. They never run.</li>
+      <li>Put a call's arguments into its body by hand. If the bug disappears, it's in how you substitute.</li>
       <li>Replace a computed operand with the constant it should be. If the bug disappears, the bug is upstream.</li>
       <li>For simplify failures, put the grader's <code>args:</code> values in by hand and compare both programs.</li>
       <li>Keep a folder of shrunk cases. They make good tests for your own suite.</li>
@@ -110,16 +111,16 @@ assert failed: %t0
 
   <h2>4. Compare with the oracle</h2>
   <p>The oracle is the reference compiler. Running it is fine and encouraged, but reading its source would hand you the answers.</p>
-  <pre><code>python _reference/uirc.py run FILE        # exit code and assert line, exactly what the grader expects
+  <pre><code>python _reference/uirc.py --week=1 FILE   # the outcome line, exactly what the grader expects
 python _reference/uirc.py simplify FILE   # one valid simplification of %out (not the only one)
 python _reference/uirc.py render FILE     # the oracle's C for a week 2+ program</code></pre>
   <p>An example: this program should simplify to its input, and the oracle shows it does.</p>
-  <pre><code>%x = param 0 dtype=i32
+  <pre><code>%x = param [] slot=0 dtype=i32 addrspace=ALU
 %a = add %x 0
 %out = mul %a 1
 
 &gt; python _reference/uirc.py simplify s.uir
-%out = param 0 dtype=i32</code></pre>
+%out = param [] slot=0 dtype=i32 addrspace=ALU</code></pre>
   <p>Your output doesn't have to match the oracle's text. It has to compute the same values and stay within the op limit. For render, compare your C's behavior, not its look: the oracle's C shows one correct schedule, and yours can differ.</p>
 
   <h2>5. When render fails</h2>
@@ -130,7 +131,7 @@ python _reference/uirc.py render FILE     # the oracle's C for a week 2+ program
     <thead><tr><th>symptom</th><th>usual cause</th><th>fix</th></tr></thead>
     <tbody>
       <tr><td>your C doesn't compile</td><td>a name used before it's declared, a type printed wrong, a missing include</td><td>save your output to a file and compile it yourself with the flags above to read the full error</td></tr>
-      <tr><td>your kernel crashed (exit code nonzero)</td><td>signed overflow, <code>INT_MIN / -1</code>, a shift outside 0..31: the sanitizer turns undefined behavior into a crash</td><td>wrap i32 <code>add</code>, <code>mul</code> and <code>shl</code> through <code>uint32_t</code>, and guard <code>div</code> and <code>mod</code> against <code>-1</code></td></tr>
+      <tr><td>your kernel crashed (exit code nonzero)</td><td>signed overflow, <code>INT_MIN / -1</code>, a shift outside 0..31: the sanitizer turns undefined behavior into a crash</td><td>wrap i32 <code>add</code>, <code>mul</code> and <code>shl</code> through <code>uint32_t</code>, and render <code>div</code> and <code>mod</code> as helpers that floor and handle a divisor of <code>0</code> or <code>-1</code> first</td></tr>
       <tr><td>didn't finish in time</td><td>on Windows a plain <code>INT_MIN / -1</code> can hang instead of trapping</td><td>the same <code>-1</code> guard</td></tr>
       <tr><td>rendered C over 20,000 bytes</td><td>unrolled vectors</td><td>emit a <code>for</code> loop per rank-1 store and per reduce</td></tr>
       <tr><td>f32 off in the last bits</td><td>a decimal literal that doesn't round-trip, the wrong fold order or <code>a * b + c</code> fused into one rounding</td><td>print f32 constants as hex floats (<code>%a</code> style, <code>0x1.8p+1f</code>), and fold reduces left to right from the first element</td></tr>
@@ -200,36 +201,37 @@ python _reference/uirc.py render-cuda FILE &gt; ref.cu</code></pre>
   <table>
     <thead><tr><th>week</th><th>check that</th><th>tests that catch it</th></tr></thead>
     <tbody>
-      <tr><td>1</td><td><code>div</code> truncates toward zero, and <code>mod</code> takes the sign of the left operand</td><td><code>i32_div_trunc</code>, <code>i32_mod_sign</code></td></tr>
-      <tr><td>1</td><td>every f32 op rounds to f32, not just the final result</td><td><code>f32_rounding_step</code>, <code>f32_product_rounds</code>, <code>f32_overflow</code></td></tr>
-      <tr><td>1</td><td>you cache each node's value, so shared work runs once</td><td><code>dag_sharing_300</code>, <code>dag_sharing_mix</code></td></tr>
+      <tr><td>1</td><td><code>div</code> and <code>mod</code> floor, unlike C: <code>div -7 2</code> is -4 and <code>mod -7 2</code> is 1</td><td><code>div_floor_1</code>, <code>mod_floor_1</code>, <code>mismatch_div_not_c</code></td></tr>
+      <tr><td>1</td><td>you cache each node's value, so shared work runs once</td><td><code>dag_sharing</code></td></tr>
+      <tr><td>1</td><td>a call's argument must fit inside its param's limits</td><td><code>rejected_limits_arg_outside</code>, <code>rejected_limits_unlimited_into_limited</code></td></tr>
       <tr><td>1</td><td>the cache is per call, not global</td><td><code>call_memo_per_call</code>, <code>call_composition</code></td></tr>
       <tr><td>1</td><td>a nested call's body only sees its own args</td><td><code>call_closed_body</code></td></tr>
-      <tr><td>1</td><td>asserts run in file order, and an assert compares NaN equal to NaN</td><td><code>fail_first_in_order</code>, <code>f32_assert_equality</code></td></tr>
-      <tr><td>1</td><td><code>x * 0.0</code> isn't <code>0.0</code>, and <code>(x * 2) / 2</code> isn't <code>x</code></td><td><code>trap_mul_zero_f32</code>, <code>trap_div_mul_wrap</code></td></tr>
+      <tr><td>1</td><td><code>(x * 2) / 2</code> isn't <code>x</code></td><td><code>trap_div_mul_wrap</code></td></tr>
+      <tr><td>2</td><td>every f32 op rounds to f32, not just the final result</td><td><code>f32_rounding_step_t0</code>, <code>f32_product_rounds_t0</code>, <code>f32_overflow_t0</code></td></tr>
+      <tr><td>2</td><td>an assert compares NaN equal to NaN, and <code>x * 0.0</code> isn't <code>0.0</code></td><td><code>f32_assert_equality_t0</code>, <code>trap_mul_zero_f32</code></td></tr>
       <tr><td>2</td><td>offsets of a view of a view add up</td><td><code>view_shrink_of_shrink</code></td></tr>
       <tr><td>2</td><td>loads of a version run before the store that overwrites it</td><td><code>swap_schedule</code>, <code>old_version_late_use</code></td></tr>
-      <tr><td>2</td><td>a view's bounds are proven, including the last element</td><td><code>err_bounds_past_end</code>, <code>err_bounds_mask_too_wide</code></td></tr>
-      <tr><td>2</td><td>your C wraps i32 through <code>uint32_t</code> and guards <code>div</code>/<code>mod</code> by <code>-1</code></td><td><code>i32_add_wrap</code>, <code>i32_div_mod_intmin</code></td></tr>
+      <tr><td>2</td><td>a view's bounds are proven, including the last element</td><td><code>rejected_bounds_past_end</code>, <code>rejected_bounds_mask_too_wide</code></td></tr>
+      <tr><td>2</td><td>your C wraps i32 through <code>uint32_t</code>, and its <code>div</code> and <code>mod</code> floor and handle <code>0</code> and <code>-1</code></td><td><code>i32_add_wrap</code>, <code>i32_div_mod_intmin</code>, <code>div_mod_negative_const</code></td></tr>
       <tr><td>2</td><td>f32 constants print exactly (hex floats)</td><td><code>f32_exact_literals</code></td></tr>
       <tr><td>3</td><td>an accumulator's load moves into the loop that writes it</td><td><code>r_conv1d_valid</code>, <code>r_conv1d_padded</code></td></tr>
       <tr><td>3</td><td>a loop runs exactly <code>n</code> times, and zero times for <code>n &lt;= 0</code></td><td><code>bounds_from_ranges</code>, <code>zero_trip</code>, <code>negative_trip</code></td></tr>
       <tr><td>3</td><td>an <code>after</code> inside a loop isn't a buffer's output</td><td><code>inloop_after_not_output</code></td></tr>
-      <tr><td>4</td><td>a reduce folds left to right, starting from the first element (not from 0)</td><td><code>reduce_add_f32_order</code>, <code>reduce_add_negzero</code></td></tr>
+      <tr><td>4</td><td>a reduce folds left to right, starting from the first element (not from 0)</td><td><code>reduce_add_f32_order</code>, <code>reduce_add_negzero_t0</code></td></tr>
       <tr><td>4</td><td>vectors become loops in render, even a plain 4096-element copy</td><td><code>normalize_4096</code>, <code>r_copy_4096</code></td></tr>
       <tr><td>5</td><td>reshape is row-major (the last axis changes fastest)</td><td><code>broadcast_column_sums_back</code>, <code>expand_rank3_middle</code></td></tr>
-      <tr><td>5</td><td><code>permute</code> applies the order you were given, not its inverse</td><td><code>permute_rank3_all_orders</code>, <code>permute_inverse_roundtrip</code></td></tr>
+      <tr><td>5</td><td><code>permute</code> applies the order you were given, not its inverse</td><td><code>permute_rank3_all_orders_v12</code>, <code>permute_inverse_roundtrip</code></td></tr>
       <tr><td>5</td><td><code>pads</code> are (left, right) per axis, and the mask is exact at both edges</td><td><code>pad_2d_mixed</code>, <code>pad_2d</code>, <code>r_conv2d_16x16</code></td></tr>
       <tr><td>6</td><td>exp2 rounds n to the nearest integer, not down</td><td><code>r_exp2</code>, <code>r_exp_log</code>, <code>r_grad_softmax</code></td></tr>
-      <tr><td>6</td><td>a <code>bitcast</code> of any NaN gives <code>0x7fc00000</code></td><td><code>bitcast_nan_from_bits</code>, <code>r_bitcast</code></td></tr>
+      <tr><td>6</td><td>a <code>bitcast</code> of any NaN gives <code>0x7fc00000</code></td><td><code>bitcast_nan_from_bits_t</code>, <code>r_bitcast</code></td></tr>
       <tr><td>6</td><td>a mul sends <code>g · b</code> to a and <code>g · a</code> to b</td><td><code>mnist_train</code>, <code>r_grad_regression_step</code>, <code>r_grad_softmax</code></td></tr>
       <tr><td>6</td><td>shares are added in the order they arrive, not in file order</td><td><code>grad_accumulation_order_inner</code></td></tr>
       <tr><td>6</td><td><code>reduce op=max</code> splits the gradient evenly between ties</td><td><code>grad_reduce_max_ties</code></td></tr>
-      <tr><td>6</td><td>a <code>url=</code> file is checked by its hash and its size</td><td><code>err_url_sha_mismatch</code>, <code>err_url_file_too_long</code></td></tr>
-      <tr><td>7</td><td>the slice rule counts the access size: a store of k elements at <code>r * S + e</code> needs <code>e + k &lt;= S</code>, not just <code>e &lt; S</code></td><td><code>err_thread_vector_store_overflows</code></td></tr>
-      <tr><td>7</td><td>loads of memory the thread loop also writes are checked too, while memory it only reads may be read anywhere</td><td><code>err_thread_load_neighbor</code>, <code>thread_reads_any_input</code></td></tr>
-      <tr><td>7</td><td>every access to one buffer in a thread loop uses the same stride S</td><td><code>err_thread_mixed_strides</code></td></tr>
-      <tr><td>7</td><td>a private alloc starts at zero in every iteration, in run and in render</td><td><code>thread_private_alloc_fresh</code>, <code>thread_private_alloc_not_cumulative</code>, <code>r_thread_private_alloc</code></td></tr>
+      <tr><td>6</td><td>a <code>url=</code> file is checked by its hash and its size</td><td><code>rejected_url_sha_mismatch</code>, <code>rejected_url_file_too_long</code></td></tr>
+      <tr><td>7</td><td>the slice rule counts the access size: a store of k elements at <code>r * S + e</code> needs <code>e + k &lt;= S</code>, not just <code>e &lt; S</code></td><td><code>rejected_thread_vector_store_overflows</code></td></tr>
+      <tr><td>7</td><td>loads of memory the thread loop also writes are checked too, while memory it only reads may be read anywhere</td><td><code>rejected_thread_load_neighbor</code>, <code>thread_reads_any_input</code></td></tr>
+      <tr><td>7</td><td>every access to one buffer in a thread loop uses the same stride S</td><td><code>rejected_thread_mixed_strides</code></td></tr>
+      <tr><td>7</td><td>a private alloc starts at zero in every iteration, in run and in render</td><td><code>thread_private_alloc_fresh</code>, <code>mismatch_thread_private_alloc_not_cumulative</code>, <code>r_thread_private_alloc</code></td></tr>
     </tbody>
   </table>
   </div>
@@ -247,10 +249,10 @@ python _reference/uirc.py render-cuda FILE &gt; ref.cu</code></pre>
   </div>
 
   <h2>11. When the test itself looks wrong</h2>
-  <p>It happens. The format is provisional and the tests are written by people. Check in this order:</p>
+  <p>It happens. Week 1 follows the official 10-411 week 1 reference, but where it's silent the spec says how we read it, the formats for weeks 2 and later are our own until the official ones are published, and the tests are written by people. Check in this order:</p>
   <ol>
     <li>Read the spec section again, slowly. Most "wrong tests" are a rule that says something subtler than it first seemed.</li>
-    <li>Run the oracle on the test. The grader compares you to the oracle, not to the header, so the oracle's answer is what you're held to.</li>
+    <li>Run the oracle on the test. The course checks that every test's file name agrees with the oracle (<code>tools/test.py --self-check</code>), so the oracle's answer is what you're held to.</li>
     <li>If the spec and the oracle disagree, that's a real bug in the course. Write it up with the smallest program that shows it, the spec sentence and what the oracle does, and report it to whoever maintains your copy of the course.</li>
   </ol>
 </main>

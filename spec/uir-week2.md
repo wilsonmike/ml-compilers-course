@@ -156,5 +156,5 @@ An `alloc` whose contents never reach a buffer can be dropped from the C entirel
 
 ## 5. Tests
 
-Run tests are named as in week 1: `mismatch_` and `rejected_` prefixes, MATCH otherwise. Render tests start with a
+Run tests are named as in week 1: `mismatch_` and `rejected_` prefixes, MATCH otherwise. From week 2 a `rejected_` test is also rendered: when the program itself is invalid (not just the test-file rules, like a missing assert), `render` must refuse it too, exiting 2 with an `invalid:` line. Render tests start with a
 `# render` line: the grader renders them, compiles the C, runs it and compares the buffers.

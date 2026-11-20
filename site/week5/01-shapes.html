@@ -49,7 +49,7 @@
 <div class="fig" id="tensor" data-title="a (2, 3, 4) tensor and the 24 numbers behind it"></div>
 
 <div class="prose">
-<p>Going the other way, from a flat position back to an index, is called <b>unflattening</b>. Divide by an axis's stride (<code>div</code>, integer division) to drop the axes to its right, then take <code>mod</code> its size to drop the axes to its left. For position 23 in <code>(2, 3, 4)</code>: axis 0 is <code>23 div 12 = 1</code>, axis 1 is <code>(23 div 4) mod 3 = 5 mod 3 = 2</code>, and axis 2 is <code>23 mod 4 = 3</code>, so it's <code>[1][2][3]</code>. Lesson 5.5 builds exactly this arithmetic for every <code>reshape</code>.</p>
+<p>Going the other way, from a flat position back to an index, is called <b>unflattening</b>. Divide by an axis's stride (<code>div</code>, which floors, though positions are never negative, so that's plain integer division) to drop the axes to its right, then take <code>mod</code> its size to drop the axes to its left. For position 23 in <code>(2, 3, 4)</code>: axis 0 is <code>23 div 12 = 1</code>, axis 1 is <code>(23 div 4) mod 3 = 5 mod 3 = 2</code>, and axis 2 is <code>23 mod 4 = 3</code>, so it's <code>[1][2][3]</code>. Lesson 5.5 builds exactly this arithmetic for every <code>reshape</code>.</p>
 </div>
 
 <h2>Memory stays rank 1</h2>
@@ -63,7 +63,7 @@
 
 <div class="trap">
 <span class="label">Storing a matrix directly</span>
-<p><code>store %y %m</code> with <code>%m</code> of shape <code>(3, 4)</code> and <code>%y</code> a 12-element buffer is a type error (the oracle reports "the value must match the view's dtype and shape"). Reshape to <code>[12]</code> first. Params also keep their week 1 rule, so <code>param 0 dtype=i32 shape=[2 3]</code> is invalid. Shaped data comes from buffers.</p>
+<p><code>store %y %m</code> with <code>%m</code> of shape <code>(3, 4)</code> and <code>%y</code> a 12-element buffer is a type error (the oracle reports "the value must match the view's dtype and shape"). Reshape to <code>[12]</code> first. Params also keep their week 2 rule, rank 0 or 1, so <code>param [2 3] slot=0 dtype=i32 addrspace=ALU</code> is invalid. Shaped data comes from buffers.</p>
 </div>
 
 <h2>Popping leading axes</h2>
@@ -140,13 +140,13 @@
 </div>
 
 <div class="quiz" data-answer="a">
-<p class="q">Is <code>%p = param 0 dtype=i32 shape=[2 3]</code> valid in week 5?</p>
+<p class="q">Is <code>%p = param [2 3] slot=0 dtype=i32 addrspace=ALU</code> valid in week 5?</p>
 <div class="opts">
-<button data-k="a">No: params keep their week 1 rule, rank 0 or 1.</button>
+<button data-k="a">No: params keep their week 2 rule, rank 0 or 1.</button>
 <button data-k="b">Yes: week 5 removes every rank limit.</button>
 <button data-k="c">Yes, but only inside a call body.</button>
 </div>
-<p class="hint">The lesson says what params keep from week 1.</p>
+<p class="hint">The lesson says what params keep from week 2.</p>
 <div class="why"><p>The spec keeps params at rank 0 or 1. Shaped data comes from buffers, loaded and reshaped.</p></div>
 </div>
 

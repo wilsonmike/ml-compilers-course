@@ -14,21 +14,22 @@ those, and puts a diagram before every idea.
 |---|---|---|---|---|
 | learn | Python or OCaml from the start, and four hard ideas explained slowly | 6 + 6 + 4 | exercises only | |
 | 0 | prerequisites: C, memory, IRs, tensors, matmul, Python or OCaml | 7 | exercises only | |
-| 1 | UOps and rewrites | 6 | 148 | [uir-week1.md](spec/uir-week1.md) |
-| 2 | memory and rendering C | 6 | 100 | [uir-week2.md](spec/uir-week2.md) |
-| 3 | loops | 6 | 90 | [uir-week3.md](spec/uir-week3.md) |
-| 4 | rangeify, reduce, materialization | 6 | 78 | [uir-week4.md](spec/uir-week4.md) |
-| 5 | movement ops: reshape, permute, pad, shrink, any rank | 6 | 96 | [uir-week5.md](spec/uir-week5.md) |
-| 6 | math ops, sugar, autodiff, data files, training on MNIST | 6 | 147 | [uir-week6.md](spec/uir-week6.md) |
+| 1 | UOps and rewrites | 6 | 278 | [uir-week1.md](spec/uir-week1.md) |
+| 2 | floats, memory and rendering C | 6 | 198 | [uir-week2.md](spec/uir-week2.md) |
+| 3 | loops | 6 | 94 | [uir-week3.md](spec/uir-week3.md) |
+| 4 | rangeify, reduce, materialization | 6 | 90 | [uir-week4.md](spec/uir-week4.md) |
+| 5 | movement ops: reshape, permute, pad, shrink, any rank | 6 | 116 | [uir-week5.md](spec/uir-week5.md) |
+| 6 | math ops, sugar, autodiff, data files, training on MNIST | 6 | 169 | [uir-week6.md](spec/uir-week6.md) |
 | 7 | fast kernels: tiling, upcast, threads, speed tests | 6 | 41 | [uir-week7.md](spec/uir-week7.md) |
 | 8 | GPUs: blocks and threads, shared memory, rendering CUDA | 6 | 42 | [uir-week8.md](spec/uir-week8.md) |
-| 9 | GPUs, part 2: registers, fast GEMMs, tensor cores, convolutions, flash attention | 6 | 53 | [uir-week9.md](spec/uir-week9.md) |
+| 9 | GPUs, part 2: registers, fast GEMMs, tensor cores, convolutions, flash attention | 6 | 52 | [uir-week9.md](spec/uir-week9.md) |
 
-494 quizzes with hints and answers, 202 graded exercises (67 of them in Python) and 795 compiler tests. `_reference/mutants.py` plants 253 plausible bugs in the reference compiler, one at a time, and each one must
+509 quizzes with hints and answers, 202 graded exercises (67 of them in Python) and 1080 compiler tests. `_reference/mutants.py` plants 286 plausible bugs in the reference compiler, one at a time, and each one must
 make some test fail. A few of them, like a CUDA kernel that runs each block on a single thread, are only caught on a real GPU. `--checks` also
-switches off each of its 163 validations and simplifier rules: 123 are caught, and the other 40 are backed up by a
-second check that rejects the same program, or can't be reached by a valid one. The `.uir` format is our own until the official 10-411 one
-is published, and then the specs and tests migrate.
+switches off each of its validations and simplifier rules, one at a time: most are caught, and the rest are backed up by a
+second check that rejects the same program, or can't be reached by a valid one. Week 1 follows the official 10-411
+[week 1 reference](https://10-411.com/assignments/week1.pdf): its format, semantics and outcomes. The format for weeks 2
+to 9 is our own until the official one for each week is published, and then those specs and tests migrate.
 
 ## Taking the course
 
@@ -64,10 +65,13 @@ AI assistant and want it to explain rather than write your code.
 ```
 python tools/test.py --compiler C:/path/to/your.exe --week 1        # grade your compiler
 python tools/test.py --compiler C:/path/to/your.exe -k call -v      # one topic, with details
-python tools/test.py --check-tests C:/path/to/your/tests/week1      # check your own tests' headers
+python tools/test.py --check-tests C:/path/to/your/tests/week1 --week 1   # check your own tests' file names
 ```
 
-`--compiler` is anything the runner can start as `COMPILER run FILE`: a built OCaml executable such as
+`--compiler` is anything the runner can start as `COMPILER FILE...`, and it prints one line per file: `MATCH FILE`,
+`MISMATCH FILE`, `REJECTED FILE` or `OVERBUDGET FILE` (see [spec/uir-week1.md](spec/uir-week1.md)). Some tests also
+run `COMPILER simplify FILE`, and from week 2 `COMPILER render FILE`. `python _reference/uirc.py --week=1 FILE...` prints
+what the oracle says for your own files. `--compiler` can be a built OCaml executable such as
 `_build/default/bin/main.exe`, or for a Python compiler the small wrapper script from lesson 0.7 (`mlc.cmd` on Windows,
 an executable `mlc` script on macOS and Linux).
 
@@ -77,7 +81,7 @@ an executable `mlc` script on macOS and Linux).
 |---|---|
 | `site/` | the lessons, quizzes and study resources. No build step, no dependencies. |
 | `spec/` | the .uir format and semantics for each week |
-| `tests/weekN/` | the compiler tests: `run` tests with a `# expect:` header, `simplify` tests with a `# simplify:` header, and `render` tests from week 2 |
+| `tests/weekN/` | the compiler tests: `run` tests whose file name gives the expected outcome (`mismatch_`, `rejected_`, `overbudget_`, MATCH otherwise), `simplify` tests with a `# simplify:` header, and `render` tests from week 2 |
 | `exercises/` | lesson exercises: starter code and tests (see `exercises/README.md`) |
 | `tools/test.py` | the compiler test runner |
 | `tools/serve.py` | the local course server and exercise runner |
@@ -101,9 +105,9 @@ What it runs, and what each part protects:
 | `tools/design_lint.py` | design and copy rules: tints, small text, em dashes, semicolons in prose |
 | `tools/check_site.py` | broken HTML, quiz keys that aren't an option, quizzes missing a hint or explanation, broken links, exercises without a solution, inline scripts that don't parse |
 | `tools/check_spec_w6.py` | the week 6 spec's math definitions drifting from the reference |
-| `tools/test.py --self-check --week N` | a test header that disagrees with the reference compiler |
+| `tools/test.py --self-check --week N` | a test whose file name or header disagrees with the reference compiler |
 | `_reference/check_exercises.py` | an exercise whose solution fails or whose starter already passes |
-| `_reference/mutants.py` | tests too weak to notice a bug: it plants 253 plausible bugs into the reference, one at a time, and each must fail some test while an unmutated copy passes them all (5 minutes). `--checks` adds one bug per validation and simplifier rule. `--matrix` records every test each bug fails, for the test guides. |
+| `_reference/mutants.py` | tests too weak to notice a bug: it plants 286 plausible bugs into the reference, one at a time, and each must fail some test while an unmutated copy passes them all (5 minutes). `--checks` adds one bug per validation and simplifier rule. `--matrix` records every test each bug fails, for the test guides. |
 
 The tricky values (f32 rounding, i32 wrap, C division, f32 to i32 casts) were also cross-checked against real C
 compiled with clang, and the week 6 gradients against finite differences. The week 8 and 9 CUDA tests, tensor cores and speed

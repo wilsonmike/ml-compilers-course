@@ -10,16 +10,19 @@ come first. This is the last resort, and a good way to compare approaches once y
 You can use it without reading it. Run it to find out what a program should do:
 
 ```
-python _reference/uirc.py run FILE        # the oracle: what should this program do?
+python _reference/uirc.py --week=1 FILE   # the oracle: what should this program do?
 python _reference/uirc.py simplify FILE   # one valid simplification (not the only one)
 python _reference/uirc.py render FILE     # one valid C rendering (week 2 on)
 ```
 
+The first prints one line per file, `MATCH FILE`, `MISMATCH FILE`, `REJECTED FILE` or `OVERBUDGET FILE`, the same
+way your compiler must. `--week=N` picks that week's rules, and the default is the latest week.
+
 | file | what |
 |---|---|
-| `uirc.py` | the reference compiler (the "oracle"): `python _reference/uirc.py run FILE`, `simplify FILE`, `render FILE` |
+| `uirc.py` | the reference compiler (the "oracle"): `python _reference/uirc.py --week=N FILE...`, `simplify FILE`, `render FILE` |
 | `solutions/` | answers to the lesson exercises, the same ones the "Show answer" button reveals |
-| `mutants.py` | plants 158 plausible bugs in `uirc.py`, one at a time, and checks that the test suite catches each one |
+| `mutants.py` | plants 286 plausible bugs in `uirc.py`, one at a time, and checks that the test suite catches each one |
 | `check_exercises.py` | checks every exercise: its solution passes and its starter code fails |
 
 It's written in Python on purpose, so it can't be pasted into a compiler written in another language. Reading it

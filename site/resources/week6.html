@@ -40,7 +40,7 @@
   <h3><a href="../week6/05-data-and-mnist.html">6.5 Data and MNIST</a></h3>
   <p><code>url=</code> and <code>sha256=</code> fill a buffer from a raw little-endian file, rejected if the hash or size is wrong. The MNIST program trains a softmax regression for 50 steps of 100 digits and counts how many of 1000 test digits it gets right.</p>
   <h3><a href="../week6/06-lab.html">6.6 Lab</a></h3>
-  <p>The suite has 147 tests. One renders and runs the whole training program and needs 850 of 1000 right within 120 seconds. Weeks 1 to 5 must stay green. <code>tools/bench.py</code> times your kernels.</p>
+  <p>The suite has 169 tests. One renders and runs the whole training program and needs 850 of 1000 right within 120 seconds. Weeks 1 to 5 must stay green. <code>tools/bench.py</code> times your kernels.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -77,31 +77,31 @@
     <li><strong>Building 2^n as one bit pattern.</strong> Below <code>2^-126</code> there is no such pattern, so the subnormal results come out wrong. Caught by <code>r_exp2</code>, <code>r_exp_log</code>, <code>exp2_integers</code>.</li>
     <li><strong>Skipping log2's fold at 1.414, or its subnormal scaling.</strong> Caught by <code>r_exp_log</code>, <code>r_log2</code>, <code>r_sqrt</code>.</li>
     <li><strong>Leaving out sqrt's Newton step.</strong> The guess alone is a few units off. Caught by <code>r_sqrt</code>, <code>sqrt_values</code>.</li>
-    <li><strong>A bitcast that leaks which NaN you had.</strong> x86 makes a negative NaN for <code>0 · inf</code>. Caught by <code>bitcast_nan_from_bits</code>, <code>r_bitcast</code>.</li>
+    <li><strong>A bitcast that leaks which NaN you had.</strong> x86 makes a negative NaN for <code>0 · inf</code>. Caught by <code>bitcast_nan_from_bits_t</code>, <code>r_bitcast</code>.</li>
     <li><strong>A floor that truncates.</strong> <code>floor -2.5</code> is -3. Caught by <code>r_exp2</code>, <code>r_exp_log</code>, <code>r_floor</code>.</li>
     <li><strong>Mixing up a mul's shares.</strong> a gets <code>g · b</code>, not <code>g · a</code>. Caught by <code>mnist_train</code>, <code>r_grad_regression_step</code>, <code>r_grad_softmax</code>.</li>
     <li><strong>Adding shares in a different order.</strong> f32 addition isn't associative. Caught by <code>grad_accumulation_order_inner</code>.</li>
     <li><strong>Ignoring detach, or letting gradients flow into integers.</strong> Caught by <code>mnist_train</code>, <code>r_grad_softmax</code>, <code>grad_detach</code>.</li>
     <li><strong>Getting a movement op's partner backward.</strong> The inverse permutation, the side of a pad, the offsets of a shrink. Caught by <code>grad_permute</code>, <code>r_grad_movement</code>, <code>grad_pad</code>.</li>
     <li><strong>Not splitting reduce max between ties.</strong> Caught by <code>grad_reduce_max_ties</code>.</li>
-    <li><strong>Trusting a file without its hash or size.</strong> Caught by <code>err_url_sha_mismatch</code>, <code>err_url_file_too_long</code>.</li>
+    <li><strong>Trusting a file without its hash or size.</strong> Caught by <code>rejected_url_sha_mismatch</code>, <code>rejected_url_file_too_long</code>.</li>
     <li><strong>Fusing a store that reads its own buffer.</strong> Later elements see earlier ones' new values. The week 5 test <code>r_inplace_transpose</code> checks this, and <code>r_grad_regression_step</code> and <code>mnist_train</code> update their weights in place.</li>
   </ol>
 
   <h2>Stuck on the lab?</h2>
-  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py run FILE</code>).</p>
+  <p>Build in this order, and don't move on until the check passes. Save each check as a file and run it through your compiler and the oracle (<code>python _reference/uirc.py --week=6 FILE</code>).</p>
   <ol>
-    <li><strong>bitcast and floor.</strong> Done when this passes:
+    <li><strong>bitcast and floor.</strong> Done when this prints MATCH:
 <pre><code>%a = bitcast 1.0 dtype=i32
-%t1 = assert %a 1065353216
-%f = floor -2.5
-%t2 = assert %f -3.0
 %n = bitcast nan dtype=i32
-%t3 = assert %n 2143289344</code></pre></li>
+%f = floor -2.5
+%fi = cast %f dtype=i32
+%v = stack %a %n %fi
+%t = assert %v [1065353216 2143289344 -3]</code></pre></li>
     <li><strong>exp2, exactly.</strong> Integers are exact, so start there: <code>exp2 3.0</code> is 8.0 and <code>exp2 -149.0</code> is <code>1.4e-45</code>. Then compare <code>exp2 0.1</code> bit for bit with the oracle using <code>bitcast</code>: if it's one unit off, check the constants and the order of the Horner steps against the spec.</li>
     <li><strong>log2, sqrt, sin.</strong> <code>log2 8.0</code> is 3.0, <code>sqrt 16.0</code> is 4.0, <code>sin 0.0</code> is 0.0. Then the suite's <code>*_bits</code> tests.</li>
     <li><strong>Sugar.</strong> Done when <code>sugar_*</code> passes. <code>fdiv 10.0 3.0</code> must give <code>3.3333335</code>.</li>
-    <li><strong>Gradient on scalars.</strong> Done when this passes:
+    <li><strong>Gradient on scalars.</strong> Done when this prints MATCH:
 <pre><code>%b = buffer 1 dtype=f32 slot=0 data=[2.0]
 %v = shrink %b 0 shape=[]
 %x = load %v
@@ -142,7 +142,7 @@
   </div>
   <div class="quiz" data-answer="c">
     <p class="q">A <code>url=</code> file has the right hash but 4 bytes too many for its buffer. What happens?</p>
-    <div class="opts"><button data-k="a">The extra bytes are ignored</button><button data-k="b">The buffer grows</button><button data-k="c">The program is invalid (exit 2)</button></div>
+    <div class="opts"><button data-k="a">The extra bytes are ignored</button><button data-k="b">The buffer grows</button><button data-k="c">The program is REJECTED</button></div>
     <p class="hint">The size is part of the contract.</p>
     <div class="why">A file must hold exactly N elements. Any other size means it isn't the data the program describes.</div>
   </div>

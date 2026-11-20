@@ -277,20 +277,20 @@ let () = Printf.printf "%ld %ld %d\n" a b c
 (* Int32.mul  Int32.div  Int32.rem  Int32.logxor  Int32.shift_left
    Int32.compare  Int32.of_int  Int32.to_int  Int32.to_float  Int32.of_float *)</code></pre>
   <div class="prose">
-    <p><code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, like C, and raise <code>Division_by_zero</code> on zero. <code>Int32.of_int</code> keeps the low 32 bits. <code>Int32.of_float</code> truncates, and its result is unspecified for NaN or anything out of range, so check those cases yourself. Read the docs for each function before you use it. The exact edge-case behavior is what the tests check.</p>
+    <p><code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, like C, and raise <code>Division_by_zero</code> on zero. That's a trap here: the course's <code>div</code> and <code>mod</code> round down (floor), and they give an answer for a zero divisor instead of failing. <code>Int32.of_int</code> keeps the low 32 bits. <code>Int32.of_float</code> truncates, and its result is unspecified for NaN or anything out of range, so check those cases yourself when floats arrive in week 2. Read the docs for each function before you use it. The exact edge-case behavior is what the tests check.</p>
     <p>You can also keep using plain <code>int</code> and normalize to 32 bits after every operation. Either way works. Pick one and be consistent.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-06-div32">
-    <h3>C-style 32-bit division</h3>
-    <p>Write <code>div32 a b</code> for i32 values held in plain ints: truncate toward zero, wrap to 32 bits, and raise <code>Division_by_zero</code> when <code>b = 0</code>. (Lesson 1.2 has a variant that returns an option instead of raising.)</p>
-    <p class="muted">OCaml's <code>/</code> already truncates toward zero, so the starter is almost right. Exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
+    <h3>The course's 32-bit division</h3>
+    <p>Write <code>div32 a b</code> for i32 values held in plain ints, the way .uir's <code>div</code> works: the floor quotient, wrapped to 32 bits, and <code>-1</code> when <code>b = 0</code>. <code>div32 (-7) 2</code> is <code>-4</code>. (Lesson 1.2 has a variant that returns <code>mod</code> too.)</p>
+    <p class="muted">OCaml's <code>/</code> truncates toward zero, like C, so the starter is wrong for negative quotients that aren't exact, and it raises on 0. Exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
   </div>
 
   <div class="prose">
 
     <h2>Floats are doubles</h2>
-    <p>OCaml's <code>float</code> is a 64-bit double. The course's <code>f32</code> is single precision. To round a double to the nearest single, convert it to the 32-bit encoding and back:</p>
+    <p>OCaml's <code>float</code> is a 64-bit double. The course's <code>f32</code>, which arrives in week 2, is single precision. To round a double to the nearest single, convert it to the 32-bit encoding and back:</p>
   </div>
 <pre><code>let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
 let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
@@ -320,13 +320,13 @@ let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
     prerr_endline "usage: words count FILE";     (* stderr *)
     exit 2</code></pre>
   <div class="prose">
-    <p><code>Sys.argv.(0)</code> is the program name. <code>exit n</code> ends the program with status <code>n</code>, which is how the course's test runner learns whether a test passed. <code>[| _; "count"; path |]</code> matches an array of exactly three elements. <code>prerr_endline</code> prints a line to stderr, and <code>Printf.eprintf</code> prints formatted text to stderr. <code>In_channel.input_lines</code> needs OCaml 5.1 or newer, which any fresh install has. (Splitting the whole text on <code>'\n'</code> instead overcounts by one when the file ends with a newline.)</p>
-    <p>The test runner, <code>tools/test.py</code>, runs your compiler as <code>COMPILER run FILE</code> from the course repo's folder and reads the exit code. Build with <code>dune build</code> and point the grader at the binary itself, not at <code>dune exec</code>, because the grader runs tests in parallel and parallel <code>dune exec</code> runs fight over dune's lock. Run it from the course repo and give the full path to your binary. On WSL, use <code>python3</code> and a path like <code>~/my-ml-compiler/_build/default/bin/main.exe</code>:</p>
+    <p><code>Sys.argv.(0)</code> is the program name. <code>exit n</code> ends the program with status <code>n</code>, the usual way for a command to say it failed. <code>[| _; "count"; path |]</code> matches an array of exactly three elements. <code>prerr_endline</code> prints a line to stderr, and <code>Printf.eprintf</code> prints formatted text to stderr. <code>In_channel.input_lines</code> needs OCaml 5.1 or newer, which any fresh install has. (Splitting the whole text on <code>'\n'</code> instead overcounts by one when the file ends with a newline.)</p>
+    <p>The test runner, <code>tools/test.py</code>, runs your compiler as <code>COMPILER FILE</code> from the course repo's folder and reads the one line it prints: <code>MATCH FILE</code>, <code>MISMATCH FILE</code>, <code>REJECTED FILE</code> or <code>OVERBUDGET FILE</code>, with the path exactly as it was given. Build with <code>dune build</code> and point the grader at the binary itself, not at <code>dune exec</code>, because the grader runs tests in parallel and parallel <code>dune exec</code> runs fight over dune's lock. Run it from the course repo and give the full path to your binary. On WSL, use <code>python3</code> and a path like <code>~/my-ml-compiler/_build/default/bin/main.exe</code>:</p>
   </div>
 <pre><code>python tools/test.py --compiler "C:/path/to/my-ml-compiler/_build/default/bin/main.exe" --week 1</code></pre>
   <div class="trap">
     <span class="label">An uncaught exception is not a diagnosis</span>
-    <p>An uncaught OCaml exception prints <code>Fatal error: exception ...</code> and exits with status 2. The exit code looks right, but the grader also wants a line starting with <code>invalid:</code> on stderr, so the test still fails. When your compiler rejects a program, raise your own exception, catch it in the main function, print the <code>invalid:</code> line and <code>exit 2</code>. Let anything else crash loudly while you're developing, so you see it.</p>
+    <p>An uncaught OCaml exception prints <code>Fatal error: exception ...</code> to stderr and prints nothing on stdout, so the grader gets no outcome line and the test fails, even one that expected <code>REJECTED</code>. When your compiler rejects a program, raise your own exception, catch it in the main function and print <code>REJECTED</code> and the file name. Let anything else crash loudly while you're developing, so you see it.</p>
   </div>
 
   <h2>Capstone: the toposort from lesson 0.3</h2>
@@ -363,7 +363,7 @@ let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
     <p class="q">What happens with <code>let x = 1 + 1.0</code>?</p>
     <div class="opts"><button data-k="a"><code>x = 2.0</code></button><button data-k="b"><code>x = 2</code></button><button data-k="c">It doesn't compile: <code>+</code> takes two ints</button></div>
     <p class="hint">Look at the types of the two operands. Does OCaml ever convert between <code>int</code> and <code>float</code> for you?</p>
-    <div class="why"><p>No implicit conversion. The course's IR works the same way: <code>add</code> on an <code>i32</code> and an <code>f32</code> is a type error.</p></div>
+    <div class="why"><p>No implicit conversion. The course's IR works the same way: from week 2, when floats arrive, <code>add</code> on an <code>i32</code> and an <code>f32</code> is a type error.</p></div>
   </div>
 
   <div class="quiz" data-fill="Sam has 70">

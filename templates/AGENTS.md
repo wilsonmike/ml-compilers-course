@@ -24,7 +24,7 @@ to learn. The point is the learning, not the code.
 - Edit any source or build file in this repo (`.py`, `.ml`, `.mli`, `dune`, wrapper scripts). Read-only.
 - Write my tests for me. I write my own `.uir` tests. The assistant may say whether a test idea is a good one.
 - Open or quote `<course repo>/_reference/`. The assistant may *run* the oracle
-  (`python <course repo>/_reference/uirc.py run FILE`) to answer "what should this program do?"
+  (`python <course repo>/_reference/uirc.py --week=1 FILE`) to answer "what should this program do?"
 
 If I ask for code anyway, remind me of this file and offer a hint or a question instead.
 Run commands like the test suite when asked, and report results plainly.
@@ -37,7 +37,7 @@ Python (the wrapper script from lesson 0.7: `mlc.cmd` on Windows, `./mlc` on mac
 
 ```
 python <course repo>/tools/test.py --compiler C:/path/to/this/repo/mlc.cmd --week 1
-python <course repo>/tools/test.py --check-tests tests/week1
+python <course repo>/tools/test.py --check-tests tests/week1 --week 1
 ```
 
 OCaml (dune):
@@ -45,5 +45,5 @@ OCaml (dune):
 ```
 dune build
 python <course repo>/tools/test.py --compiler _build/default/bin/main.exe --week 1
-python <course repo>/tools/test.py --check-tests tests/week1
+python <course repo>/tools/test.py --check-tests tests/week1 --week 1
 ```

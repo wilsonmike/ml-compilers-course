@@ -83,8 +83,8 @@ def main(argv: list[str]) -&gt; int:
 
 sys.exit(main(sys.argv[1:]))</code></pre>
   <div class="prose">
-    <p><code>sys.argv[0]</code> is the program name, so <code>sys.argv[1:]</code> holds the arguments. <code>sys.exit(n)</code> ends the program with status <code>n</code>, which is how the course's test runner learns whether a test passed. <code>print(..., file=sys.stderr)</code> writes to stderr. <code>splitlines()</code> doesn't count an empty line after a final newline, which plain <code>split("\n")</code> does.</p>
-    <p>The test runner, <code>tools/test.py</code>, runs your compiler as <code>COMPILER run FILE</code> from the course repo's folder. <code>python -m mlc</code> only finds <code>mlc</code> when its parent folder is on Python's path, so give the grader a small wrapper that sets it. On Windows, save this as <code>mlc.cmd</code> next to the <code>mlc</code> folder:</p>
+    <p><code>sys.argv[0]</code> is the program name, so <code>sys.argv[1:]</code> holds the arguments. <code>sys.exit(n)</code> ends the program with status <code>n</code>, the usual way for a command to say it failed. <code>print(..., file=sys.stderr)</code> writes to stderr. <code>splitlines()</code> doesn't count an empty line after a final newline, which plain <code>split("\n")</code> does.</p>
+    <p>The test runner, <code>tools/test.py</code>, runs your compiler as <code>COMPILER FILE</code> from the course repo's folder and reads the one line it prints: <code>MATCH FILE</code>, <code>MISMATCH FILE</code>, <code>REJECTED FILE</code> or <code>OVERBUDGET FILE</code>, with the path exactly as it was given. <code>python -m mlc</code> only finds <code>mlc</code> when its parent folder is on Python's path, so give the grader a small wrapper that sets it. On Windows, save this as <code>mlc.cmd</code> next to the <code>mlc</code> folder:</p>
   </div>
 <pre><code>@echo off
 set "PYTHONPATH=%~dp0"
@@ -101,7 +101,7 @@ PYTHONPATH="$(dirname "$0")" exec python3 -m mlc "$@"</code></pre>
 python3 tools/test.py --compiler ~/my-ml-compiler/mlc --week 1                   # macOS and Linux</code></pre>
   <div class="trap">
     <span class="label">A traceback is not an answer</span>
-    <p>An uncaught exception prints a traceback and exits with status 1, which the grader reads as "an assert failed". When your compiler rejects a program, it must print a line starting with <code>invalid:</code> to stderr and exit 2. Raise your own exception class for that, catch it in <code>main</code> and let anything else crash loudly while you're developing, so you see it.</p>
+    <p>An uncaught exception prints a traceback to stderr and nothing on stdout, so the grader gets no outcome line and the test fails, even one that expected <code>REJECTED</code>. When your compiler rejects a program, raise your own exception class, catch it in <code>main</code> and print <code>REJECTED</code> and the file name. Let anything else crash loudly while you're developing, so you see it.</p>
   </div>
 <div class="note">
     <span class="label">Running the exercises</span>
@@ -129,10 +129,10 @@ print(x, low, y)</code></pre>
 
   <div class="prose">
     <h2>Division floors, C truncates</h2>
-    <p>Python's <code>//</code> rounds toward negative infinity. C's <code>/</code> on ints rounds toward zero. They agree when the signs agree, or when the division is exact. They disagree when the signs differ and there's a remainder. <code>%</code> follows <code>//</code>, so it takes the sign of the divisor in Python and the sign of the dividend in C.</p>
+    <p>Python's <code>//</code> rounds toward negative infinity, and so does the course's <code>div</code>. C's <code>/</code> on ints rounds toward zero. They agree when the signs agree, or when the division is exact. They disagree when the signs differ and there's a remainder. <code>%</code> follows <code>//</code>, so it takes the sign of the divisor in Python and the sign of the dividend in C.</p>
   </div>
   <div class="tablewrap"><table>
-    <thead><tr><th>expression</th><th>Python</th><th>C (and your compiler's <code>div</code>, <code>mod</code>)</th></tr></thead>
+    <thead><tr><th>expression</th><th>Python (and your compiler's <code>div</code>, <code>mod</code>)</th><th>C</th></tr></thead>
     <tbody>
       <tr><td><code>7 / 2</code>, <code>7 % 2</code></td><td><code>3</code>, <code>1</code></td><td><code>3</code>, <code>1</code></td></tr>
       <tr><td><code>-7 / 2</code>, <code>-7 % 2</code></td><td><code>-4</code>, <code>1</code></td><td><code>-3</code>, <code>-1</code></td></tr>
@@ -141,18 +141,19 @@ print(x, low, y)</code></pre>
     </tbody>
   </table></div>
   <div class="prose">
-    <p>The Python column uses <code>//</code> where the table says <code>/</code>. Plain <code>/</code> in Python always gives a float: <code>7 / 2</code> is <code>3.5</code>. <code>int(3.5)</code> truncates toward zero, but going through a float is a habit to avoid, since floats can't hold every 64-bit int. Divide the absolute values with <code>//</code> and put the sign back yourself. <code>math.fmod</code> is C's <code>fmod</code> for floats, which truncates like C. And <code>round(2.5)</code> is <code>2</code>, because Python rounds halves to even.</p>
+    <p>The Python column uses <code>//</code> where the table says <code>/</code>. Here Python is on your side: <code>//</code> and <code>%</code> already match .uir's <code>div</code> and <code>mod</code>. Two edges don't. Python raises <code>ZeroDivisionError</code> for a zero divisor, where .uir defines <code>div x 0</code> as <code>-1</code> and <code>mod x 0</code> as <code>x</code>. And <code>-2147483648 // -1</code> is 2<sup>31</sup>, which must wrap back to <code>-2147483648</code>.</p>
+    <p>You'll want C's rule too, from week 2, when your compiler prints C. Plain <code>/</code> in Python always gives a float: <code>7 / 2</code> is <code>3.5</code>. <code>int(3.5)</code> truncates toward zero, but going through a float is a habit to avoid, since floats can't hold every 64-bit int. Divide the absolute values with <code>//</code> and put the sign back yourself. <code>math.fmod</code> is C's <code>fmod</code> for floats, which truncates like C. And <code>round(2.5)</code> is <code>2</code>, because Python rounds halves to even.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-07-div32">
-    <h3>C-style 32-bit division</h3>
-    <p>Write <code>div32(a, b)</code> for i32 values: truncate toward zero, wrap to 32 bits, and return <code>None</code> when <code>b</code> is 0. (The OCaml track raises an exception for zero. Lesson 1.2 returns "no value" too.)</p>
-    <p class="muted">The starter's <code>//</code> is wrong for mixed signs. And exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
+    <h3>The course's 32-bit division</h3>
+    <p>Write <code>div32(a, b)</code> for i32 values, the way .uir's <code>div</code> works: the floor quotient, wrapped to 32 bits, and <code>-1</code> when <code>b</code> is 0. <code>div32(-7, 2)</code> is <code>-4</code>. (Lesson 1.2 has a variant that returns <code>mod</code> too.)</p>
+    <p class="muted">The starter's <code>//</code> already floors, so this is about the edges. What does it do when <code>b</code> is 0? And exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
   </div>
 
   <div class="prose">
     <h2>Floats are doubles</h2>
-    <p>Python's <code>float</code> is a 64-bit double. The course's <code>f32</code> is single precision. To round a double to the nearest single, pack it into 4 bytes with <code>struct</code> and unpack it again:</p>
+    <p>Python's <code>float</code> is a 64-bit double. The course's <code>f32</code>, which arrives in week 2, is single precision. To round a double to the nearest single, pack it into 4 bytes with <code>struct</code> and unpack it again:</p>
   </div>
 <pre><code>import struct
 
@@ -185,7 +186,7 @@ nan = float("nan")
 d = {nan: "a"}
 print(d.get(nan), d.get(float("nan")))   # a None: the same NaN object is found, a new one isn't</code></pre>
   <div class="prose">
-    <p>In week 1 you'll keep a table from "what a node is" to the node itself, so that building the same node twice returns the one you already have. If its key holds a float constant as a plain float, <code>0.0</code> and <code>-0.0</code> become one node, even though they are different f32 values (in C, <code>1.0f / -0.0f</code> is <code>-inf</code>). A NaN constant never finds itself. An i32 <code>1</code> and a bool <code>true</code> collide unless the dtype is part of the key. The fix for all three: key on the dtype plus the value's <em>bits</em>, not the value. <code>struct</code> gives you the bits.</p>
+    <p>In week 1 you'll keep a table from "what a node is" to the node itself, so that building the same node twice returns the one you already have. An i32 <code>1</code> and a bool <code>true</code> collide unless the dtype is part of the key. Floats arrive in week 2, and then a key that holds a float constant as a plain float makes <code>0.0</code> and <code>-0.0</code> one node, even though they are different f32 values (in C, <code>1.0f / -0.0f</code> is <code>-inf</code>). A NaN constant never finds itself. The fix for all three: key on the dtype plus the value's <em>bits</em>, not the value. <code>struct</code> gives you the bits.</p>
     <p>NaN also breaks <code>==</code> everywhere else: <code>nan == nan</code> is <code>False</code>. Test for it with <code>math.isnan</code>. Test for <code>-0.0</code> with <code>math.copysign(1.0, x) &lt; 0</code>, since <code>-0.0 == 0.0</code>.</p>
 
     <h2>Frozen dataclasses, <code>==</code> and <code>is</code></h2>
@@ -320,7 +321,7 @@ print(ways(90))                     # instant: each n is computed once</code></p
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">Python's <code>//</code> doesn't truncate toward zero. Which way does it round?</p>
     <p class="hint">The true quotient is -3.5. Round it toward negative infinity.</p>
-    <div class="why"><p><code>//</code> floors, so -3.5 becomes -4. C's <code>/</code> gives -3, and so must your compiler's <code>div</code>.</p></div>
+    <div class="why"><p><code>//</code> floors, so -3.5 becomes -4. The course's <code>div</code> floors too, so <code>div -7 2</code> is -4. C's <code>/</code> gives -3.</p></div>
   </div>
 
   <div class="quiz" data-answer="c">

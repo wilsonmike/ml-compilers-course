@@ -32,12 +32,12 @@
 <div class="prose">
 <h2>url= and sha256=</h2>
 <pre><code>%xs = buffer 3920000 dtype=f32 slot=0 url=data/mnist-train-images.f32 sha256=1ac7f6c8...</code></pre>
-<p>The buffer's contents come from the file instead of a literal list. The format is the simplest there is: the elements back to back, little-endian (each element's lowest byte first), no header. That's 4 bytes per f32 or i32 and 1 byte per bool, which must be 0 or 1. A file of the wrong size is an error, and so is a hash that doesn't match.</p>
+<p>The buffer's contents come from the file instead of a literal list. The format is the simplest there is: the elements back to back, little-endian (each element's lowest byte first), no header. That's 4 bytes per f32 or i32 and 1 byte per bool, which must be 0 or 1. A file of the wrong size makes the program REJECTED, and so does a hash that doesn't match.</p>
 <p>SHA-256 turns any file into a 64-hex-digit fingerprint, and changing one byte changes the fingerprint. The hash is what makes a URL safe to depend on. Files on the internet change, mirrors go stale, and downloads get cut off. With <code>sha256=</code>, a program means exactly one set of bytes: if what you fetched isn't it, the program is invalid rather than quietly wrong. It also means a download can be cached by its hash and never fetched twice.</p>
 <p><code>url=</code> is either <code>https://...</code> or a relative path, read from the folder the <code>.uir</code> file is in. Relative paths may not contain <code>..</code>, so a program can't reach outside its own folder. The test suite only uses relative paths, and the grader copies each data file next to the program it runs, so your compiler never needs the network to pass. For <code>https</code>, fetching with <code>curl</code> into a cache folder is plenty.</p>
 
 <h2>Where the bytes go</h2>
-<p>In <code>run</code>, your compiler reads the file, checks it, and decodes it into the buffer's values. In <code>render</code>, nothing changes: the C harness fills every buffer before calling your kernel, file buffers included, with one <code>fread</code> straight into a <code>float</code> array. Little-endian is the byte order of x86 and ARM, so no conversion is needed. That's why the format is what it is.</p>
+<p>When it runs a program, your compiler reads the file, checks it, and decodes it into the buffer's values. In <code>render</code>, nothing changes: the C harness fills every buffer before calling your kernel, file buffers included, with one <code>fread</code> straight into a <code>float</code> array. Little-endian is the byte order of x86 and ARM, so no conversion is needed. That's why the format is what it is.</p>
 </div>
 
 <div class="exercise small" data-ex="w6-05-decode" data-ex-py="w6-05-decode-py">
@@ -134,10 +134,10 @@
 </div>
 
 <div class="quiz" data-answer="b">
-<p class="q">The file is there, the right size, but its SHA-256 doesn't match. What does <code>run</code> do?</p>
+<p class="q">The file is there, the right size, but its SHA-256 doesn't match. What does <code>./compile</code> print for the program?</p>
 <div class="opts">
-<button data-k="a">Runs it with a warning</button>
-<button data-k="b">Exits 2: the program is invalid</button>
+<button data-k="a">MATCH or MISMATCH, with a warning</button>
+<button data-k="b">REJECTED: the program is invalid</button>
 <button data-k="c">Downloads it again and uses that</button>
 </div>
 <p class="hint">What does the hash promise?</p>

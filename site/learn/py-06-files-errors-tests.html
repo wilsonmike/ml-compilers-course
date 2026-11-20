@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Files, Errors and Testing in Python</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A compiler is a real program: it&#x27;s split across several files, it reads its input from a file named on the command line, it reports failure through an exit...">
+<meta name="description" content="A compiler is a real program: it&#x27;s split across several files, it reads its input from a file named on the command line, it reports what happened in a way...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/py-06-files-errors-tests">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Files, Errors and Testing in Python">
-<meta property="og:description" content="A compiler is a real program: it&#x27;s split across several files, it reads its input from a file named on the command line, it reports failure through an exit code, and it needs tests so you know it...">
+<meta property="og:description" content="A compiler is a real program: it&#x27;s split across several files, it reads its input from a file named on the command line, it reports what happened in a way other programs can read, and it needs tests...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/py-06-files-errors-tests">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -27,7 +27,7 @@
 <main>
   <p class="eyebrow">Learn Python · Lesson 6</p>
   <h1>Files, errors and testing</h1>
-  <p class="lede">A compiler is a real program: it's split across several files, it reads its input from a file named on the command line, it reports failure through an exit code, and it needs tests so you know it still works after every change. This lesson covers each of those, and how to find a bug when something goes wrong.</p>
+  <p class="lede">A compiler is a real program: it's split across several files, it reads its input from a file named on the command line, it reports what happened in a way other programs can read, and it needs tests so you know it still works after every change. This lesson covers each of those, and how to find a bug when something goes wrong.</p>
 
   <div class="prose">
     <h2>Modules and imports</h2>
@@ -240,7 +240,7 @@ $ echo $?
   <div class="prose">
     <p><code>echo $?</code> prints the last program's exit code in bash and zsh, the usual shells on Linux and macOS. In PowerShell it's <code>echo $LASTEXITCODE</code>, and in the old Windows <code>cmd</code> it's <code>echo %ERRORLEVEL%</code>. <code>print(..., file=sys.stderr)</code> sends a message to <b>stderr</b>, a second output meant for errors, so it doesn't get mixed into the program's real output. By habit, 2 means "you called me wrong".</p>
     <p>Notice the shape. All the work happens in <code>main(argv)</code>, which <em>returns</em> the exit code, and only the last line calls <code>sys.exit</code>. You can call <code>main(["shopping.txt"])</code> from a test or the REPL and check what it returns, without the program ending under you.</p>
-    <p>If a program stops with an exception nobody caught, Python prints the traceback and exits with code 1. The course's grader runs your compiler on each test program and reads its exit code to decide what happened, so a crash and a clean "this program is invalid" must give different codes. <a href="../week0/07-python.html">Lesson 0.7</a> gives the exact rules.</p>
+    <p>If a program stops with an exception nobody caught, Python prints the traceback and exits with code 1. The course's grader runs your compiler on each test program and reads the one line it prints, such as <code>MATCH case.uir</code> or <code>REJECTED case.uir</code>. A crash prints a traceback instead of that line, so it fails the test, even one where the right answer was <code>REJECTED</code>. <a href="../week0/07-python.html">Lesson 0.7</a> gives the exact rules.</p>
   </div>
 
   <div class="exercise small" data-ex="lp-06-exit-code">
@@ -482,7 +482,7 @@ ok test_extra_spaces</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">It isn't 0, since 0 means success.</p>
     <p class="hint">The <code>report.py</code> run on this page ended this way.</p>
-    <div class="why"><p>1. Python prints the traceback and exits with 1. The grader tells a crash apart from a clean "invalid" report (exit 2) by exactly this number.</p></div>
+    <div class="why"><p>1. Python prints the traceback and exits with 1. The course's grader reads the outcome line your compiler prints, not this number, so a crash, which prints no outcome, fails the test.</p></div>
   </div>
 
   <div class="quiz" data-answer="b">

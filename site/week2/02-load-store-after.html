@@ -64,7 +64,7 @@
 <p>The syllabus says loads and stores "must be fully ordered for programs to be valid". In our format that comes down to three rules:</p>
 <ol>
 <li><strong>One store per version.</strong> At most one store may write into any given version, through any of its views.</li>
-<li><strong>Every store is sequenced.</strong> Each store is the <code>s</code> of exactly one <code>after</code>. A store nothing sequences has no effect anywhere, so it's an error, not a no-op.</li>
+<li><strong>Every store is sequenced.</strong> Each store is the <code>s</code> of exactly one <code>after</code>. A store nothing sequences has no effect anywhere, so it makes the program invalid. It isn't quietly skipped.</li>
 <li><strong>Old versions are read before they're overwritten.</strong> A load of version V has to be able to run before the store that makes V's successor.</li>
 </ol>
 <p>Rule 1 is the interesting one. Two stores into the same version have no order between them, and with two writes, order is the whole answer:</p>
@@ -79,24 +79,24 @@
 
 <div class="prose">
 <h2>The old-version trap</h2>
-<p>Rule 3 sounds like it can never fail, because a load of V doesn't depend on the store that comes after V. It can fail, though, when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer. The <code>max</code> and <code>mod</code> only keep that index provably in range, which <a href="03-bounds.html">lesson 3</a> explains, so you can ignore them for now:</p>
+<p>Rule 3 sounds like it can never fail, because a load of V doesn't depend on the store that comes after V. It can fail, though, when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer. The <code>mod</code> only keeps that index provably in range, which <a href="03-bounds.html">lesson 3</a> explains, so you can ignore it for now:</p>
 <pre><code>%b  = buffer 2 dtype=i32 slot=0 data=[1 0]
 %e0 = shrink %b 0 shape=[]
 %s  = store %e0 0
 %b1 = after %b %s
 %n0 = shrink %b1 0 shape=[]
 %i  = load %n0              # reads the NEW b[0]
-%m  = max %i 0
-%k  = mod %m 2
+%k  = mod %i 2
 %v  = shrink %b %k shape=[] # ...to index the OLD %b
-%y  = load %v</code></pre>
+%y  = load %v
+%t  = assert %y 1</code></pre>
 <p>When your compiler renders C, every version of <code>%b</code> is the same array, written in place. So the load of old <code>%b</code> must run before the store. But it needs <code>%i</code>, which needs <code>%b1</code>, which needs the store. Step through the chain of "must come before":</p>
 </div>
 
 <div class="fig" id="cycle" data-title="a cycle of must-come-before"></div>
 
 <div class="prose">
-<p>No order satisfies every arrow, so the program is invalid: "a load of an old buffer version is needed after that version was overwritten". A compiler could save a copy of the old buffer to make it work, but that's a hidden allocation, and the course's rule is that the program has to say what memory it uses.</p>
+<p>No order satisfies every arrow, so the program is REJECTED: "a load of an old buffer version is needed after that version was overwritten". A compiler could save a copy of the old buffer to make it work, but that's a hidden allocation, and the course's rule is that the program has to say what memory it uses.</p>
 </div>
 
 <div class="exercise small" data-ex="w2-02-prefix">
@@ -176,12 +176,12 @@
 <button data-k="c">A load can't read a version that has a successor.</button>
 <button data-k="d">The load of old <code>%b</code> must run before the store, but its index needs the store's result.</button>
 </div>
-<p class="hint"><code>%k</code> is masked with <code>max</code> and <code>mod</code>, and there's only one store. Follow the arrows in the figure.</p>
+<p class="hint"><code>%k</code> is masked with <code>mod</code>, and there's only one store. Follow the arrows in the figure.</p>
 <div class="why"><p>It's a cycle: the old load must come before the store (it reads the version the store overwrites), and it also must come after it (its index is read from the new version). Loading a version that has a successor is fine on its own, as the previous question showed.</p></div>
 </div>
 
 <nav class="pager">
-<a href="01-buffers-and-views.html">← Lesson 1: Buffers and views</a>
+<a href="01-buffers-and-views.html">← Lesson 1: Floats, buffers and views</a>
 <a href="03-bounds.html">Lesson 3: Proving bounds →</a>
 </nav>
 </main>
@@ -228,13 +228,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const csrc = `%s  = store %e0 0          # overwrites %b in place
 %b1 = after %b %s
 %i  = load %n0              # n0 is a view of %b1
-%m  = max %i 0
-%k  = mod %m 2
+%k  = mod %i 2
 %v  = shrink %b %k shape=[] # a view of the OLD %b
 %y  = load %v`;
   const cyc = [
-    { caption: '<code>%y</code> loads from <code>%b</code>, and <code>%s</code> overwrites <code>%b</code>. So <code>%y</code> must run <strong>before</strong> <code>%s</code>.', hl: 6 },
-    { caption: '<code>%y</code> needs its view <code>%v</code>, which needs the index <code>%k</code>...', hl: 5 },
+    { caption: '<code>%y</code> loads from <code>%b</code>, and <code>%s</code> overwrites <code>%b</code>. So <code>%y</code> must run <strong>before</strong> <code>%s</code>.', hl: 5 },
+    { caption: '<code>%y</code> needs its view <code>%v</code>, which needs the index <code>%k</code>...', hl: 4 },
     { caption: '...which comes from <code>%i</code>, a load from <code>%b1</code>...', hl: 2 },
     { caption: '...and <code>%b1</code> only exists once <code>%s</code> has happened. So <code>%y</code> must run <strong>after</strong> <code>%s</code>.', hl: 1 },
     { caption: 'Before and after at once: a cycle. No order of statements in C can do both, so the program is invalid.', hl: 0 },

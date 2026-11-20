@@ -61,15 +61,19 @@
 <thead><tr><th>op</th><th>naive C</th><th>the problem</th><th>safe C</th></tr></thead>
 <tbody>
 <tr><td><code>add</code>, <code>mul</code></td><td><code>a + b</code></td><td>signed overflow is undefined</td><td><code>(int32_t)((uint32_t)a + (uint32_t)b)</code>. Unsigned arithmetic wraps by definition. Converting back is implementation-defined, and every compiler you'll use wraps.</td></tr>
-<tr><td><code>shl</code></td><td><code>a &lt;&lt; b</code></td><td>shifting a negative number, or into the sign bit, is undefined</td><td>shift as <code>uint32_t</code>, then convert back. .uir already guarantees <code>0 &le; b &le; 31</code>.</td></tr>
-<tr><td><code>div</code></td><td><code>a / b</code></td><td><code>INT_MIN / -1</code> overflows (it traps on x86)</td><td>handle <code>b == -1</code> separately, as a wrapping negation</td></tr>
-<tr><td><code>mod</code></td><td><code>a % b</code></td><td><code>INT_MIN % -1</code> is undefined too</td><td>when <code>b == -1</code> the answer is <code>0</code></td></tr>
-<tr><td><code>cast</code> f32 to i32</td><td><code>(int32_t)x</code></td><td>out of range or NaN is undefined</td><td>never happens in render tests: in .uir it's a runtime error, and render tests have none</td></tr>
+<tr><td><code>shl</code></td><td><code>a &lt;&lt; b</code></td><td>shifting a negative number, or into the sign bit, is undefined, and so is shifting by 32 or more, or by a negative amount</td><td>shift as <code>uint32_t</code> by <code>b &amp; 31</code>, then convert back: <code>(int32_t)((uint32_t)a &lt;&lt; ((uint32_t)b &amp; 31u))</code>. <code>b &amp; 31</code> is .uir's <code>b mod 32</code>, negative <code>b</code> included.</td></tr>
+<tr><td><code>div</code></td><td><code>a / b</code></td><td>C truncates, .uir floors: <code>-7 / 2</code> is -3 in C and -4 in .uir. And <code>a / 0</code> and <code>INT_MIN / -1</code> are undefined (the second traps on x86).</td><td>a helper: <code>b == 0</code> gives -1, <code>b == -1</code> is a wrapping negation, and otherwise divide and subtract 1 when the remainder is nonzero and its sign differs from <code>b</code>'s</td></tr>
+<tr><td><code>mod</code></td><td><code>a % b</code></td><td>the remainder takes <code>a</code>'s sign in C and <code>b</code>'s in .uir, and <code>a % 0</code> and <code>INT_MIN % -1</code> are undefined</td><td>a helper: <code>b == 0</code> gives <code>a</code>, <code>b == -1</code> gives 0, and otherwise add <code>b</code> to a nonzero remainder whose sign differs from <code>b</code>'s</td></tr>
+<tr><td><code>cast</code> f32 to i32</td><td><code>(int32_t)x</code></td><td>NaN, and anything outside the i32 range, is undefined</td><td>a helper that saturates: NaN gives 0, <code>x &gt;= 2147483648.0f</code> gives <code>INT32_MAX</code>, <code>x &lt;= -2147483648.0f</code> gives <code>INT32_MIN</code>, and anything else is a plain <code>(int32_t)x</code></td></tr>
 </tbody></table></div>
 
+<div class="prose">
+<p>Plain <code>a / b</code> and <code>a % b</code> are still right in one common case: when bounds prove <code>a</code> is never negative and <code>b</code> is a positive constant. Then truncating and flooring agree, and nothing is undefined. For example, <code>mod %m 4</code> with <code>%m = max %i 0</code>, or a non-negative offset divided by a width of 8. Everywhere else, print a call to the helper.</p>
+</div>
+
 <div class="exercise small" data-ex="w2-04-c-divmod">
-<h3>Division without undefined behavior</h3>
-<p>Write <code>int32_t c_div(int32_t a, int32_t b)</code> and <code>int32_t c_mod(int32_t a, int32_t b)</code> with .uir's semantics: truncate toward zero, remainder takes the dividend's sign, <code>INT_MIN / -1 = INT_MIN</code>, and <code>INT_MIN mod -1 = 0</code>. <code>b</code> is never 0. No undefined behavior.</p>
+<h3>Floor division in C, without undefined behavior</h3>
+<p>Write <code>int32_t uir_div(int32_t a, int32_t b)</code> and <code>int32_t uir_mod(int32_t a, int32_t b)</code>: .uir's <code>div</code> and <code>mod</code>, in C. The quotient is the floor of <code>a / b</code>, wrapped to 32 bits, so <code>uir_div(-7, 2)</code> is -4 and <code>uir_div(INT_MIN, -1)</code> is <code>INT_MIN</code>. The remainder is <code>a - b * floor(a / b)</code>, so <code>uir_mod(-7, 2)</code> is 1 and <code>uir_mod(7, -2)</code> is -1. <code>b = 0</code> gives -1 and <code>a</code>. No input may hit undefined behavior: the runner traps it.</p>
 <p class="muted">If you try the naive version first: on Windows, <code>INT_MIN / -1</code> can hang the test until the runner times it out, rather than crashing straight away.</p>
 </div>
 
@@ -98,20 +102,21 @@ one rounding:  fmaf(a, b, c) gives 0x1p-24</code></pre>
 
 <div class="prose">
 <h2>Shaped values, calls and casts</h2>
-<p>A rank-1 value becomes a small local array. <code>stack</code> is an array initializer and <code>index</code> is a subscript. Render tests have no runtime errors, so the index is always in range. This is the oracle's output for <code>stack 100 200 300</code> indexed by a loaded value:</p>
+<p>A rank-1 value becomes a small local array. <code>stack</code> is an array initializer and <code>index</code> is a subscript. Every index has been proven in range, so the subscript never reads past the array. This is the oracle's output for <code>stack 100 200 300</code> indexed by a loaded value <code>mod 3</code> (the loaded value can be negative, so the <code>mod</code> goes through the helper):</p>
 <pre><code>int32_t v5[3] = {100, 200, 300};
 int32_t v8 = b0[0];
-int32_t v9 = v5[v8];</code></pre>
+int32_t v10 = i32_mod(v8, 3);
+int32_t v11 = v5[v10];</code></pre>
 <p>A rank-1 <code>load</code> or <code>store</code> can't use a loop, so it is unrolled one element at a time. Loading <code>shrink %a 2 shape=[3]</code> and storing it into <code>shrink %b 1 shape=[3]</code> prints:</p>
 <pre><code>float v6[3] = {b0[2 + 0], b0[2 + 1], b0[2 + 2]};
 b1[1 + 0] = v6[0];
 b1[1 + 1] = v6[1];
 b1[1 + 2] = v6[2];</code></pre>
 <p>A <code>call</code> doesn't become a C function. It is inlined: the body is printed again for each call, with each param replaced by its arg's name. In <code>tests/week2/render/call_inlined.uir</code>, two calls of <code>p * 10 + q</code> with the args swapped print four lines, two per call.</p>
-<p>Casts are plain C casts, which is safe because .uir already rules out the undefined cases. f32 to i32 prints <code>((int32_t)x)</code>, and i32 or bool to f32 prints <code>((float)x)</code>. Anything to bool prints <code>(x != 0)</code>, which is <code>true</code> for <code>nan</code>, as .uir says.</p>
+<p>Most casts are plain C casts. i32 or bool to f32 prints <code>((float)x)</code>, which rounds to nearest-even like .uir. Anything to bool prints <code>(x != 0)</code>, which is <code>true</code> for <code>nan</code>, as .uir says. f32 to i32 is the exception: it saturates in .uir and is undefined in C for NaN and out-of-range values, so it calls the saturating helper from the table above.</p>
 
 <h2>Naming, and printing each node once</h2>
-<p>Your graph is hash consed, so a value used five times is one node. Print it once, as one variable, and refer to the name everywhere else. Keep a table from node to name, keyed on node identity. Without it, the 300-level doubling DAG from week 1 prints 2<sup>300</sup> lines. With it, 300.</p>
+<p>Your graph is hash consed, so a value used five times is one node. Print it once, as one variable, and refer to the name everywhere else. Keep a table from node to name, keyed on node identity. Week 2 has no node budget, so a program can be a 300-level doubling DAG, where each level adds the one below to itself. Without the table, that prints 2<sup>300</sup> lines. With it, 300.</p>
 </div>
 
 <h2>Code it</h2>
@@ -157,6 +162,13 @@ b1[1 + 2] = v6[2];</code></pre>
 </div>
 <p class="hint">The true quotient is 2<sup>31</sup>. Does that fit in a signed 32-bit int, and what does C say about signed results that don't fit?</p>
 <div class="why"><p>Undefined behavior. The quotient doesn't fit, and C doesn't define the result. On x86 it raises a hardware exception. .uir defines it as <code>INT_MIN</code>, so your renderer must handle <code>b == -1</code> without dividing.</p></div>
+</div>
+
+<div class="quiz" data-fill="-4">
+<p class="q">C's <code>-7 / 2</code> is -3. What must <code>uir_div(-7, 2)</code> return?</p>
+<div class="fill"><input aria-label="value" inputmode="numeric"><button class="btn">Check</button></div>
+<p class="hint">.uir's <code>div</code> is the floor of the exact quotient, -3.5. Floor rounds down, toward minus infinity.</p>
+<div class="why"><p>-4. C truncated toward zero, the remainder <code>-7 % 2</code> is -1, nonzero and with a different sign from 2, so the helper subtracts one. <code>uir_mod(-7, 2)</code> is then 1.</p></div>
 </div>
 
 <div class="quiz" data-fill="3.40282e+38 | 3.40282e38">

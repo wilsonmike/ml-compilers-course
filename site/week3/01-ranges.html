@@ -47,7 +47,7 @@
 %e  = end %s %i             # repeat %s for i = 0, 1, 2, 3
 %b1 = after %b %e           # the buffer after the whole loop</code></pre>
 <p><code>end %s %i</code> says "run the store once for every value of <code>%i</code>, in order". After the loop, <code>%b1</code> holds 0, 1, 4, 9. A <code>range</code> on its own doesn't loop anything. The loop exists only where an <code>end</code> closes it.</p>
-<p>The bound can be any i32 expression that doesn't depend on another range. <code>range 0</code> (or anything 0 or below) runs zero times. A computed or loaded bound is fine too, like <code>range %c</code> with <code>%c = mod (max %k 0) 5</code> for a loaded <code>%k</code>. Because the bound can't depend on another range, every loop nest in week 3 is a rectangle: no triangular loops yet.</p>
+<p>The bound can be any i32 expression that doesn't depend on another range. <code>range 0</code> (or anything 0 or below) runs zero times. A computed or loaded bound is fine too, like <code>range %c</code> with <code>%c = mod %k 5</code> for a loaded <code>%k</code>. Because the bound can't depend on another range, every loop nest in week 3 is a rectangle: no triangular loops yet.</p>
 </div>
 
 <h2>Open ranges</h2>
@@ -171,14 +171,14 @@
 <button data-k="d">The bounds check fails, because the interval is empty.</button>
 </div>
 <p class="hint">The spec says what <code>n ≤ 0</code> does.</p>
-<div class="why"><p>A range with bound 0 or below runs zero times, so the store never happens and the buffer's final version holds its initial data. The oracle runs that program with exit 0.</p></div>
+<div class="why"><p>A range with bound 0 or below runs zero times, so the store never happens and the buffer's final version holds its initial data. The program is valid, and an assert on that data gives MATCH.</p></div>
 </div>
 
-<div class="quiz" data-fill="2">
-<p class="q">A buffer has 4 elements, and <code>%v = shrink %b %i shape=[]</code> with <code>%i = range 5</code>. What exit code does <code>run</code> give?</p>
+<div class="quiz" data-fill="REJECTED">
+<p class="q">A buffer has 4 elements, and <code>%v = shrink %b %i shape=[]</code> with <code>%i = range 5</code>. What outcome does <code>./compile</code> print for the file?</p>
 <div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
 <p class="hint">What's the interval of <code>%i</code>?</p>
-<div class="why"><p><code>%i</code> is in [0, 4], so the view could start at element 4 of a four-element buffer. The bounds check fails, and the program is invalid: exit 2.</p></div>
+<div class="why"><p><code>%i</code> is in [0, 4], so the view could start at element 4 of a four-element buffer. The bounds check fails, so the program is rejected before it runs: <code>REJECTED</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="d">
@@ -189,8 +189,8 @@
 <button data-k="c">Because ranges are only allowed in render tests.</button>
 <button data-k="d">Because an assert inside a loop would pass or fail once per iteration, and there's no single answer to report.</button>
 </div>
-<p class="hint">What would "the first failing assert" mean for an assert that runs four times?</p>
-<div class="why"><p>An assert produces one pass or fail. Inside a loop it would produce one per iteration. To check something about every iteration, store it into a buffer inside the loop and assert on the buffer after the loop.</p></div>
+<p class="hint">How many answers would an assert that runs four times give?</p>
+<div class="why"><p>An assert gives one answer for the program: MATCH or MISMATCH. Inside a loop it would give one per iteration. To check something about every iteration, store it into a buffer inside the loop and assert on the buffer after the loop.</p></div>
 </div>
 
 <nav class="pager">

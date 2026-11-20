@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Numbers That Behave Like C</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="The programs your compiler runs use 32-bit integers that wrap around, division that rounds toward zero, and 32-bit floats. Python and OCaml do none of these by...">
+<meta name="description" content="The programs your compiler runs use 32-bit integers that wrap around, a division with its own exact rules, and, from week 2, 32-bit floats. Python and OCaml do...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/hard-04-numbers-like-c">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Numbers That Behave Like C">
-<meta property="og:description" content="The programs your compiler runs use 32-bit integers that wrap around, division that rounds toward zero, and 32-bit floats. Python and OCaml do none of these by default. This page builds each one up...">
+<meta property="og:description" content="The programs your compiler runs use 32-bit integers that wrap around, a division with its own exact rules, and, from week 2, 32-bit floats. Python and OCaml do none of these by default. This page...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/hard-04-numbers-like-c">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -27,7 +27,7 @@
 <main>
   <p class="eyebrow">Hard ideas · 4</p>
   <h1>Numbers that behave like C</h1>
-  <p class="lede">The programs your compiler runs use 32-bit integers that wrap around, division that rounds toward zero, and 32-bit floats. Python and OCaml do none of these by default. This page builds each one up from a picture, so you can make your language compute exactly what C would.</p>
+  <p class="lede">The programs your compiler runs use 32-bit integers that wrap around, a division with its own exact rules, and, from week 2, 32-bit floats. Python and OCaml do none of these by default. This page builds each one up from a picture, so you can make your language compute exactly what the course's ops and C would.</p>
 
   <div class="note">
     <span class="label">Before you start</span>
@@ -141,13 +141,13 @@ val wrap32 : int -&gt; int = &lt;fun&gt;
     <h2>Division: toward zero, or down?</h2>
     <p>Divide 7 by 2 and the true answer is 3.5. A whole-number division has to pick 3 or 4. For positive numbers everyone picks 3. The trouble is −7 / 2 = −3.5. There are two reasonable rules:</p>
     <ul>
-      <li><b>Truncate</b>: round toward zero, so −3.5 becomes −3. C does this, and so does the course's <code>div</code>. OCaml's <code>/</code> does too.</li>
-      <li><b>Floor</b>: round down, toward minus infinity, so −3.5 becomes −4. Python's <code>//</code> does this.</li>
+      <li><b>Truncate</b>: round toward zero, so −3.5 becomes −3. C does this, and so does OCaml's <code>/</code>.</li>
+      <li><b>Floor</b>: round down, toward minus infinity, so −3.5 becomes −4. Python's <code>//</code> does this, and so does the course's <code>div</code>.</li>
     </ul>
     <p>The remainder follows the quotient, so that <code>a = b × q + r</code> always holds. With truncation the remainder has the sign of <code>a</code>. With flooring it has the sign of <code>b</code>. Step through the four sign cases on a number line.</p>
   </div>
 
-  <div class="fig" id="divline" data-title="truncate (C) versus floor (Python)"></div>
+  <div class="fig" id="divline" data-title="truncate (C, OCaml) versus floor (Python, .uir)"></div>
 
   <div class="tablewrap"><table>
     <thead><tr><th>a, b</th><th>true a / b</th><th>truncate: q, r</th><th>floor: q, r</th></tr></thead>
@@ -174,12 +174,12 @@ val wrap32 : int -&gt; int = &lt;fun&gt;
 # 7 mod (-2);;
 - : int = 1</code></pre>
   <div class="prose">
-    <p class="only-python"><code>int(-7 / 2)</code> truncates, but it goes through a float, and a float can't hold every large integer exactly. For C-style division, divide the absolute values with <code>//</code>, then make the quotient negative when exactly one of <code>a</code> and <code>b</code> is negative. The remainder is then <code>a - b * q</code>.</p>
-    <p class="only-ocaml">OCaml's <code>/</code> and <code>mod</code> already match C. When you need Python-style flooring (some index arithmetic does), fix up the truncated result: when the remainder isn't zero and its sign differs from <code>b</code>'s, subtract 1 from the quotient and add <code>b</code> to the remainder.</p>
+    <p class="only-python">Python's <code>//</code> and <code>%</code> already floor, the same as the course's <code>div</code> and <code>mod</code>. You still need C's rule from week 2 on, because the C your compiler prints truncates. <code>int(-7 / 2)</code> truncates, but it goes through a float, and a float can't hold every large integer exactly. For C-style division, divide the absolute values with <code>//</code>, then make the quotient negative when exactly one of <code>a</code> and <code>b</code> is negative. The remainder is then <code>a - b * q</code>.</p>
+    <p class="only-ocaml">OCaml's <code>/</code> and <code>mod</code> truncate, like C. That's the trap: the course's <code>div</code> and <code>mod</code> floor. Fix up the truncated result: when the remainder isn't zero and its sign differs from <code>b</code>'s, subtract 1 from the quotient and add <code>b</code> to the remainder. Keep C's rule in mind too, because from week 2 your compiler prints C, and C's <code>/</code> truncates.</p>
   </div>
   <div class="trap">
     <span class="label">One quotient doesn't fit</span>
-    <p><code>INT_MIN / -1</code> should be 2,147,483,648, which is one more than <code>INT_MAX</code>. It wraps back to <code>INT_MIN</code>. That's why division needs the wrap too. And dividing by zero has no answer at all, so the course treats it as a runtime error. <a href="../week0/07-python.html">Lesson 0.7</a> and <a href="../week0/06-ocaml.html">lesson 0.6</a> each have an exercise on this.</p>
+    <p><code>INT_MIN / -1</code> should be 2,147,483,648, which is one more than <code>INT_MAX</code>. It wraps back to <code>INT_MIN</code>. That's why division needs the wrap too. Dividing by zero has no true answer, so the course defines one: <code>div x 0</code> is −1 and <code>mod x 0</code> is <code>x</code>. Python raises an error there, and C leaves it undefined, so both need a check first. <a href="../week0/07-python.html">Lesson 0.7</a> and <a href="../week0/06-ocaml.html">lesson 0.6</a> each have an exercise on this.</p>
   </div>
 
   <div class="exercise small" data-ex="hi-04-divs" data-ex-py="hi-04-divs-py">
@@ -190,13 +190,13 @@ val wrap32 : int -&gt; int = &lt;fun&gt;
 
   <div class="prose">
     <h2>Floats: f64 and f32</h2>
-    <p>A float is a number in scientific notation, written in binary. In decimal, 6.02 × 10<sup>23</sup> has a sign, some digits (6.02) and an exponent (23). A float stores the same three parts as bits: a <b>sign</b> bit, an <b>exponent</b>, and a <b>fraction</b> that holds the digits. A fixed number of bits for the fraction means a fixed number of significant digits, so most numbers get rounded to the nearest one that fits.</p>
+    <p>Week 1 has only integers and booleans. Floats arrive in week 2, and this part is ready for them. A float is a number in scientific notation, written in binary. In decimal, 6.02 × 10<sup>23</sup> has a sign, some digits (6.02) and an exponent (23). A float stores the same three parts as bits: a <b>sign</b> bit, an <b>exponent</b>, and a <b>fraction</b> that holds the digits. A fixed number of bits for the fraction means a fixed number of significant digits, so most numbers get rounded to the nearest one that fits.</p>
   </div>
   <div class="tablewrap"><table>
     <thead><tr><th>type</th><th>bits: sign, exponent, fraction</th><th>about this many decimal digits</th><th>who uses it</th></tr></thead>
     <tbody>
       <tr><td>f64 (double)</td><td>1, 11, 52</td><td>15 to 17</td><td>Python's <code>float</code>, OCaml's <code>float</code></td></tr>
-      <tr><td>f32 (single)</td><td>1, 8, 23</td><td>6 to 9</td><td>the course's <code>f32</code>, C's <code>float</code>, most ML models</td></tr>
+      <tr><td>f32 (single)</td><td>1, 8, 23</td><td>6 to 9</td><td>the course's <code>f32</code> (from week 2), C's <code>float</code>, most ML models</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
@@ -297,7 +297,7 @@ ZeroDivisionError: float division by zero</code></pre>
   </div>
   <div class="trap">
     <span class="label">Where these two bite</span>
-    <p>In a lookup table they break keys (<a href="hard-01-sharing.html">H.1</a>: key floats by their bits). In rewrite rules they break "obvious" laws: <code>x * 0 → 0</code> is wrong when <code>x</code> is nan, infinity or negative (a negative <code>x</code> gives −0.0), and <code>x + 0.0 → x</code> is wrong when <code>x</code> is −0.0 (<a href="hard-03-rewriting.html">H.3</a>, <a href="../week0/03-compilers-and-irs.html">lesson 0.3</a>). <a href="../week1/02-uir-and-interpreting.html">Lesson 1.2</a> has the full table of special values.</p>
+    <p>In a lookup table they break keys (<a href="hard-01-sharing.html">H.1</a>: key floats by their bits). In rewrite rules they break "obvious" laws: <code>x * 0 → 0</code> is wrong when <code>x</code> is nan, infinity or negative (a negative <code>x</code> gives −0.0), and <code>x + 0.0 → x</code> is wrong when <code>x</code> is −0.0 (<a href="hard-03-rewriting.html">H.3</a>, <a href="../week0/03-compilers-and-irs.html">lesson 0.3</a>). <a href="../week2/01-buffers-and-views.html">Week 2</a> has the full table of special values.</p>
   </div>
 
   <div class="exercise small" data-ex="hi-04-f32-bits" data-ex-py="hi-04-f32-bits-py">
@@ -309,9 +309,10 @@ ZeroDivisionError: float division by zero</code></pre>
   <div class="prose">
     <h2>Where this shows up in the course</h2>
     <ul>
-      <li><a href="../week1/02-uir-and-interpreting.html">Lesson 1.2</a>: your interpreter computes <code>i32</code> and <code>f32</code> exactly: wrap, truncating <code>div</code> and <code>mod</code>, rounding to f32 after every operation, and the special values.</li>
+      <li><a href="../week1/02-uir-and-interpreting.html">Lesson 1.2</a>: your interpreter computes <code>i32</code> exactly: wrap, and <code>div</code> and <code>mod</code> that floor, with −1 and <code>x</code> for a zero divisor.</li>
       <li><a href="../week1/03-rewrites-and-folding.html">Lesson 1.3</a>: constant folding must give the interpreter's answer, wrap included.</li>
-      <li><a href="../week2/04-rendering-c.html">Lesson 2.4</a>: the C you print must wrap without undefined behavior, and float constants are written exactly, from their bits.</li>
+      <li><a href="../week2/01-buffers-and-views.html">Week 2</a>: <code>f32</code> arrives, rounded to f32 after every operation, with the special values.</li>
+      <li><a href="../week2/04-rendering-c.html">Lesson 2.4</a>: the C you print must wrap and floor without undefined behavior, even though C's <code>/</code> truncates, and float constants are written exactly, from their bits.</li>
       <li><a href="../week2/05-the-runtime.html">Lesson 2.5</a>: results come back from C as hex bits, and you compare bits.</li>
     </ul>
 
@@ -319,7 +320,7 @@ ZeroDivisionError: float division by zero</code></pre>
     <ul>
       <li>Read 4-bit and 32-bit values in two's complement, and say why the top bit decides the sign.</li>
       <li>Wrap any integer to 32 bits in your language, and know to do it after every operation.</li>
-      <li>Tell truncating division from flooring, for all four sign cases, and check a result with <code>a = b × q + r</code>.</li>
+      <li>Tell truncating division from flooring, for all four sign cases, know the course floors, and check a result with <code>a = b × q + r</code>.</li>
       <li>Round an f64 to f32, and explain why 0.1 + 0.2 isn't 0.3.</li>
       <li>Print a float's bits in hex, and test for nan and −0.0 correctly.</li>
     </ul>
@@ -349,6 +350,18 @@ ZeroDivisionError: float division by zero</code></pre>
     <p class="hint">First the quotient: −9 / 4 is −2.25. Which way does C round it?</p>
     <p class="hint">The quotient is −2. Now solve −9 = 4 × (−2) + r.</p>
     <div class="why"><p>The quotient truncates to −2, and −9 − 4 × (−2) = −1. The remainder has the sign of <code>a</code>. Python's <code>-9 % 4</code> is 3, because its quotient floors to −3.</p></div>
+  </div>
+  <div class="quiz" data-fill="-4">
+    <p class="q">In the course's .uir, what is <code>div -7 2</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">The exact answer is −3.5. Does the course's <code>div</code> truncate like C, or floor like Python?</p>
+    <div class="why"><p>.uir's <code>div</code> floors, so −3.5 rounds down to −4. C and OCaml's <code>/</code> would give −3. The matching <code>mod -7 2</code> is 1.</p></div>
+  </div>
+  <div class="quiz" data-fill="-1">
+    <p class="q">In the course's .uir, what is <code>div 5 0</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Nothing in the course fails at run time, so a zero divisor needs a defined answer.</p>
+    <div class="why"><p>The course defines <code>div x 0</code> as −1, and <code>mod x 0</code> as <code>x</code>. Python would raise, and in C it's undefined, so your code checks for 0 first.</p></div>
   </div>
 
   <div class="quiz" data-answer="b">
@@ -452,15 +465,15 @@ ZeroDivisionError: float division by zero</code></pre>
       g.append(box(tq, Y + 40, String(tq), 'both', 'new'));
     } else {
       g.append(h('path', { class: 'edge', d: `M${X(ex)},${Y} L${X(tq)},${Y + 40}` }), h('path', { class: 'edge', d: `M${X(ex)},${Y} L${X(fq)},${Y + 96}` }));
-      g.append(box(tq, Y + 40, String(tq), 'truncate', 'new'), box(fq, Y + 96, String(fq), 'floor', 'bad'));
+      g.append(box(tq, Y + 40, String(tq), 'truncate', 'bad'), box(fq, Y + 96, String(fq), 'floor', 'new'));
     }
     svg.append(g);
     return svg;
   };
   const dv = [
     [7, 2, '7 / 2 = 3.5. Toward zero and downward are the same direction here, so both rules give 3.'],
-    [-7, 2, '−7 / 2 = −3.5. Truncating moves toward zero, to −3 (C, OCaml\'s <code>/</code>). Flooring moves down, to −4 (Python\'s <code>//</code>).'],
-    [7, -2, '7 / −2 = −3.5 again. Same split: −3 against −4. The remainders differ too: C gives 1, Python gives −1.'],
+    [-7, 2, '−7 / 2 = −3.5. Truncating moves toward zero, to −3 (C, OCaml\'s <code>/</code>). Flooring moves down, to −4 (Python\'s <code>//</code>, .uir\'s <code>div</code>).'],
+    [7, -2, '7 / −2 = −3.5 again. Same split: −3 against −4. The remainders differ too: C gives 1, Python and .uir give −1.'],
     [-7, -2, '−7 / −2 = 3.5. Positive, so both rules agree on 3. They only disagree when the signs differ and there is a remainder.'],
   ];
   stepper(document.getElementById('divline'), dv.map(([a, b, caption]) => ({ a, b, caption })), (s, body) => body.append(line(s.a, s.b)));
