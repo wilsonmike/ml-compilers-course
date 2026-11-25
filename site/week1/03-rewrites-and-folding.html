@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=a2f021139a">
-<script src="../assets/course.js?v=9bdf13c045"></script>
+<link rel="stylesheet" href="../assets/course.css?v=f8b5b1011e">
+<script src="../assets/course.js?v=dc4aebeeff"></script>
 </head>
 <body data-crumbs="Week 1|Rewrites and folding" data-root="../">
 <main>
@@ -103,6 +103,37 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 
 <div class="prose">
 <p>Above: <code>%a = add %x 1</code> and <code>%b = add %x 1</code> collapse into one <code>add</code>, and <code>mul %a %b</code> points at it twice. Simplifying <code>%out</code> here leaves exactly 2 ops.</p>
+
+<h2>Sandbox: drive the rewrite engine yourself</h2>
+<p>Pick a puzzle and fire one rule family at a time until you reach the par op count, or click <strong>Run to fixpoint</strong> to watch the full loop converge.</p>
+</div>
+<div class="fig bleed" id="rw-lab" data-title="Interactive rewrite-rule sandbox">
+  <div class="lab-bar">
+    <div class="seg" role="group" aria-label="Rewrite puzzles" id="rw-presets"></div>
+    <span class="stat" id="rw-par"></span>
+  </div>
+  <div class="lab-bar">
+    <button type="button" class="btn" data-rule="fold">1. Fold constants</button>
+    <button type="button" class="btn" data-rule="canon">2. Canonicalize</button>
+    <button type="button" class="btn" data-rule="ident">3. Identities</button>
+    <button type="button" class="btn" data-rule="assoc">4. Reassociate</button>
+    <button type="button" class="btn primary" id="rw-fix">Run to fixpoint</button>
+    <button type="button" class="btn" id="rw-reset">Reset</button>
+  </div>
+  <div class="body split">
+    <div>
+      <span class="label">Current .uir</span>
+      <pre><code id="rw-code"></code></pre>
+      <p class="muted" id="rw-log" style="margin-top:var(--s3)"></p>
+    </div>
+    <div>
+      <span class="label">Live hash-consed DAG</span>
+      <div class="lab-dag" id="rw-dag"></div>
+    </div>
+  </div>
+</div>
+
+<div class="prose">
 
 <h2>Termination: every rule must make progress</h2>
 <p>"Repeat until nothing changes" only stops if each rule moves the graph toward something smaller or more canonical. A rule like</p>
@@ -270,6 +301,104 @@ document.addEventListener('DOMContentLoaded', () => {
   const hc = document.getElementById('hc'), src = '%x = param [] slot=0 dtype=i32 addrspace=ALU\n%a = add %x 1\n%b = add %x 1\n%out = mul %a %b';
   hc.replaceChildren(CC.h('div', { class: 'head' }, CC.h('span', { class: 'title', text: hc.dataset.title })),
     CC.h('div', { class: 'body split' }, CC.code(src), CC.graph(CC.parseUir(src).nodes.map(n => n.op === 'param' ? { ...n, sub: '0 i32' } : n))));
+
+  // Interactive rewrite-rule sandbox
+  const PUZZLES = [
+    { name: 'Chain (par 1)', par: 1, expr: { op: 'add', a: { op: 'mul', a: { op: 'add', a: { op: 'c', v: 2 }, b: { op: 'c', v: 3 } }, b: { op: 'p', s: 0 } }, b: { op: 'c', v: 0 } } },
+    { name: 'Ring regroup (par 1)', par: 1, expr: { op: 'add', a: { op: 'add', a: { op: 'c', v: 3 }, b: { op: 'p', s: 0 } }, b: { op: 'mul', a: { op: 'c', v: 2 }, b: { op: 'c', v: 5 } } } },
+    { name: 'Vanishes (par 0)', par: 0, expr: { op: 'add', a: { op: 'mul', a: { op: 'c', v: 0 }, b: { op: 'p', s: 0 } }, b: { op: 'add', a: { op: 'c', v: 7 }, b: { op: 'c', v: -7 } } } },
+  ];
+  const clone = e => JSON.parse(JSON.stringify(e));
+  const w32 = x => (x | 0);
+  const applyRule = (e, kind, notes) => {
+    if (e.op === 'c' || e.op === 'p') return e;
+    const a = applyRule(e.a, kind, notes), b = applyRule(e.b, kind, notes);
+    const cur = { op: e.op, a, b };
+    if (kind === 'fold' && a.op === 'c' && b.op === 'c') {
+      const v = cur.op === 'add' ? w32(a.v + b.v) : Math.imul(a.v, b.v);
+      notes.push(`${cur.op}(${a.v}, ${b.v}) → ${v}`);
+      return { op: 'c', v };
+    }
+    if (kind === 'canon' && a.op === 'c' && b.op !== 'c') {
+      notes.push(`${cur.op}(${a.v}, x) → ${cur.op}(x, ${a.v})`);
+      return { op: cur.op, a: b, b: a };
+    }
+    if (kind === 'ident') {
+      if (cur.op === 'add' && b.op === 'c' && b.v === 0) { notes.push('add(x, 0) → x'); return a; }
+      if (cur.op === 'mul' && b.op === 'c' && b.v === 1) { notes.push('mul(x, 1) → x'); return a; }
+      if (cur.op === 'mul' && b.op === 'c' && b.v === 0) { notes.push('mul(x, 0) → 0'); return { op: 'c', v: 0 }; }
+    }
+    if (kind === 'assoc' && b.op === 'c' && a.op === cur.op && a.b.op === 'c') {
+      const v = cur.op === 'add' ? w32(a.b.v + b.v) : Math.imul(a.b.v, b.v);
+      notes.push(`${cur.op}(${cur.op}(x, ${a.b.v}), ${b.v}) → ${cur.op}(x, ${v})`);
+      return { op: cur.op, a: a.a, b: { op: 'c', v } };
+    }
+    return cur;
+  };
+  function toUirAndDag(root) {
+    const key = new Map(), nodes = [], lines = [];
+    let ops = 0, tmp = 0;
+    const walk = (e, isRoot) => {
+      if (e.op === 'c') {
+        const k = 'c|' + e.v;
+        if (!key.has(k)) { const id = 'n' + nodes.length; nodes.push({ id, op: String(e.v), src: [] }); key.set(k, { id, ref: String(e.v) }); }
+        const got = key.get(k);
+        if (isRoot) lines.push(`%out = ${got.ref}`);
+        return got;
+      }
+      if (e.op === 'p') {
+        const k = 'p|' + e.s;
+        if (!key.has(k)) { const id = 'n' + nodes.length; nodes.push({ id, op: 'param', sub: e.s + ' i32', src: [] }); lines.push(`%x = param [] slot=${e.s} dtype=i32 addrspace=ALU`); key.set(k, { id, ref: '%x' }); }
+        const got = key.get(k);
+        if (isRoot) lines.push(`%out = ${got.ref}`);
+        return got;
+      }
+      const la = walk(e.a, false), lb = walk(e.b, false);
+      const k = `${e.op}|${la.id}|${lb.id}`;
+      if (!key.has(k)) {
+        const id = 'n' + nodes.length, ref = isRoot ? '%out' : '%t' + (tmp++);
+        nodes.push({ id, op: e.op, src: [la.id, lb.id], cls: isRoot ? 'hit' : '', sub: isRoot ? '%out' : null });
+        lines.push(`${ref} = ${e.op} ${la.ref} ${lb.ref}`);
+        ops++;
+        key.set(k, { id, ref });
+      }
+      return key.get(k);
+    };
+    walk(root, true);
+    return { text: lines.join('\n'), nodes, ops };
+  }
+  const rwPresets = document.getElementById('rw-presets'), rwPar = document.getElementById('rw-par');
+  const rwCode = document.getElementById('rw-code'), rwDag = document.getElementById('rw-dag'), rwLog = document.getElementById('rw-log');
+  let pIdx = 0, rwExpr = clone(PUZZLES[0].expr);
+  function paintRw(msg) {
+    const { text, nodes, ops } = toUirAndDag(rwExpr), par = PUZZLES[pIdx].par;
+    rwCode.textContent = text;
+    rwDag.replaceChildren(CC.graph(nodes));
+    rwPar.textContent = ops <= par ? `${ops} op${ops === 1 ? '' : 's'} · Par met (≤ ${par})` : `${ops} op${ops === 1 ? '' : 's'} · Par: ${par}`;
+    rwPar.className = 'stat' + (ops <= par ? ' good' : '');
+    if (msg != null) rwLog.textContent = msg;
+  }
+  PUZZLES.forEach((p, i) => rwPresets.append(CC.h('button', { type: 'button', text: p.name, class: i === 0 ? 'on' : '', onclick: () => {
+    pIdx = i; rwExpr = clone(p.expr);
+    rwPresets.querySelectorAll('button').forEach((b, j) => b.classList.toggle('on', j === i));
+    paintRw('Click a rule family above to apply one sources-first pass.');
+  } })));
+  document.querySelectorAll('#rw-lab button[data-rule]').forEach(b => b.onclick = () => {
+    const notes = []; rwExpr = applyRule(rwExpr, b.dataset.rule, notes);
+    paintRw(notes.length ? 'Fired: ' + notes.join(' → ') : 'No nodes matched that rule on this pass.');
+  });
+  document.getElementById('rw-fix').onclick = () => {
+    const all = [];
+    for (let pass = 0; pass < 12; pass++) {
+      const notes = [];
+      for (const r of ['fold', 'canon', 'ident', 'assoc']) rwExpr = applyRule(rwExpr, r, notes);
+      if (!notes.length) break;
+      all.push(...notes);
+    }
+    paintRw(all.length ? `Converged in ${all.length} rewrite${all.length === 1 ? '' : 's'}: ` + all.join(' → ') : 'Already at fixpoint.');
+  };
+  document.getElementById('rw-reset').onclick = () => { rwExpr = clone(PUZZLES[pIdx].expr); paintRw('Reset to starting graph.'); };
+  paintRw('Click a rule family above to apply one sources-first pass.');
 });
 </script>
 </body>

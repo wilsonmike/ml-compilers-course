@@ -7,7 +7,7 @@ For each exercise in exercises/, writes site/data/ex/<id>.json: what the runner'
 would return (the prompt's examples, the hints, and the reference answer). The hidden tests stay out. A page with no
 runner shows these, so a reader on the hosted site still gets the examples, hints, and answers, and runs code locally.
 """
-import os, sys, glob, json
+import os, sys, glob, json, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 from serve import public, solution, load  # the same shapes the runner sends
@@ -21,8 +21,14 @@ def main():
   for ex_id in ids:
     ex = load(ex_id)
     data = public(ex) | {'answer': solution(ex)}
+    # Python and .uir exercises run directly in the browser via Pyodide when tools/serve.py isn't running
+    if ex['lang'] in ('python', 'uir'):
+      data['tests'] = ex['tests']
+      for k in ('show', 'mode', 'out_slot', 'require'):
+        if k in ex: data[k] = ex[k]
     with open(os.path.join(out, ex_id + '.json'), 'w', encoding='utf-8', newline='\n') as f:
       json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
-  print(f'{len(ids)} exercises written to site/data/ex/')
+  shutil.copyfile(os.path.join(ROOT, '_reference', 'uirc.py'), os.path.join(ROOT, 'site', 'data', 'uirc.py'))
+  print(f'{len(ids)} exercises written to site/data/ex/ (+ site/data/uirc.py)')
 
 if __name__ == '__main__': main()

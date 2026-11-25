@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compiler Bug Hunt</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Ten real compiler bugs from weeks 1 to 9, each taken straight from the course&#x27;s planted-bug suite. Read the failing test, then click the exact line in the...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/bug-hunts">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Compiler Bug Hunt">
+<meta property="og:description" content="Ten real compiler bugs from weeks 1 to 9, each taken straight from the course&#x27;s planted-bug suite. Read the failing test, then click the exact line in the compiler that breaks it.">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/bug-hunts">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=f8b5b1011e">
+<script src="../assets/course.js?v=dc4aebeeff"></script>
+</head>
+<body data-root="../">
+<main>
+  <p class="eyebrow">Interactive challenge</p>
+  <h1>Compiler bug hunt</h1>
+  <p class="lede">Ten real compiler bugs from weeks 1 to 9, each taken straight from the course's planted-bug suite. Read the failing test, then click the exact line in the compiler that breaks it.</p>
+
+  <div class="fig">
+    <div class="lab-bar">
+      <span id="bh-score" class="stat">0 / 10 bugs squashed</span>
+      <button type="button" class="btn" id="bh-reset">Reset progress</button>
+    </div>
+    <div class="cap">Snippets follow the language picked in the sidebar (Python or OCaml). Your progress is saved in this browser.</div>
+  </div>
+
+  <div class="bh-list" id="bh-list"></div>
+</main>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h, store, track } = CC;
+  const KEY = 'cc-bughunt';
+  const readSolved = () => { try { return new Set(JSON.parse(store.get(KEY) || '[]')); } catch { return new Set(); } };
+  const saveSolved = s => store.set(KEY, JSON.stringify([...s]));
+
+  const HUNTS = [
+    { id: 'w1-div', week: 'Week 1', title: 'The wrong sign on division',
+      lesson: ['week1/02-uir-and-interpreting.html', '1.2 .uir and interpreting'],
+      test: '%a = div -7 2\n%t = assert %a -4\n# expected: MATCH\n# got:      MISMATCH (evaluated to -3)',
+      py: { bugs: [4], lines: [
+        'def uir_div(a: int, b: int) -> int:',
+        '    if b == 0:',
+        '        return -1',
+        '    q = int(a / b)',
+        '    return wrap32(q)',
+      ] },
+      ml: { bugs: [4], lines: [
+        'let uir_div a b =',
+        '  if b = 0 then -1',
+        '  else',
+        '    let q = a / b in',
+        '    wrap32 q',
+      ] },
+      why: 'int(a / b) in Python and / in OCaml both truncate toward zero (-7 / 2 = -3). .uir div floors toward minus infinity (-4), so Python should use a // b and OCaml needs a remainder fix-up when a mod b != 0 and signs differ.' },
+
+    { id: 'w1-muldiv', week: 'Week 1', title: 'The cancellation that breaks on 2^30',
+      lesson: ['week1/04-symbolic.html', '1.4 Symbolic simplification'],
+      test: '%x   = param [] slot=0 dtype=i32 addrspace=ALU\n%m   = mul %x 2\n%out = div %m 2\n# simplify fails on x = 1073741824 (gives 2^30 instead of -2^30)',
+      py: { bugs: [4, 5], lines: [
+        'def rewrite_div(u, x, y):',
+        '    if is_const(y, 1): return x',
+        '    if is_const(y, 0): return const(-1)',
+        '    if x.op == "mul" and x.src[1] is y:',
+        '        return x.src[0]',
+        '    return u',
+      ] },
+      ml: { bugs: [4, 5], lines: [
+        'let rewrite_div u x y =',
+        '  if is_const y 1 then x',
+        '  else if is_const y 0 then const (-1)',
+        '  else match x.op, x.src with',
+        '    | Mul, [a; c] when c == y -> a',
+        '    | _ -> u',
+      ] },
+      why: 'In i32, mul wraps mod 2^32 and div cannot undo a wrap: (2^30 * 2) wraps to INT_MIN, and INT_MIN / 2 is -2^30. Also c must be nonzero (div 0 0 is -1). You may only cancel when y != 0 and bounds prove x cannot wrap.' },
+
+    { id: 'w1-cache', week: 'Week 1', title: 'One function, two calls, same stale answer',
+      lesson: ['week1/05-call-and-param.html', '1.5 call and param'],
+      test: '%x  = param [] slot=0 dtype=i32 addrspace=ALU\n%b  = add %x 1\n%r1 = call %b 10\n%r2 = call %b 20\n%t  = assert %r2 21\n# got: MISMATCH (%r2 returned 11)',
+      py: { bugs: [1], lines: [
+        'memo = {}',
+        'def eval_node(u, args):',
+        '    if u in memo: return memo[u]',
+        '    if u.op == "param": v = args[u.arg]',
+        '    else: v = run_op(u, [eval_node(s, args) for s in u.src])',
+        '    memo[u] = v',
+        '    return v',
+      ] },
+      ml: { bugs: [1], lines: [
+        'let memo = Hashtbl.create 64',
+        'let rec eval_node u args =',
+        '  match Hashtbl.find_opt memo u.id with',
+        '  | Some v -> v',
+        '  | None ->',
+        '    let v = eval_uncached u args in',
+        '    Hashtbl.add memo u.id v; v',
+      ] },
+      why: 'The memo table lives outside the call, so the second call reuses the value cached for args = [10]. Create a fresh memo table at the start of every call.' },
+
+    { id: 'w2-f32zero', week: 'Week 2', title: 'Zero times infinity is not zero',
+      lesson: ['week2/01-buffers-and-views.html', '2.1 Floats, buffers and views'],
+      test: '%x   = param [] slot=0 dtype=f32 addrspace=ALU\n%out = mul %x 0.0\n# simplify fails on x = inf (returns 0.0 instead of nan)',
+      py: { bugs: [4, 5], lines: [
+        'def rewrite_mul(u, x, y):',
+        '    if is_const(y, 1) or is_const(y, 1.0):',
+        '        return x',
+        '    if is_const(y, 0) or is_const(y, 0.0):',
+        '        return y',
+        '    return u',
+      ] },
+      ml: { bugs: [3, 4], lines: [
+        'let rewrite_mul u x y =',
+        '  if is_const_one y then x',
+        '  else if is_const_zero y then',
+        '    y',
+        '  else u',
+      ] },
+      why: 'mul(x, 0) -> 0 holds for i32, not f32. In IEEE 754, inf * 0.0 is NaN, NaN * 0.0 is NaN, and -1.0 * 0.0 is -0.0 (different bit pattern from +0.0). Guard the rule to i32 only.' },
+
+    { id: 'w2-overflow', week: 'Week 2', title: 'Crash on float overflow',
+      lesson: ['week2/01-buffers-and-views.html', '2.1 Floats, buffers and views'],
+      test: '%a = mul 1e20 1e20\n%t = assert %a inf\n# expected: MATCH\n# got:      uncaught exception / no outcome line',
+      py: { bugs: [2], lines: [
+        'def round_f32(x: float) -> float:',
+        '    bits = struct.pack("<f", x)',
+        '    return struct.unpack("<f", bits)[0]',
+      ] },
+      ml: { bugs: [2], lines: [
+        'let round_f32 (x : float) : float =',
+        '  if Float.abs x > 3.4028235e38 then failwith "overflow"',
+        '  else Int32.float_of_bits (Int32.bits_of_float x)',
+      ] },
+      why: 'In Python, struct.pack("<f", 1e40) raises OverflowError instead of returning inf. Catch OverflowError and return math.copysign(math.inf, x). In OCaml, Int32.bits_of_float already overflows to signed infinity.' },
+
+    { id: 'w3-pinned', week: 'Week 3', title: 'The accumulator that forgot to add',
+      lesson: ['week3/02-memory-in-loops.html', '3.2 Memory in loops'],
+      test: '# expected final acc = 4, got 1\n# which line in this .uir program breaks the accumulator?',
+      py: { bugs: [9], lines: [
+        '%acc  = alloc 1 dtype=i32',
+        '%i    = range 4',
+        '%v    = shrink %acc 0 []',
+        '%cur  = load %v',
+        '%nxt  = add %cur 1',
+        '%s    = store %v %nxt',
+        '%e    = end %s %i',
+        '%acc1 = after %acc %e',
+        '%dbg  = add %cur 0   # used in a top-level assert',
+      ] },
+      ml: { bugs: [9], lines: [
+        '%acc  = alloc 1 dtype=i32',
+        '%i    = range 4',
+        '%v    = shrink %acc 0 []',
+        '%cur  = load %v',
+        '%nxt  = add %cur 1',
+        '%s    = store %v %nxt',
+        '%e    = end %s %i',
+        '%acc1 = after %acc %e',
+        '%dbg  = add %cur 0   # used in a top-level assert',
+      ] },
+      why: 'A load only moves into a loop when EVERY use of it sits inside that loop. Adding %dbg = add %cur 0 outside the loop pins %cur before the loop, so every iteration adds 1 to the initial 0.' },
+
+    { id: 'w4-negzero', week: 'Week 4', title: 'The lost minus sign on -0.0',
+      lesson: ['week4/02-reduce-expand.html', '4.2 Reduce and expand'],
+      test: '%b  = buffer 1 [-0.0] dtype=f32 slot=0\n%v  = load %b\n%r  = reduce %v op=add\n%t  = assert %r -0.0\n# got: MISMATCH (bits 0x00000000 instead of 0x80000000)',
+      py: { bugs: [2], lines: [
+        'def eval_reduce_add(vals):',
+        '    acc = 0.0',
+        '    for x in vals:',
+        '        acc = round_f32(acc + x)',
+        '    return acc',
+      ] },
+      ml: { bugs: [2, 3], lines: [
+        'let eval_reduce_add vals =',
+        '  List.fold_left (fun acc x -> round_f32 (acc +. x))',
+        '    0.0 vals',
+      ] },
+      why: 'In IEEE 754, 0.0 + (-0.0) is +0.0. Seeding reduce op=add with 0.0 wipes out -0.0 and also adds an extra rounding step. Always seed from vals[0] and fold vals[1:] left to right.' },
+
+    { id: 'w5-perm', week: 'Week 5', title: 'Permuted backwards on 3D tensors',
+      lesson: ['week5/02-reshape-permute.html', '5.2 Reshape and permute'],
+      test: '# shape [2 3 4], permute [2 0 1]\n# expected result shape: [4 2 3]\n# got: [3 4 2]',
+      py: { bugs: [4], lines: [
+        'def permute_shape(shape, order):',
+        '    out = [0] * len(shape)',
+        '    for k, p in enumerate(order):',
+        '        out[p] = shape[k]',
+        '    return out',
+      ] },
+      ml: { bugs: [4], lines: [
+        'let permute_shape shape order =',
+        '  let out = Array.make (List.length shape) 0 in',
+        '  List.iteri (fun k p ->',
+        '    out.(p) <- List.nth shape k) order;',
+        '  Array.to_list out',
+      ] },
+      why: 'Output axis k comes from input axis order[k]: out[k] = shape[order[k]], not out[order[k]] = shape[k]. That bug hides on 2D transposes because [1, 0] is its own inverse, and shows up on 3D cycles like [2, 0, 1].' },
+
+    { id: 'w6-postorder', week: 'Week 6', title: 'Autodiff shares added in reverse order',
+      lesson: ['week6/03-autodiff.html', '6.3 Automatic differentiation'],
+      test: '# grad_accumulation_order_inner: shared x used on both sides of add\n# expected f32 bits: 0x3f800001\n# got:               0x3f800000',
+      py: { bugs: [8], lines: [
+        'stack, done, order = [(y, False)], set(), []',
+        'while stack:',
+        '    u, expanded = stack.pop()',
+        '    if u in done: continue',
+        '    if expanded: done.add(u); order.append(u)',
+        '    else:',
+        '        stack.append((u, True))',
+        '        stack.extend((s, False) for s in u.src)',
+      ] },
+      ml: { bugs: [5], lines: [
+        'let postorder y =',
+        '  let rec visit u =',
+        '    if not (Hashtbl.mem seen u.id) then begin',
+        '      Hashtbl.add seen u.id ();',
+        '      List.iter visit (List.rev u.src);',
+        '      out := u :: !out',
+        '    end in',
+        '  visit y; List.rev !out',
+      ] },
+      why: 'A LIFO stack pops the last-pushed item first, so pushing u.src forward visits operands right-to-left (reversing post-order). Push reversed(u.src) in Python (or iterate u.src left-to-right in OCaml) so gradient shares arrive in exact spec order.' },
+
+    { id: 'w8-barrier', week: 'Week 8', title: 'The shared-memory race condition',
+      lesson: ['week8/03-shared-memory.html', '8.3 Shared memory and barriers'],
+      test: '# c_reverse_shared: block reverses 64 floats in shared memory\n# phase 1 writes sh[t] = in[t], phase 2 reads sh[63 - t]\n# got: intermittent zeros and stale values in emulator & GPU',
+      py: { bugs: [5, 6, 7], lines: [
+        '__shared__ float a0[64];',
+        'for (int32_t z = threadIdx.x; z < 64; z += blockDim.x) a0[z] = 0;',
+        '__syncthreads();',
+        '{ int32_t t = threadIdx.x;',
+        '  a0[t] = b0[t]; }',
+        '{ int32_t t = threadIdx.x;',
+        '  b0[t] = a0[63 - t]; }',
+        '__syncthreads();',
+      ] },
+      ml: { bugs: [5, 6, 7], lines: [
+        '__shared__ float a0[64];',
+        'for (int32_t z = threadIdx.x; z < 64; z += blockDim.x) a0[z] = 0;',
+        '__syncthreads();',
+        '{ int32_t t = threadIdx.x;',
+        '  a0[t] = b0[t]; }',
+        '{ int32_t t = threadIdx.x;',
+        '  b0[t] = a0[63 - t]; }',
+        '__syncthreads();',
+      ] },
+      why: 'Warps execute independently. Without __syncthreads() between line 5 and line 6, warp 0 can already read a0[63 - t] before warp 1 has finished writing a0[32..63]. Every local and warp phase must end with __syncthreads().' },
+  ];
+
+  const list = document.getElementById('bh-list'), scoreEl = document.getElementById('bh-score');
+  let solved = readSolved();
+
+  function paintScore() {
+    scoreEl.textContent = `${solved.size} / ${HUNTS.length} bugs squashed`;
+    scoreEl.className = 'stat' + (solved.size === HUNTS.length ? ' good' : '');
+  }
+
+  function render() {
+    const tr = track();
+    list.replaceChildren(...HUNTS.map((item, idx) => {
+      const codeObj = tr === 'ocaml' ? item.ml : item.py;
+      const isSolved = solved.has(item.id);
+      const card = h('section', { class: 'bh' + (isSolved ? ' solved' : '') });
+      const st = h('span', { class: 'st', text: isSolved ? '✓ Squashed' : 'Click the buggy line' });
+      const msg = h('p', { class: 'qmsg', 'aria-live': 'polite' });
+      const why = h('div', { class: 'bh-why', hidden: isSolved ? null : '' },
+        h('p', {}, h('strong', { text: 'Why it fails: ' }), item.why),
+        h('p', {}, 'Review this rule in ', h('a', { href: '../' + item.lesson[0], text: item.lesson[1] }), '.'));
+      const codeBox = h('div', { class: 'bh-code' });
+      const buttons = codeObj.lines.map((line, li) => {
+        const lineNum = li + 1;
+        const isHit = codeObj.bugs.includes(lineNum);
+        const btn = h('button', { type: 'button', class: 'bh-line' + (isSolved && isHit ? ' right' : ''), disabled: isSolved ? '' : null },
+          h('span', { class: 'ln', text: String(lineNum) }),
+          h('span', { text: line }));
+        btn.onclick = () => {
+          if (solved.has(item.id)) return;
+          if (isHit) {
+            solved.add(item.id); saveSolved(solved); paintScore();
+            card.classList.add('solved'); st.textContent = '✓ Squashed';
+            btn.classList.add('right');
+            buttons.forEach(b => (b.disabled = true));
+            msg.textContent = `Found it on line ${lineNum}.`; msg.className = 'qmsg';
+            why.hidden = false;
+          } else {
+            btn.classList.add('wrong'); btn.disabled = true;
+            msg.textContent = `Line ${lineNum} isn't the bug. Look closely at what changes the failing test's value.`;
+            msg.className = 'qmsg no';
+          }
+        };
+        return btn;
+      });
+      codeBox.append(...buttons);
+      card.append(
+        h('div', { class: 'bh-head' }, h('span', { class: 'n', text: `#${idx + 1} · ${item.week}` }), h('h3', { text: item.title }), st),
+        h('div', { class: 'bh-body' },
+          h('div', { class: 'bh-split' },
+            h('div', {}, h('span', { class: 'label', text: 'Failing test' }), h('pre', {}, h('code', { text: item.test }))),
+            h('div', {}, h('span', { class: 'label', text: 'Click the line with the bug' }), codeBox)),
+          msg, why));
+      return card;
+    }));
+    paintScore();
+  }
+
+  document.getElementById('bh-reset').onclick = () => { solved = new Set(); saveSolved(solved); render(); };
+  render();
+});
+</script>
+</body>
+</html>

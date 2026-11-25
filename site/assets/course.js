@@ -15,7 +15,7 @@ const CC = (() => {
   // ---- the one table of contents ----
   const NAV = [
     { title: 'Start here', items: [['index.html', 'Overview']] },
-    { title: 'Resources', items: [['resources/index.html', 'All resources'], ['resources/debugging.html', 'Debugging your compiler'],
+    { title: 'Resources', items: [['resources/index.html', 'All resources'], ['resources/bug-hunts.html', 'Bug hunts'], ['resources/debugging.html', 'Debugging your compiler'],
       ['resources/review.html', 'Quiz review'], ['resources/glossary.html', 'Glossary'], ['resources/languages.html', 'Python and OCaml, deeper']] },
     { title: 'Learn Python', track: 'python', items: [
       ['learn/py-01-first-steps.html', 'First steps in Python', 'P.1'], ['learn/py-02-decisions-loops.html', 'Decisions, loops and functions', 'P.2'],
@@ -225,7 +225,13 @@ const CC = (() => {
       h('div', { class: 'search' }, search), nav,
       h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect()), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Editor keys', km)));
     const pill = h('span', { class: 'runner', title: 'Start it with: python tools/serve.py' }, h('span', { class: 'dot' }), 'Runner off');
-    runner().then(r => { if (r) { pill.classList.add('on'); pill.lastChild.textContent = 'Runner on'; pill.title = 'Exercises run on your machine via tools/serve.py'; } });
+    runner().then(r => {
+      if (r) { pill.classList.add('on'); pill.lastChild.textContent = 'Runner on'; pill.title = 'Exercises run on your machine via tools/serve.py'; }
+      else if (location.protocol.startsWith('http') && typeof Worker !== 'undefined') {
+        pill.classList.add('on'); pill.lastChild.textContent = 'Browser runner';
+        pill.title = 'Python and .uir exercises run in your browser (WebAssembly). For C and OCaml, run: python tools/serve.py';
+      }
+    });
     const subPage = !cur && /\/resources\/(week\d+|tests-week\d+)(\.html)?$/.test(location.pathname.replace(/\\/g, '/'));
     const crumbs = h('div', { class: 'crumbs' }, cur ? [h('a', { href: root + 'index.html', text: 'Course' }),
       ...(cur[0].title === 'Start here' ? [] : [h('span', { class: 'sep', text: '/' }), cur[0].title.split(' · ')[0]]),
@@ -287,6 +293,18 @@ const CC = (() => {
     const state = h('span', { class: 'state' });
     const meta = h('p', { class: 'lesson-meta' }, h('span', { text: lab ? `About ${mins} min to read, then the build` : `About ${mins} min` }), nq ? h('span', { text: plural(nq, 'quiz') }) : null, nx ? h('span', { text: plural(nx, 'exercise') }) : null, state);
     (main.querySelector('.lede') || main.querySelector('h1')).after(meta);
+    // Spaced-retrieval warm-up: surface due review questions right before new material
+    const due = dueQuizzes().length;
+    let dismissed = false; try { dismissed = sessionStorage.getItem('cc-warmup-off') === '1'; } catch {}
+    if (due && !dismissed) {
+      const n = Math.min(due, REVIEW_MAX);
+      const bar = h('div', { class: 'warmup' },
+        h('span', { class: 'w-ic', 'aria-hidden': 'true', text: '↺' }),
+        h('span', { class: 'w-txt', text: `Warm-up: ${plural(due, 'review question')} due from earlier lessons.` }),
+        h('a', { class: 'btn', href: root + 'resources/review.html?mode=due', text: `Review ${n} now →` }),
+        h('button', { type: 'button', class: 'linkish w-x', 'aria-label': 'Dismiss warm-up', text: 'Later', onclick: () => { try { sessionStorage.setItem('cc-warmup-off', '1'); } catch {} bar.remove(); } }));
+      meta.after(bar);
+    }
     const pager = main.querySelector('nav.pager');
     const fin = h('div', { class: 'finish' });
     const paint = () => {
@@ -563,6 +581,41 @@ const CC = (() => {
   }
   const MODE = { ocaml: 'text/x-ocaml', c: 'text/x-csrc', uir: 'uir', python: 'text/x-python' }, LANG = { ocaml: 'OCaml', c: 'C', uir: '.uir', python: 'Python' };
 
+  // ---- in-browser Python / .uir runner (Pyodide Web Worker) ----
+  let pyWorker = null, pySeq = 0, pyReady = false;
+  function browserRun(ex, code, submit, onStatus) {
+    return new Promise(resolve => {
+      if (!pyWorker) pyWorker = new Worker(new URL(ROOT() + 'assets/py-worker.js', location.href));
+      const jobId = ++pySeq;
+      const ms = pyReady ? 12000 : 45000;
+      const timer = setTimeout(() => {
+        try { pyWorker.terminate(); } catch {}
+        pyWorker = null; pyReady = false;
+        resolve({ ok: false, error: `timed out after ${ms / 1000}s (infinite loop, or slow connection loading Python?)` });
+      }, ms);
+      const onMsg = ev => {
+        const d = ev.data;
+        if (d.type === 'status') { if (onStatus) onStatus(d.text); return; }
+        if (d.id !== jobId) return;
+        clearTimeout(timer);
+        pyWorker.removeEventListener('message', onMsg);
+        pyWorker.removeEventListener('error', onErr);
+        if (d.type === 'result') { pyReady = true; resolve(d.res); }
+        else resolve({ ok: false, error: 'Browser runner failed: ' + d.message + '\n(You can also run locally with python tools/serve.py.)' });
+      };
+      const onErr = () => {
+        clearTimeout(timer);
+        try { pyWorker.terminate(); } catch {}
+        pyWorker = null; pyReady = false;
+        resolve({ ok: false, error: 'Browser runner could not start (offline?). Run locally with python tools/serve.py.' });
+      };
+      pyWorker.addEventListener('message', onMsg);
+      pyWorker.addEventListener('error', onErr);
+      const uircUrl = new URL(ROOT() + 'data/uirc.py', location.href).href;
+      pyWorker.postMessage({ id: jobId, ex, code, submit, uircUrl });
+    });
+  }
+
   async function exercises() {
     const els = [...document.querySelectorAll('.exercise[data-ex]')];
     if (!els.length) return;
@@ -599,21 +652,24 @@ const CC = (() => {
       let cm = null;
       const stuck = stuckPanel(id, ex, () => cm, solved);
       if (stuck) prompt.append(stuck.el);
-      // With the runner (on your computer): Run and Submit grade the code. Without it (the hosted site, a phone): the
-      // same editor, and Compare with answer diffs your code against the reference answer. Nothing runs anywhere.
+      // With the local runner (tools/serve.py), every language runs on your machine. On the hosted site,
+      // Python and .uir exercises run right in the browser (WebAssembly); C and OCaml compare against the answer.
+      const canBrowser = !r && location.protocol.startsWith('http') && typeof Worker !== 'undefined' && (ex.lang === 'python' || ex.lang === 'uir') && Array.isArray(ex.tests);
+      const canRun = !!(r || canBrowser);
       const edDiv = h('div', { class: 'ex-editor' });
       const out = h('div', { class: 'ex-out' }, h('span', { class: 'hint', text: r ? 'Run checks the examples. Submit runs every test.'
-        : 'Write your answer, then compare it with the reference answer. Running the tests needs the course on your computer.' }));
-      const mode = h('span'), keys = h('span', { text: r ? 'Ctrl+Enter run · Ctrl+Shift+Enter submit' : 'Ctrl+Enter compare' });
+        : canBrowser ? 'Runs right in your browser (no setup). Run checks the examples. Submit runs every test.'
+        : 'Write your answer, then compare it with the reference answer. Running C or OCaml tests needs python tools/serve.py.' }));
+      const mode = h('span'), keys = h('span', { text: canRun ? 'Ctrl+Enter run · Ctrl+Shift+Enter submit' : 'Ctrl+Enter compare' });
       const runB = h('button', { class: 'btn', type: 'button', text: 'Run' }), subB = h('button', { class: 'btn primary', type: 'button', text: 'Submit' });
       const cmpB = h('button', { class: 'btn primary', type: 'button', text: 'Compare with answer' });
       const resetB = h('button', { class: 'btn', type: 'button', text: 'Reset', title: 'Back to the starter code' });
-      work.append(h('div', { class: 'ex-bar' }, h('span', { class: 'lang', text: LANG[ex.lang] }), keymapSelect(), resetB, ...(r ? [runB, subB] : [cmpB])),
+      work.append(h('div', { class: 'ex-bar' }, h('span', { class: 'lang', text: LANG[ex.lang] }), keymapSelect(), resetB, ...(canRun ? [runB, subB] : [cmpB])),
         edDiv, h('div', { class: 'ex-status' }, mode, keys), out);
       let CM;
       try { CM = await loadCM(); } catch (e) { edDiv.append(h('div', { class: 'ex-offline', text: 'Editor failed to load: ' + e.message })); continue; }
       const draftKey = 'cc-code:' + id;
-      const go = submit => r ? run(submit) : compare();
+      const go = submit => canRun ? run(submit) : compare();
       cm = CM(edDiv, { value: store.get(draftKey) ?? ex.starter, mode: MODE[ex.lang], keyMap: keymap(), lineNumbers: true, indentUnit: 2, tabSize: 2,
         matchBrackets: true, autoCloseBrackets: true, styleActiveLine: !TOUCH, viewportMargin: Infinity, showCursorWhenSelecting: true,
         spellcheck: false, autocorrect: false, autocapitalize: false, lineWrapping: TOUCH, screenReaderLabel: 'Code editor',
@@ -621,7 +677,7 @@ const CC = (() => {
           Tab: c => c.somethingSelected() ? c.indentSelection('add') : c.replaceSelection('  ') } });
       editors.add(cm);
       if (stuck) stuck.init();
-      edDiv.after(keybar(cm, ex.lang, () => go(false), r ? 'Run' : 'Compare'));
+      edDiv.after(keybar(cm, ex.lang, () => go(false), canRun ? 'Run' : 'Compare'));
       const paintMode = () => (mode.textContent = keymap() === 'vim' ? '-- NORMAL --' : KEYMAPS.find(k => k[0] === keymap())[1] + ' keys');
       cm.on('vim-mode-change', e => (mode.textContent = '-- ' + (e.subMode ? e.subMode : e.mode).toUpperCase() + ' --'));
       cm.getWrapperElement().addEventListener('cc-keymap', paintMode); paintMode();
@@ -630,9 +686,13 @@ const CC = (() => {
       async function run(submit) {
         runB.disabled = subB.disabled = true; out.replaceChildren(h('span', { class: 'hint', text: submit ? 'Running every test…' : 'Running examples…' }));
         let res;
-        try { res = await fetch(api('run'), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Course-Runner': '1' },
-          body: JSON.stringify({ id, code: cm.getValue(), submit }) }).then(x => x.json()); }
-        catch (e) { res = { ok: false, error: 'The runner stopped responding. Is tools/serve.py still running?' }; }
+        if (r) {
+          try { res = await fetch(api('run'), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Course-Runner': '1' },
+            body: JSON.stringify({ id, code: cm.getValue(), submit }) }).then(x => x.json()); }
+          catch (e) { res = { ok: false, error: 'The runner stopped responding. Is tools/serve.py still running?' }; }
+        } else {
+          res = await browserRun(ex, cm.getValue(), submit, msg => out.replaceChildren(h('span', { class: 'hint', text: msg })));
+        }
         runB.disabled = subB.disabled = false;
         out.replaceChildren(...render(res, submit));
         if (submit && res.ok && res.passed === res.total) { store.set('cc-solved:' + id, '1'); solved.hidden = false; studied(); record();
@@ -743,5 +803,5 @@ const CC = (() => {
 
   document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); });
   const pathNext = () => { const pid = pathId(); return pid ? nextUp(pid) : null; };
-  return { h, graph, parseUir, stepper, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, REVIEW_MAX };
+  return { h, graph, parseUir, stepper, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX };
 })();

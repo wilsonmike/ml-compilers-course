@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=a2f021139a">
-<script src="../assets/course.js?v=9bdf13c045"></script>
+<link rel="stylesheet" href="../assets/course.css?v=f8b5b1011e">
+<script src="../assets/course.js?v=dc4aebeeff"></script>
 <style>
   .grid2d { display: grid; grid-template-columns: repeat(4, 3.25rem); gap: 2px; font: 0.875rem var(--mono); }
   .grid2d div { height: 2.75rem; display: flex; align-items: center; justify-content: center; background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; }
@@ -91,6 +91,39 @@
 
   <div class="fig" id="rowfig" data-title="for i: for j: sum += m[i][j]   (row order)"></div>
   <div class="fig" id="colfig" data-title="for j: for i: sum += m[i][j]   (column order)"></div>
+
+  <div class="prose">
+    <h2>Sandbox: test loop orders and cache sizes</h2>
+    <p>Before running the simulator below, make a prediction: if you walk the 4×4 matrix in <strong>2×2 tiles</strong> (two rows at a time, then the next two) on the same 2-line cache, how many misses will it take?</p>
+  </div>
+  <div class="fig bleed" id="cache-lab" data-title="Interactive cache simulator">
+    <div class="predict" id="cl-pred">
+      <span class="p-q">Predict first (2×2 tiled, 2-line cache):</span>
+      <button type="button" class="btn" data-g="4">4 misses</button>
+      <button type="button" class="btn" data-g="8">8 misses</button>
+      <button type="button" class="btn" data-g="12">12 misses</button>
+      <button type="button" class="btn" data-g="16">16 misses</button>
+      <span class="p-res" id="cl-pres"></span>
+    </div>
+    <div class="lab-bar">
+      <div class="seg" role="group" aria-label="Loop order" id="cl-order">
+        <button type="button" data-o="row" class="on">Row (i, j)</button>
+        <button type="button" data-o="col">Column (j, i)</button>
+        <button type="button" data-o="tile">2×2 Tiled</button>
+      </div>
+      <div class="seg" role="group" aria-label="Cache capacity" id="cl-ways">
+        <button type="button" data-w="1">1 line</button>
+        <button type="button" data-w="2" class="on">2 lines</button>
+        <button type="button" data-w="4">4 lines</button>
+      </div>
+      <button type="button" class="btn primary" id="cl-play">Play</button>
+      <button type="button" class="btn" id="cl-step">Step</button>
+      <button type="button" class="btn" id="cl-all">Run all</button>
+      <button type="button" class="btn" id="cl-reset">Reset</button>
+    </div>
+    <div class="body" id="cl-body"></div>
+    <div class="cap" id="cl-cap"></div>
+  </div>
 
   <div class="prose">
     <p>Same 16 additions, same answer. Row order misses 4 times, once per line. Column order misses all 16 times, because by the time it comes back to a line, that line has been evicted. On a real machine with a large array, that's the difference between using every byte of each 64-byte line and using one 4-byte element of it.</p>
@@ -221,6 +254,82 @@
   }
   CC.stepper(document.getElementById('rowfig'), simulate('row'), draw);
   CC.stepper(document.getElementById('colfig'), simulate('col'), draw);
+
+  // Interactive cache & tiling sandbox
+  const clBody = document.getElementById('cl-body'), clCap = document.getElementById('cl-cap');
+  const clPres = document.getElementById('cl-pres'), playBtn = document.getElementById('cl-play');
+  let clOrder = 'row', clWays = 2, clSteps = [], clIdx = 0, clTimer = null;
+
+  function buildOrder(ord) {
+    const out = [];
+    if (ord === 'row') { for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) out.push([i, j]); }
+    else if (ord === 'col') { for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) out.push([i, j]); }
+    else { for (let ti = 0; ti < N; ti += 2) for (let tj = 0; tj < N; tj += 2) for (let i = ti; i < ti + 2; i++) for (let j = tj; j < tj + 2; j++) out.push([i, j]); }
+    return out;
+  }
+  function buildLab() {
+    if (clTimer) { clearInterval(clTimer); clTimer = null; playBtn.textContent = 'Play'; }
+    const cache = [], seen = [], steps = [];
+    let misses = 0, hits = 0;
+    steps.push({ i: -1, j: -1, cache: [], seen: [], misses: 0, hits: 0, msg: 'Press Play, Step or Run all to watch the cache respond.' });
+    for (const [i, j] of buildOrder(clOrder)) {
+      const line = i, k = cache.indexOf(line), hit = k >= 0;
+      if (hit) { cache.splice(k, 1); hits++; } else { misses++; if (cache.length === clWays) cache.shift(); }
+      cache.push(line);
+      seen.push({ i, j, hit });
+      steps.push({ i, j, hit, cache: [...cache], seen: [...seen], misses, hits,
+        msg: `Read m[${i}][${j}] (line ${line}): ${hit ? 'HIT (4 cycles)' : 'MISS (100 cycles, fetch line ' + line + ')'}.` });
+    }
+    clSteps = steps; clIdx = 0; paintLab();
+  }
+  function paintLab() {
+    const s = clSteps[clIdx], total = s.hits + s.misses, cyc = s.hits * 4 + s.misses * 100;
+    const rate = total ? Math.round(100 * s.hits / total) + '%' : '0%';
+    const last = new Map(s.seen.map(e => [e.i * N + e.j, e.hit ? 'hit' : 'miss']));
+    const grid = h('div', { class: 'grid2d' }, Array.from({ length: N * N }, (_, k) => {
+      const i = Math.floor(k / N), j = k % N;
+      return h('div', { class: (last.get(k) || '') + (i === s.i && j === s.j ? ' now' : ''), text: `${i},${j}` });
+    }));
+    const slots = h('div', { class: 'cache' }, Array.from({ length: clWays }, (_, w) =>
+      s.cache[w] != null ? h('span', { text: 'line ' + s.cache[w] }) : h('span', { class: 'empty', text: 'empty' })));
+    const cards = h('div', { class: 'metrics' },
+      h('div', { class: 'metric ok' }, h('span', { class: 'ml', text: 'Cache hits' }), h('span', { class: 'mv', text: String(s.hits) })),
+      h('div', { class: 'metric' + (s.misses > 4 ? ' bad' : '') }, h('span', { class: 'ml', text: 'Cache misses' }), h('span', { class: 'mv', text: String(s.misses) })),
+      h('div', { class: 'metric' }, h('span', { class: 'ml', text: 'Hit rate' }), h('span', { class: 'mv', text: rate })),
+      h('div', { class: 'metric' }, h('span', { class: 'ml', text: 'Est. cycles' }), h('span', { class: 'mv', text: String(cyc) })));
+    clBody.replaceChildren(cards, h('div', { class: 'viz' },
+      h('div', {}, h('span', { class: 'label', text: `m[4][4] (${clIdx}/${clSteps.length - 1})` }), grid),
+      h('div', {}, h('span', { class: 'label', text: `LRU cache (${clWays} line${clWays === 1 ? '' : 's'})` }), slots)));
+    clCap.textContent = s.msg + (clIdx === clSteps.length - 1 ? ` Finished in ${cyc} estimated cycles.` : '');
+  }
+  document.querySelectorAll('#cl-pred button').forEach(b => b.onclick = () => {
+    const g = +b.dataset.g;
+    if (g === 4) { clPres.textContent = 'Right: 4 misses! Two rows fit in the 2-line cache at once, so finishing both 2×2 tiles in that band never evicts either row.'; clPres.className = 'p-res ok'; }
+    else { clPres.textContent = `Not ${g}: try running 2×2 Tiled with 2 lines below to see why two rows stay hot together.`; clPres.className = 'p-res no'; }
+    clOrder = 'tile'; clWays = 2;
+    document.querySelectorAll('#cl-order button').forEach(x => x.classList.toggle('on', x.dataset.o === 'tile'));
+    document.querySelectorAll('#cl-ways button').forEach(x => x.classList.toggle('on', +x.dataset.w === 2));
+    buildLab();
+  });
+  document.querySelectorAll('#cl-order button').forEach(b => b.onclick = () => {
+    clOrder = b.dataset.o; document.querySelectorAll('#cl-order button').forEach(x => x.classList.toggle('on', x === b)); buildLab();
+  });
+  document.querySelectorAll('#cl-ways button').forEach(b => b.onclick = () => {
+    clWays = +b.dataset.w; document.querySelectorAll('#cl-ways button').forEach(x => x.classList.toggle('on', x === b)); buildLab();
+  });
+  document.getElementById('cl-step').onclick = () => { if (clIdx < clSteps.length - 1) { clIdx++; paintLab(); } };
+  document.getElementById('cl-all').onclick = () => { if (clTimer) { clearInterval(clTimer); clTimer = null; playBtn.textContent = 'Play'; } clIdx = clSteps.length - 1; paintLab(); };
+  document.getElementById('cl-reset').onclick = buildLab;
+  playBtn.onclick = () => {
+    if (clTimer) { clearInterval(clTimer); clTimer = null; playBtn.textContent = 'Play'; return; }
+    if (clIdx >= clSteps.length - 1) clIdx = 0;
+    playBtn.textContent = 'Pause';
+    clTimer = setInterval(() => {
+      if (clIdx < clSteps.length - 1) { clIdx++; paintLab(); }
+      else { clearInterval(clTimer); clTimer = null; playBtn.textContent = 'Play'; }
+    }, 240);
+  };
+  buildLab();
 })();
 </script>
 </body>
