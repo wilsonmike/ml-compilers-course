@@ -803,7 +803,253 @@ const CC = (() => {
     return [v, chips, det, res.stdout ? h('div', {}, h('span', { class: 'label', text: 'Your output' }), h('pre', {}, h('code', { text: res.stdout }))) : null].filter(Boolean);
   }
 
-  document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); });
+  function termViz(kind) {
+    const box = (x, y, w, ht, label, sub, hi) => {
+      const g = h('g', {},
+        h('rect', { x, y, width: w, height: ht, rx: 5, fill: hi ? 'var(--panel-2)' : 'var(--panel)', stroke: hi ? 'var(--good)' : 'var(--line-2)', 'stroke-width': hi ? 1.5 : 1 }),
+        h('text', { x: x + w / 2, y: y + (sub ? 17 : ht / 2 + 4), 'text-anchor': 'middle', fill: hi ? 'var(--ink)' : 'var(--ink)', 'font-size': 11, 'font-weight': hi ? 600 : 500, text: label }));
+      if (sub) g.append(h('text', { x: x + w / 2, y: y + 31, 'text-anchor': 'middle', fill: 'var(--ink-3)', 'font-size': 10, text: sub }));
+      return g;
+    };
+    const arr = (x1, y1, x2, y2, hi) => h('line', { x1, y1, x2, y2, stroke: hi ? 'var(--good)' : 'var(--ink-3)', 'stroke-width': 1.4 });
+    const txt = (x, y, text, fill = 'var(--ink-3)', anchor = 'start', sz = 10) => h('text', { x, y, fill, 'text-anchor': anchor, 'font-size': sz, text });
+
+    if (kind === 'uop') return h('svg', { viewBox: '0 0 320 68', 'aria-hidden': 'true' },
+      box(6, 6, 86, 40, 'op', 'ADD', true),
+      box(102, 6, 122, 40, 'src (tuple)', '(%a, %b)', false),
+      box(234, 6, 80, 40, 'arg', 'None / 5', false),
+      txt(160, 62, '+ computed dtype (i32) & shape ()', 'var(--ink-3)', 'middle'));
+
+    if (kind === 'tuple') return h('svg', { viewBox: '0 0 320 64', 'aria-hidden': 'true' },
+      txt(12, 29, '(', 'var(--ink-3)', 'start', 18),
+      box(26, 8, 64, 30, '[0] %a', null, true),
+      box(98, 8, 64, 30, '[1] %b', null, false),
+      txt(168, 29, ')', 'var(--ink-3)', 'start', 18),
+      txt(186, 27, '≠ (%b, %a)', 'var(--ink-2)', 'start', 11),
+      txt(160, 56, 'ordered · immutable · safe as a hash table key', 'var(--ink-3)', 'middle'));
+
+    if (kind === 'dag') return h('svg', { viewBox: '0 0 320 92', 'aria-hidden': 'true' },
+      txt(70, 12, 'Tree (copied)', 'var(--ink-3)', 'middle'),
+      box(14, 20, 46, 22, 'add', null, false), box(78, 20, 46, 22, 'add', null, false),
+      arr(37, 42, 62, 62), arr(101, 42, 76, 62),
+      box(46, 62, 46, 22, 'mul', null, false),
+      h('line', { x1: 152, y1: 10, x2: 152, y2: 84, stroke: 'var(--line)', 'stroke-width': 1 }),
+      txt(238, 12, 'DAG (shared)', 'var(--good)', 'middle'),
+      box(215, 20, 46, 22, 'add', null, true),
+      h('path', { d: 'M228,42 C216,52 218,56 230,62', fill: 'none', stroke: 'var(--good)', 'stroke-width': 1.4 }),
+      h('path', { d: 'M248,42 C260,52 258,56 246,62', fill: 'none', stroke: 'var(--good)', 'stroke-width': 1.4 }),
+      box(215, 62, 46, 22, 'mul', null, false));
+
+    if (kind === 'hash-consing') return h('svg', { viewBox: '0 0 320 68', 'aria-hidden': 'true' },
+      box(6, 12, 98, 34, 'add(%x, 1)', 'new request', false),
+      arr(104, 29, 124, 29),
+      box(126, 12, 82, 34, 'cache', 'key lookup', false),
+      arr(208, 29, 228, 29, true),
+      box(230, 12, 84, 34, 'node #4', 'same object', true),
+      txt(160, 62, 'hit: returns existing node instead of allocating a copy', 'var(--ink-3)', 'middle'));
+
+    if (kind === 'memoization') return h('svg', { viewBox: '0 0 320 66', 'aria-hidden': 'true' },
+      box(6, 10, 74, 32, 'visit(u)', null, false),
+      arr(80, 26, 102, 26),
+      box(104, 10, 88, 32, 'u in memo?', null, false),
+      arr(192, 26, 214, 26, true),
+      box(216, 10, 98, 32, 'memo[u]', 'skip work', true),
+      txt(160, 58, 'turns 2^94 tree paths into 95 node evaluations', 'var(--ink-3)', 'middle'));
+
+    if (kind === 'toposort') return h('svg', { viewBox: '0 0 320 60', 'aria-hidden': 'true' },
+      box(8, 10, 54, 26, 'const 2', null, false), arr(62, 23, 76, 23),
+      box(78, 10, 54, 26, 'const 3', null, false), arr(132, 23, 146, 23),
+      box(148, 10, 64, 26, '%a = add', null, true), arr(212, 23, 226, 23, true),
+      box(228, 10, 82, 26, '%b = mul', null, false),
+      txt(160, 52, 'every source appears before every node that reads it', 'var(--ink-3)', 'middle'));
+
+    if (kind === 'fixpoint') return h('svg', { viewBox: '0 0 320 66', 'aria-hidden': 'true' },
+      box(8, 14, 72, 28, 'graph', null, false), arr(80, 28, 100, 28),
+      box(102, 14, 96, 28, 'apply rules', null, true), arr(198, 28, 224, 28),
+      box(226, 14, 86, 28, 'unchanged', null, false),
+      h('path', { d: 'M150,42 C150,58 44,58 44,42', fill: 'none', stroke: 'var(--ink-3)', 'stroke-width': 1.2 }),
+      txt(96, 61, 'changed? repeat', 'var(--ink-3)', 'middle'));
+
+    if (kind === 'cache-line') return h('svg', { viewBox: '0 0 320 62', 'aria-hidden': 'true' },
+      ...Array.from({ length: 8 }, (_, i) => box(8 + i * 38, 10, 34, 24, `a[${i}]`, null, i === 0)),
+      txt(160, 52, 'reading a[0] fetches the entire 64-byte line into L1 cache', 'var(--ink-3)', 'middle'));
+
+    if (kind === 'coalescing') return h('svg', { viewBox: '0 0 320 74', 'aria-hidden': 'true' },
+      txt(8, 12, 'Coalesced (adjacent threads → 1 fetch)', 'var(--good)'),
+      ...Array.from({ length: 8 }, (_, i) => box(8 + i * 38, 18, 34, 18, `t${i}`, null, true)),
+      txt(8, 50, 'Strided (gaps → many wasted fetches)', 'var(--ink-3)'),
+      ...Array.from({ length: 8 }, (_, i) => box(8 + i * 38, 55, 34, 16, i % 2 === 0 ? `t${i / 2}` : '·', null, false)));
+
+    if (kind === 'tiling') return h('svg', { viewBox: '0 0 320 68', 'aria-hidden': 'true' },
+      ...Array.from({ length: 16 }, (_, k) => {
+        const r = Math.floor(k / 4), c = k % 4, hi = r < 2 && c < 2;
+        return h('rect', { x: 18 + c * 22, y: 8 + r * 13, width: 19, height: 10, rx: 2, fill: hi ? 'var(--panel-2)' : 'var(--panel)', stroke: hi ? 'var(--good)' : 'var(--line-2)', 'stroke-width': hi ? 1.4 : 1 });
+      }),
+      arr(116, 34, 146, 34, true),
+      txt(156, 26, 'Small tile stays in', 'var(--ink)', 'start', 11),
+      txt(156, 42, 'cache / shared mem', 'var(--good)', 'start', 11),
+      txt(156, 56, 'while reused many times', 'var(--ink-3)', 'start', 10));
+
+    if (kind === 'barrier') return h('svg', { viewBox: '0 0 320 70', 'aria-hidden': 'true' },
+      ...[14, 28, 42, 56].map((y, i) => h('g', {}, txt(8, y + 3, `t${i}`, 'var(--ink-3)'), arr(28, y, 144, y), arr(168, y, 304, y, true))),
+      h('line', { x1: 156, y1: 6, x2: 156, y2: 64, stroke: 'var(--good)', 'stroke-width': 2 }),
+      txt(156, 69, '__syncthreads()', 'var(--good)', 'middle'));
+
+    if (kind === 'bounds') return h('svg', { viewBox: '0 0 320 64', 'aria-hidden': 'true' },
+      arr(18, 28, 302, 28),
+      h('rect', { x: 74, y: 18, width: 120, height: 20, rx: 4, fill: 'var(--panel-2)', stroke: 'var(--good)', 'stroke-width': 1.5 }),
+      txt(134, 32, '[ 0 .. 7 ]', 'var(--good)', 'middle', 11),
+      h('line', { x1: 222, y1: 14, x2: 222, y2: 42, stroke: 'var(--ink-2)', 'stroke-width': 1.5 }),
+      txt(222, 54, '8', 'var(--ink)', 'middle', 10),
+      txt(134, 54, 'mod %x 8 is provably < 8', 'var(--ink-3)', 'middle', 10));
+    return null;
+  }
+
+  async function terms() {
+    const main = document.querySelector('main');
+    if (!main || document.body.classList.contains('home') || /\/resources\/glossary(\.html)?$/.test(location.pathname.replace(/\\/g, '/'))) return;
+    let dict;
+    try { dict = await fetch(ROOT() + 'data/glossary.json').then(r => (r.ok ? r.json() : null)); } catch { return; }
+    if (!dict) return;
+
+    const lookup = new Map(), phrases = [];
+    for (const [id, entry] of Object.entries(dict)) {
+      if (!entry.m) continue;
+      for (const p of entry.m) { lookup.set(p.toLowerCase(), id); phrases.push(p); }
+    }
+    phrases.sort((a, b) => b.length - a.length);
+    const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = phrases.length ? new RegExp(`(?<![A-Za-z0-9_])(${phrases.map(escRe).join('|')})(?![A-Za-z0-9_])`, 'gi') : null;
+
+    const seen = new Set();
+    const skipSel = 'code, pre, a, button, h1, h2, h3, h4, h5, h6, script, style, svg, textarea, .quiz, .exercise, .fig, .eyebrow, .lesson-meta, .term';
+    const blocks = main.querySelectorAll('.prose p, .prose li, main > p.lede, main > p.prose, .note p, .trap p, .key p');
+
+    if (rx) {
+      for (const blk of blocks) {
+        if (blk.closest(skipSel)) continue;
+        const walker = document.createTreeWalker(blk, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          if (!n.nodeValue.trim() || (n.parentElement && n.parentElement.closest(skipSel))) continue;
+          nodes.push(n);
+        }
+        for (const tn of nodes) {
+          const txt = tn.nodeValue;
+          rx.lastIndex = 0;
+          let m, last = 0, frag = null;
+          while ((m = rx.exec(txt)) !== null) {
+            const id = lookup.get(m[1].toLowerCase());
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            if (!frag) frag = document.createDocumentFragment();
+            if (m.index > last) frag.append(document.createTextNode(txt.slice(last, m.index)));
+            frag.append(h('button', { type: 'button', class: 'term', 'data-term': id, 'aria-haspopup': 'dialog', text: m[1] }));
+            last = m.index + m[0].length;
+          }
+          if (frag) {
+            if (last < txt.length) frag.append(document.createTextNode(txt.slice(last)));
+            tn.replaceWith(frag);
+          }
+        }
+      }
+    }
+
+    const isSheet = () => TOUCH || window.innerWidth <= 720;
+    let pop = null, scrim = null, activeBtn = null, pinned = false, openT = 0, closeT = 0;
+
+    function closePop(restoreFocus) {
+      clearTimeout(openT); clearTimeout(closeT);
+      if (activeBtn) { activeBtn.classList.remove('open'); if (restoreFocus) activeBtn.focus(); activeBtn = null; }
+      if (pop) { pop.remove(); pop = null; }
+      if (scrim) { scrim.remove(); scrim = null; }
+      pinned = false;
+    }
+
+    function positionPop(btn) {
+      if (!pop || isSheet()) return;
+      const r = btn.getBoundingClientRect(), pr = pop.getBoundingClientRect();
+      const pad = 12, gap = 8;
+      let left = r.left + r.width / 2 - pr.width / 2;
+      left = Math.max(pad, Math.min(window.innerWidth - pr.width - pad, left));
+      let top = r.top - pr.height - gap;
+      if (top < pad + 52) top = r.bottom + gap;
+      if (top + pr.height > window.innerHeight - pad) top = Math.max(pad + 52, window.innerHeight - pr.height - pad);
+      pop.style.left = Math.round(left) + 'px';
+      pop.style.top = Math.round(top) + 'px';
+    }
+
+    function openPop(btn, pin) {
+      const id = btn.dataset.term, entry = dict[id];
+      if (!entry) return;
+      clearTimeout(openT); clearTimeout(closeT);
+      if (activeBtn === btn && pop) { pinned = pinned || pin; return; }
+      closePop(false);
+      activeBtn = btn; pinned = pin;
+      btn.classList.add('open');
+
+      const sheet = isSheet();
+      const closeBtn = h('button', { type: 'button', class: 'term-close', 'aria-label': 'Close definition', text: '×', onclick: () => closePop(true) });
+      const bodyKids = [h('p', { class: 'term-def', text: entry.d })];
+      if (entry.v) { const svg = termViz(entry.v); if (svg) bodyKids.push(h('div', { class: 'term-viz' }, svg)); }
+      if (entry.e) bodyKids.push(h('pre', { class: 'term-ex' }, h('code', { text: entry.e })));
+
+      const footKids = [];
+      if (entry.w && entry.w.length) {
+        const [href, label] = entry.w[0];
+        footKids.push(h('span', {}, 'Lesson: ', h('a', { href: ROOT() + href, text: label })));
+      }
+      footKids.push(h('a', { href: ROOT() + 'resources/glossary.html#t-' + id, text: 'Glossary →' }));
+
+      pop = h('div', { class: 'term-pop' + (sheet ? ' sheet' : ''), role: 'dialog', 'aria-label': entry.t },
+        h('div', { class: 'term-head' }, h('span', { class: 'term-title', text: entry.t }), closeBtn),
+        h('div', { class: 'term-body' }, ...bodyKids),
+        h('div', { class: 'term-foot' }, ...footKids));
+
+      if (!sheet) {
+        pop.addEventListener('pointerenter', () => clearTimeout(closeT));
+        pop.addEventListener('pointerleave', () => { if (!pinned) closeT = setTimeout(() => closePop(false), 180); });
+      } else {
+        scrim = h('div', { class: 'term-scrim', onclick: () => closePop(false) });
+        document.body.append(scrim);
+      }
+      document.body.append(pop);
+      positionPop(btn);
+    }
+
+    main.addEventListener('pointerover', e => {
+      if (isSheet() || e.pointerType !== 'mouse') return;
+      const btn = e.target.closest('button.term');
+      if (!btn) return;
+      clearTimeout(closeT);
+      if (activeBtn === btn) return;
+      clearTimeout(openT);
+      openT = setTimeout(() => openPop(btn, false), 90);
+    });
+    main.addEventListener('pointerout', e => {
+      if (isSheet() || e.pointerType !== 'mouse') return;
+      const btn = e.target.closest('button.term');
+      if (!btn || pinned) return;
+      clearTimeout(openT);
+      closeT = setTimeout(() => closePop(false), 180);
+    });
+    main.addEventListener('click', e => {
+      const btn = e.target.closest('button.term');
+      if (!btn) return;
+      e.preventDefault();
+      if (activeBtn === btn && pinned) closePop(false);
+      else openPop(btn, true);
+    });
+    document.addEventListener('click', e => {
+      if (!pop || e.target.closest('.term-pop') || e.target.closest('button.term')) return;
+      closePop(false);
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && pop) closePop(true); });
+    window.addEventListener('scroll', () => { if (pop && activeBtn && !isSheet()) positionPop(activeBtn); }, { passive: true });
+    window.addEventListener('resize', () => { if (pop && activeBtn) { if (isSheet()) pop.classList.add('sheet'); else { pop.classList.remove('sheet'); positionPop(activeBtn); } } });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); terms(); });
   const pathNext = () => { const pid = pathId(); return pid ? nextUp(pid) : null; };
   return { h, graph, parseUir, stepper, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX };
 })();
