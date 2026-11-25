@@ -16,12 +16,12 @@
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=f8b5b1011e">
-<script src="../assets/course.js?v=dc4aebeeff"></script>
+<link rel="stylesheet" href="../assets/course.css?v=7f46929996">
+<script src="../assets/course.js?v=272be176fb"></script>
 </head>
 <body data-root="../">
 <main>
@@ -29,15 +29,13 @@
   <h1>Compiler bug hunt</h1>
   <p class="lede">Ten real compiler bugs from weeks 1 to 9, each taken straight from the course's planted-bug suite. Read the failing test, then click the exact line in the compiler that breaks it.</p>
 
-  <div class="fig">
-    <div class="lab-bar">
-      <span id="bh-score" class="stat">0 / 10 bugs squashed</span>
-      <button type="button" class="btn" id="bh-reset">Reset progress</button>
-    </div>
-    <div class="cap">Snippets follow the language picked in the sidebar (Python or OCaml). Your progress is saved in this browser.</div>
+  <div class="bh-nav" aria-label="Bug hunt selector">
+    <div class="bh-tabs" role="tablist" aria-label="Bugs 1 to 10" id="bh-tabs"></div>
+    <span id="bh-score" class="stat">0 / 10 squashed</span>
+    <button type="button" class="btn" id="bh-reset">Reset</button>
   </div>
 
-  <div class="bh-list" id="bh-list"></div>
+  <div id="bh-mount"></div>
 </main>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -49,7 +47,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const HUNTS = [
     { id: 'w1-div', week: 'Week 1', title: 'The wrong sign on division',
       lesson: ['week1/02-uir-and-interpreting.html', '1.2 .uir and interpreting'],
-      test: '%a = div -7 2\n%t = assert %a -4\n# expected: MATCH\n# got:      MISMATCH (evaluated to -3)',
+      test: '%a = div -7 2\n%t = assert %a -4',
+      expect: 'MATCH (-4)',
+      got: 'MISMATCH (evaluated to -3)',
       py: { bugs: [4], lines: [
         'def uir_div(a: int, b: int) -> int:',
         '    if b == 0:',
@@ -68,7 +68,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w1-muldiv', week: 'Week 1', title: 'The cancellation that breaks on 2^30',
       lesson: ['week1/04-symbolic.html', '1.4 Symbolic simplification'],
-      test: '%x   = param [] slot=0 dtype=i32 addrspace=ALU\n%m   = mul %x 2\n%out = div %m 2\n# simplify fails on x = 1073741824 (gives 2^30 instead of -2^30)',
+      test: '%x   = param [] slot=0 dtype=i32 addrspace=ALU\n%m   = mul %x 2\n%out = div %m 2',
+      expect: 'At x = 2^30, result is -2^30 (wraps mod 2^32)',
+      got: 'Simplified to %x, returning +2^30',
       py: { bugs: [4, 5], lines: [
         'def rewrite_div(u, x, y):',
         '    if is_const(y, 1): return x',
@@ -89,7 +91,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w1-cache', week: 'Week 1', title: 'One function, two calls, same stale answer',
       lesson: ['week1/05-call-and-param.html', '1.5 call and param'],
-      test: '%x  = param [] slot=0 dtype=i32 addrspace=ALU\n%b  = add %x 1\n%r1 = call %b 10\n%r2 = call %b 20\n%t  = assert %r2 21\n# got: MISMATCH (%r2 returned 11)',
+      test: '%x  = param [] slot=0 dtype=i32 addrspace=ALU\n%b  = add %x 1\n%r1 = call %b 10\n%r2 = call %b 20\n%t  = assert %r2 21',
+      expect: 'MATCH (%r2 evaluates to 21)',
+      got: 'MISMATCH (%r2 returned 11)',
       py: { bugs: [1], lines: [
         'memo = {}',
         'def eval_node(u, args):',
@@ -112,7 +116,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w2-f32zero', week: 'Week 2', title: 'Zero times infinity is not zero',
       lesson: ['week2/01-buffers-and-views.html', '2.1 Floats, buffers and views'],
-      test: '%x   = param [] slot=0 dtype=f32 addrspace=ALU\n%out = mul %x 0.0\n# simplify fails on x = inf (returns 0.0 instead of nan)',
+      test: '%x   = param [] slot=0 dtype=f32 addrspace=ALU\n%out = mul %x 0.0',
+      expect: 'At x = inf, result is NaN',
+      got: 'Simplified to 0.0',
       py: { bugs: [4, 5], lines: [
         'def rewrite_mul(u, x, y):',
         '    if is_const(y, 1) or is_const(y, 1.0):',
@@ -132,7 +138,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w2-overflow', week: 'Week 2', title: 'Crash on float overflow',
       lesson: ['week2/01-buffers-and-views.html', '2.1 Floats, buffers and views'],
-      test: '%a = mul 1e20 1e20\n%t = assert %a inf\n# expected: MATCH\n# got:      uncaught exception / no outcome line',
+      test: '%a = mul 1e20 1e20\n%t = assert %a inf',
+      expect: 'MATCH (overflows cleanly to +inf)',
+      got: 'Uncaught exception / no outcome line',
       py: { bugs: [2], lines: [
         'def round_f32(x: float) -> float:',
         '    bits = struct.pack("<f", x)',
@@ -147,7 +155,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w3-pinned', week: 'Week 3', title: 'The accumulator that forgot to add',
       lesson: ['week3/02-memory-in-loops.html', '3.2 Memory in loops'],
-      test: '# expected final acc = 4, got 1\n# which line in this .uir program breaks the accumulator?',
+      test: 'Loop runs 4 times, adding 1 to %acc on each iteration.\nWhich line in this .uir program breaks the accumulator?',
+      expect: 'Final %acc1 value is 4',
+      got: 'Final %acc1 value is 1',
       py: { bugs: [9], lines: [
         '%acc  = alloc 1 dtype=i32',
         '%i    = range 4',
@@ -174,7 +184,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w4-negzero', week: 'Week 4', title: 'The lost minus sign on -0.0',
       lesson: ['week4/02-reduce-expand.html', '4.2 Reduce and expand'],
-      test: '%b  = buffer 1 [-0.0] dtype=f32 slot=0\n%v  = load %b\n%r  = reduce %v op=add\n%t  = assert %r -0.0\n# got: MISMATCH (bits 0x00000000 instead of 0x80000000)',
+      test: '%b = buffer 1 [-0.0] dtype=f32 slot=0\n%v = load %b\n%r = reduce %v op=add\n%t = assert %r -0.0',
+      expect: 'f32 bits 0x80000000 (-0.0)',
+      got: 'f32 bits 0x00000000 (+0.0)',
       py: { bugs: [2], lines: [
         'def eval_reduce_add(vals):',
         '    acc = 0.0',
@@ -191,7 +203,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w5-perm', week: 'Week 5', title: 'Permuted backwards on 3D tensors',
       lesson: ['week5/02-reshape-permute.html', '5.2 Reshape and permute'],
-      test: '# shape [2 3 4], permute [2 0 1]\n# expected result shape: [4 2 3]\n# got: [3 4 2]',
+      test: 'Input shape: [2 3 4]\nOp: permute order=[2 0 1]',
+      expect: 'Output shape [4 2 3]',
+      got: 'Output shape [3 4 2]',
       py: { bugs: [4], lines: [
         'def permute_shape(shape, order):',
         '    out = [0] * len(shape)',
@@ -210,7 +224,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w6-postorder', week: 'Week 6', title: 'Autodiff shares added in reverse order',
       lesson: ['week6/03-autodiff.html', '6.3 Automatic differentiation'],
-      test: '# grad_accumulation_order_inner: shared x used on both sides of add\n# expected f32 bits: 0x3f800001\n# got:               0x3f800000',
+      test: 'Test: grad_accumulation_order_inner\nShared %x is used on both sides of add; floating-point addition is not associative.',
+      expect: 'f32 bits 0x3f800001',
+      got: 'f32 bits 0x3f800000',
       py: { bugs: [8], lines: [
         'stack, done, order = [(y, False)], set(), []',
         'while stack:',
@@ -235,7 +251,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     { id: 'w8-barrier', week: 'Week 8', title: 'The shared-memory race condition',
       lesson: ['week8/03-shared-memory.html', '8.3 Shared memory and barriers'],
-      test: '# c_reverse_shared: block reverses 64 floats in shared memory\n# phase 1 writes sh[t] = in[t], phase 2 reads sh[63 - t]\n# got: intermittent zeros and stale values in emulator & GPU',
+      test: 'Test: c_reverse_shared (64 floats reversed through shared memory)\nPhase 1 writes sh[t] = in[t], then phase 2 reads sh[63 - t].',
+      expect: 'Exact reversed array on every run',
+      got: 'Intermittent zeros and stale values in emulator and GPU',
       py: { bugs: [5, 6, 7], lines: [
         '__shared__ float a0[64];',
         'for (int32_t z = threadIdx.x; z < 64; z += blockDim.x) a0[z] = 0;',
@@ -259,63 +277,114 @@ document.addEventListener('DOMContentLoaded', () => {
       why: 'Warps execute independently. Without __syncthreads() between line 5 and line 6, warp 0 can already read a0[63 - t] before warp 1 has finished writing a0[32..63]. Every local and warp phase must end with __syncthreads().' },
   ];
 
-  const list = document.getElementById('bh-list'), scoreEl = document.getElementById('bh-score');
+  const tabsEl = document.getElementById('bh-tabs');
+  const scoreEl = document.getElementById('bh-score');
+  const mountEl = document.getElementById('bh-mount');
   let solved = readSolved();
+  let cur = Math.max(0, HUNTS.findIndex(x => !solved.has(x.id)));
+  const hashNum = parseInt(location.hash.slice(1), 10);
+  if (hashNum >= 1 && hashNum <= HUNTS.length) cur = hashNum - 1;
 
-  function paintScore() {
-    scoreEl.textContent = `${solved.size} / ${HUNTS.length} bugs squashed`;
+  function paintNav() {
+    tabsEl.replaceChildren(...HUNTS.map((item, idx) => {
+      const done = solved.has(item.id);
+      const label = String(idx + 1).padStart(2, '0');
+      return h('button', {
+        type: 'button', role: 'tab', 'aria-selected': String(idx === cur),
+        title: `#${idx + 1}: ${item.title}${done ? ' (squashed)' : ''}`,
+        class: 'bh-tab' + (idx === cur ? ' on' : '') + (done ? ' done' : ''),
+        text: label,
+        onclick: () => { cur = idx; history.replaceState(null, '', '#' + (idx + 1)); render(); },
+      });
+    }));
+    scoreEl.textContent = `${solved.size} / ${HUNTS.length} squashed`;
     scoreEl.className = 'stat' + (solved.size === HUNTS.length ? ' good' : '');
   }
 
   function render() {
+    paintNav();
     const tr = track();
-    list.replaceChildren(...HUNTS.map((item, idx) => {
-      const codeObj = tr === 'ocaml' ? item.ml : item.py;
-      const isSolved = solved.has(item.id);
-      const card = h('section', { class: 'bh' + (isSolved ? ' solved' : '') });
-      const st = h('span', { class: 'st', text: isSolved ? '✓ Squashed' : 'Click the buggy line' });
-      const msg = h('p', { class: 'qmsg', 'aria-live': 'polite' });
-      const why = h('div', { class: 'bh-why', hidden: isSolved ? null : '' },
-        h('p', {}, h('strong', { text: 'Why it fails: ' }), item.why),
-        h('p', {}, 'Review this rule in ', h('a', { href: '../' + item.lesson[0], text: item.lesson[1] }), '.'));
-      const codeBox = h('div', { class: 'bh-code' });
-      const buttons = codeObj.lines.map((line, li) => {
-        const lineNum = li + 1;
-        const isHit = codeObj.bugs.includes(lineNum);
-        const btn = h('button', { type: 'button', class: 'bh-line' + (isSolved && isHit ? ' right' : ''), disabled: isSolved ? '' : null },
-          h('span', { class: 'ln', text: String(lineNum) }),
-          h('span', { text: line }));
-        btn.onclick = () => {
-          if (solved.has(item.id)) return;
-          if (isHit) {
-            solved.add(item.id); saveSolved(solved); paintScore();
-            card.classList.add('solved'); st.textContent = '✓ Squashed';
-            btn.classList.add('right');
-            buttons.forEach(b => (b.disabled = true));
-            msg.textContent = `Found it on line ${lineNum}.`; msg.className = 'qmsg';
-            why.hidden = false;
-          } else {
-            btn.classList.add('wrong'); btn.disabled = true;
-            msg.textContent = `Line ${lineNum} isn't the bug. Look closely at what changes the failing test's value.`;
-            msg.className = 'qmsg no';
-          }
-        };
-        return btn;
-      });
-      codeBox.append(...buttons);
-      card.append(
-        h('div', { class: 'bh-head' }, h('span', { class: 'n', text: `#${idx + 1} · ${item.week}` }), h('h3', { text: item.title }), st),
-        h('div', { class: 'bh-body' },
-          h('div', { class: 'bh-split' },
-            h('div', {}, h('span', { class: 'label', text: 'Failing test' }), h('pre', {}, h('code', { text: item.test }))),
-            h('div', {}, h('span', { class: 'label', text: 'Click the line with the bug' }), codeBox)),
-          msg, why));
-      return card;
-    }));
-    paintScore();
+    const item = HUNTS[cur];
+    const codeObj = tr === 'ocaml' ? item.ml : item.py;
+    const isSolved = solved.has(item.id);
+
+    const stage = h('section', { class: 'bh-stage' + (isSolved ? ' solved' : '') });
+    const st = h('span', { class: 'st', text: isSolved ? '✓ Squashed' : 'Click the buggy line' });
+    const msg = h('p', { class: 'qmsg', 'aria-live': 'polite' });
+    const why = h('div', { class: 'bh-why', hidden: isSolved ? null : '' },
+      h('p', {}, h('strong', { text: 'Why it fails: ' }), item.why),
+      h('p', {}, 'Review this rule in ', h('a', { href: '../' + item.lesson[0], text: item.lesson[1] }), '.'));
+
+    const nextBtn = h('button', {
+      type: 'button',
+      class: 'btn' + (isSolved && cur < HUNTS.length - 1 ? ' primary' : ''),
+      disabled: cur >= HUNTS.length - 1 ? '' : null,
+      text: cur >= HUNTS.length - 1 ? 'Last bug' : 'Next bug →',
+      onclick: () => { if (cur < HUNTS.length - 1) { cur++; history.replaceState(null, '', '#' + (cur + 1)); render(); } },
+    });
+    const prevBtn = h('button', {
+      type: 'button', class: 'btn',
+      disabled: cur <= 0 ? '' : null,
+      text: '← Previous',
+      onclick: () => { if (cur > 0) { cur--; history.replaceState(null, '', '#' + (cur + 1)); render(); } },
+    });
+
+    const codeBox = h('div', { class: 'bh-code' });
+    const buttons = codeObj.lines.map((line, li) => {
+      const lineNum = li + 1;
+      const isHit = codeObj.bugs.includes(lineNum);
+      const btn = h('button', {
+        type: 'button',
+        class: 'bh-line' + (isSolved && isHit ? ' right' : ''),
+        disabled: isSolved ? '' : null,
+      },
+        h('span', { class: 'ln', text: String(lineNum) }),
+        h('span', { text: line }));
+      btn.onclick = () => {
+        if (solved.has(item.id)) return;
+        if (isHit) {
+          solved.add(item.id); saveSolved(solved); paintNav();
+          stage.classList.add('solved'); st.textContent = '✓ Squashed';
+          btn.classList.add('right');
+          buttons.forEach(b => (b.disabled = true));
+          msg.textContent = `Found it on line ${lineNum}.`; msg.className = 'qmsg';
+          why.hidden = false;
+          if (cur < HUNTS.length - 1) nextBtn.classList.add('primary');
+        } else {
+          btn.classList.add('wrong'); btn.disabled = true;
+          msg.textContent = `Line ${lineNum} is fine. Look closely at what produces the failing result above.`;
+          msg.className = 'qmsg no';
+        }
+      };
+      return btn;
+    });
+    codeBox.append(...buttons);
+
+    const brief = h('div', { class: 'bh-brief' },
+      h('span', { class: 'label', text: 'Failing test' }),
+      h('pre', {}, h('code', { text: item.test })),
+      h('div', { class: 'bh-diff' },
+        h('span', { class: 'exp' }, 'Expected: ', item.expect),
+        h('span', { class: 'got' }, 'Got: ', item.got)));
+
+    const work = h('div', { class: 'bh-work' },
+      h('span', { class: 'label', text: 'Click the line with the bug' }),
+      codeBox, msg, why);
+
+    const foot = h('div', { class: 'bh-foot' },
+      prevBtn,
+      h('span', { class: 'muted', text: `Bug ${cur + 1} of ${HUNTS.length} · ${tr === 'ocaml' ? 'OCaml' : 'Python'} track` }),
+      nextBtn);
+
+    stage.append(
+      h('div', { class: 'bh-head' }, h('span', { class: 'n', text: `#${cur + 1} · ${item.week}` }), h('h2', { text: item.title }), st),
+      brief, work, foot);
+
+    mountEl.replaceChildren(stage);
   }
 
-  document.getElementById('bh-reset').onclick = () => { solved = new Set(); saveSolved(solved); render(); };
+  document.getElementById('bh-reset').onclick = () => { solved = new Set(); saveSolved(solved); cur = 0; history.replaceState(null, '', '#1'); render(); };
+  document.addEventListener('cc-progress', render);
   render();
 });
 </script>

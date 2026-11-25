@@ -232,8 +232,10 @@ const CC = (() => {
         pill.title = 'Python and .uir exercises run in your browser (WebAssembly). For C and OCaml, run: python tools/serve.py';
       }
     });
+    const isHome = b.classList.contains('home');
     const subPage = !cur && /\/resources\/(week\d+|tests-week\d+)(\.html)?$/.test(location.pathname.replace(/\\/g, '/'));
-    const crumbs = h('div', { class: 'crumbs' }, cur ? [h('a', { href: root + 'index.html', text: 'Course' }),
+    const crumbs = h('div', { class: 'crumbs' }, isHome ? [h('span', { text: 'sharpterminal.com' })]
+      : cur ? [h('a', { href: root + 'index.html', text: 'Course' }),
       ...(cur[0].title === 'Start here' ? [] : [h('span', { class: 'sep', text: '/' }), cur[0].title.split(' · ')[0]]),
       h('span', { class: 'sep', text: '/' }), cur[1][1]]
       : subPage ? [h('a', { href: root + 'index.html', text: 'Course' }), h('span', { class: 'sep', text: '/' }),
@@ -251,7 +253,7 @@ const CC = (() => {
     const onLink = side.querySelector('nav a.on');
     if (onLink && side.scrollHeight > side.clientHeight) side.scrollTop = onLink.getBoundingClientRect().top - side.getBoundingClientRect().top - side.clientHeight / 3;
     const you = document.getElementById('you'); if (you) { homePanel(you); document.addEventListener('cc-progress', () => homePanel(you)); }
-    if (main) toc(main, page);
+    if (main && !isHome) toc(main, page);
     document.querySelectorAll('[data-prog]').forEach(a => { const p = prog(a.dataset.prog), d = isDone(a.dataset.prog) || (p && p.t && p.s >= p.t);
       a.append(h('span', { class: 'p' + (d ? ' done' : ''), text: d ? 'Done' : p && p.s ? `${p.s}/${p.t}` : '' })); });
     if (main && cur && cur[1][2]) lessonTools(main, cur);
@@ -672,7 +674,7 @@ const CC = (() => {
       const go = submit => canRun ? run(submit) : compare();
       cm = CM(edDiv, { value: store.get(draftKey) ?? ex.starter, mode: MODE[ex.lang], keyMap: keymap(), lineNumbers: true, indentUnit: 2, tabSize: 2,
         matchBrackets: true, autoCloseBrackets: true, styleActiveLine: !TOUCH, viewportMargin: Infinity, showCursorWhenSelecting: true,
-        spellcheck: false, autocorrect: false, autocapitalize: false, lineWrapping: TOUCH, screenReaderLabel: 'Code editor',
+        spellcheck: false, autocorrect: false, autocapitalize: false, lineWrapping: true, screenReaderLabel: 'Code editor',
         extraKeys: { 'Ctrl-Enter': () => go(false), 'Cmd-Enter': () => go(false), 'Shift-Ctrl-Enter': () => go(true), 'Shift-Cmd-Enter': () => go(true),
           Tab: c => c.somethingSelected() ? c.indentSelection('add') : c.replaceSelection('  ') } });
       editors.add(cm);
