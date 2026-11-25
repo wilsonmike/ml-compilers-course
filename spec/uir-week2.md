@@ -57,8 +57,8 @@ or `assert`, and it can't appear inside a call body.
 
 | op | attributes | operands | result | notes |
 |---|---|---|---|---|
-| `buffer n [v0 v1 ...]` | `dtype` (required), `slot` (required) | size n ≥ 1, an integer literal, then optional initial data | memory `(n,)` | A global buffer the program reads and writes. Slots are unique; the kernel takes buffers in slot order. The data list gives exactly n initial values (literals of the buffer's dtype); without it the buffer starts as zeros. |
-| `alloc n` | `dtype` (required) | size n ≥ 1, an integer literal | memory `(n,)` | Scratch memory local to the program, like `float a[10];` in C. Starts as zeros. Not an output. |
+| `buffer n [v0 v1 ...]` | `dtype` (required), `slot` (required) | size n ≥ 1, an integer literal, then optional initial data | memory `(n,)` | A global buffer the program reads and writes. Slots are unique; the kernel takes buffers in slot order. The data list gives exactly n initial values (literals of the buffer's dtype); without it the buffer starts as zeros. Each `buffer` binding is distinct (it does not hash-cons across bindings). |
+| `alloc n` | `dtype` (required) | size n ≥ 1, an integer literal | memory `(n,)` | Scratch memory local to the program, like `float a[10];` in C. Starts as zeros. Not an output. Each `alloc` binding is distinct storage (it does not hash-cons across bindings). |
 | `shrink m off [k]` | none | memory m, offset `off` (i32 scalar, any expression), then the view's shape | memory | A view of `m` starting `off` elements in. `[k]` is k elements; `[]` is a single element (rank 0). |
 | `load v` | none | a view (or a whole buffer) | ALU value, the view's dtype and shape | Reads memory. |
 | `store v x` | none | a view (or a whole buffer), a value of the same dtype and shape | void | Writes `x` into the view. |
@@ -100,7 +100,7 @@ builds on.
 Every view must be **provably** inside its storage, using the bounds analysis from week 1:
 for `shrink m off [k]` on storage of size n, the interval of `off` must satisfy
 `lo ≥ 0` and `hi + k ≤ n` (`k = 1` for `[]`). Values loaded from memory are unknown, so
-their interval is the full i32 range. A view that can't be proven in range makes the program
+their interval is the full range of their dtype (`I` for `i32`, `[0, 1]` for `bool`). A view that can't be proven in range makes the program
 invalid, and so does an `index` (week 1's rule). `mod %i 4` is provably in [0, 3], even for a negative
 loaded `%i`, because `mod` floors; a raw loaded `%i` is not.
 
@@ -121,7 +121,7 @@ Print a C translation unit to stdout that defines
 void kernel(T0 *b0, T1 *b1, ...);
 ```
 
-with one pointer per `buffer`, in slot order. `T` is `float` for f32, `int32_t` for i32 and `bool`
+with one pointer per `buffer`, in slot order (or `void kernel(void);` when there are no buffers). `T` is `float` for f32, `int32_t` for i32 and `bool`
 for bool. When the grader calls `kernel` on buffers holding their initial data, the buffers must end
 up holding exactly what the oracle says: f32 bit for bit (any NaN matches any NaN). `render` ignores
 asserts. The C must be **loopless** (no `for`, `while`, `do`, `goto` or recursion). It may call
@@ -157,5 +157,5 @@ An `alloc` whose contents never reach a buffer can be dropped from the C entirel
 
 ## 5. Tests
 
-Run tests are named as in week 1: `mismatch_` and `rejected_` prefixes, MATCH otherwise. From week 2 a `rejected_` test is also rendered: when the program itself is invalid (not just the test-file rules, like a missing assert), `render` must refuse it too, exiting 2 with an `invalid:` line. Render tests start with a
+Run tests are named as in week 1: `mismatch_` and `rejected_` prefixes, MATCH otherwise. From week 2 a `rejected_` test is also rendered: when the program itself is invalid (not just the test-file rules, like a missing assert), `render` must refuse it too, exiting 2 with an `invalid:` line on stderr. Render tests start with a
 `# render` line: the grader renders them, compiles the C, runs it and compares the buffers.

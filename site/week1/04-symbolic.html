@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=863fbc0043">
-<script src="../assets/course.js?v=d03ca1110c"></script>
+<link rel="stylesheet" href="../assets/course.css?v=a2f021139a">
+<script src="../assets/course.js?v=9bdf13c045"></script>
 <style>
   svg.nl { display: block; width: 100%; max-width: 40rem; height: auto; font-family: var(--mono); margin-top: var(--s4); }
   svg.nl .axis { stroke: var(--line-2); stroke-width: 1.5; }
@@ -64,7 +64,7 @@
 <tr><td><code>where(c, a, a) → a</code></td><td class="ok">valid</td><td>Both branches are the same node.</td></tr>
 <tr><td><code>where(true, a, b) → a</code>, <code>where(false, a, b) → b</code></td><td class="ok">valid</td><td>The condition is known. It's often a <code>cmplt</code> that just folded.</td></tr>
 <tr><td><code>index(stack(a0, a1, ...), k) → ak</code></td><td class="ok">valid</td><td>For a const <code>k</code>. It's always in range, because validation already rejected anything else.</td></tr>
-<tr><td><code>div(mul(x, c), c) → x</code></td><td class="no">only with bounds</td><td><code>mul</code> can wrap, and <code>div</code> can't undo a wrap: <code>(2<sup>30</sup> × 2) / 2</code> is <code>INT_MIN / 2</code>, not <code>2<sup>30</sup></code>. Safe when bounds prove the product fits, and always safe for <code>c = 1</code>. See the trap below.</td></tr>
+<tr><td><code>div(mul(x, c), c) → x</code></td><td class="no">only with bounds</td><td><code>mul</code> can wrap, and <code>div</code> can't undo a wrap: <code>(2<sup>30</sup> × 2) / 2</code> is <code>INT_MIN / 2</code>, not <code>2<sup>30</sup></code>. Also <code>c</code> must be nonzero (<code>div 0 0</code> is -1). Safe when <code>c ≠ 0</code> and bounds prove the product fits, and always safe for <code>c = 1</code>. See the trap below.</td></tr>
 </tbody></table></div>
 
 <div class="note">
@@ -92,7 +92,7 @@
 <tr><td><code>add x y</code></td><td><code>[a + c, b + d]</code></td></tr>
 <tr><td><code>mul x y</code></td><td>the hull (smallest to largest) of <code>ac</code>, <code>ad</code>, <code>bc</code>, <code>bd</code></td></tr>
 <tr><td><code>max x y</code></td><td><code>[max(a, c), max(b, d)]</code></td></tr>
-<tr><td><code>div x y</code></td><td>y fixed: the hull of <code>a div y</code> and <code>b div y</code>. Otherwise <code>I</code>.</td></tr>
+<tr><td><code>div x y</code></td><td>y fixed: the hull of <code>a div y</code> and <code>b div y</code> (unwrapped, so <code>INT_MIN div -1</code> overflows i32 and widens to <code>I</code>). Otherwise <code>I</code>.</td></tr>
 <tr><td><code>mod x y</code></td><td>y fixed at 0: x's bounds. y fixed and nonzero: if <code>a div y</code> and <code>b div y</code> agree, the hull of <code>a mod y</code> and <code>b mod y</code>. If not, <code>[0, y - 1]</code> for <code>y &gt; 0</code> or <code>[y + 1, 0]</code> for <code>y &lt; 0</code>. y not fixed: <code>I</code>.</td></tr>
 <tr><td><code>xor x y</code></td><td>both fixed: the exact answer. Otherwise <code>I</code>.</td></tr>
 <tr><td><code>shl x y</code></td><td>the hull of <code>a × 2<sup>k</sup></code> and <code>b × 2<sup>k</sup></code> over every possible <code>k = y mod 32</code></td></tr>
@@ -103,7 +103,7 @@
 <tr><td><code>index v i</code></td><td>v's bounds</td></tr>
 <tr><td><code>call</code></td><td>the body's bounds</td></tr>
 </tbody></table></div>
-<p class="prose">One more rule covers every i32 row: if an end of the interval overflows i32, the bounds widen to <code>I</code>. The real value might have wrapped to anywhere.</p>
+<p class="prose">Two extra rules cover the table: for every i32 row, if an end of the interval overflows i32, the bounds widen to <code>I</code> (the real value might have wrapped to anywhere). For <code>bool</code> ops (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>), the interval is normalized back to <code>[0, 0]</code>, <code>[1, 1]</code> or <code>[0, 1]</code>.</p>
 
 <div class="split">
 <pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
@@ -156,7 +156,7 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 <tr><td><code>-5</code></td><td><code>-10</code></td><td><code>-5</code></td><td class="ok">yes</td></tr>
 <tr><td><code>1073741824</code> (2<sup>30</sup>)</td><td><code>-2147483648</code> (wrapped)</td><td><code>-1073741824</code></td><td class="no">no</td></tr>
 </tbody></table></div>
-<p>So <code>div(mul(x, c), c) → x</code> is only valid when bounds prove <code>mul(x, c)</code> can't wrap. With limits <code>[0 1000]</code> on <code>%x</code>, or with <code>%x = cast %b dtype=i32</code> (bounds [0, 1]), it's safe, and the oracle simplifies <code>(x * 2) / 2</code> down to <code>%x</code>. With a param that has no limits it must stay. The grader's edge-case inputs include 2<sup>30</sup> precisely to catch this.</p>
+<p>So <code>div(mul(x, c), c) → x</code> is only valid when <code>c ≠ 0</code> and bounds prove <code>mul(x, c)</code> can't wrap. With limits <code>[0 1000]</code> on <code>%x</code>, or with <code>%x = cast %b dtype=i32</code> (bounds [0, 1]), it's safe, and the oracle simplifies <code>(x * 2) / 2</code> down to <code>%x</code>. With a param that has no limits it must stay. The grader's edge-case inputs include 2<sup>30</sup> precisely to catch this.</p>
 </div>
 
 <div class="prose">
@@ -280,7 +280,7 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 <button data-k="d">Only if x is 1</button>
 </div>
 <p class="hint">The grader only checks inputs inside the limits. What bounds does <code>%x * 2</code> have, and can that wrap?</p>
-<div class="why"><p>The rule is valid whenever bounds prove the multiply doesn't wrap. A bool cast to i32 gives the same <code>[0, 1]</code>, and the oracle reduces that version to a single <code>cast</code>.</p></div>
+<div class="why"><p>The rule is valid whenever <code>c ≠ 0</code> and bounds prove the multiply doesn't wrap. A bool cast to i32 gives the same <code>[0, 1]</code>, and the oracle reduces that version to a single <code>cast</code>.</p></div>
 </div>
 
 <nav class="pager">

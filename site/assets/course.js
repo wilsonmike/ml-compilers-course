@@ -78,8 +78,7 @@ const CC = (() => {
   const TAG_ID = 'GTM-MPMCLH74';
   if (/(^|\.)sharpterminal\.com$/.test(location.hostname)) {
     window.dataLayer = window.dataLayer || [];
-    window.gtag = function () { dataLayer.push(arguments); };
-    gtag('js', new Date());
+    window.dataLayer.push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
     const s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtm.js?id=' + TAG_ID;
     document.head.append(s);
   }
@@ -134,6 +133,8 @@ const CC = (() => {
   const changed = () => document.dispatchEvent(new Event('cc-progress'));
   function studied() { const ds = readJSON('cc-days', []), t = today(); if (ds[ds.length - 1] !== t) { ds.push(t); store.set('cc-days', JSON.stringify(ds.slice(-400))); } }
   const isDone = href => !!store.get('cc-done:' + href);
+  const prog = href => { try { return JSON.parse(store.get('cc-prog:' + href) || 'null'); } catch { return null; } };
+  const lessonDone = href => { const p = prog(href); return isDone(href) || !!(p && p.t && p.s >= p.t); };
   function setDone(href, on) { if (on) { if (!isDone(href)) store.set('cc-done:' + href, today()); studied(); } else { try { localStorage.removeItem('cc-done:' + href); } catch {} } changed(); }
   const GAPS = [1, 3, 7, 16, 35, 90];
   function schedule(qid, ok) {
@@ -144,8 +145,9 @@ const CC = (() => {
     store.set('cc-q:' + qid, JSON.stringify({ b, due: addDays(GAPS[b]) }));
   }
   const REVIEW_MAX = 10;
-  const dueQuizzes = () => keysWith('cc-q:').map(k => [k.slice(5), readJSON(k, {}).due || '9']).filter(([, d]) => d <= today()).sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)).map(([q]) => q);
-  const nextReview = () => keysWith('cc-q:').map(k => readJSON(k, {}).due).filter(d => d && d > today()).sort()[0] || null;
+  const offTrackHref = href => (track() === 'python' ? href.startsWith('learn/ml-') || href === 'week0/06-ocaml.html' : href.startsWith('learn/py-') || href === 'week0/07-python.html');
+  const dueQuizzes = () => keysWith('cc-q:').map(k => [k.slice(5), readJSON(k, {}).due || '9']).filter(([q, d]) => d <= today() && !offTrackHref(q.split('#')[0])).sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)).map(([q]) => q);
+  const nextReview = () => keysWith('cc-q:').filter(k => !offTrackHref(k.slice(5).split('#')[0])).map(k => readJSON(k, {}).due).filter(d => d && d > today()).sort()[0] || null;
   const forget = qid => { try { localStorage.removeItem('cc-q:' + qid); } catch {} };
 
   const LANG_LESSON = { 'week0/06-ocaml.html': 'ocaml', 'week0/07-python.html': 'python' };
@@ -165,18 +167,18 @@ const CC = (() => {
   const pathId = () => (PATHS[store.get('cc-path')] ? store.get('cc-path') : null);
   const pathItems = id => PATHS[id].groups().flatMap(g => g.items.filter(onTrack).map(i => [...i, g.title]));
   const nextUp = (id, after) => { const items = pathItems(id), i = after ? items.findIndex(x => x[0] === after) : -1;
-    return items.slice(i + 1).find(x => !isDone(x[0])) || (after ? null : items.find(x => !isDone(x[0]))) || null; };
+    return items.slice(i + 1).find(x => !lessonDone(x[0])) || (after ? null : items.find(x => !lessonDone(x[0]))) || null; };
 
   // ---- runner (tools/serve.py) ----
   let runnerP = null;
-  const runner = () => runnerP ||= (location.protocol.startsWith('http')
+  const localHost = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+  const runner = () => runnerP ||= (location.protocol.startsWith('http') && localHost
     ? fetch(ROOT() + '../api/health', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null));
   const api = p => ROOT() + '../api/' + p;
 
   // ---- shell ----
   function frame() {
     const b = document.body, root = ROOT(), cur = here(), main = document.querySelector('main');
-    const prog = href => { try { return JSON.parse(store.get('cc-prog:' + href) || 'null'); } catch { return null; } };
     const offTrack = href => (cur && cur[1][0] === href ? null : LANG_LESSON[href] ? 'only-' + LANG_LESSON[href] : null);
     const item = ([href, title, n]) => h('li', { class: offTrack(href) }, h('a', { href: root + href, 'data-href': n ? href : null, class: cur && cur[1][0] === href ? 'on' : null, 'aria-current': cur && cur[1][0] === href ? 'page' : null },
       n ? h('span', { class: 'n', text: n }) : null, h('span', { text: title }), n ? h('span', { class: 'prog' }) : null));
@@ -184,7 +186,7 @@ const CC = (() => {
     const nav = h('nav', { 'aria-label': 'Lessons' }, NAV.map(g => {
       if (g.title === 'Start here') { top.append(...g.items.map(item)); return top; }
       const gk = 'cc-grp:' + g.title, closed = store.get(gk) === '0';
-      const grp = h('div', { class: 'grp' + (closed ? ' closed' : '') + (g.track && !(cur && cur[0] === g) ? ' only-' + g.track : '') });
+      const grp = h('div', { class: 'grp' + (closed ? ' closed' : '') + (g.track && !(cur && cur[0] === g) ? ' only-' + g.track : ''), 'data-gk': gk });
       grp.append(h('button', { type: 'button', 'aria-expanded': String(!closed), onclick: () => {
         const c = grp.classList.toggle('closed'); grp.firstChild.setAttribute('aria-expanded', String(!c)); store.set(gk, c ? '0' : '1'); } },
         h('span', { class: 'chev', 'aria-hidden': 'true' }, h('svg', { width: 10, height: 10, viewBox: '0 0 10 10' }, h('path', { d: 'M2 3.5l3 3 3-3', stroke: 'currentColor', 'stroke-width': 1.5, fill: 'none' }))),
@@ -207,8 +209,11 @@ const CC = (() => {
     document.addEventListener('cc-progress', paintSide);
     const search = h('input', { type: 'search', placeholder: 'Search lessons', 'aria-label': 'Search lessons', oninput: () => {
       const q = search.value.trim().toLowerCase();
-      nav.querySelectorAll('li').forEach(li => (li.hidden = q && !li.textContent.toLowerCase().includes(q)));
-      if (q) nav.querySelectorAll('.grp').forEach(g => g.classList.remove('closed')); } });
+      nav.querySelectorAll('li').forEach(li => (li.hidden = !!(q && !li.textContent.toLowerCase().includes(q))));
+      nav.querySelectorAll('.grp').forEach(g => {
+        if (q) { const any = [...g.querySelectorAll('li')].some(li => !li.hidden); g.hidden = !any; g.classList.remove('closed'); }
+        else { g.hidden = false; g.classList.toggle('closed', store.get(g.dataset.gk) === '0'); }
+      }); } });
     const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Theme' });
     const paintSeg = () => seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.t === theme()));
     ['light', 'dark'].forEach(t => seg.append(h('button', { type: 'button', 'data-t': t, text: t[0].toUpperCase() + t.slice(1), onclick: () => {
@@ -221,9 +226,13 @@ const CC = (() => {
       h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect()), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Editor keys', km)));
     const pill = h('span', { class: 'runner', title: 'Start it with: python tools/serve.py' }, h('span', { class: 'dot' }), 'Runner off');
     runner().then(r => { if (r) { pill.classList.add('on'); pill.lastChild.textContent = 'Runner on'; pill.title = 'Exercises run on your machine via tools/serve.py'; } });
+    const subPage = !cur && /\/resources\/(week\d+|tests-week\d+)(\.html)?$/.test(location.pathname.replace(/\\/g, '/'));
     const crumbs = h('div', { class: 'crumbs' }, cur ? [h('a', { href: root + 'index.html', text: 'Course' }),
       ...(cur[0].title === 'Start here' ? [] : [h('span', { class: 'sep', text: '/' }), cur[0].title.split(' · ')[0]]),
-      h('span', { class: 'sep', text: '/' }), cur[1][1]] : []);
+      h('span', { class: 'sep', text: '/' }), cur[1][1]]
+      : subPage ? [h('a', { href: root + 'index.html', text: 'Course' }), h('span', { class: 'sep', text: '/' }),
+        h('a', { href: root + 'resources/index.html', text: 'Resources' }), h('span', { class: 'sep', text: '/' }),
+        (main && main.querySelector('h1') ? main.querySelector('h1').textContent : document.title)] : []);
     const app = h('div', { class: 'app' });
     const menu = h('button', { class: 'menu', type: 'button', 'aria-label': 'Open lessons', 'aria-expanded': 'false' },
       h('svg', { width: 20, height: 20, viewBox: '0 0 20 20', 'aria-hidden': 'true' }, h('path', { d: 'M3 6h14M3 10h14M3 14h14', stroke: 'currentColor', 'stroke-width': 1.6, fill: 'none' })));
@@ -250,7 +259,7 @@ const CC = (() => {
     if (store.get('cc-side') === '0') app.classList.add('side-off');
     paintMenu(); desk.addEventListener('change', paintMenu);
     menu.onclick = () => (desk.matches ? toggleSide() : setOpen(true)); scrim.onclick = () => setOpen(false);
-    side.addEventListener('click', e => { if (e.target.closest('a')) setOpen(false); });
+    side.addEventListener('click', e => { if (e.target.closest('a') && app.classList.contains('open')) setOpen(false); });
     addEventListener('keydown', e => { if (e.key === '\\' && (e.ctrlKey || e.metaKey) && desk.matches) { e.preventDefault(); toggleSide(); } });
     addEventListener('keydown', e => { if (e.key === 'Escape' && app.classList.contains('open')) { setOpen(false); menu.focus(); } });
     matchMedia('(min-width: 901px)').addEventListener('change', e => e.matches && setOpen(false));
@@ -324,7 +333,7 @@ const CC = (() => {
       if (back) refocus(back, 'path-new');
       return;
     }
-    const items = pathItems(pid), done = items.filter(x => isDone(x[0])).length, nx = nextUp(pid);
+    const items = pathItems(pid), done = items.filter(x => lessonDone(x[0])).length, nx = nextUp(pid);
     const days = new Set(readJSON('cc-days', [])), now = new Date(), dow = (now.getDay() + 6) % 7, t = today();
     const week = [...Array(7)].map((_, i) => addDays(i - dow));
     const thisWeek = week.filter(d => days.has(d)).length, lastWeek = [...Array(7)].map((_, i) => addDays(i - dow - 7)).filter(d => days.has(d)).length;
@@ -547,8 +556,8 @@ const CC = (() => {
         if (s.match(/#.*/)) return 'comment';
         if (s.match(/%\w+/)) return 'variable-2';
         if (s.match(/\w+=/)) return 'attribute';
-        if (s.match(/\b(i32|f32|bool|void)\b/)) return 'type';
-        if (s.match(/-?(\d+\.\d*|\.\d+|\d+)(e[-+]?\d+)?|\b(inf|nan|true|false)\b/)) return 'number';
+        if (s.match(/\b(i32|i8|f32|bool|void)\b/)) return 'type';
+        if (s.match(/-?(?:0x[0-9a-fA-F]+|(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?)|\b(inf|nan|true|false)\b/)) return 'number';
         if (s.match(/[a-z_]+/)) return 'keyword';
         s.next(); return null; }, lineComment: '#' })); return window.CodeMirror; });
   }
@@ -589,7 +598,7 @@ const CC = (() => {
         h('p', { class: 'ex-expect' }, 'Expected ', h('code', { text: String(s.expect) }))))));
       let cm = null;
       const stuck = stuckPanel(id, ex, () => cm, solved);
-      if (stuck) prompt.append(stuck);
+      if (stuck) prompt.append(stuck.el);
       // With the runner (on your computer): Run and Submit grade the code. Without it (the hosted site, a phone): the
       // same editor, and Compare with answer diffs your code against the reference answer. Nothing runs anywhere.
       const edDiv = h('div', { class: 'ex-editor' });
@@ -611,6 +620,7 @@ const CC = (() => {
         extraKeys: { 'Ctrl-Enter': () => go(false), 'Cmd-Enter': () => go(false), 'Shift-Ctrl-Enter': () => go(true), 'Shift-Cmd-Enter': () => go(true),
           Tab: c => c.somethingSelected() ? c.indentSelection('add') : c.replaceSelection('  ') } });
       editors.add(cm);
+      if (stuck) stuck.init();
       edDiv.after(keybar(cm, ex.lang, () => go(false), r ? 'Run' : 'Compare'));
       const paintMode = () => (mode.textContent = keymap() === 'vim' ? '-- NORMAL --' : KEYMAPS.find(k => k[0] === keymap())[1] + ' keys');
       cm.on('vim-mode-change', e => (mode.textContent = '-- ' + (e.subMode ? e.subMode : e.mode).toUpperCase() + ' --'));
@@ -625,7 +635,8 @@ const CC = (() => {
         catch (e) { res = { ok: false, error: 'The runner stopped responding. Is tools/serve.py still running?' }; }
         runB.disabled = subB.disabled = false;
         out.replaceChildren(...render(res, submit));
-        if (submit && res.ok && res.passed === res.total) { store.set('cc-solved:' + id, '1'); solved.hidden = false; studied(); record(); }
+        if (submit && res.ok && res.passed === res.total) { store.set('cc-solved:' + id, '1'); solved.hidden = false; studied(); record();
+          if (page && ids.every(i => store.get('cc-solved:' + i))) setDone(page[1][0], true); }
       }
       runB.onclick = () => run(false); subB.onclick = () => run(true);
       // Compare shows the answer's code, so the first time it asks once, as Show answer does.
@@ -696,8 +707,8 @@ const CC = (() => {
       reveal();
     };
     paint();
-    if (store.get('cc-peek:' + id)) reveal();
-    return h('div', { class: 'ex-stuck' }, h('span', { class: 'label', text: 'Stuck?' }), list, h('div', { class: 'qactions' }, hints.length ? hintB : null, showB, msg), ansBox);
+    const el = h('div', { class: 'ex-stuck' }, h('span', { class: 'label', text: 'Stuck?' }), list, h('div', { class: 'qactions' }, hints.length ? hintB : null, showB, msg), ansBox);
+    return { el, init: () => { if (store.get('cc-peek:' + id)) reveal(); } };
   }
 
   // one-tap keys for what phone keyboards bury: brackets, operators, Tab, cursor moves

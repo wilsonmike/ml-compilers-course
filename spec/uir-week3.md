@@ -30,8 +30,9 @@ Every UOp has a set of **open ranges**: the ranges it depends on that haven't be
   (week 2). That keeps each buffer's versions one chain, so its output version is never ambiguous.
 * An `assert`, a `call` (and everything in a call body), a `buffer`/`alloc` size and a `range` bound
   must have no open ranges.
-* Every range a store depends on must be closed by an `end` before an `after` uses it, and
-  `end ... r` must actually depend on `r` (closing a range the effect doesn't use is an error).
+* Every range a store or `after` depends on must be closed by an `end` (an `after` may sit inside a loop
+  using a store with open ranges, as long as every open range is closed by an `end` before any top-level
+  output), and `end ... r` must actually depend on `r` (closing a range the effect doesn't use is an error).
 * Ranges nest the way the ends do: if an effect is inside `end ... r1`, and that end is inside
   `end ... r2`, then `r2` is the outer loop. Each range is closed by exactly one end, so the nesting
   is always well defined. A loop body may ignore an outer range (it then repeats identically).
@@ -55,7 +56,9 @@ exception, and the rule is:
 If the uses are split, some inside the loop and some outside, the load runs outside the loop and
 every use sees the contents from before the loop.
 
-**Watch for the pinned load.** "Every use" means every use. If you also use the accumulator's load
+**Watch for the pinned load.** "Every use" means every use in the program (including `assert`s: even though
+`render` does not emit code for asserts, it still counts them when deciding whether a load is pinned outside
+a loop, so `render` and `./compile` agree on load placement). If you also use the accumulator's load
 in something that doesn't depend on the range (say `%dbg = add %cur 1.0`, kept for an assert), the
 innermost loop holding all uses is the outer block, so the load runs once, before the loop, and the
 accumulator silently stops accumulating. Give the loop its own load. That's what makes an accumulator work:

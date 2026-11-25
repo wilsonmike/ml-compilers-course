@@ -1,5 +1,5 @@
 # SPOILERS. This is the reference compiler for the course. If you are taking the course, do not read it.
-# It doubles as the oracle: `python _reference/uirc.py run FILE` / `simplify FILE` / `render FILE` (weeks 2-3).
+# It doubles as the oracle: `python _reference/uirc.py [--week=N] FILE...` / `simplify FILE` / `render FILE` / `render-cuda FILE`.
 import sys, os, re, math, struct, random, threading, itertools, hashlib
 
 class UIRError(Exception): pass          # invalid program -> exit 2
@@ -187,6 +187,7 @@ def build(op, src, attrs):
     need(n == 1 + len(x.shape) and 'shape' in attrs, "shrink X o0 ... o(r-1) [dims]: one offset per axis")
     to = dims_attr(attrs['shape'], allow_empty=not x.shape)
     need(len(to) == len(x.shape), "shrink keeps the rank")
+    if to: need(not any(opens(a) for a in src), "shaped values can't depend on an open range")
     for k, (o, d, sz) in enumerate(zip(src[1:], x.shape, to)):
       need(o.dtype == 'i32' and o.shape == () and not is_mem(o), "offsets are i32 scalars")
       lo, hi = bounds(o, {})
@@ -709,7 +710,12 @@ def lex(text):
       if not m: err("% must be followed by a name of ASCII letters, digits or underscores")
       out.append(('DEF' if m.group(0).endswith('=') else 'REF', m.group(1), line))
       line += m.group(0).count('\n'); i = m.end(); continue
-    m = WORD_RE.match(text, i); w = m.group(0); i = m.end()
+    if text.startswith('url=https://', i):
+      j = i
+      while j < n and text[j] not in ' \t\r\n': j += 1
+      w, i = text[i:j], j
+    else:
+      m = WORD_RE.match(text, i); w = m.group(0); i = m.end()
     if not all('!' <= ch <= '~' for ch in w): err(f"{w!r} has a character that isn't printable ASCII")
     if (a := ATTR_RE.fullmatch(w)):
       k, v = a.groups()
@@ -886,10 +892,12 @@ def check_memory(names):
   nodes = all_nodes(names)
   slots = [u.arg[1] for u in nodes if u.op == 'buffer']
   if len(slots) != len(set(slots)): raise UIRError("two buffers share a slot")
-  stores_into, sequenced, closed = {}, set(), {}
+  stores_into, sequenced, closed, top_afters = {}, set(), {}, {}
   for u in nodes:
     if u.op in ('store', 'mma'): stores_into.setdefault(id(version_of(u.src[0])), []).append(u)
     if u.op == 'after': sequenced.update(id(st) for st in stores_under(u.src[1]))
+    if u.op == 'after' and not opens(u) and top_afters.setdefault(id(u.src[0]), u) is not u:
+      raise UIRError("two top-level afters on the same buffer version are unordered")
     if u.op == 'end':
       r = u.src[-1]
       if closed.setdefault(id(r), u) is not u: raise UIRError("a range can be closed by only one end")
@@ -917,26 +925,34 @@ def linearize(roots, universe=()):
   allnodes, aseen = list(nodes), set(seen)
   for r in universe: allnodes += toposort(r, seen=aseen)
   idx = {id(n): i for i, n in enumerate(nodes)}
-  ends = {}
+  ends, direct_parents = {}, {}
   for n in allnodes:
-    if n.op == 'end': ends[id(n.src[-1])] = n
+    if n.op == 'end':
+      r = n.src[-1]; ends[id(r)] = n
+      for ef in n.src[:-1]: direct_parents.setdefault(id(ef), set()).add(r)
   chains = {}
   def chain(r):                                  # outer-to-inner loop path that ends at range r
     if id(r) in chains: return chains[id(r)]
     if id(r) not in ends: raise UIRError(f"range %{r.arg[1]} is never closed by an end")
-    outer = opens(ends[id(r)])
+    e = ends[id(r)]
+    outer = opens(e) | direct_parents.get(id(e), set())
     inner = max(outer, key=lambda q: len(chain(q)), default=None)
     c = (chain(inner) if inner is not None else ()) + (r,)
     if not set(outer) <= set(c[:-1]): raise UIRError(f"ranges don't nest around %{r.arg[1]}")
     chains[id(r)] = c; return c
-  def path(n):
-    o = opens(n)
-    if not o: return ()
+  paths = {}
+  for n in allnodes:                             # allnodes is in topological order (sources before users)
+    if n.op == 'end':
+      paths[id(n)] = chain(n.src[-1])[:-1]
+      continue
+    o = set(opens(n)) | direct_parents.get(id(n), set())
+    for z in (n.src[1:] if n.op == 'call' else n.src):
+      if z.op != 'range': o.update(paths[id(z)])
+    if not o: paths[id(n)] = (); continue
     deepest = max(o, key=lambda q: len(chain(q)))
     c = chain(deepest)
     if not o <= set(c): raise UIRError("ranges don't nest: a value depends on two loops that aren't nested")
-    return c
-  paths = {id(n): path(n) for n in allnodes}
+    paths[id(n)] = c
   # a load runs in the innermost loop that holds every use of it. If that loop stores into the version
   # it reads, the load must run every iteration (the accumulator pattern), so it moves into the loop.
   cons, stores_of = {}, {}
@@ -1190,16 +1206,16 @@ def check_global_body(g, body, private):
 
 def check_axes(block):
   privates = thread_privates(block)
-  def walk(items, inside):
+  def walk(items, inside, in_global=False):
     for it in items:
       if not isinstance(it, tuple): continue
       _, e, r, body = it
-      if axis_of(r) in PHASE and not inside: raise UIRError(f"{axis_of(r)} loop %{r.arg[1]} is not inside a global loop")
+      if axis_of(r) in PHASE and not in_global: raise UIRError(f"{axis_of(r)} loop %{r.arg[1]} is not inside a global loop")
       if axis_of(r) in PAR:
         if inside: raise UIRError(f"{axis_of(r)} loop %{r.arg[1]} is inside another parallel loop")
         if axis_of(r) == 'global':
           check_global_body(r, body, {id(a) for a in privates.get(id(r), [])})
-          walk(body, True); continue                 # the week 7 thread checks below are for thread loops
+          walk(body, True, True); continue           # the week 7 thread checks below are for thread loops
         priv = {id(a) for a in privates.get(id(r), [])}
         acc = [(v, w, ld) for n in loop_nodes(body) for v, w, ld in accesses(n)]
         written = {id(storage_of(v)) for v, w, _ in acc if w}
@@ -1209,8 +1225,8 @@ def check_axes(block):
           if sid in priv or (not w and sid not in written): continue
           S = check_thread_access(r, v, ('an mma' if ld else 'a store') if w else 'a load of memory it writes', ld)
           if stride.setdefault(sid, S) != S: raise UIRError(f"thread loop %{r.arg[1]}: every access to one buffer must use the same stride")
-      walk(body, inside or axis_of(r) in PAR)
-  walk(block, False)
+      walk(body, inside or axis_of(r) in PAR, in_global)
+  walk(block, False, False)
 
 def per_thread(body, allocs):
   """Week 9: the block's shared allocs that only ever hold per-thread data. Every access is in a local loop, at
@@ -1375,7 +1391,9 @@ def zero(dt): return const(False if dt == 'bool' else 0.0 if dt == 'f32' else 0,
 def rewrite_one(u, bm):
   op, s, dt = u.op, u.src, u.dtype
   if op == 'call': return substitute(s[0], s[1:])
-  if op == 'index' and s[0].op == 'stack' and isc(s[1]) and 0 <= s[1].arg < len(s[0].src): return s[0].src[s[1].arg]
+  if op == 'index' and s[0].op == 'stack' and isc(s[1]) and 0 <= s[1].arg < len(s[0].src):
+    picked = s[0].src[s[1].arg]
+    return picked if len(s) == 2 else UOp('index', (picked,) + s[2:], None, dt, u.shape)
   if op in ALU and all(isc(x) for x in s) and dt != 'i8': return const(alu(op, [x.dtype for x in s], [x.arg for x in s], dt), dt)
   if op in COMM and isc(s[0]) and not isc(s[1]): return UOp(op, (s[1], s[0]), None, dt, ())
   if len(s) == 2: x, y = s
@@ -1386,6 +1404,7 @@ def rewrite_one(u, bm):
   if op == 'mul' and (isc(y, 1) or isc(y, 1.0)): return x
   if op == 'add' and dt == 'f32' and isc(y) and y.arg == 0 and math.copysign(1, y.arg) < 0: return x   # x + -0.0 is exact; x + 0.0 is not
   if op == 'max' and x is y: return x
+  if u.shape: return None
   if op == 'cmplt' and x is y: return const(False, 'bool')
   if dt == 'i32' or (op == 'xor' and dt == 'bool'):
     if op in ('add', 'xor', 'shl') and isc(y) and y.arg in (0, False): return x
@@ -1541,8 +1560,19 @@ def rangeify(nodes):
       # the value is computed from the old contents. If it reads the memory this loop overwrites, a later
       # iteration would see an earlier one's store: materialize the value first, then copy it in
       if any(n.op == 'load' and storage_of(n.src[0]) is storage_of(view) for n in toposort(val)):
-        val = UOp('stage', (val,), None, val.dtype, val.shape)
-      out = end(store(sv(low(view), r), el(val, (r,))), r)
+        lr = next((q for q in opens(u) if axis_of(q) == 'local'), None)
+        if lr is not None:
+          B, k = lr.src[0].arg, val.shape[0]
+          tmp = UOp('alloc', (), ('alloc', B * k, f"_stage{id(u)}"), val.dtype, (B * k,))
+          r1 = rng(k, f"stg{id(u)}")
+          off1 = add(A('mul', lr, c(k)), r1); off2 = add(A('mul', lr, c(k)), r)
+          filled = after(tmp, end(store(sv(tmp, off1), el(val, (r1,))), r1))
+          out = end(store(sv(low(view), r), load(sv(filled, off2), val.dtype)), r)
+        else:
+          val = UOp('stage', (val,), None, val.dtype, val.shape)
+          out = end(store(sv(low(view), r), el(val, (r,))), r)
+      else:
+        out = end(store(sv(low(view), r), el(val, (r,))), r)
     else: out = u if not u.src else UOp(op, tuple(low(x) for x in u.src), u.arg, u.dtype, u.shape)
     low_memo[id(u)] = out; return out
   def el(u, idx):

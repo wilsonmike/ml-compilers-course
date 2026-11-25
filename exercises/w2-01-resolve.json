@@ -3,7 +3,7 @@
  "lang": "ocaml",
  "title": "Resolve a view",
  "show": "(fun (s, l) -> Printf.sprintf \"%d %d\" s l)",
- "starter": "type view =\n  | Buffer of int                (* a whole buffer of n elements *)\n  | Shrink of view * int * int   (* parent, offset, k elements:  shrink p off shape=[k] *)\n  | Elem of view * int           (* parent, offset, one element: shrink p off shape=[] *)\n\n(* resolve v = (start, len): where v starts inside its buffer, and how many elements it covers.\n   Raise (Invalid_argument \"out of bounds\") if any step doesn't fit inside its parent. *)\nlet rec resolve (v : view) : int * int =\n  match v with\n  | Buffer n -> (0, n)\n  | Shrink (p, off, k) -> let (s, _) = resolve p in (s + off, k)\n  | Elem (p, off) -> let (s, _) = resolve p in (s + off, 1)\n",
+ "starter": "type view =\n  | Buffer of int                (* a whole buffer of n elements *)\n  | Shrink of view * int * int   (* parent, offset, k elements:  shrink p off [k] *)\n  | Elem of view * int           (* parent, offset, one element: shrink p off [] *)\n\n(* resolve v = (start, len): where v starts inside its buffer, and how many elements it covers.\n   Raise (Invalid_argument \"out of bounds\") if any step doesn't fit inside its parent. *)\nlet rec resolve (v : view) : int * int =\n  match v with\n  | Buffer n -> (0, n)\n  | Shrink (p, off, k) -> let (s, _) = resolve p in (s + off, k)\n  | Elem (p, off) -> let (s, _) = resolve p in (s + off, 1)\n",
  "tests": [
   {
    "expr": "resolve (Shrink (Buffer 6, 2, 3))",

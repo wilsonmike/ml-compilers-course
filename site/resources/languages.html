@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=863fbc0043">
-<script src="../assets/course.js?v=d03ca1110c"></script>
+<link rel="stylesheet" href="../assets/course.css?v=a2f021139a">
+<script src="../assets/course.js?v=9bdf13c045"></script>
 </head>
 <body data-root="../">
 <main>
@@ -102,7 +102,7 @@ def uop(op, dtype, src=(), arg=None) -&gt; UOp:
       <li><strong>i32.</strong> After each op, keep the low 32 bits (mask with <code>0xFFFFFFFF</code>) and read the top bit as a sign. <code>ctypes.c_int32(n).value</code> does the same and makes a good reference for a test.</li>
       <li><strong>Division.</strong> <code>//</code> floors and <code>%</code> takes the divisor's sign, exactly like .uir's <code>div</code> and <code>mod</code>. Two edges differ: Python raises on a zero divisor, where .uir gives <code>-1</code> for <code>div</code> and <code>x</code> for <code>mod</code>, and <code>-2**31 // -1</code> needs the wrap. From week 2 you also print C, whose <code>/</code> truncates. <code>int(a / b)</code> goes through a double, so build truncating division from the quotient of the absolute values.</li>
       <li><strong>Shifts.</strong> .uir's <code>shl x y</code> shifts by <code>y mod 32</code>, so <code>shl 1 32</code> is 1. Python's <code>&lt;&lt;</code> raises on a negative count and never drops bits, so take <code>y % 32</code> first and wrap the result.</li>
-      <li><strong>f32, from week 2.</strong> Round a double to f32 by packing and unpacking it: <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>. Do it after every op and on every literal, not once at the end.</li>
+      <li><strong>f32, from week 2.</strong> Round a double to f32 by packing and unpacking it: <code>struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code>, catching <code>OverflowError</code> and returning <code>math.copysign(math.inf, x)</code> when a finite double exceeds f32's max. Do it after every op and on every literal, not once at the end.</li>
     </ul>
 
     <h3>Memoize per call, and know what <code>functools.cache</code> does</h3>
@@ -119,7 +119,7 @@ while stack:
     done.add(u)
   else:
     stack.append((u, True))
-    stack.extend((s, False) for s in u.src)</code></pre>
+    stack.extend((s, False) for s in reversed(u.src))</code></pre>
 
     <h3>Outcome lines</h3>
     <p>The grader reads one line per file on stdout: <code>MATCH</code>, <code>MISMATCH</code>, <code>REJECTED</code> or <code>OVERBUDGET</code>, a space and the path as given. An uncaught Python exception prints a traceback and no outcome line, so the test fails. Raise your own exception class when a program breaks a rule, catch only that one in <code>main</code> and print <code>REJECTED</code> and the path. Let a <code>RecursionError</code> or any other crash stay loud, so a bug never passes for a rejection.</p>

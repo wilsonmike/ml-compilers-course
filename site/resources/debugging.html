@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=863fbc0043">
-<script src="../assets/course.js?v=d03ca1110c"></script>
+<link rel="stylesheet" href="../assets/course.css?v=a2f021139a">
+<script src="../assets/course.js?v=9bdf13c045"></script>
 </head>
 <body data-root="../">
 <main>
@@ -232,6 +232,10 @@ python _reference/uirc.py render-cuda FILE &gt; ref.cu</code></pre>
       <tr><td>7</td><td>loads of memory the thread loop also writes are checked too, while memory it only reads may be read anywhere</td><td><code>rejected_thread_load_neighbor</code>, <code>thread_reads_any_input</code></td></tr>
       <tr><td>7</td><td>every access to one buffer in a thread loop uses the same stride S</td><td><code>rejected_thread_mixed_strides</code></td></tr>
       <tr><td>7</td><td>a private alloc starts at zero in every iteration, in run and in render</td><td><code>thread_private_alloc_fresh</code>, <code>mismatch_thread_private_alloc_not_cumulative</code>, <code>r_thread_private_alloc</code></td></tr>
+      <tr><td>8</td><td>a local loop sits directly inside a global loop, every local loop in one global shares one block size ≤ 1024, and each phase writes disjoint slices</td><td><code>rejected_local_outside_global</code>, <code>rejected_local_sizes_differ</code>, <code>rejected_same_phase_neighbor</code></td></tr>
+      <tr><td>8</td><td>a block's shared alloc starts at zero in every block, and each phase ends with <code>__syncthreads()</code></td><td><code>c_block_shared_fresh</code>, <code>c_shared_dirty_then_fresh</code>, <code>c_reverse_shared</code></td></tr>
+      <tr><td>9</td><td><code>i8</code> casts wrap modulo 256, and <code>mma</code> reads A, B and C before writing C and wraps its i32 sums</td><td><code>i8_cast_wraps</code>, <code>mma_reads_before_overwrite</code>, <code>mma_wraps</code></td></tr>
+      <tr><td>9</td><td><code>mma</code> runs inside a warp loop (not local), with offsets aligned to 16 and provably in bounds</td><td><code>rejected_mma_in_local_loop</code>, <code>rejected_mma_a_misaligned</code>, <code>rejected_mma_out_of_bounds</code></td></tr>
     </tbody>
   </table>
   </div>

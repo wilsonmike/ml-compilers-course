@@ -10,6 +10,7 @@ BASE = 'https://sharpterminal.com'
 NAME = 'ML compilers, from zero'
 REPO = 'https://github.com/wilsonmike/ml-compilers-course'
 SECTIONS = {
+  'learn': 'Learn Python, Learn OCaml, and hard ideas explained slowly',
   'week0': 'Week 0: prerequisites (C, memory, IRs, tensors, matmul, Python or OCaml)',
   'week1': 'Week 1: UOps and rewrites',
   'week2': 'Week 2: memory and rendering C',
@@ -52,7 +53,7 @@ def up(p):
   return '../' * (len(p.relative_to(ROOT / 'site').parts) - 1)
 
 def stamp(src):
-  return re.sub(r'((?:href|src)="(?:\.\./)*assets/(course\.(?:css|js)))(?:\?v=[0-9a-f]+)?"',
+  return re.sub(r'((?:href|src)="(?:/site/|(?:\.\./)*)assets/(course\.(?:css|js)))(?:\?v=[0-9a-f]+)?"',
                 lambda m: f'{m.group(1)}?v={VERSION[m.group(2)]}"', src)
 
 def seo_block(p, title, desc):
@@ -96,6 +97,8 @@ for p in pages:
   src = stamp(src)
   p.write_text(src, encoding='utf-8', newline='\n')
   groups.setdefault(p.parent.name, []).append((p, h1, lede))
+f404 = ROOT / '404.html'
+if f404.exists(): f404.write_text(stamp(f404.read_text(encoding='utf-8')), encoding='utf-8', newline='\n')
 
 rows = ''.join(f'  <url><loc>{url(p)}</loc></url>\n' for p in pages)
 (ROOT / 'sitemap.xml').write_text(

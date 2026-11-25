@@ -250,6 +250,8 @@ operand's shape (`expand c [...]`) when the operand isn't a scalar.
 `%g = gradient %y %x` is the derivative of `y` with respect to `x`: a value with `x`'s shape whose
 element `i` is `∂y/∂x[i]`. It is computed while the program is built, as a graph of ordinary ops, so
 anything a program can do with a value it can do with a gradient, including take its gradient again.
+(Test-file reachability is checked on the statements as written before `gradient` lowers, so inputs
+referenced by `%y` or `%x` stay reachable even when the gradient folds to a constant like `0.0` or `1.0`.)
 
 **Valid when:**
 
@@ -293,7 +295,7 @@ to `x` receive a share. The gradient is the sum at `x`; don't propagate past `x`
 | `shrink a o0 ...` (value) | `pad g [o0 (d0-o0-s0) ...]` (literal offsets only) |
 | `expand a` | sum `g` over the grown axes: `permute` them to the front (in increasing axis order, the rest after), `reduce op=add pop=<how many>`, `reshape` to `a`'s shape. From a scalar: `reshape g [n]`, `reduce`. |
 | `reduce a op=add pop=m` | `reshape g` to `[1 ... 1, rest]`, then `expand` to `a`'s shape |
-| `reduce a op=max pop=m` | `hit = cast (xor (cmplt a ue) true) dtype=f32` where `ue` is `u` reshaped and expanded back to `a`'s shape; `cnt = reduce hit op=add pop=m`; then `mul (expand (mul g (recip cnt))) hit`. Ties split evenly. |
+| `reduce a op=max pop=m` | `hit = cast (xor (cmplt a ue) true) dtype=f32` where `ue` is `u` reshaped to `[1 ... 1, rest]` and expanded back to `a`'s shape; `cnt = reduce hit op=add pop=m`; then `mul (expand (reshape (mul g (recip cnt)) [1 ... 1, rest]) a.shape) hit`. Ties split evenly. |
 | `stack a0 ... an` | to `aj`: `index g j` |
 | `index a j0 ...` | `pad (reshape g [1 ... 1, rest])` putting it at `j0, ...` (literal indices only) |
 
@@ -313,7 +315,7 @@ math. In f32 the cancelling terms round, so the gradient's bits can differ with 
 %x = buffer 3920000 dtype=f32 slot=0 url=data/mnist-train-images.f32 sha256=1ac7f6c8...
 ```
 
-* `url=` is `https://...`, or a relative path (letters, digits, `_ . -`, separated by `/`, no `..`)
+* `url=` is `https://...`, or a relative path (segments starting with a letter, digit or `_`, followed by letters, digits, `_ . -`, separated by `/`, no `..`)
   resolved against the folder of the `.uir` file. It replaces the data list; giving both is invalid.
 * `sha256=` (64 lowercase hex digits) is required with `url=`. The file's SHA-256 must match, or the
   program is invalid. This is what makes a URL safe to depend on: the bytes can't change under you.

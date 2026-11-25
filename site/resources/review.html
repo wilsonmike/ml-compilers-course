@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=863fbc0043">
-<script src="../assets/course.js?v=d03ca1110c"></script>
+<link rel="stylesheet" href="../assets/course.css?v=a2f021139a">
+<script src="../assets/course.js?v=9bdf13c045"></script>
 <style>
   .review-bar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin: 0 0 var(--s5); }
   .review-bar .seg button { padding: 4px var(--s3); }
@@ -84,10 +84,13 @@
       } catch (e) { groups.push({ href, title, n, qs: [], err: e.message }); }
     }
     let items = groups.flatMap(g => g.qs.map(q => ({ g, q })));
+    const offTrack = CC.track() === 'python' ? '.only-ocaml' : '.only-python';
     if (mode === 'due') {
       const found = new Set(items.map(({ q }) => q.dataset.qid));
       groups.filter(g => !g.err).forEach(g => due.forEach(q => { if (q.startsWith(g.href + '#') && !found.has(q)) CC.forget(q); }));
-      items = items.filter(({ q }) => due.has(q.dataset.qid) && !q.closest(CC.track() === 'python' ? '.only-ocaml' : '.only-python'));
+      items = items.filter(({ q }) => due.has(q.dataset.qid) && !q.closest(offTrack));
+    } else {
+      items = items.filter(({ q }) => !q.closest(offTrack));
     }
     if (mode === 'missed') items = items.filter(({ q }) => store.get('cc-missed:' + q.dataset.qid));
     if (shuffle) for (let i = items.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [items[i], items[j]] = [items[j], items[i]]; }

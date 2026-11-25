@@ -282,9 +282,14 @@ def grade_speed(out, names, speed, limit):
         outputs[tag] = r.stdout
         best[tag] = min(best[tag], float(re.search(rb"kernel ([0-9.e-]+)", r.stderr).group(1)))
     if outputs['mine'] != outputs['ref']:
+      outs = O.final_versions(names)
       a, b = outputs['mine'].decode().split('\n'), outputs['ref'].decode().split('\n')
-      i = next(i for i, (x, y) in enumerate(zip(a + [''], b + [''])) if x != y)
-      return f"wrong result: line {i} of the buffers is {a[i] if i < len(a) else '(missing)'!r}, the reference gives {b[i] if i < len(b) else '(missing)'!r}"
+      for i, (x, y) in enumerate(zip(a + [''], b + [''])):
+        if x == y: continue
+        xs, ys = x.split(), y.split()
+        if len(xs) == 2 and len(ys) == 2 and xs[0] == ys[0] and outs.get(int(xs[0])) and outs[int(xs[0])].dtype == 'f32':
+          if math.isnan(struct.unpack('<f', struct.pack('<I', int(xs[1], 16)))[0]) and math.isnan(struct.unpack('<f', struct.pack('<I', int(ys[1], 16)))[0]): continue
+        return f"wrong result: line {i} of the buffers is {a[i] if i < len(a) else '(missing)'!r}, the reference gives {b[i] if i < len(b) else '(missing)'!r}"
     threaded = 'uir_parallel_for' in ref
     if threaded and THREADS < 4: return None    # too few cores to time thread loops fairly: correctness only
     if best['mine'] > best['ref'] / speed:
@@ -332,6 +337,7 @@ static void __syncwarp(unsigned = 0xffffffffu) {
   else while (g == uir_wgen[w]) pthread_cond_wait(&uir_wc, &uir_wm);
   pthread_mutex_unlock(&uir_wm);
 }
+namespace nvcuda {
 namespace wmma {
 struct matrix_a {}; struct matrix_b {}; struct accumulator {}; struct row_major {}; struct col_major {};
 enum layout_t { mem_row_major, mem_col_major };
@@ -363,6 +369,8 @@ template <class LA, class LB> void mma_sync(fragment<accumulator, 16, 16, 16, in
   for (int e = 0; e < 256; e++) d.x[e] = r[e];
 }
 }
+}
+using namespace nvcuda;
 struct uir_job { int b, t; std::function<void()> *f; };
 static void *uir_thread(void *p) { uir_job *j = (uir_job *)p; blockIdx.x = j->b; threadIdx.x = j->t; (*j->f)(); return 0; }
 static void uir_launch(int grid, int block, std::function<void()> f) {
@@ -408,15 +416,26 @@ def cuda_speed(out, names, speed, week=None):
       open(os.path.join(d, f'{tag}.cu'), 'w', encoding='utf-8').write(src)
     open(os.path.join(d, 'main.cu'), 'w', encoding='utf-8').write(local_blobs(cuda_timed_harness(names), names, d))
     open(os.path.join(d, 'prelude.h'), 'w', encoding='utf-8').write(CUDA_PRELUDE)
-    nv = "nvcc -O2 -arch=native -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h"
-    script = (f"{nv} mine.cu main.cu -o mine && {nv} ref.cu main.cu -o ref && "
-              "for i in 1 2 3; do ./mine 2>&1 >/dev/null | sed 's/^/mine /'; ./ref 2>&1 >/dev/null | sed 's/^/ref /'; done")
-    cmd = (['docker', 'run', '--rm', '--gpus', 'all', '-v', f"{d}:/w", '-w', '/w', '--entrypoint', 'sh', CUDA_DOCKER, '-c', script]
-           if CUDA_DOCKER and not NVCC else ['sh', '-c', script])
-    r = subprocess.run(cmd, capture_output=True, timeout=600, cwd=d)
-    if r.returncode != 0: return "timing build failed:\n" + indent((r.stderr or r.stdout).decode('utf-8', 'replace'))
+    nv_args = ['nvcc', '-O2', '-arch=native', '-fmad=false', '-prec-div=true', '-diag-suppress', '177', '-include', 'prelude.h']
     best = {}
-    for tag, t in re.findall(r"^(mine|ref) kernel ([0-9.e-]+)", r.stdout.decode(), re.M): best[tag] = min(best.get(tag, 1e9), float(t))
+    if CUDA_DOCKER and not NVCC:
+      nv = ' '.join(nv_args)
+      script = (f"{nv} mine.cu main.cu -o mine && {nv} ref.cu main.cu -o ref && "
+                "for i in 1 2 3; do ./mine 2>&1 >/dev/null | sed 's/^/mine /'; ./ref 2>&1 >/dev/null | sed 's/^/ref /'; done")
+      r = subprocess.run(['docker', 'run', '--rm', '--gpus', 'all', '-v', f"{d}:/w", '-w', '/w', '--entrypoint', 'sh', CUDA_DOCKER, '-c', script], capture_output=True, timeout=600, cwd=d)
+      if r.returncode != 0: return "timing build failed:\n" + indent((r.stderr or r.stdout).decode('utf-8', 'replace'))
+      for tag, t in re.findall(r"^(mine|ref) kernel ([0-9.e-]+)", r.stdout.decode(), re.M): best[tag] = min(best.get(tag, 1e9), float(t))
+    else:
+      ext = '.exe' if os.name == 'nt' else ''
+      for tag in ('mine', 'ref'):
+        c = subprocess.run([NVCC, *nv_args[1:], f'{tag}.cu', 'main.cu', '-o', f'{tag}{ext}'], capture_output=True, timeout=300, cwd=d)
+        if c.returncode != 0: return "timing build failed:\n" + indent((c.stderr or c.stdout).decode('utf-8', 'replace'))
+      for _ in range(3):
+        for tag in ('mine', 'ref'):
+          r = subprocess.run([os.path.join(d, f'{tag}{ext}')], capture_output=True, timeout=300, cwd=d)
+          if r.returncode != 0: return "timing run failed:\n" + indent((r.stderr or r.stdout).decode('utf-8', 'replace'))
+          m = re.search(rb"kernel ([0-9.e-]+)", r.stderr)
+          if m: best[tag] = min(best.get(tag, 1e9), float(m.group(1)))
     if set(best) != {'mine', 'ref'}: return "couldn't read the kernel times"
     if best['mine'] > best['ref'] / speed:
       return f"too slow on the GPU: {best['mine'] * 1e3:.2f} ms, the target is at most {best['ref'] / speed * 1e3:.2f} ms (the reference took {best['ref'] * 1e3:.2f} ms)"
@@ -475,15 +494,22 @@ def grade_cuda(cmd, text, base=None, h=None):
     open(os.path.join(d, 'main.cu'), 'w', encoding='utf-8').write(local_blobs(cuda_harness(names, real), names, d))
     open(os.path.join(d, 'prelude.h'), 'w', encoding='utf-8').write(CUDA_PRELUDE if real else EMULATOR)
     if real:
-      build = "nvcc -O2 -arch=native -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h kernel.cu main.cu -o a.out"
-      run_cmd = (['docker', 'run', '--rm', '--gpus', 'all', '-v', f"{d}:/w", '-w', '/w', '--entrypoint', 'sh', CUDA_DOCKER, '-c', build + ' && ./a.out']
-                 if CUDA_DOCKER and not NVCC else ['sh', '-c', build + ' && ./a.out'])
-      try: r = subprocess.run(run_cmd, capture_output=True, timeout=300, cwd=d)
-      except subprocess.TimeoutExpired: return "CUDA build and run took over 300 s"
-      if r.returncode != 0: return "your CUDA failed to build or run:\n" + indent((r.stderr or r.stdout).decode('utf-8', 'replace'))
+      if CUDA_DOCKER and not NVCC:
+        build = "nvcc -O2 -arch=native -fmad=false -prec-div=true -diag-suppress 177 -include prelude.h kernel.cu main.cu -o a.out"
+        try: r = subprocess.run(['docker', 'run', '--rm', '--gpus', 'all', '-v', f"{d}:/w", '-w', '/w', '--entrypoint', 'sh', CUDA_DOCKER, '-c', build + ' && ./a.out'], capture_output=True, timeout=300, cwd=d)
+        except subprocess.TimeoutExpired: return "CUDA build and run took over 300 s"
+        if r.returncode != 0: return "your CUDA failed to build or run:\n" + indent((r.stderr or r.stdout).decode('utf-8', 'replace'))
+      else:
+        exe = os.path.join(d, 'a.exe' if os.name == 'nt' else 'a.out')
+        try:
+          c = subprocess.run([NVCC, '-O2', '-arch=native', '-fmad=false', '-prec-div=true', '-diag-suppress', '177', '-include', 'prelude.h', 'kernel.cu', 'main.cu', '-o', exe], capture_output=True, timeout=300, cwd=d)
+          if c.returncode != 0: return "your CUDA failed to build:\n" + indent((c.stderr or c.stdout).decode('utf-8', 'replace'))
+          r = subprocess.run([exe], capture_output=True, timeout=300, cwd=d)
+        except subprocess.TimeoutExpired: return "CUDA build and run took over 300 s"
+        if r.returncode != 0: return "your CUDA failed to run:\n" + indent((r.stderr or r.stdout).decode('utf-8', 'replace'))
     else:
       exe = os.path.join(d, 'a.exe' if os.name == 'nt' else 'a.out')
-      c = subprocess.run([CXX, '-std=c++14', '-O1', '-x', 'c++', '-include', os.path.join(d, 'prelude.h'), os.path.join(d, 'kernel.cu'), os.path.join(d, 'main.cu'), '-o', exe, '-lpthread'],
+      c = subprocess.run([CXX, '-std=c++14', '-O1', '-ffp-contract=off', '-x', 'c++', '-include', os.path.join(d, 'prelude.h'), os.path.join(d, 'kernel.cu'), os.path.join(d, 'main.cu'), '-o', exe, '-lpthread'],
                          capture_output=True, timeout=120)
       if c.returncode != 0: return "your CUDA doesn't compile (as C++, in the emulator):\n" + indent(c.stderr.decode('utf-8', 'replace').replace(d + os.sep, ''))
       try: r = subprocess.run([exe], capture_output=True, timeout=TIMEOUT * 3)

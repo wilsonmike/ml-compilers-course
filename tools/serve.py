@@ -8,7 +8,7 @@
 It compiles and runs code you type into the lesson editors, so it only listens on 127.0.0.1 and only
 accepts requests from its own pages (Host check + a custom header that cross-site pages can't send).
 """
-import threading, os, sys, re, json, glob, shlex, shutil, secrets, argparse, tempfile, subprocess, importlib.util
+import threading, os, sys, re, json, glob, shlex, shutil, secrets, argparse, tempfile, subprocess, importlib.util, posixpath, urllib.parse
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -108,7 +108,7 @@ def fmt(v, dt):
   return O.lit(O.const(v, dt))
 
 def with_data(code, data):
-  # replace each slot's initial contents: rewrite (or add) data=[...] on that buffer's line
+  # replace each slot's initial contents: rewrite (or add) the [...] operand on that buffer's line
   out = []
   for line in code.split('\n'):
     m = re.search(r"\bbuffer\b.*\bslot=([0-9]+)", line.split('#', 1)[0])
@@ -217,8 +217,9 @@ class H(SimpleHTTPRequestHandler):
   def do_GET(self):
     if not self.host_ok(): return self.send_error(403, 'bad host')
     path = self.path.split('?')[0]
+    norm = posixpath.normpath(urllib.parse.unquote(path))
     if path in ('/', '/index.html'): self.send_response(302); self.send_header('Location', '/site/index.html'); self.end_headers(); return
-    if path.startswith(('/exercises', '/_reference', '/.git')): return self.send_error(403, 'not served')
+    if any(norm == p or norm.startswith(p + '/') for p in ('/exercises', '/_reference', '/.git')): return self.send_error(403, 'not served')
     if path == '/api/health':
       return self.send_json(200, {'ok': True, 'ocaml': bool(self.server.cfg.ocaml_ok), 'cc': self.server.cfg.cc and os.path.basename(self.server.cfg.cc), 'uir': True, 'python': True})
     if path.startswith('/api/exercise/'):

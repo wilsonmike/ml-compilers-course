@@ -29,7 +29,7 @@ a phase's `local` range `t`, and for a kernel's `global` range `g`:
 
 * **Every store, and every load of memory the same code also stores into, has a unique-number offset.** Write the
   flat offset as a sum of terms. A term is a **digit** when it's a loop index (the parallel index, or a loop inside
-  the code being checked), or that index's `div` or `mod` by a literal, times a positive literal coefficient (`mul i 4`,
+  the code being checked), or that index's `div` or `mod` by a positive literal, times a positive literal coefficient (`mul i 4`,
   `mul (div g 8) 64`, plain `t`). Terms that don't involve such a loop are the same for every thread and are
   ignored. A term that involves an inner loop but isn't a digit (say `mul i j`) counts as a digit of coefficient 1
   whose largest value is its largest minus its smallest value. A term that isn't a digit and involves the parallel
@@ -38,7 +38,7 @@ a phase's `local` range `t`, and for a kernel's `global` range `g`:
   coefficient 1 and largest value `k - 1`. Then the offset is a mixed-radix number, unique for every combination
   of indices, so no two threads (or blocks) touch the same element.
 * The offset must **pin down the parallel index** (unless its loop has one iteration): it contains the index
-  itself, or both its `div k` and its `mod k` by the same literal `k`. A `mod k` alone is enough when `k` is larger
+  itself, `div 1`, or both its `div k` and its `mod k` by the same literal `k`. A `mod k` alone is enough when `k` is larger
   than the index's largest value, since then it is the index. Anything less lets two threads share a slot even
   when the coefficients pass: with 8 threads, `o[4b + (t mod 4)]` sends threads 0 and 4 to the same element.
 * Every access to one buffer in that code is at the **same offset expression**: the same terms after flattening
@@ -66,7 +66,7 @@ consecutive loops, so the barrier between them is automatic.
 
 Prints CUDA C++. The program must be in kernel form: every computation inside a `global` loop at the top level,
 and each kernel using only buffers, literals, its own ranges and its own shared memory (values computed outside a
-kernel would have to come from the host, and an alloc used by two kernels has no home on the GPU). Anything else exits 2 with an `invalid:` line. The output defines:
+kernel would have to come from the host, and an alloc used by two kernels has no home on the GPU). Anything else exits 2 with an `invalid:` line on stderr. The output defines:
 
 * one `__global__` function per global loop, taking the buffers it uses, with `int32_t g = blockIdx.x`;
 * the block's shared memory as `__shared__` arrays, zeroed by the threads (`for (i = threadIdx.x; i < n;

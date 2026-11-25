@@ -23,14 +23,15 @@ parameters; the rest is our design, provisional until the official format is pub
 | `permute x [p0 p1 ...]` | none | rank-r value | `shape[k] = x.shape[p_k]` | `x` at the index whose axis `p_k` is `i_k` |
 | `pad x [l0 r0 l1 r1 ...]` | none | rank-r value | each axis grows by `l + r` | `x[i - l]` where every axis is inside, else zero (`0`, `0.0` or `false`) |
 | `shrink x o0 ... o(r-1) [s0 ...]` | none | rank-r value, r offsets (i32 scalars) | that shape | `x[i0 + o0, ..., ik + ok]` |
-| `expand x [d0 d1 ...]` | none | a scalar, or a value of the same rank | that shape | `x` with each size-1 axis read at 0 |
+| `expand x [d0 d1 ...]` | none | a scalar, or a value of the same rank (`d_k ≥ 1`, non-empty) | that shape | `x` with each size-1 axis read at 0 |
 | `stack a0 ... a(n-1)` | none | values of one shape | `(n,) + shape` | `a_{i0}[i1, ...]` |
 | `index x j0 ... j(m-1)` | none | rank ≥ m, i32 scalars | drops m leading axes | `x[j0, ..., j(m-1), i0, ...]`, each `j` provably in range (week 1's rule) |
-| `reduce x` | `op` (`add`, `mul`, `max`), `pop=m` (default 1) | rank ≥ m | drops m leading axes | a left fold over the m leading axes, in row-major order, starting from the first element |
+| `reduce x` | `op` (`add`, `mul`, `max`), `pop=m` (`m ≥ 1`, default 1) | `i32` or `f32`, rank ≥ m | drops m leading axes | a left fold over the m leading axes, in row-major order, starting from the first element |
 
 `shrink` on a value is a different op from `shrink` on memory (week 2): the first operand decides.
 Its offsets may be any i32 expression (symbolic), and as with views they must be **provably** in range:
-for every axis, `o_k`'s interval must satisfy `lo ≥ 0` and `hi + s_k ≤ x.shape[k]`.
+for every axis, `o_k`'s interval must satisfy `lo ≥ 0` and `hi + s_k ≤ x.shape[k]`. Bounds analysis
+widens movement ops (`reshape`, `permute`, `pad`, value `shrink`, `expand`) and `reduce` to the full range of their dtype.
 
 The pad amounts must be ≥ 0. To cut, use `shrink`.
 

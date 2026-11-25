@@ -37,8 +37,8 @@ A fourth dtype, for memory: 8-bit two's complement, -128 to 127.
 * `load` of i8 memory gives an i8 value, and `store` takes one.
 * `cast X dtype=i8` takes an `i32` (or an `i8`, unchanged) and keeps its low 8 bits (`200` becomes `-56`). `cast` from i8 to `i32`, `f32`
   or `bool` is exact.
-* There are no i8 literals, and arithmetic and comparisons don't take i8: cast to `i32` to compute. Ops
-  that only move values (`where`, `stack`, `index`, `assert` and the shape ops) take it like any dtype.
+* There are no i8 literals, and arithmetic and comparisons don't take i8: cast to `i32` to compute (or to `assert`). Ops
+  that only move values (`where`, `stack`, `index` and the shape ops) take it like any dtype. For bounds analysis, an `i8` load or `cast` has bounds `[-128, 127]`.
 * Only `buffer`, `alloc` and `cast` accept `dtype=i8`. Any other op given it is rejected, `param` and `bitcast`
   included. A cast to i8 from `f32` or `bool` is rejected too.
 

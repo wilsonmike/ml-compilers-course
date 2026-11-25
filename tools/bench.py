@@ -24,6 +24,7 @@ def flops(names):
     for r in O.opens(u): trips *= max(r.src[0].arg, 0) if r.src[0].op == 'const' else 1
     if u.op in O.ALU and u.op not in FREE: total += O.prod(u.shape) * trips
     elif u.op == 'reduce': total += (O.prod(u.src[0].shape) - O.prod(u.shape)) * trips
+    elif u.op == 'mma': total += 2 * 16 * 16 * 16 * trips
   return total
 
 def main():
