@@ -1,0 +1,41 @@
+{
+  "id": "w7-05n-call-site",
+  "lang": "ocaml",
+  "title": "Write the call that starts the threads",
+  "show": "(fun s -> s)",
+  "starter": "let call_site (id : int) (n : int) (fields : string list) : string =\n  \"\"\n",
+  "hints": [
+    "Build the line from three pieces: the struct being filled, the call, and the closing brace.",
+    "`String.concat \", \" fields` joins the field values with a comma and a space.",
+    "`Printf.sprintf \"{ thread%d_ctx k_ = { %s }; uir_parallel_for(%d, thread%d, &k_); }\" id (String.concat \", \" fields) n id` is the whole line."
+  ],
+  "explain": "The line does two things. It fills a fresh context struct with the current values of the body's free variables, in the same order as the struct's fields. Then it hands `uir_parallel_for` the trip count, the outlined function and the struct's address. The number `id` appears twice, in the struct's type and in the function's name, so a kernel with two thread loops gets two separate pairs.",
+  "tests": [
+    {
+      "expr": "call_site 0 64 [\"b0\"; \"r3\"]",
+      "expect": "{ thread0_ctx k_ = { b0, r3 }; uir_parallel_for(64, thread0, &k_); }",
+      "sample": true
+    },
+    {
+      "expr": "call_site 0 4 [\"b0\"]",
+      "expect": "{ thread0_ctx k_ = { b0 }; uir_parallel_for(4, thread0, &k_); }",
+      "sample": true
+    },
+    {
+      "expr": "call_site 0 64 [\"b0\"; \"b2\"; \"r8\"; \"v7\"; \"v9\"]",
+      "expect": "{ thread0_ctx k_ = { b0, b2, r8, v7, v9 }; uir_parallel_for(64, thread0, &k_); }"
+    },
+    {
+      "expr": "call_site 1 192 [\"b0\"; \"b1\"; \"b2\"]",
+      "expect": "{ thread1_ctx k_ = { b0, b1, b2 }; uir_parallel_for(192, thread1, &k_); }"
+    },
+    {
+      "expr": "call_site 12 0 [\"b3\"]",
+      "expect": "{ thread12_ctx k_ = { b3 }; uir_parallel_for(0, thread12, &k_); }"
+    },
+    {
+      "expr": "call_site 2 4 [\"b0\"; \"b1\"]",
+      "expect": "{ thread2_ctx k_ = { b0, b1 }; uir_parallel_for(4, thread2, &k_); }"
+    }
+  ]
+}

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Memory and Caches</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Two loops can do exactly the same arithmetic and differ in speed by ten times or more. The difference is the order in which they touch memory. From week 6 on...">
+<meta name="description" content="For six weeks your compiler has turned programs into correct C loops. Week 7 is about making those loops fast, and its first lessons lean on one idea from this...">
 <link rel="canonical" href="https://sharpterminal.com/site/week0/02-memory-and-caches">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Memory and Caches">
-<meta property="og:description" content="Two loops can do exactly the same arithmetic and differ in speed by ten times or more. The difference is the order in which they touch memory. From week 6 on your kernels are timed, and later in the...">
+<meta property="og:description" content="For six weeks your compiler has turned programs into correct C loops. Week 7 is about making those loops fast, and its first lessons lean on one idea from this page: memory is not equally fast...">
 <meta property="og:url" content="https://sharpterminal.com/site/week0/02-memory-and-caches">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .grid2d { display: grid; grid-template-columns: repeat(4, 3.25rem); gap: 2px; font: 0.875rem var(--mono); }
   .grid2d div { height: 2.75rem; display: flex; align-items: center; justify-content: center; background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; }
@@ -39,6 +39,10 @@
   .cstats b.m { color: var(--bad); } .cstats b.h { color: var(--good); }
   .viz { display: flex; gap: var(--s6); flex-wrap: wrap; align-items: flex-start; }
   .viz > div { display: flex; flex-direction: column; gap: var(--s3); }
+  .grid2d div.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .mem.tight .cell { min-width: 2.5rem; }
+  .place { display: flex; flex-direction: column; gap: var(--s2); }
+  .place .name { font: 0.875rem var(--mono); color: var(--ink-3); }
   .lat td:last-child { font-family: var(--mono); }
   .bar { height: 0.625rem; background: var(--accent); border-radius: 2px; min-width: 2px; } /* design-ok: a chart bar, one data series */
 </style>
@@ -47,54 +51,183 @@
 <main>
   <p class="eyebrow">Week 0 · Lesson 2</p>
   <h1>Memory and caches</h1>
-  <p class="lede">Two loops can do exactly the same arithmetic and differ in speed by ten times or more. The difference is the order in which they touch memory. From week 6 on your kernels are timed, and later in the course their speed is part of the grade.</p>
+  <p class="lede">For six weeks your compiler has turned programs into correct C loops. Week 7 is about making those loops fast, and its first lessons lean on one idea from this page: memory is not equally fast everywhere, so the order a loop touches memory in can change its speed several times over. By the end you can look at a loop and say whether it treats memory well.</p>
 
-  <div class="prose">
-    <h2>Memory is far away</h2>
-    <p>The CPU can add two numbers in well under a nanosecond. Fetching a number from main memory (DRAM) takes something like 100 nanoseconds. If every load went all the way out to DRAM, the CPU would spend almost all its time waiting.</p>
-    <p>So there are <b>caches</b>: small, fast memories that keep copies of recently used data close to the core. Rough, typical numbers for a modern desktop chip:</p>
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Explain why walking a 2D array row by row is faster than column by column, and count the cache lines a loop touches.</p>
   </div>
-  <div class="tablewrap"><table class="lat">
-    <tr><th>level</th><th>typical size</th><th>typical latency</th><th></th></tr>
-    <tr><td>register</td><td>a few hundred bytes</td><td>0 cycles</td><td><div class="bar" style="width:2px"></div></td></tr>
-    <tr><td>L1 cache</td><td>32 to 64 KB per core</td><td>~1 ns (4 to 5 cycles)</td><td><div class="bar" style="width:4px"></div></td></tr>
-    <tr><td>L2 cache</td><td>256 KB to 2 MB per core</td><td>~4 ns</td><td><div class="bar" style="width:12px"></div></td></tr>
-    <tr><td>L3 cache</td><td>8 to 64 MB shared</td><td>~10 to 20 ns</td><td><div class="bar" style="width:45px"></div></td></tr>
-    <tr><td>DRAM</td><td>gigabytes</td><td>~80 to 100 ns</td><td><div class="bar" style="width:240px;max-width:100%"></div></td></tr>
-  </table></div>
-  <p class="muted">These vary by chip. Only the ratios matter here: each level is several times slower than the one above it. A nanosecond (ns) is a billionth of a second. A <b>cycle</b> is one tick of the CPU's clock, about 0.25 ns at 4 GHz. A <b>register</b> is one of a few dozen named slots inside the CPU where arithmetic actually happens, and a <b>core</b> is one of the CPU's independent processors.</p>
 
-  <div class="prose">
-    <h2>Caches move whole lines</h2>
-    <p>A cache never fetches just one byte. It fetches a <b>cache line</b>, which is <b>64 bytes</b> on x86 and most ARM chips (Apple M-series chips use 128). Load one <code>float</code> and you get the other 15 floats in that line for free, as long as you use them before the line gets <b>evicted</b> (thrown out of the cache to make room for another line).</p>
-    <p>That means the order you walk an array matters. Reading consecutive addresses uses every byte of every line you fetch. Jumping around fetches a whole line and uses 4 bytes of it.</p>
-
-    <h2>2D arrays are rows laid end to end</h2>
-    <p>C stores <code>int m[R][C]</code> in <b>row-major</b> order: all of row 0, then all of row 1, and so on. So <code>m[i][j]</code> lives at</p>
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Memory as a row of numbered bytes, and an array as a base address plus an offset, from <a href="01-c-and-pointers.html">lesson 0.1</a>. The nested C <code>for</code> loops your compiler has printed since <a href="../week3/05-rendering-loops.html">week 3</a>.</p>
   </div>
-  <pre><code>base + (i * C + j) * sizeof(int)</code></pre>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from lesson 0.1, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="1012">
+    <p class="q">An <code>int</code> array <code>a</code> starts at byte address 1000. Each <code>int</code> is 4 bytes. At what address does <code>a[3]</code> start?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Three ints come before <code>a[3]</code>. How many bytes is that?</p>
+    <div class="why"><p>Base plus offset: 1000 + 3 × 4 = 1012.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="64">
+    <p class="q">How many bytes do 16 ints take?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Each <code>int</code> is 4 bytes.</p>
+    <div class="why"><p>16 × 4 = 64 bytes. Keep that number in mind. It comes back on this page.</p></div>
+  </div>
+
+  <h2>Two loops, one answer</h2>
   <div class="prose">
-    <p>Neighbors along <code>j</code> are neighbors in memory. Neighbors along <code>i</code> are <code>C * 4</code> bytes apart. That's the base-plus-offset formula from lesson 1 again, with the offset now built from two indices.</p>
-    <p>The distance in memory from one access to the next is called the <b>stride</b>. Walking along <code>j</code> has stride 1 element, and walking along <code>i</code> has stride <code>C</code> elements.</p>
+    <p>Here are two C loops. Both add up every number in the same 2D array <code>m</code>, which has <code>N</code> rows and <code>N</code> columns. The first goes row by row. The second goes column by column.</p>
+  </div>
+<pre><code>for (int i = 0; i &lt; N; i++)
+  for (int j = 0; j &lt; N; j++)
+    sum += m[i][j];</code></pre>
+  <p class="muted">Row order: finish a row, then start the next.</p>
+<pre><code>for (int j = 0; j &lt; N; j++)
+  for (int i = 0; i &lt; N; i++)
+    sum += m[i][j];</code></pre>
+  <p class="muted">Column order: finish a column, then start the next.</p>
+
+  <div class="quiz" data-answer="c">
+    <p class="q"><code>N</code> is 8,000, so <code>m</code> holds 64 million ints. Both loops do the same 64 million additions and get the same sum. How do their times compare?</p>
+    <div class="opts">
+      <button data-k="a">About the same. The work is identical.</button>
+      <button data-k="b">Row order takes about 20 times as long.</button>
+      <button data-k="c">Column order takes about 20 times as long.</button>
+    </div>
+    <p class="hint">In lesson 0.1 an array was a row of bytes. Which loop moves through those bytes in order?</p>
+    <div class="why"><p>Row order took about 20 ms and column order about 430 ms. A millisecond (ms) is a thousandth of a second. That is one run on the machine this course was built on, with gcc at <code>-O1</code> and one thread. Your numbers will differ.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The processor did the same additions both times. The only thing that changed was the order in which it asked memory for the numbers. The rest of this page explains why that order matters so much, in four small steps.</p>
+  </div>
+
+  <h2>A 2D array is one long row of boxes</h2>
+  <div class="prose">
+    <p>Memory has no rows and columns. It is one long row of boxes. So C stores <code>int m[4][4]</code> by laying its rows end to end: all of row 0, then all of row 1, and so on. This layout is called <b>row-major</b>.</p>
+  </div>
+
+  <div class="fig" id="layfig" data-title="int m[4][4], as you picture it and as memory holds it"></div>
+
+  <div class="prose">
+    <p>To find <code>m[i][j]</code> in that long row when each row has <code>C</code> columns, count the boxes before it. Here is <code>m[1][2]</code> with <code>C = 4</code>:</p>
+    <ol>
+      <li><strong>Count the full rows.</strong> One row comes first, and it fills 4 boxes.</li>
+      <li><strong>Add the column.</strong> 2 more boxes into row 1 makes box 6. In general the box is <code>i * C + j</code>.</li>
+      <li><strong>Turn boxes into bytes.</strong> Each <code>int</code> is 4 bytes, so box 6 starts at byte 24.</li>
+    </ol>
+    <p>The distance in memory from one read to the next is called the <b>stride</b>. Stepping along a row has a stride of 1 box. Stepping down a column has a stride of <code>C</code> boxes.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-02-flat-index">
-    <h3>Code quiz: the row-major index</h3>
-    <p>Write <code>int flat_index(int i, int j, int C)</code>: the position of <code>m[i][j]</code> in the flat array of a row-major matrix with <code>C</code> columns. Element positions, not bytes.</p>
+    <h3>Repair the row-major index</h3>
+    <p><code>flat_index(i, j, C)</code> should return the box that holds <code>m[i][j]</code> when each row has <code>C</code> columns. It counts boxes, not bytes. Right now it returns <code>i + j</code>, which forgets how long a row is. Repair it.</p>
+  </div>
+
+  <h2>The cache is a small, fast copy</h2>
+  <div class="prose">
+    <p>A processor can add two numbers in under a nanosecond (ns), a billionth of a second. Fetching a number from main memory typically takes about 100 ns. If every read went all the way to main memory, the processor would spend nearly all its time waiting.</p>
+    <p>So a small and very fast memory sits right beside the processor. It is called the <b>cache</b>, and it holds copies of boxes that were used recently.</p>
+    <p>Picture a desk and a library shelf. The shelf holds every book, but each trip to it is a walk. The desk holds only a few books, and reading from it takes no time. Main memory is the shelf and the cache is the desk.</p>
+    <ul>
+      <li>A <b>hit</b> is a read that finds its box in the cache. It is fast.</li>
+      <li>A <b>miss</b> is a read that does not. The box is fetched from main memory, which is slow, and a copy stays in the cache.</li>
+      <li>When the cache is full, an old copy is thrown out to make room. That copy has been <b>evicted</b>.</li>
+    </ul>
+  </div>
+
+  <div class="fig" id="deskfig" data-title="A cache that holds 3 boxes"></div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">A loop reads the same 3 boxes again and again, and the cache holds 3 boxes. After the first pass, what is each read?</p>
+    <div class="opts">
+      <button data-k="a">A hit</button>
+      <button data-k="b">A miss</button>
+      <button data-k="c">A hit, then a miss, in turns</button>
+    </div>
+    <p class="hint">Is anything ever thrown out if only 3 boxes are in use?</p>
+    <div class="why"><p>The first pass misses 3 times and fills the cache. Nothing new arrives after that, so nothing is evicted and every later read is a hit.</p></div>
+  </div>
+
+  <h2>Neighbors come along for free</h2>
+  <div class="prose">
+    <p>A cache never fetches just one box. It fetches a <b>cache line</b>: 64 bytes that sit side by side in memory. That is the size on most processors today. One line holds 16 ints.</p>
+    <p>In the library picture, a line is a whole book. You wanted one page, but you carry the book back to the desk, so the pages next to it are already there when you want them.</p>
+    <p>Lines sit at fixed places. Line 0 is bytes 0 to 63, line 1 is bytes 64 to 127, and byte <code>b</code> is in line <code>b / 64</code>, rounded down.</p>
+  </div>
+
+  <div class="fig" id="linefig" data-title="Reading an int array, 16 ints to a line"></div>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">An <code>int</code> array starts at byte 0 and nothing is in the cache. You read <code>a[0]</code> up to <code>a[31]</code> in order. How many of the 32 reads miss?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">How many 64-byte lines do 32 ints fill?</p>
+    <div class="why"><p>2. <code>a[0]</code> misses and brings in <code>a[0]</code> to <code>a[15]</code>. <code>a[16]</code> misses and brings in the rest. The other 30 reads are hits.</p></div>
   </div>
 
   <div class="prose">
+    <p>To count the lines a walk touches, find the line of its first byte and the line of its last byte. Take 2 ints starting at byte 60:</p>
+    <ol>
+      <li><strong>Find the first and last byte.</strong> 2 ints are 8 bytes, so the walk covers bytes 60 to 67.</li>
+      <li><strong>Find their lines.</strong> 60 / 64 rounds down to line 0. 67 / 64 rounds down to line 1.</li>
+      <li><strong>Count.</strong> Lines 0 and 1 make 2 lines, even though the walk is only 8 bytes long.</li>
+    </ol>
+  </div>
 
-    <h2>Watch it happen</h2>
-    <p>Here's a toy machine so the picture fits on screen: <code>int m[4][4]</code> (64 bytes), toy cache lines of <b>16 bytes</b> (4 ints), and a cache that holds only <b>2 lines</b>. When it's full, the least recently used line gets kicked out (this policy is called LRU, "least recently used"). Step through both loops and count the misses.</p>
+  <div class="exercise small" data-ex="w0-02-lines-touched">
+    <h3>How many lines does a walk touch?</h3>
+    <p>Write <code>long long lines_touched(long long start, int n)</code>. You read <code>n</code> 4-byte ints in a row, starting at byte address <code>start</code>. Return how many different 64-byte cache lines those bytes fall in. <code>n</code> can be 0, and then the answer is 0. In C, dividing two positive whole numbers already rounds down.</p>
+  </div>
+
+  <h2>Row order against column order</h2>
+  <div class="prose">
+    <p>Now put the pieces together on a toy machine that fits on the screen. The array is <code>int m[4][4]</code>. A toy cache line is 16 bytes, so each row of <code>m</code> is exactly one line. The cache holds only 2 lines. When it is full, it evicts the line that has gone unused the longest.</p>
+    <p>Step through row order first and watch the miss count.</p>
   </div>
 
   <div class="fig" id="rowfig" data-title="for i: for j: sum += m[i][j]   (row order)"></div>
+
+  <div class="quiz" data-fill="16">
+    <p class="q">Row order missed 4 times, once per line. Column order reads <code>m[0][0]</code>, <code>m[1][0]</code>, <code>m[2][0]</code>, <code>m[3][0]</code>, then starts the next column. How many of its 16 reads miss?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Each read in a column is in a different row, so a different line. The cache holds 2 lines. Is row 0 still there when the second column starts?</p>
+    <div class="why"><p>All 16. Each column touches all 4 lines, and the cache keeps only the last 2. By the time the loop comes back to a line, that line has been evicted.</p></div>
+  </div>
+
   <div class="fig" id="colfig" data-title="for j: for i: sum += m[i][j]   (column order)"></div>
 
+  <h2>Back to the real loops</h2>
   <div class="prose">
-    <h2>Sandbox: test loop orders and cache sizes</h2>
-    <p>Before running the simulator below, make a prediction: if you walk the 4×4 matrix in <strong>2×2 tiles</strong> (two rows at a time, then the next two) on the same 2-line cache, how many misses will it take?</p>
+    <p>The real machine works the same way, with bigger numbers. A real line holds 16 ints.</p>
+    <ul>
+      <li><b>Row order</b> has a stride of 1 box. It misses once, then gets 15 hits from the same line. Every byte it paid for gets used.</li>
+      <li><b>Column order</b> has a stride of 8,000 boxes. Every read lands on a different line and uses 1 of its 16 ints. When the loop returns for the next column, 8,000 other lines have gone by, and the array is far bigger than the cache. Most of those lines are gone again.</li>
+    </ul>
+    <p>That is the 20 ms against 430 ms from the start of the page.</p>
+  </div>
+
+  <div class="quiz" data-fill="32000">
+    <p class="q">With <code>N</code> = 8,000, how many bytes apart are <code>m[i][j]</code> and <code>m[i+1][j]</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Going down one row skips a whole row of 8,000 ints.</p>
+    <div class="why"><p>8,000 × 4 = 32,000 bytes. A line is 64 bytes, so each step down a column jumps 500 lines ahead.</p></div>
+  </div>
+
+  <div class="note">
+    <span class="label">Rule of thumb</span>
+    <p>Make the innermost loop walk the last index of the array, so it moves through memory with a stride of 1.</p>
+  </div>
+
+  <h2>When everything fits, order stops mattering</h2>
+  <div class="prose">
+    <p>Column order lost because lines were evicted before the loop came back to them. If the cache can hold every line a loop needs, nothing is evicted and both orders do equally well. On the same machine, a 64×64 array (16 KB) summed many times over took the same time in either order.</p>
+    <p>That suggests a trick for big arrays: work on a small block, called a <b>tile</b>, finish it while it is in the cache, then move on. Try it. The simulator below is the same toy machine, and it adds a third order that walks <code>m</code> in 2×2 tiles. Predict first, then change the cache size and see what happens to each order.</p>
   </div>
   <div class="fig bleed" id="cache-lab" data-title="Interactive cache simulator">
     <div class="predict" id="cl-pred">
@@ -125,27 +258,9 @@
     <div class="cap" id="cl-cap"></div>
   </div>
 
+  <h2>Use the layout: transpose</h2>
   <div class="prose">
-    <p>Same 16 additions, same answer. Row order misses 4 times, once per line. Column order misses all 16 times, because by the time it comes back to a line, that line has been evicted. On a real machine with a large array, that's the difference between using every byte of each 64-byte line and using one 4-byte element of it.</p>
-  </div>
-  <div class="note">
-    <span class="label">Rule of thumb</span>
-    <p>Make the innermost loop walk the last index of the array, so it moves through memory with stride 1.</p>
-  </div>
-
-  <div class="exercise small" data-ex="w0-02-lines-touched">
-    <h3>Code quiz: how many lines does a walk touch?</h3>
-    <p>Write <code>long long lines_touched(long long start, int n)</code>. You read <code>n</code> consecutive 4-byte ints starting at byte address <code>start</code>. Return how many distinct 64-byte cache lines those bytes fall in. Line <code>k</code> holds bytes <code>64k</code> to <code>64k + 63</code>. <code>n</code> can be 0.</p>
-    <p class="muted">An aligned walk of 16 ints touches 1 line. Shift it by 4 bytes and it touches 2.</p>
-  </div>
-  <div class="trap">
-    <span class="label">There are other effects too</span>
-    <p>Real CPUs also have <b>hardware prefetchers</b> that spot regular strides and fetch lines early. Column order on a small array can look less awful than this toy suggests. Don't trust intuition here. Measure. Starting in week 6, you'll time everything.</p>
-  </div>
-
-  <div class="prose">
-    <h2>Why a compiler course cares</h2>
-    <p>You won't write these loops by hand. Your compiler will generate them. In week 3 it prints loops as nested <code>for</code> loops in C. In week 4 it turns whole-array operations into loops by itself, and decides whether an intermediate result gets written to memory or recomputed where it's used. Once kernels are timed, from week 6, it can <b>tile</b> loops: split a big matrix into blocks small enough to stay in cache while they're reused. Every one of those decisions is about the picture above: keep the data you need close, and use every byte of each line you pay for.</p>
+    <p>One more piece of practice with the flat layout. To <b>transpose</b> a matrix is to swap its rows and columns, so the number at row <code>i</code>, column <code>j</code> moves to row <code>j</code>, column <code>i</code>. The result has <code>cols</code> rows and <code>rows</code> columns, so its rows are <code>rows</code> boxes long. That puts <code>dst[j][i]</code> in box <code>j * rows + i</code>.</p>
   </div>
 
   <div class="exercise" data-ex="w0-02-transpose">
@@ -158,6 +273,47 @@
     </details>
     <p class="muted">The examples print <code>dst</code> through some helper code. Only your <code>transpose</code> matters.</p>
   </div>
+
+  <h2>What you can do now</h2>
+  <div class="prose">
+    <ul>
+      <li>Find <code>m[i][j]</code> in flat memory with <code>i * C + j</code>, and say what a loop's stride is.</li>
+      <li>Say what a cache is, and what a hit, a miss and an eviction are.</li>
+      <li>Count the cache lines a walk touches, at 64 bytes a line.</li>
+      <li>Explain why row order uses every byte of each line and column order wastes most of it.</li>
+    </ul>
+    <p>You will not write these loops by hand. Your compiler prints them, so it is your compiler that has to keep data close and use every line it pays for. Next, lesson 7.1 shows how to measure a kernel's speed and tell whether memory or arithmetic is holding it back.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Cache levels and typical sizes, for when week 7 says L1, L2 and L3</summary>
+    <div class="prose">
+      <p>A real processor has several caches, not one. Each level is bigger and slower than the one before it. These are rough, typical numbers for a modern desktop chip, not measurements from this page:</p>
+    </div>
+  <div class="tablewrap"><table class="lat">
+    <tr><th>level</th><th>typical size</th><th>typical latency</th><th></th></tr>
+    <tr><td>register</td><td>a few hundred bytes</td><td>0 cycles</td><td><div class="bar" style="width:2px"></div></td></tr>
+    <tr><td>L1 cache</td><td>32 to 64 KB per core</td><td>~1 ns (4 to 5 cycles)</td><td><div class="bar" style="width:4px"></div></td></tr>
+    <tr><td>L2 cache</td><td>256 KB to 2 MB per core</td><td>~4 ns</td><td><div class="bar" style="width:12px"></div></td></tr>
+    <tr><td>L3 cache</td><td>8 to 64 MB shared</td><td>~10 to 20 ns</td><td><div class="bar" style="width:45px"></div></td></tr>
+    <tr><td>DRAM</td><td>gigabytes</td><td>~80 to 100 ns</td><td><div class="bar" style="width:240px;max-width:100%"></div></td></tr>
+  </table></div>
+    <div class="prose">
+      <p>These vary by chip. Only the ratios matter here: each level is several times slower than the one above it. A <b>cycle</b> is one tick of the processor's clock, about 0.25 ns at 4 GHz. A <b>register</b> is one of a few dozen named slots inside the processor where arithmetic actually happens, and a <b>core</b> is one of the chip's independent processors.</p>
+      <p>A cache line is 64 bytes on x86 and most ARM chips. Apple M-series chips use 128.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Prefetchers and what else the toy leaves out, for readers who want the whole story</summary>
+    <div class="prose">
+      <p><strong>Prefetchers.</strong> Real processors have <b>hardware prefetchers</b> that spot a regular walk and fetch the next lines before the program asks. They make row order even cheaper than one miss per line suggests. They typically help much less with a stride of 32,000 bytes, which lands on a different 4 KB page of memory on every read. On a small array, column order can look much less bad than the toy suggests.</p>
+      <p><strong>Address translation.</strong> The processor also keeps a small cache of where each page of memory really lives, called the TLB. Column order on a big array misses in that too.</p>
+      <p><strong>The C compiler.</strong> At <code>-O2</code>, gcc also adds several ints with one instruction in row order, which it cannot do down a column. Measured that way here, the gap grew from about 20 times to about 30. The page quotes <code>-O1</code> so that the gap is only about memory.</p>
+      <p><strong>Powers of two.</strong> With <code>N</code> = 8,192 the column loop took about 820 ms here, nearly twice as long as with 8,000, though the array is only 5 percent bigger. A cache can keep each line in only a few places, chosen by the line's address. With a power of two stride, the lines of one column compete for the same places.</p>
+      <p><strong>How the timing was done.</strong> Each loop sat in its own function, compiled with gcc 14.2 and run 5 times in turn on a desktop processor with about 30 MB of its largest cache. The array is 256 MB. The times on this page are typical of those runs. Do not trust intuition about speed. Measure, as week 7 does.</p>
+    </div>
+  </details>
 
   <h2>Check yourself</h2>
   <p class="score"></p>
@@ -252,6 +408,67 @@
         h('span', { class: 'label', text: 'cache (2 lines, LRU)' }), cache,
         h('div', { class: 'cstats' }, h('span', {}, 'misses ', h('b', { class: 'm', text: String(s.misses) })), h('span', {}, 'hits ', h('b', { class: 'h', text: String(s.hits) }))))));
   }
+  const laySteps = [
+    { on: [], caption: 'On the left, <code>m</code> the way you picture it: 4 rows and 4 columns. On the right, the same 16 ints the way memory holds them: one row of boxes, numbered 0 to 15.' },
+    { on: [4, 5, 6, 7], caption: 'Row 1 is boxes 4 to 7. Each row of the grid is one unbroken stretch of memory.' },
+    { on: [6, 7], caption: '<code>m[1][2]</code> and <code>m[1][3]</code> are side by side in the grid, and side by side in memory: 1 box apart.' },
+    { on: [6, 10], caption: '<code>m[1][2]</code> and <code>m[2][2]</code> touch in the grid, but in memory they are 4 boxes apart: a whole row lies between them.' }
+  ];
+  CC.stepper(document.getElementById('layfig'), laySteps, (s, body) => {
+    const grid = h('div', { class: 'grid2d' }, Array.from({ length: N * N }, (_, k) =>
+      h('div', { class: s.on.includes(k) ? 'on' : '', text: `${Math.floor(k / N)},${k % N}` })));
+    const flat = h('div', { class: 'mem tight' }, Array.from({ length: N * N }, (_, k) =>
+      h('div', { class: 'cell' + (s.on.includes(k) ? ' on' : '') }, h('span', { class: 'addr', text: String(k) }), `${Math.floor(k / N)},${k % N}`)));
+    body.append(h('div', { class: 'viz' },
+      h('div', {}, h('span', { class: 'label', text: 'the grid' }), grid),
+      h('div', {}, h('span', { class: 'label', text: 'memory, box by box' }), flat)));
+  });
+
+  const deskSteps = [{ box: -1, cache: [], marks: {}, misses: 0, hits: 0, caption: 'Main memory holds 16 boxes. The cache is empty and has room for 3 copies.' }];
+  {
+    const cache = [], marks = {};
+    let misses = 0, hits = 0;
+    for (const box of [9, 9, 2, 5, 12, 9]) {
+      const k = cache.indexOf(box), hit = k >= 0;
+      let out = null;
+      if (hit) { cache.splice(k, 1); hits++; } else { misses++; if (cache.length === 3) out = cache.shift(); }
+      cache.push(box);
+      marks[box] = hit ? 'hit' : 'miss';
+      deskSteps.push({ box, cache: [...cache], marks: { ...marks }, misses, hits,
+        caption: `Read box ${box}. ` + (hit ? 'A copy is in the cache: <b>hit</b>.' : 'No copy in the cache: <b>miss</b>. Fetch it from main memory and keep a copy.' + (out != null ? ` The cache was full, so the copy of box ${out}, unused the longest, is evicted.` : '')) });
+    }
+  }
+  CC.stepper(document.getElementById('deskfig'), deskSteps, (s, body) => {
+    const shelf = h('div', { class: 'mem tight' }, Array.from({ length: 16 }, (_, k) =>
+      h('div', { class: 'cell ' + (k === s.box ? 'on' : s.marks[k] || ''), text: String(k) })));
+    const desk = h('div', { class: 'cache' }, Array.from({ length: 3 }, (_, w) =>
+      s.cache[w] != null ? h('span', { text: 'box ' + s.cache[w] }) : h('span', { class: 'empty', text: 'empty' })));
+    body.append(h('div', { class: 'viz' },
+      h('div', { class: 'place' }, h('span', { class: 'label', text: 'cache (the desk)' }), desk, h('span', { class: 'name', text: 'small, about 1 ns away' })),
+      h('div', { class: 'place' }, h('span', { class: 'label', text: 'main memory (the shelf)' }), shelf, h('span', { class: 'name', text: 'huge, about 100 ns away' }))),
+      h('div', { class: 'cstats' }, h('span', {}, 'misses ', h('b', { class: 'm', text: String(s.misses) })), h('span', {}, 'hits ', h('b', { class: 'h', text: String(s.hits) }))));
+  });
+
+  const lineSteps = [{ k: -1, cached: [], marks: {}, misses: 0, hits: 0, caption: 'An int array that starts at byte 0. <code>a[0]</code> to <code>a[15]</code> share line 0, and <code>a[16]</code> to <code>a[31]</code> share line 1. Nothing is in the cache yet.' }];
+  {
+    const cached = [], marks = {};
+    let misses = 0, hits = 0;
+    for (const k of [5, 6, 7, 15, 16, 17]) {
+      const line = Math.floor(k / 16), hit = cached.includes(line);
+      if (hit) hits++; else { misses++; cached.push(line); }
+      marks[k] = hit ? 'hit' : 'miss';
+      lineSteps.push({ k, cached: [...cached], marks: { ...marks }, misses, hits,
+        caption: `Read <code>a[${k}]</code>, at byte ${k * 4}, in line ${line}. ` + (hit ? 'That line is already in the cache: <b>hit</b>.' : `<b>Miss</b>. The whole of line ${line} is fetched, so its other 15 ints are now in the cache too.`) });
+    }
+  }
+  CC.stepper(document.getElementById('linefig'), lineSteps, (s, body) => {
+    const lines = h('div', { class: 'lines' }, [0, 1].map(L =>
+      h('div', { class: 'ln' + (s.cached.includes(L) ? ' cached' : '') }, h('span', { class: 'name', text: `line ${L} (bytes ${L * 64} to ${L * 64 + 63})` + (s.cached.includes(L) ? ', in the cache' : '') }),
+        h('div', { class: 'mem tight' }, Array.from({ length: 16 }, (_, j) => { const k = L * 16 + j;
+          return h('div', { class: 'cell ' + (k === s.k ? 'on' : s.marks[k] || ''), text: `a[${k}]` }); })))));
+    body.append(lines, h('div', { class: 'cstats' }, h('span', {}, 'misses ', h('b', { class: 'm', text: String(s.misses) })), h('span', {}, 'hits ', h('b', { class: 'h', text: String(s.hits) }))));
+  });
+
   CC.stepper(document.getElementById('rowfig'), simulate('row'), draw);
   CC.stepper(document.getElementById('colfig'), simulate('col'), draw);
 

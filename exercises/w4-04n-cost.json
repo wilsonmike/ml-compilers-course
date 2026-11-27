@@ -1,0 +1,58 @@
+{
+ "id": "w4-04n-cost",
+ "lang": "ocaml",
+ "title": "Count both costs",
+ "show": "(fun s -> s)",
+ "starter": "let fuse_cost (ops : int) (uses : int) (n : int) : int =\n  ops * n\n\nlet stage_cost (ops : int) (uses : int) (n : int) (mem : int) : int =\n  ops * n + mem * n\n\nlet choose (ops : int) (uses : int) (n : int) (mem : int) : string =\n  if stage_cost ops uses n mem < fuse_cost ops uses n then \"stage\" else \"fuse\"\n",
+ "tests": [
+  {
+   "expr": "string_of_int (fuse_cost 1 2 4)",
+   "expect": "8",
+   "sample": true
+  },
+  {
+   "expr": "string_of_int (stage_cost 1 2 4 1)",
+   "expect": "16",
+   "sample": true
+  },
+  {
+   "expr": "choose 10 3 1000 1",
+   "expect": "stage",
+   "sample": true
+  },
+  {
+   "expr": "choose 1 2 4 1",
+   "expect": "fuse"
+  },
+  {
+   "expr": "string_of_int (fuse_cost 10 3 1000)",
+   "expect": "30000"
+  },
+  {
+   "expr": "string_of_int (stage_cost 10 3 1000 1)",
+   "expect": "14000"
+  },
+  {
+   "expr": "choose 10 3 1000 5",
+   "expect": "fuse"
+  },
+  {
+   "expr": "choose 5 1 100 1",
+   "expect": "fuse"
+  },
+  {
+   "expr": "choose 0 2 100 1",
+   "expect": "fuse"
+  },
+  {
+   "expr": "choose 8 2 100 2",
+   "expect": "stage"
+  }
+ ],
+ "hints": [
+  "Run the first sample by hand. A value that costs 1 op per element, has 2 uses and 4 elements is computed 8 times when it is fused. Which input does `fuse_cost` never look at?",
+  "Staging writes each float to the temp once, and that is the `mem * n` already there. What does each use then have to do to get the float back?",
+  "`fuse_cost` is `ops * uses * n`. `stage_cost` is `ops * n + mem * n + mem * uses * n`. Leave `choose` as it is."
+ ],
+ "explain": "Fusing repeats the whole chain once per use, so its cost is `ops * uses * n`. Staging runs the chain once (`ops * n`), writes every float to the temp once (`mem * n`) and reads every float back once per use (`mem * uses * n`). Staging wins only when the arithmetic it saves, `ops * (uses - 1) * n`, is larger than the memory traffic it adds. With one use it saves nothing, and with `ops` of 0 (a plain load) there is nothing to save."
+}

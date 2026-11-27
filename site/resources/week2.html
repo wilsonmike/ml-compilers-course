@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
@@ -40,7 +40,7 @@
   <h3><a href="../week2/05-the-runtime.html">2.5 The runtime</a></h3>
   <p>To run the C, write the kernel and a generated <code>main</code> to a temp folder, compile, run and read the results back, printing f32 as raw bits so nothing is lost. It's optional this week, but kernels get timed from week 6.</p>
   <h3><a href="../week2/06-lab.html">2.6 Lab</a></h3>
-  <p><code>./compile FILE...</code> prints week 1's <code>MATCH</code>, <code>MISMATCH</code> or <code>REJECTED</code> lines, with floats and memory added and no budgets. <code>render</code> prints a <code>kernel</code> the grader compiles with UB trapping and compares bit for bit against the oracle. The week 2 suite has 198 tests. Keep week 1 green too.</p>
+  <p><code>./compile FILE...</code> prints week 1's <code>MATCH</code>, <code>MISMATCH</code> or <code>REJECTED</code> lines, with floats and memory added and no budgets. <code>render</code> prints a <code>kernel</code> the grader compiles with UB trapping and compares bit for bit against the oracle. The week 2 suite has 198 tests. Week 1 now scores 272 / 282: week 2 makes ten of its <code>overbudget_</code> and <code>rejected_</code> programs legal, and any other week 1 failure is a real bug.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -125,9 +125,9 @@
     <li><strong>Add f32.</strong> Done when float literals parse and every op rounds to f32. Check: <code>%s = add 0.1 0.2</code>, <code>%t = assert %s 0.3</code> prints MATCH. If you get MISMATCH, you're computing in doubles without rounding after the add.</li>
     <li><strong>Parse the new ops.</strong> Done when <code>buffer</code>, <code>alloc</code>, <code>shrink</code>, <code>load</code>, <code>store</code> and <code>after</code> parse with their attributes. Check: <code>%b = buffer 3 [1 2 3] dtype=i32 slot=0</code>, <code>%v = shrink %b 1 [2]</code>, <code>%l = load %v</code>, <code>%e = index %l 1</code>, <code>%t = assert %e 3</code> prints MATCH.</li>
     <li><strong>Type memory.</strong> Done when memory can't be used as a value. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%a = add %b 1</code>, <code>%t = assert %a 1</code> must be REJECTED.</li>
-    <li><strong>Bounds.</strong> Done when views are proven with week 1's intervals. Check: an offset of <code>mod %x 4</code>, with <code>%x</code> loaded, and a <code>[2]</code> view passes on a 5-element buffer and fails on a 4-element one (the interval is [0, 3], and 3 + 2 must be at most n). If both pass, you aren't checking at all. If both fail, your <code>mod</code> interval is too wide: maybe it still follows C's sign rule.</li>
     <li><strong>Ordering checks.</strong> Done when two stores into one version, or an unsequenced store, are REJECTED. Check: <code>%b = buffer 2 dtype=i32 slot=0</code>, <code>%e = shrink %b 0 []</code>, <code>%s1 = store %e 1</code>, <code>%x = load %b</code>, <code>%t = assert %x [0 0]</code> must be REJECTED.</li>
     <li><strong>Interpret memory.</strong> Done when versions behave. Check: with <code>%b</code> holding <code>[10 20]</code>, load element 0 as <code>%x</code>, store 5 into it, take <code>%b1 = after %b %s</code>, load element 0 of <code>%b1</code> as <code>%y</code>. Then <code>add %x %y</code> must be 15. If you get 10, your load of <code>%b</code> saw the store.</li>
+    <li><strong>Bounds.</strong> Done when views are proven with week 1's intervals. Check: an offset of <code>mod %x 4</code>, with <code>%x</code> loaded, and a <code>[2]</code> view passes on a 5-element buffer and fails on a 4-element one (the interval is [0, 3], and 3 + 2 must be at most n). If both pass, you aren't checking at all. If both fail, your <code>mod</code> interval is too wide: maybe it still follows C's sign rule.</li>
     <li><strong>Render ALU ops.</strong> Done when every op prints UB-free C. Check: <code>python tools/test.py --compiler PATH --week 2 -k i32_ -v</code>. A crash with exit code 132 or similar means the sanitizer trapped undefined behavior.</li>
     <li><strong>Render memory and the schedule.</strong> Done when loads come before the stores that overwrite their version. Check: <code>-k swap -v</code>. A swap that copies the same value into both slots means a store was printed too early.</li>
   </ol>

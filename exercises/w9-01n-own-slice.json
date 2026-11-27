@@ -1,0 +1,53 @@
+{
+ "id": "w9-01n-own-slice",
+ "lang": "ocaml",
+ "title": "Does the access stay in its slice?",
+ "show": "string_of_bool",
+ "starter": "let owns (s : int) (t : int) (off : int) (size : int) : bool =\n  off >= t * s && off < (t + 1) * s\n",
+ "hints": [
+  "The last element the access touches is `off + size - 1`, not `off`.",
+  "Thread `t`'s slice ends at element `t * s + s - 1`. The last element touched must not go past it.",
+  "Replace the second test with `off + size <= (t + 1) * s`."
+ ],
+ "explain": "Thread `t` owns elements `t * s` to `t * s + s - 1`. An access that starts at `off` and touches `size` elements ends at `off + size - 1`. It stays in the slice when it starts at or after `t * s` and ends before `(t + 1) * s`, which is `off + size <= (t + 1) * s`. The starter only looked at where the access starts, so an access of 4 elements starting at 5 passed for a slice that ends at 7.",
+ "tests": [
+  {
+   "expr": "owns 16 3 48 1",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "owns 4 1 5 4",
+   "expect": "false",
+   "sample": true
+  },
+  {
+   "expr": "owns 16 3 63 1",
+   "expect": "true"
+  },
+  {
+   "expr": "owns 16 3 64 1",
+   "expect": "false"
+  },
+  {
+   "expr": "owns 16 3 47 1",
+   "expect": "false"
+  },
+  {
+   "expr": "owns 4 1 4 4",
+   "expect": "true"
+  },
+  {
+   "expr": "owns 2 0 1 2",
+   "expect": "false"
+  },
+  {
+   "expr": "owns 8 2 16 8",
+   "expect": "true"
+  },
+  {
+   "expr": "owns 8 2 17 8",
+   "expect": "false"
+  }
+ ]
+}

@@ -1,0 +1,54 @@
+{
+ "id": "w5-05n-src",
+ "lang": "ocaml",
+ "title": "The source index of a movement op",
+ "show": "(fun l -> String.concat \" \" (List.map string_of_int l))",
+ "starter": "type mov =\n  | Permute of int list\n  | Expand of int list\n  | Shrink of int list\n\nlet rec position (a : int) (order : int list) : int =\n  match order with\n  | [] -> failwith \"not a permutation\"\n  | p :: rest -> if p = a then 0 else 1 + position a rest\n\nlet src (op : mov) (idx : int list) : int list =\n  match op with\n  | Permute order -> List.mapi (fun a _ -> List.nth idx (position a order)) order\n  | Expand _ -> idx\n  | Shrink _ -> idx\n",
+ "tests": [
+  {
+   "expr": "src (Permute [1; 0]) [2; 1]",
+   "expect": "1 2",
+   "sample": true
+  },
+  {
+   "expr": "src (Expand [3; 1]) [2; 3]",
+   "expect": "2 0",
+   "sample": true
+  },
+  {
+   "expr": "src (Shrink [1; 2]) [0; 1]",
+   "expect": "1 3",
+   "sample": true
+  },
+  {
+   "expr": "src (Expand [1; 1; 4]) [5; 6; 2]",
+   "expect": "0 0 2"
+  },
+  {
+   "expr": "src (Expand [2; 3]) [1; 2]",
+   "expect": "1 2"
+  },
+  {
+   "expr": "src (Shrink [0]) [4]",
+   "expect": "4"
+  },
+  {
+   "expr": "src (Shrink [3; 0; 1]) [1; 1; 1]",
+   "expect": "4 1 2"
+  },
+  {
+   "expr": "src (Permute [2; 0; 1]) [1; 0; 2]",
+   "expect": "0 2 1"
+  },
+  {
+   "expr": "src (Expand [1]) [7]",
+   "expect": "0"
+  }
+ ],
+ "hints": [
+  "`Expand shape` carries the shape of the source. Which of the source's axes have only one element, and what is the only index you can ask there?",
+  "Walk two lists together with `List.map2`. For expand, pair each size in `shape` with the index entry on the same axis.",
+  "`Expand shape -> List.map2 (fun s i -> if s = 1 then 0 else i) shape idx` and `Shrink offsets -> List.map2 (fun i o -> i + o) idx offsets`."
+ ],
+ "explain": "A movement op never touches a value. It only says which index of its source to ask. Permute reorders the index, expand asks every size-1 axis at 0 because that is the only element the source has there, and shrink adds the offset of each axis. The output index goes in and the source index comes out, with no loads and no arithmetic on data."
+}

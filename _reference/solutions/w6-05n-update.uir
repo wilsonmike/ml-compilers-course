@@ -1,0 +1,28 @@
+%xb   = buffer 6 dtype=f32 slot=0
+%ohb  = buffer 4 dtype=f32 slot=1
+%w    = buffer 6 dtype=f32 slot=2
+%xl   = load %xb
+%x    = reshape %xl [2 3]
+%ol   = load %ohb
+%oh   = reshape %ol [2 2]
+%wl   = load %w
+%W    = reshape %wl [3 2]
+%z    = matmul %x %W
+%e    = exp %z
+%et   = permute %e [1 0]
+%se   = reduce %et op=add
+%ls   = log %se
+%lr   = reshape %ls [2 1]
+%le   = expand %lr [2 2]
+%lp   = sub %z %le
+%pick = mul %lp %oh
+%pf   = reshape %pick [4]
+%tot  = reduce %pf op=add
+%loss = mul %tot -0.5
+%g    = gradient %loss %W
+%rate = expand 0.5 [3 2]
+%d    = mul %g %rate
+%W1   = sub %W %d
+%wf   = reshape %W1 [6]
+%st   = store %w %wf
+%w1   = after %w %st

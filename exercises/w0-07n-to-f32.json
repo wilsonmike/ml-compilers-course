@@ -1,0 +1,58 @@
+{
+ "id": "w0-07n-to-f32",
+ "lang": "python",
+ "title": "Round to f32 without crashing",
+ "starter": "import math\nimport struct\n\n\ndef to_f32(x: float) -> float:\n    return struct.unpack(\"<f\", struct.pack(\"<f\", x))[0]\n",
+ "show": "repr",
+ "tests": [
+  {
+   "expr": "to_f32(0.1)",
+   "expect": "0.10000000149011612",
+   "sample": true
+  },
+  {
+   "expr": "to_f32(1e39)",
+   "expect": "inf",
+   "sample": true
+  },
+  {
+   "expr": "to_f32(-1e39)",
+   "expect": "-inf",
+   "sample": true
+  },
+  {
+   "expr": "to_f32(0.5)",
+   "expect": "0.5"
+  },
+  {
+   "expr": "to_f32(3.5e38)",
+   "expect": "inf"
+  },
+  {
+   "expr": "to_f32(3.4028234663852886e38)",
+   "expect": "3.4028234663852886e+38"
+  },
+  {
+   "expr": "to_f32(float('-inf'))",
+   "expect": "-inf"
+  },
+  {
+   "expr": "to_f32(float('nan'))",
+   "expect": "nan"
+  },
+  {
+   "expr": "to_f32(-0.0)",
+   "expect": "-0.0"
+  },
+  {
+   "expr": "to_f32(16777217.0)",
+   "expect": "16777216.0"
+  }
+ ],
+ "hints": [
+  "Run it. `struct.pack` raises `OverflowError` for `1e39`, because that number is too big for a single. C would give infinity there.",
+  "Put the `return` line inside `try:` and add `except OverflowError:` below it.",
+  "In the `except` block, return an infinity with the sign of `x`: `math.copysign(math.inf, x)`."
+ ],
+ "explain": "The reference keeps the pack and unpack line inside `try:` and returns `math.copysign(math.inf, x)` from `except OverflowError:`. `copysign` gives infinity the sign of `x`, so `-1e39` becomes `-inf`. NaN and the infinities never raise, so they pass straight through."
+}

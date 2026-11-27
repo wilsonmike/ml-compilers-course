@@ -1,0 +1,53 @@
+{
+ "id": "w1-05n-eval-env",
+ "lang": "ocaml",
+ "title": "Give each call its own environment",
+ "show": "string_of_int",
+ "starter": "type term =\n  | Num of int\n  | Param of int\n  | Add of term * term\n  | Call of term * term list\n\nlet rec eval (env : int list) (t : term) : int =\n  match t with\n  | Num n -> n\n  | Param i -> List.nth env i\n  | Add (a, b) -> eval env a + eval env b\n  | Call (body, args) -> ignore args; eval env body\n",
+ "tests": [
+  {
+   "expr": "eval [] (Call (Add (Param 0, Num 1), [Num 41]))",
+   "expect": "42",
+   "sample": true
+  },
+  {
+   "expr": "eval [1; 2] (Call (Add (Param 0, Num 100), [Param 1]))",
+   "expect": "102",
+   "sample": true
+  },
+  {
+   "expr": "eval [7] (Add (Param 0, Num 1))",
+   "expect": "8"
+  },
+  {
+   "expr": "eval [] (Add (Call (Add (Param 0, Param 0), [Num 3]), Call (Add (Param 0, Param 0), [Num 4])))",
+   "expect": "14"
+  },
+  {
+   "expr": "eval [] (Call (Add (Param 0, Num 1), [Add (Num 2, Num 3)]))",
+   "expect": "6"
+  },
+  {
+   "expr": "eval [] (Call (Add (Param 0, Param 1), [Num 10; Num 20]))",
+   "expect": "30"
+  },
+  {
+   "expr": "eval [] (Call (Call (Add (Param 0, Num 1), [Add (Param 0, Num 1)]), [Num 5]))",
+   "expect": "7"
+  },
+  {
+   "expr": "eval [] (Call (Param 0, [Num 9; Num 8]))",
+   "expect": "9"
+  },
+  {
+   "expr": "eval [5] (Call (Num 3, []))",
+   "expect": "3"
+  }
+ ],
+ "hints": [
+  "The body must not see the caller's `env`. It should see a list built from the args.",
+  "Each arg is a term, so work it out first, with the caller's `env`: `List.map (eval env) args`.",
+  "The whole case is `| Call (body, args) -> eval (List.map (eval env) args) body`. The args use the old environment and the body uses the new one."
+ ],
+ "explain": "A call works out its args in the caller's environment, then runs the body in a new environment that holds only those values. The body's `Param 0` now means the first arg of this call. Running the body with the caller's `env` gives 101 for the second sample, because the body would read the caller's slot 0."
+}

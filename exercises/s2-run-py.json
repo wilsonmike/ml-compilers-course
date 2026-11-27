@@ -1,0 +1,42 @@
+{
+ "id": "s2-run-py",
+ "lang": "python",
+ "title": "Run a whole program",
+ "show": "str",
+ "prompt": "<p>A program is a list of lines. Each line is <code>(name, op, x, y)</code>, where <code>x</code> and <code>y</code> are numbers or earlier names. <code>run</code> returns the value of the last line.</p><p>The loop and the lookup for <code>x</code> are done. Two lines still say 0: find the value of <code>y</code> the same way, then store the result of the op under <code>name</code>.</p>",
+ "starter": "def apply(op: str, a: int, b: int) -> int:\n    if op == \"add\":\n        return a + b\n    if op == \"mul\":\n        return a * b\n    if op == \"max\":\n        return max(a, b)\n    raise ValueError(op)\n\n\ndef run(prog: list[tuple[str, str, int | str, int | str]]) -> int:\n    env: dict[str, int] = {}\n    for name, op, x, y in prog:\n        a = env[x] if isinstance(x, str) else x\n        b = 0\n        env[name] = 0\n    return env[prog[-1][0]]\n",
+ "tests": [
+  {
+   "expr": "run([('a', 'add', 2, 3)])",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "run([('a', 'add', 2, 3), ('out', 'mul', 'a', 4)])",
+   "expect": "20",
+   "sample": true
+  },
+  {
+   "expr": "run([('a', 'add', 2, 3), ('out', 'mul', 'a', 'a')])",
+   "expect": "25"
+  },
+  {
+   "expr": "run([('a', 'mul', 3, 3), ('b', 'add', 'a', 1), ('c', 'max', 'b', 'a')])",
+   "expect": "10"
+  },
+  {
+   "expr": "run([('a', 'add', 1, 1), ('b', 'add', 'a', 'a'), ('c', 'add', 'b', 'b'), ('d', 'add', 'c', 'c')])",
+   "expect": "16"
+  },
+  {
+   "expr": "run([('a', 'max', -5, -9), ('b', 'mul', 2, 'a')])",
+   "expect": "-10"
+  }
+ ],
+ "hints": [
+  "`b` is found exactly like `a`, with `y` in place of `x`.",
+  "A name is a string, and its value is in `env`. A number is used as it is.",
+  "The last blank is `apply(op, a, b)`. Storing it in `env[name]` is what lets later lines use it."
+ ],
+ "explain": "For each line, `run` turns both operands into numbers (looking names up in `env`), calls `apply`, and saves the answer under the line's name. Later lines find it there. That loop is a complete interpreter for this tiny language."
+}

@@ -1,0 +1,46 @@
+{
+ "id": "w4-03n-reduce-py",
+ "lang": "python",
+ "title": "Lower a reduce",
+ "show": "str",
+ "prompt": "<p><code>at</code> and <code>show</code> are written. Write <code>lower_reduce(e, n)</code>: the accumulator loop for <code>reduce op=add</code> of the n-element vector expression <code>e</code>, as one line of text. For <code>Vec('x')</code> and 4 it returns <code>acc = x[0]; for r &lt; 3: acc = acc + x[r+1]</code>. Ask <code>e</code> for its element at <code>\"0\"</code> for the seed and at <code>\"r+1\"</code> for the step.</p>",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Vec:\n    buf: str\n\n@dataclass(frozen=True)\nclass Bcast:\n    value: float\n\n@dataclass(frozen=True)\nclass Add:\n    a: \"VExp\"\n    b: \"VExp\"\n\n@dataclass(frozen=True)\nclass Mul:\n    a: \"VExp\"\n    b: \"VExp\"\n\nVExp = Vec | Bcast | Add | Mul\n\n\n@dataclass(frozen=True)\nclass Load:\n    buf: str\n    idx: str\n\n@dataclass(frozen=True)\nclass Const:\n    value: float\n\n@dataclass(frozen=True)\nclass SAdd:\n    a: \"SExp\"\n    b: \"SExp\"\n\n@dataclass(frozen=True)\nclass SMul:\n    a: \"SExp\"\n    b: \"SExp\"\n\nSExp = Load | Const | SAdd | SMul\n\n\ndef show(s: SExp) -> str:\n    match s:\n        case Load(b, i):\n            return f\"{b}[{i}]\"\n        case Const(c):\n            return f\"{c:g}\"\n        case SAdd(a, b):\n            return f\"({show(a)} + {show(b)})\"\n        case SMul(a, b):\n            return f\"({show(a)} * {show(b)})\"\n\n\ndef at(e: VExp, i: str) -> SExp:\n    match e:\n        case Vec(b):\n            return Load(b, i)\n        case Bcast(c):\n            return Const(c)\n        case Add(a, b):\n            return SAdd(at(a, i), at(b, i))\n        case Mul(a, b):\n            return SMul(at(a, i), at(b, i))\n\n\ndef lower_reduce(e: VExp, n: int) -> str:\n    return \"\"\n",
+ "tests": [
+  {
+   "expr": "lower_reduce(Vec('x'), 4)",
+   "expect": "acc = x[0]; for r < 3: acc = acc + x[r+1]",
+   "sample": true
+  },
+  {
+   "expr": "lower_reduce(Mul(Vec('x'), Vec('x')), 4)",
+   "expect": "acc = (x[0] * x[0]); for r < 3: acc = acc + (x[r+1] * x[r+1])",
+   "sample": true
+  },
+  {
+   "expr": "lower_reduce(Vec('b'), 4096)",
+   "expect": "acc = b[0]; for r < 4095: acc = acc + b[r+1]"
+  },
+  {
+   "expr": "lower_reduce(Add(Vec('a'), Bcast(1.0)), 8)",
+   "expect": "acc = (a[0] + 1); for r < 7: acc = acc + (a[r+1] + 1)"
+  },
+  {
+   "expr": "lower_reduce(Vec('x'), 1)",
+   "expect": "acc = x[0]; for r < 0: acc = acc + x[r+1]"
+  },
+  {
+   "expr": "lower_reduce(Bcast(2.5), 3)",
+   "expect": "acc = 2.5; for r < 2: acc = acc + 2.5"
+  },
+  {
+   "expr": "lower_reduce(Mul(Add(Vec('x'), Vec('y')), Bcast(0.5)), 2)",
+   "expect": "acc = ((x[0] + y[0]) * 0.5); for r < 1: acc = acc + ((x[r+1] + y[r+1]) * 0.5)"
+  }
+ ],
+ "hints": [
+  "There are three holes in the text: the seed, the trip count and the step. Which index does each one need?",
+  "The seed is <code>show(at(e, \"0\"))</code>. The loop runs <code>n - 1</code> times. The step is <code>show(at(e, \"r+1\"))</code>.",
+  "Return <code>f\"acc = {seed}; for r &lt; {n - 1}: acc = acc + {step}\"</code> with those two strings."
+ ],
+ "explain": "A reduce asks its operand the same question a store does, with two different indexes. Index <code>0</code> gives the seed, so the fold starts from the first element. Index <code>r+1</code> inside a loop of <code>n - 1</code> trips gives elements 1 to n-1 in order. The operand's own rules do the rest, so a sum of squares needs no new code."
+}

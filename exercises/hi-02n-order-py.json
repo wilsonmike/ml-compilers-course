@@ -1,0 +1,49 @@
+{
+ "id": "hi-02n-order-py",
+ "lang": "python",
+ "title": "Repair the cooking order",
+ "show": "str",
+ "starter": "def cooking_order(needs: dict[str, list[str]], dish: str) -> list[str]:\n    done: set[str] = set()\n    order: list[str] = []\n\n    def visit(item: str) -> None:\n        done.add(item)\n        order.append(item)\n        for part in needs.get(item, []):\n            visit(part)\n\n    visit(dish)\n    return order\n",
+ "tests": [
+  {
+   "expr": "cooking_order({\"pizza\": [\"dough\", \"sauce\"], \"dough\": [\"flour\", \"water\", \"salt\"], \"sauce\": [\"tomatoes\", \"salt\"]}, \"pizza\")",
+   "expect": "['flour', 'water', 'salt', 'dough', 'tomatoes', 'sauce', 'pizza']",
+   "sample": true
+  },
+  {
+   "expr": "cooking_order({\"toast\": [\"bread\"]}, \"toast\")",
+   "expect": "['bread', 'toast']",
+   "sample": true
+  },
+  {
+   "expr": "cooking_order({}, \"egg\")",
+   "expect": "['egg']"
+  },
+  {
+   "expr": "cooking_order({\"a\": [\"b\", \"b\"]}, \"a\")",
+   "expect": "['b', 'a']"
+  },
+  {
+   "expr": "cooking_order({\"a\": [\"b\"], \"c\": [\"a\"]}, \"a\")",
+   "expect": "['b', 'a']"
+  },
+  {
+   "expr": "cooking_order({\"d\": [\"b\", \"c\"], \"b\": [\"a\"], \"c\": [\"a\"]}, \"d\")",
+   "expect": "['a', 'b', 'c', 'd']"
+  },
+  {
+   "expr": "cooking_order({\"a\": [\"b\", \"c\"], \"b\": [\"c\"]}, \"a\")",
+   "expect": "['c', 'b', 'a']"
+  },
+  {
+   "expr": "len(cooking_order({f\"x{i}\": [f\"x{i - 1}\", f\"x{i - 1}\"] for i in range(1, 17)}, \"x16\"))",
+   "expect": "17"
+  }
+ ],
+ "hints": [
+  "Run the pizza test and read the list. Which item comes first, and does anything appear twice?",
+  "The item is written down on the way in. Move `order.append(item)` below the loop, so it runs after every part has been visited.",
+  "Nothing looks in `done`. Start `visit` with `if item in done: return`."
+ ],
+ "explain": "`visit` first looks in `done` and leaves if the item is already there, so `salt` is written once. Then it marks the item, visits each part, and only after that appends the item. Writing the item on the way out is what puts every part before the thing that needs it."
+}

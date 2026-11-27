@@ -1,0 +1,49 @@
+{
+ "id": "w6-04n-partner",
+ "lang": "ocaml",
+ "title": "Send a gradient back through pad and shrink",
+ "show": "(fun l -> String.concat \" \" (List.map string_of_int l))",
+ "starter": "let shrink_offsets (pads : int list) : int list =\n  List.filteri (fun i _ -> i mod 2 = 0) pads\n\nlet pad_widths (offsets : int list) (sizes : int list) (dims : int list) : int list =\n  List.concat (List.map2 (fun o (s, d) -> [o; d - s]) offsets (List.combine sizes dims))\n",
+ "hints": [
+  "`shrink_offsets` is already right. Look at the right-hand width that `pad_widths` builds for each axis.",
+  "An axis of size `d` holds `o` elements before the window, then the `s` elements of the window, then the rest. How many are in the rest?",
+  "The right-hand width is `d - o - s`, not `d - s`. For offset 2, size 3 and an axis of 6 that is 1."
+ ],
+ "explain": "A pad's partner is a shrink that starts where x landed, so its offsets are the left widths: every other number of the pad list. A shrink's partner is a pad that puts the window back where it was cut from. On each axis the window had `o` elements before it and `d - o - s` after it, and those are the two pad widths. The starter forgot to take the offset away on the right, so the padded gradient came out too long.",
+ "tests": [
+  {
+   "expr": "shrink_offsets [2; 1]",
+   "expect": "2",
+   "sample": true
+  },
+  {
+   "expr": "pad_widths [2] [3] [6]",
+   "expect": "2 1",
+   "sample": true
+  },
+  {
+   "expr": "pad_widths [0] [3] [3]",
+   "expect": "0 0"
+  },
+  {
+   "expr": "pad_widths [3] [1] [4]",
+   "expect": "3 0"
+  },
+  {
+   "expr": "pad_widths [1; 0] [2; 2] [4; 5]",
+   "expect": "1 1 0 3"
+  },
+  {
+   "expr": "pad_widths [0; 2] [1; 1] [3; 3]",
+   "expect": "0 2 2 0"
+  },
+  {
+   "expr": "shrink_offsets [1; 1; 0; 3]",
+   "expect": "1 0"
+  },
+  {
+   "expr": "shrink_offsets [0; 0]",
+   "expect": "0"
+  }
+ ]
+}

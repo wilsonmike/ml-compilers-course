@@ -1,0 +1,53 @@
+{
+ "id": "w5-01n-offset",
+ "lang": "ocaml",
+ "title": "Repair: index to offset, any rank",
+ "show": "string_of_int",
+ "starter": "let offset (shape : int list) (index : int list) : int =\n  let rec go shape index stride =\n    match shape, index with\n    | size :: shape', i :: index' -> i * stride + go shape' index' (stride * 1)\n    | _ -> 0\n  in\n  go (List.rev shape) (List.rev index) 1\n",
+ "tests": [
+  {
+   "expr": "offset [2; 3; 4] [1; 2; 3]",
+   "expect": "23",
+   "sample": true
+  },
+  {
+   "expr": "offset [2; 3] [1; 0]",
+   "expect": "3",
+   "sample": true
+  },
+  {
+   "expr": "offset [5] [4]",
+   "expect": "4"
+  },
+  {
+   "expr": "offset [] []",
+   "expect": "0"
+  },
+  {
+   "expr": "offset [2; 3; 4] [0; 0; 0]",
+   "expect": "0"
+  },
+  {
+   "expr": "offset [2; 3; 4] [1; 0; 0]",
+   "expect": "12"
+  },
+  {
+   "expr": "offset [2; 3; 4] [0; 1; 0]",
+   "expect": "4"
+  },
+  {
+   "expr": "offset [3; 4] [2; 1]",
+   "expect": "9"
+  },
+  {
+   "expr": "offset [2; 3; 4; 5] [1; 2; 3; 4]",
+   "expect": "119"
+  }
+ ],
+ "hints": [
+  "`go` walks the axes from the last one to the first. The last axis has stride 1, and that part is right. What should the stride be for the next axis to the left?",
+  "A step along an axis skips everything to its right. So each time you move one axis left, the stride grows by the size of the axis you just left.",
+  "Change `(stride * 1)` to `(stride * size)`."
+ ],
+ "explain": "The stride of an axis is the product of the sizes to its right. Walking from the last axis, the stride starts at 1 and is multiplied by each size on the way left: `go shape' index' (stride * size)`. For shape `[2 3 4]` that gives strides 1, 4 and 12, so index (1, 2, 3) is `3*1 + 2*4 + 1*12 = 23`. The starter kept the stride at 1, which just added the index up."
+}

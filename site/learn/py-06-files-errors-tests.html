@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Files, Errors and Testing in Python</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A compiler is a real program: it&#x27;s split across several files, it reads its input from a file named on the command line, it reports what happened in a way...">
+<meta name="description" content="So far your code has run in boxes on these pages. Your compiler will run on your own computer. It reads a program from a file, refuses a bad one without...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/py-06-files-errors-tests">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Files, Errors and Testing in Python">
-<meta property="og:description" content="A compiler is a real program: it&#x27;s split across several files, it reads its input from a file named on the command line, it reports what happened in a way other programs can read, and it needs tests...">
+<meta property="og:description" content="So far your code has run in boxes on these pages. Your compiler will run on your own computer. It reads a program from a file, refuses a bad one without crashing, and gets checked by a test runner...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/py-06-files-errors-tests">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,140 +20,151 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Learn Python|Files, errors and testing" data-root="../">
 <main>
   <p class="eyebrow">Learn Python · Lesson 6</p>
   <h1>Files, errors and testing</h1>
-  <p class="lede">A compiler is a real program: it's split across several files, it reads its input from a file named on the command line, it reports what happened in a way other programs can read, and it needs tests so you know it still works after every change. This lesson covers each of those, and how to find a bug when something goes wrong.</p>
+  <p class="lede">So far your code has run in boxes on these pages. Your compiler will run on your own computer. It reads a program from a file, refuses a bad one without crashing, and gets checked by a test runner. This lesson covers the skills between "I can write a function" and "I can run a program on my computer and know whether it works".</p>
 
-  <div class="prose">
-    <h2>Modules and imports</h2>
-    <p>Once a program grows past a page or two, you split it into several files. Each <code>.py</code> file is a <b>module</b>, and one module can use the functions of another by <b>importing</b> it. Make a folder with two files. The first, <code>words.py</code>, holds some tools for working with text:</p>
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Read a file, handle bad input without a crash, report the result with an exit code, and check your own code with a small test.</p>
   </div>
-<pre><code>def count_words(text):
-    return len(text.split())
 
-def longest_word(text):
-    return max(text.split(), key=len)
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>The terminal and the <code>learn-python</code> folder from <a href="py-01-first-steps.html#setup">the setup part of P.1</a> (do it now if you skipped it), functions and loops from <a href="py-02-decisions-loops.html">P.2</a>, lists and dicts from <a href="py-03-collections.html">P.3</a>, classes from <a href="py-04-your-own-types.html">P.4</a> and the call stack from <a href="py-05-recursion.html">P.5</a>.</p>
+  </div>
 
-if __name__ == "__main__":
-    print(count_words("the cat sat on the mat"))</code></pre>
-  <div class="prose">
-    <p>The second, <code>main.py</code>, uses them:</p>
+  <div class="note">
+    <span class="label">Two places to work</span>
+    <p>Exercises with an editor run here in the page. A page cannot read the files on your computer or see an exit code, so some steps are marked <b>On your machine</b>. Do those in a terminal, inside your <code>learn-python</code> folder. Each one says what you should see. As in P.1, <code>python</code> means <code>python3</code> on macOS and Linux.</p>
   </div>
-<pre><code>from words import count_words, longest_word
 
-text = "a rose is a rose is a rose"
-print(count_words(text), "words")
-print("longest:", longest_word(text))</code></pre>
-<pre><code>$ python main.py
-8 words
-longest: rose</code></pre>
-  <div class="prose">
-    <p>(<code>$</code> stands for your terminal's prompt. Type what follows it, and the lines after are what the program prints.)</p>
-    <p><code>from words import count_words, longest_word</code> tells Python: find <code>words.py</code>, run it, and bring those two names into this file. Python looks for it in the folder of the program you ran, which is why both files go in one folder. There's a second way to write it:</p>
-  </div>
-<pre><code>import words
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
 
-print(words.count_words("a rose is a rose"))</code></pre>
-  <div class="prose">
-    <p><code>import words</code> brings in the whole module under one name, and you reach inside it with a dot. Both are fine. The dotted form makes it obvious where a name came from, which helps once you have many modules. The modules that come with Python, like <code>sys</code>, <code>math</code> and <code>dataclasses</code>, are imported the same way.</p>
-    <p>Now the last two lines of <code>words.py</code>. Every module has a variable called <code>__name__</code>. When you run a file directly, as in <code>python words.py</code>, Python sets it to <code>"__main__"</code>. When the file is imported, it's set to the module's name, <code>"words"</code>. So the code under <code>if __name__ == "__main__":</code> only runs when you run the file itself:</p>
+  <div class="quiz" data-answer="a">
+    <p class="q">What is the value of <code>double(4) == 8</code>?</p>
+<pre><code>def double(n):
+    return n * 2</code></pre>
+    <div class="opts"><button data-k="a"><code>True</code></button><button data-k="b"><code>False</code></button><button data-k="c"><code>8</code></button></div>
+    <p class="hint">Work out <code>double(4)</code> first. Then <code>==</code> asks whether two values are equal.</p>
+    <div class="why"><p><code>double(4)</code> returns 8, and <code>8 == 8</code> is <code>True</code>. Calling a function and comparing the result with the answer you expect is how every test on this page works.</p></div>
   </div>
-<pre><code>$ python words.py
-6</code></pre>
-  <div class="prose">
-    <p>When <code>main.py</code> imports <code>words</code>, the 6 isn't printed. Without the <code>if</code>, it would be, every time anything imported the module. Use this to keep a quick check, or a module's command-line entry point, in the same file as its functions.</p>
-  </div>
-  <div class="trap">
-    <span class="label">Don't name a file after a module you use</span>
-    <p>Call your own file <code>random.py</code>, and <code>import random</code> anywhere in that folder finds <em>your</em> file instead of Python's. The errors that follow are baffling, like <code>AttributeError: module 'random' has no attribute 'randint'</code>. Pick names that aren't already taken.</p>
+
+  <div class="quiz" data-answer="c">
+    <p class="q"><code>main</code> calls <code>total</code>, and <code>total</code> calls <code>parse_score</code>. While <code>parse_score</code> is running, which functions are on the call stack?</p>
+    <div class="opts"><button data-k="a">Only <code>parse_score</code></button><button data-k="b"><code>total</code> and <code>parse_score</code></button><button data-k="c">All three</button></div>
+    <p class="hint">A function stays on the stack until it returns. Has <code>main</code> returned yet?</p>
+    <div class="why"><p>All three. <code>main</code> and <code>total</code> are both waiting for the call they made to finish. Python prints this same stack when a program crashes, and you'll read one later on this page.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Reading and writing files</h2>
-    <p>To write a text file, <b>open</b> it for writing with <code>"w"</code>, and write strings to it:</p>
+    <h2>Read a file's text</h2>
+    <p>Your compiler's input is a file of text. So the first skill is getting the text of a file into a Python value. This part is <b>on your machine</b>.</p>
+    <ol>
+      <li><strong>Make a text file.</strong> In VS Code, in your <code>learn-python</code> folder, save a file named <code>shopping.txt</code> with three lines: <code>milk</code>, <code>eggs</code> and <code>bread</code>. Press Enter after <code>bread</code>.</li>
+      <li><strong>Write the program.</strong> Save this next to it as <code>read.py</code>:
+<pre><code>with open("shopping.txt", encoding="utf-8") as f:
+    text = f.read()
+
+print(repr(text))</code></pre></li>
+    </ol>
   </div>
-<pre><code>&gt;&gt;&gt; with open("shopping.txt", "w", encoding="utf-8") as f:
-...     f.write("milk\neggs\nbread\n")
-...
-16</code></pre>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Guess before you run it. What kind of value does <code>f.read()</code> put in <code>text</code>?</p>
+    <div class="opts"><button data-k="a">A list of three strings, one per line</button><button data-k="b">One string that holds the whole file</button><button data-k="c">A string with only the first line</button></div>
+    <p class="hint">The name is <code>read</code>, not <code>read_lines</code>. It hands back everything in one piece.</p>
+    <div class="why"><p>One string. The end of each line is stored in it as a newline character, written <code>\n</code> in code. <code>repr</code> shows a string the way you would type it, so you can see them.</p></div>
+  </div>
+
   <div class="prose">
-    <p>Piece by piece:</p>
-    <ul>
-      <li><code>open(name, "w", ...)</code> opens the file for writing. <code>"w"</code> creates the file, or empties it if it already exists. Leave the mode out and you get <code>"r"</code>, for reading.</li>
-      <li><code>encoding="utf-8"</code> says how characters are stored as bytes. Always write it. Without it, Python uses whatever your computer's default is, which on Windows is often not UTF-8, so a file with an <code>é</code> in it can read back wrong or fail on another machine.</li>
-      <li><code>with ... as f:</code> names the open file <code>f</code> for the indented block, and closes it when the block ends, even if an error happens inside. A file that isn't closed may not have all its text saved yet.</li>
-      <li><code>f.write(...)</code> returns how many characters it wrote, and the REPL shows that 16. <code>write</code> doesn't add a newline for you, so the string has its own <code>\n</code>s.</li>
-    </ul>
-    <p>Reading it back works the same way, with <code>f.read()</code>, which returns the whole file as one string:</p>
+    <ol start="3">
+      <li><strong>Run it.</strong> Type <code>python read.py</code>. You should see:
+<pre><code>'milk\neggs\nbread\n'</code></pre></li>
+    </ol>
+    <p><code>open</code> opens the file for reading. <code>with ... as f:</code> names the open file <code>f</code> for the indented lines, and closes it when they end. <code>encoding="utf-8"</code> says how letters are stored in the file. Always write it.</p>
+    <p>Most programs want the lines one by one. <code>text.splitlines()</code> gives the list <code>['milk', 'eggs', 'bread']</code>. The look-alike <code>text.split("\n")</code>, which cuts at every <code>\n</code>, gives one item too many.</p>
   </div>
-<pre><code>&gt;&gt;&gt; with open("shopping.txt", encoding="utf-8") as f:
-...     text = f.read()
-...
-&gt;&gt;&gt; text
-'milk\neggs\nbread\n'
-&gt;&gt;&gt; text.splitlines()
-['milk', 'eggs', 'bread']
-&gt;&gt;&gt; text.split("\n")
-['milk', 'eggs', 'bread', '']</code></pre>
+
+  <div class="exercise small" data-ex="lp-06n-read-items">
+    <h3>Lines without the stray empty one</h3>
+    <p><code>read_items(text)</code> should return the lines of a file's text as a list. Run it and look at what comes back for the first test. Then fix the one line that is wrong.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Writing a file, missing files and where Python looks (for when a file "isn't there")</summary>
+    <div class="prose">
+      <p>To write a text file, open it with <code>"w"</code> and write strings to it:</p>
+<pre><code>with open("shopping.txt", "w", encoding="utf-8") as f:
+    f.write("milk\neggs\nbread\n")</code></pre>
+      <ul>
+        <li><code>"w"</code> creates the file, or empties it if it already exists. Leave the mode out and you get <code>"r"</code>, for reading.</li>
+        <li><code>f.write(...)</code> returns how many characters it wrote, 16 here. It doesn't add a newline for you, so the string has its own <code>\n</code>s.</li>
+        <li>Without <code>encoding="utf-8"</code>, Python uses your computer's default, which on Windows is often not UTF-8. A file with an <code>é</code> in it can then read back wrong or fail on another machine.</li>
+        <li><code>with</code> closes the file even if an error happens inside the block. A file that isn't closed may not have all its text saved yet.</li>
+      </ul>
+      <p><code>"a\nb\n".split("\n")</code> is <code>['a', 'b', '']</code>, because <code>split</code> sees the final <code>\n</code> as the start of one more, empty, line. Text files almost always end with a newline, so <code>splitlines()</code> is the one you want. It also handles Windows line endings (<code>\r\n</code>). With <code>split("\n")</code>, every line would keep a <code>\r</code> at its end.</p>
+      <p>A plain file name like <code>"shopping.txt"</code> is looked up in the <b>current directory</b>: the folder your terminal was in when you started Python, which isn't always the folder the program is in. If a file you can see "isn't there", check where you ran the program from with <code>pwd</code>.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p><code>splitlines()</code> cuts the text into lines and drops the line endings. Compare it with <code>split("\n")</code>, which sees the final <code>\n</code> as the start of one more, empty, line. Text files almost always end with a newline, so <code>splitlines()</code> is the one you want. It also handles Windows line endings (<code>\r\n</code>). With <code>split("\n")</code>, every line would keep a <code>\r</code> at its end.</p>
-    <p>Opening a file that doesn't exist raises an error:</p>
+    <h2>A crash stops the program</h2>
+    <p>What if the file is not there? Save this as <code>crash.py</code>. There is no file named <code>nope.txt</code>.</p>
+<pre><code>with open("nope.txt", encoding="utf-8") as f:
+    text = f.read()
+
+print(len(text.splitlines()), "lines")
+print("done")</code></pre>
   </div>
-<pre><code>&gt;&gt;&gt; open("nope.txt", encoding="utf-8")
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What does <code>python crash.py</code> print?</p>
+    <div class="opts"><button data-k="a"><code>0 lines</code>, then <code>done</code></button><button data-k="b">An error report, and nothing else</button><button data-k="c">An error report, then <code>done</code></button></div>
+    <p class="hint">Line 1 cannot do its job. Does Python skip a line it cannot run, or stop?</p>
+    <div class="why"><p>Python stops at line 1. The two <code>print</code> lines never run.</p></div>
+  </div>
+
+  <div class="prose">
+    <p><b>On your machine</b>, run <code>python crash.py</code>. You should see this, with your own folder in the path:</p>
+<pre><code>Traceback (most recent call last):
+  File "C:\Users\you\learn-python\crash.py", line 1, in &lt;module&gt;
+    with open("nope.txt", encoding="utf-8") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 FileNotFoundError: [Errno 2] No such file or directory: 'nope.txt'</code></pre>
-  <div class="prose">
-    <p>A plain file name like <code>"shopping.txt"</code> is looked up in the <b>current directory</b>: the folder your terminal was in when you started Python, which isn't always the folder the program is in. If a file you can see "isn't there", check where you ran the program from.</p>
+    <p>When Python cannot do what a line asks, it <b>raises an exception</b>: a value that says what went wrong. If nothing deals with it, the program stops right there and Python prints a traceback, as in P.1. Its last line gives the kind of problem, <code>FileNotFoundError</code>, and then the details.</p>
+    <p>A crash is the right result for a bug in your code, because it points at the line. A missing file or a mistyped number is different. That is bad input, and a good program says so in its own words. The next part shows how.</p>
   </div>
 
   <div class="prose">
-    <h2>Exceptions: raising and catching</h2>
-    <p>When Python can't carry out an operation, it <b>raises an exception</b>: an object that describes what went wrong. If nothing deals with it, the program stops and prints a <b>traceback</b>, ending with the exception's type and message. You've seen a few:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; int("seven")
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-ValueError: invalid literal for int() with base 10: 'seven'
-&gt;&gt;&gt; {"a": 1}["b"]
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-KeyError: 'b'
-&gt;&gt;&gt; 10 / 0
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-ZeroDivisionError: division by zero</code></pre>
-  <div class="prose">
-    <p>The type (<code>ValueError</code>, <code>KeyError</code>, <code>ZeroDivisionError</code>) says what kind of problem it is. The message after the colon says which value caused it. To handle an exception yourself, put the risky code in a <code>try</code> block and say what to do in an <code>except</code> block:</p>
-  </div>
+    <h2>Catch the problem and say so</h2>
+    <p><code>int("42")</code> turns text into the number 42. <code>int("seven")</code> raises a <code>ValueError</code>. To handle an exception yourself, put the risky lines in a <code>try</code> block and say what to do in an <code>except</code> block:</p>
 <pre><code>def to_number(s):
     try:
-        return int(s)
+        n = int(s)
+        print("converted")
     except ValueError:
-        return None</code></pre>
-<pre><code>&gt;&gt;&gt; to_number("42")
-42
-&gt;&gt;&gt; print(to_number("seven"))
-None</code></pre>
-  <div class="prose">
-    <p>Python runs the <code>try</code> block. If it finishes, the <code>except</code> block is skipped. If a <code>ValueError</code> is raised partway, Python jumps straight to the <code>except ValueError:</code> block and carries on from there. Any other kind of exception isn't caught here, and keeps going up as if the <code>try</code> weren't there.</p>
-    <p>That last part matters. Always name the exception you expect. Here's what happens without a name:</p>
+        print("not a number")
+        return None
+    return n</code></pre>
+    <ol>
+      <li><strong>Try.</strong> Python runs the lines under <code>try</code>.</li>
+      <li><strong>Jump.</strong> If one of them raises a <code>ValueError</code>, Python skips the rest of the <code>try</code> block and jumps to the lines under <code>except ValueError:</code>.</li>
+      <li><strong>Carry on.</strong> If nothing was raised, the <code>except</code> block is skipped. Either way the program keeps going.</li>
+    </ol>
   </div>
-<pre><code>def to_number(s):
-    try:
-        return int(text)
-    except:
-        return None</code></pre>
-<pre><code>&gt;&gt;&gt; print(to_number("42"))
-None</code></pre>
-  <div class="trap">
-    <span class="label">A bare except hides your bugs</span>
-    <p>The function above has a typo: <code>text</code> instead of <code>s</code>. That raises <code>NameError</code>, which a bare <code>except:</code> catches along with everything else, so every call quietly returns <code>None</code> and nothing tells you why. With <code>except ValueError:</code>, the <code>NameError</code> would have stopped the program on the first call and pointed at the line. Catch the specific error you expect, and let the rest be loud.</p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">You call <code>to_number("seven")</code>. The line <code>n = int(s)</code> raises <code>ValueError</code>. Which line runs next?</p>
+    <div class="opts"><button data-k="a"><code>print("converted")</code></button><button data-k="b"><code>print("not a number")</code></button><button data-k="c"><code>return n</code></button></div>
+    <p class="hint">The rest of the <code>try</code> block is skipped. Where does Python jump to?</p>
+    <div class="why"><p>Python jumps straight into the <code>except ValueError:</code> block. It prints <code>not a number</code> and returns <code>None</code>. <code>print("converted")</code> and <code>return n</code> never run for this call.</p></div>
   </div>
 
   <div class="exercise small" data-ex="lp-06-safe-div">
@@ -162,52 +173,82 @@ None</code></pre>
     <p class="muted">Which exception does <code>1 / 0</code> raise? Catch that one, by name, and nothing else.</p>
   </div>
 
-  <div class="prose">
-    <p>Your own functions can raise exceptions too, with <code>raise</code>. Do it when you're given something you can't sensibly work with:</p>
+  <div class="trap">
+    <span class="label">A bare except hides your bugs</span>
+    <p>You can write <code>except:</code> with no name, and it catches everything. That includes the <code>NameError</code> from a misspelled variable, so a typo quietly turns into <code>None</code> and nothing tells you why. Name the one exception you expect, and let the rest be loud.</p>
   </div>
-<pre><code>def withdraw(balance, amount):
-    if amount &gt; balance:
-        raise ValueError(f"cannot take {amount} from {balance}")
-    return balance - amount</code></pre>
-<pre><code>&gt;&gt;&gt; withdraw(10, 3)
-7
-&gt;&gt;&gt; withdraw(10, 30)
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-  File "&lt;stdin&gt;", line 3, in withdraw
-ValueError: cannot take 30 from 10</code></pre>
+
   <div class="prose">
-    <p><code>raise</code> stops the function at once, the same way an error from Python would. The caller decides what to do: catch it, or let it stop the program. Put the bad value in the message. "cannot take 30 from 10" is far more helpful than "invalid amount".</p>
-    <p>For errors that belong to your program, make your own exception class. It's a class that names <code>Exception</code> in parentheses, which makes it a kind of exception. It usually needs no body, and <code>pass</code> is Python's way of writing an empty block:</p>
+    <h2>Raise an error yourself</h2>
+    <p>Your own functions can refuse bad input the same way Python does, with the <code>raise</code> you met in P.4:</p>
+<pre><code>def check_age(age):
+    if age &lt; 0:
+        raise ValueError(f"age cannot be negative: {age}")
+    return age
+
+print(check_age(12))
+print(check_age(-3))
+print("done")</code></pre>
   </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What does this program print?</p>
+    <div class="opts"><button data-k="a"><code>12</code>, then <code>-3</code>, then <code>done</code></button><button data-k="b"><code>12</code>, then a traceback that ends with <code>ValueError: age cannot be negative: -3</code></button><button data-k="c">Only a traceback</button></div>
+    <p class="hint">The first call is fine. Nothing in this program catches the error from the second call.</p>
+    <div class="why"><p>The first call returns 12. The second reaches <code>raise</code>, which leaves the function at once. No <code>try</code> catches the error, so the program stops and <code>done</code> never prints.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The caller decides what happens next: catch the error with <code>try</code>, or let it stop the program. Put the bad value in the message. "age cannot be negative: -3" helps far more than "bad age".</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-06n-withdraw">
+    <h3>Refuse a bad withdrawal</h3>
+    <p><code>withdraw(balance, amount)</code> returns what is left after taking <code>amount</code> out. Right now it lets you take more than there is. When <code>amount</code> is larger than <code>balance</code>, raise <code>ValueError</code> with the message <code>cannot take 30 from 10</code>, using the real numbers.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-06-parse-pairs">
+    <h3>Parse key=value lines</h3>
+    <p>Write <code>parse_pairs(text)</code>, which turns lines like <code>name = Ann</code> into a dict of strings, <code>{'name': 'Ann'}</code>. Remove spaces around each key and each value. Skip blank lines. A value may contain <code>=</code>: <code>x=1=2</code> gives <code>{'x': '1=2'}</code>. A non-blank line with no <code>=</code>, or with nothing before the <code>=</code>, is an error: <code>raise ValueError(f"bad line {n}: {line!r}")</code>, where <code>n</code> counts lines from 1, blank ones included.</p>
+    <p class="muted"><code>line.partition("=")</code> splits at the first <code>=</code> only, and returns three strings: before, the <code>=</code> itself (or <code>""</code> if there was none), and after. <code>enumerate(lines, 1)</code> counts from 1. <code>s.strip()</code> removes the spaces from both ends of <code>s</code>. <code>{line!r}</code> puts the line in quotes, as <code>repr</code> does.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Give your error its own name</h2>
+    <p>There is a catch with <code>except ValueError:</code>. Python raises <code>ValueError</code> for its own reasons too, so you may catch an error that came from a real bug. The fix is an exception class of your own. It is a class that names <code>Exception</code> in parentheses. <code>pass</code> means the class has nothing else in it.</p>
 <pre><code>class ParseError(Exception):
     pass
 
 def parse_age(s):
     if not s.isdigit():
         raise ParseError(f"not an age: {s!r}")
-    return int(s)</code></pre>
-<pre><code>&gt;&gt;&gt; try:
-...     parse_age("ten")
-... except ParseError as err:
-...     print("bad input:", err)
-...
-bad input: not an age: 'ten'</code></pre>
-  <div class="prose">
-    <p><code>except ParseError as err:</code> catches only your own errors, and names the exception <code>err</code> so you can print its message. Errors from anywhere else, including real bugs, still get through. That's the point of having your own class. In the course, your compiler raises one when it reads a program that isn't valid, catches it in one place, and reports it. <a href="../week0/07-python.html">Lesson 0.7</a> shows how.</p>
+    return int(s)
+
+try:
+    print(parse_age("12"))
+    print(parse_age("ten"))
+    print("after")
+except ParseError as err:
+    print("bad input:", err)
+print("still running")</code></pre>
+    <p><code>s.isdigit()</code> is true when every character of <code>s</code> is a digit, and <code>not</code> flips true and false. <code>as err</code> names the caught exception, so you can print its message.</p>
   </div>
 
-  <div class="exercise small" data-ex="lp-06-parse-pairs">
-    <h3>Parse key=value lines</h3>
-    <p>Write <code>parse_pairs(text)</code>, which turns lines like <code>name = Ann</code> into a dict of strings, <code>{'name': 'Ann'}</code>. Remove spaces around each key and each value. Skip blank lines. A value may contain <code>=</code>: <code>x=1=2</code> gives <code>{'x': '1=2'}</code>. A non-blank line with no <code>=</code>, or with nothing before the <code>=</code>, is an error: <code>raise ValueError(f"bad line {n}: {line!r}")</code>, where <code>n</code> counts lines from 1, blank ones included.</p>
-    <p class="muted"><code>line.partition("=")</code> splits at the first <code>=</code> only, and returns three strings: before, the <code>=</code> itself (or <code>""</code> if there was none), and after. <code>enumerate(lines, 1)</code> counts from 1. <code>s.strip()</code> removes the spaces from both ends of <code>s</code>.</p>
+  <div class="quiz" data-answer="c">
+    <p class="q">How many lines does this program print?</p>
+    <div class="opts"><button data-k="a">2: <code>12</code> and <code>bad input: not an age: 'ten'</code></button><button data-k="b">4: it also prints <code>after</code></button><button data-k="c">3: <code>12</code>, the <code>bad input</code> line and <code>still running</code></button></div>
+    <p class="hint">Follow the jump. Which line of the <code>try</code> block gets skipped, and what comes after the <code>except</code> block?</p>
+    <div class="why"><p><code>parse_age("ten")</code> raises, so <code>print("after")</code> is skipped. The <code>except</code> block prints the message. Then the program carries on to the last line. It did not crash.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Talking to the shell: arguments and exit codes</h2>
-    <p>A program run from a terminal gets its <b>command-line arguments</b> in <code>sys.argv</code>, a list of strings. <code>python count.py shopping.txt</code> gives <code>["count.py", "shopping.txt"]</code>: the program's name first, then the arguments, so <code>sys.argv[1:]</code> is the arguments alone.</p>
-    <p>When a program ends, it hands the shell a whole number called its <b>exit code</b> (or exit status). 0 means it worked. Anything else means it failed, and different numbers can mean different failures. <code>sys.exit(n)</code> ends the program with code <code>n</code>. Here's a program that counts the lines in a file, using everything so far:</p>
+    <p>This is the pattern your compiler uses in week 1. It raises its own exception when the program it reads is not valid, catches that one class in one place, and prints <code>REJECTED</code>. Every other exception is a bug in the compiler, and it stays loud.</p>
   </div>
+
+  <div class="prose">
+    <h2>Arguments in, exit code out</h2>
+    <p>A program run from a terminal talks to the outside in two more ways. The words you type after its name are its <b>arguments</b>. Python puts them in the list <code>sys.argv</code>. When the program ends, it hands back one whole number, its <b>exit code</b>. 0 means "it worked". Anything else means "it failed".</p>
+    <p>A <b>grader</b> is a program that runs your program and checks the result. It cannot look at the screen and judge. It reads what your program printed and, often, its exit code. <b>On your machine</b>, save this as <code>count.py</code>:</p>
 <pre><code>import sys
 
 def main(argv):
@@ -225,22 +266,32 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))</code></pre>
-<pre><code>$ python count.py shopping.txt
-3 lines
-$ echo $?
-0
-$ python count.py
-usage: python count.py FILE
-$ echo $?
-2
-$ python count.py nope.txt
-count.py: no such file: nope.txt
-$ echo $?
-1</code></pre>
+    <ol>
+      <li><strong>Get the tools.</strong> <code>import sys</code> brings in <code>sys</code>, a set of tools that comes with Python.</li>
+      <li><strong>Do the work in <code>main</code>.</strong> It gets the arguments and returns the exit code. <code>sys.argv[0]</code> is the program's own name, so <code>sys.argv[1:]</code> is the arguments alone.</li>
+      <li><strong>Report problems apart from answers.</strong> <code>file=sys.stderr</code> sends a message to <b>stderr</b>, a second output meant for errors. It still shows in your terminal, but a grader reading the answer does not mix the two up.</li>
+      <li><strong>Hand back the code.</strong> <code>sys.exit(n)</code> ends the program with exit code <code>n</code>. The <code>if</code> above it is true only when you run this file itself. If another file imports <code>count.py</code>, say to test <code>main</code>, <code>__name__</code> is <code>"count"</code> there and the program does not start.</li>
+    </ol>
+    <p>Now run it three ways. After each run, ask the terminal for the exit code: <code>echo $LASTEXITCODE</code> in PowerShell, <code>echo $?</code> on macOS and Linux.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>you type</th><th>you should see</th><th>exit code</th></tr></thead>
+    <tbody>
+      <tr><td><code>python count.py shopping.txt</code></td><td><code>3 lines</code></td><td>0</td></tr>
+      <tr><td><code>python count.py nope.txt</code></td><td><code>count.py: no such file: nope.txt</code></td><td>1</td></tr>
+      <tr><td><code>python count.py</code></td><td><code>usage: python count.py FILE</code></td><td>2</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">You type <code>python count.py a.txt b.txt</code>. What is the exit code?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">How long is <code>argv</code> inside <code>main</code>? Check the first <code>if</code>.</p>
+    <div class="why"><p><code>argv</code> has two items, so <code>len(argv) != 1</code> is true. <code>main</code> prints the usage line and returns 2. By habit, 2 means "you called me wrong".</p></div>
+  </div>
+
   <div class="prose">
-    <p><code>echo $?</code> prints the last program's exit code in bash and zsh, the usual shells on Linux and macOS. In PowerShell it's <code>echo $LASTEXITCODE</code>, and in the old Windows <code>cmd</code> it's <code>echo %ERRORLEVEL%</code>. <code>print(..., file=sys.stderr)</code> sends a message to <b>stderr</b>, a second output meant for errors, so it doesn't get mixed into the program's real output. By habit, 2 means "you called me wrong".</p>
-    <p>Notice the shape. All the work happens in <code>main(argv)</code>, which <em>returns</em> the exit code, and only the last line calls <code>sys.exit</code>. You can call <code>main(["shopping.txt"])</code> from a test or the REPL and check what it returns, without the program ending under you.</p>
-    <p>If a program stops with an exception nobody caught, Python prints the traceback and exits with code 1. The course's grader runs your compiler on each test program and reads the one line it prints, such as <code>MATCH case.uir</code> or <code>REJECTED case.uir</code>. A crash prints a traceback instead of that line, so it fails the test, even one where the right answer was <code>REJECTED</code>. <a href="../week0/07-python.html">Lesson 0.7</a> gives the exact rules.</p>
+    <p>A program that stops with an uncaught exception, like <code>crash.py</code>, prints its traceback to stderr and exits with code 1. So to a grader a crash is always a failure, even when refusing the input was the right answer.</p>
   </div>
 
   <div class="exercise small" data-ex="lp-06-exit-code">
@@ -249,149 +300,112 @@ $ echo $?
     <p class="muted">Check <code>len(argv)</code> first. Then <code>int()</code> raises <code>ValueError</code> on something like <code>"x"</code>, which you can catch. The tests check what <code>main</code> returns.</p>
   </div>
 
-  <div class="prose">
-    <h2>Reading a long traceback</h2>
-    <p>Real errors happen deep inside a program, several calls down. Here's a small report that adds up scores, with one bad line of data:</p>
-  </div>
-<pre><code>def parse_score(line):
-    name, score = line.split(",")
-    return int(score)
+  <details class="toggle">
+    <summary>Splitting a program across files: modules and import (lesson 0.7 builds on this)</summary>
+    <div class="prose">
+      <p><a href="../week0/07-python.html">Lesson 0.7</a> sets your compiler up as a folder of files that the grader can run. Here is the idea underneath it. Each <code>.py</code> file is a <b>module</b>, and one module can use the functions of another by <b>importing</b> it. Make a folder with two files. The first, <code>words.py</code>, holds some tools for working with text:</p>
+<pre><code>def count_words(text):
+    return len(text.split())
 
-def total(lines):
-    result = 0
-    for line in lines:
-        result += parse_score(line)
-    return result
+def longest_word(text):
+    return max(text.split(), key=len)
 
-def main():
-    lines = ["ann,7", "bob,12", "cat,nine"]
-    print(total(lines))
+if __name__ == "__main__":
+    print(count_words("the cat sat on the mat"))</code></pre>
+      <p>The second, <code>main.py</code>, uses them:</p>
+<pre><code>from words import count_words, longest_word
 
-main()</code></pre>
-<pre><code>$ python report.py
-Traceback (most recent call last):
-  File "C:\Users\you\report.py", line 15, in &lt;module&gt;
-    main()
-  File "C:\Users\you\report.py", line 13, in main
-    print(total(lines))
-          ^^^^^^^^^^^^
-  File "C:\Users\you\report.py", line 8, in total
-    result += parse_score(line)
-              ^^^^^^^^^^^^^^^^^
-  File "C:\Users\you\report.py", line 3, in parse_score
-    return int(score)
-           ^^^^^^^^^^
-ValueError: invalid literal for int() with base 10: 'nine'</code></pre>
-  <div class="prose">
-    <p>(The path shows where <code>report.py</code> is on your computer, so yours will differ.) A traceback is the call stack from lesson 5, printed at the moment of the error. Each <code>File ... line ... in ...</code> entry is one frame, with the line it was running under it. <code>^^^^</code> marks the part of the line that was running. "Most recent call last" means the newest frame is at the bottom. Read it twice.</p>
-    <p><b>Bottom up, to see what and where.</b> The last line is the error: a <code>ValueError</code>, because <code>int</code> was given <code>'nine'</code>. The entry right above it is where it happened: line 3, in <code>parse_score</code>, at <code>int(score)</code>. Often that's enough.</p>
-    <p><b>Top down, to see how you got there.</b> The module called <code>main()</code> on line 15. <code>main</code> called <code>total</code> on line 13. <code>total</code> called <code>parse_score</code> on line 8. The bug is rarely in Python's own code, and not always in the bottom frame either. Here, <code>parse_score</code> did the right thing with bad input. The question is where <code>'nine'</code> came from, and the frames above lead you back to the list in <code>main</code>.</p>
-  </div>
-  <div class="note">
-    <span class="label">Frames you didn't write</span>
-    <p>Sometimes the bottom frames are inside Python's own library, with paths like <code>...\Lib\json\decoder.py</code>. Read upward until you reach the first frame in one of <em>your</em> files. That's the line of yours that passed something bad in.</p>
-  </div>
+text = "a rose is a rose is a rose"
+print(count_words(text), "words")
+print("longest:", longest_word(text))</code></pre>
+<pre><code>$ python main.py
+8 words
+longest: rose</code></pre>
+      <p>(<code>$</code> stands for your terminal's prompt. Type what follows it, and the lines after are what the program prints.)</p>
+      <p><code>from words import count_words, longest_word</code> tells Python: find <code>words.py</code>, run it, and bring those two names into this file. Python looks for it in the folder of the program you ran, which is why both files go in one folder. There's a second way to write it:</p>
+<pre><code>import words
+
+print(words.count_words("a rose is a rose"))</code></pre>
+      <p><code>import words</code> brings in the whole module under one name, and you reach inside it with a dot. Both are fine. The dotted form makes it obvious where a name came from, which helps once you have many modules. The modules that come with Python, like <code>sys</code>, <code>math</code> and <code>dataclasses</code>, are imported the same way.</p>
+      <p>Now the last two lines of <code>words.py</code>. Every module has a variable called <code>__name__</code>. When you run a file directly, as in <code>python words.py</code>, Python sets it to <code>"__main__"</code>. When the file is imported, it's set to the module's name, <code>"words"</code>. So the code under <code>if __name__ == "__main__":</code> only runs when you run the file itself:</p>
+<pre><code>$ python words.py
+6</code></pre>
+      <p>When <code>main.py</code> imports <code>words</code>, the 6 isn't printed. Without the <code>if</code>, it would be, every time anything imported the module. Use this to keep a quick check, or a module's command-line entry point, in the same file as its functions.</p>
+    </div>
+    <div class="trap">
+      <span class="label">Don't name a file after a module you use</span>
+      <p>Call your own file <code>random.py</code>, and <code>import random</code> anywhere in that folder finds <em>your</em> file instead of Python's. The errors that follow are baffling, like <code>AttributeError: module 'random' has no attribute 'randint'</code>. Pick names that aren't already taken.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Exit codes in other shells, and what the course's grader reads</summary>
+    <div class="prose">
+      <p>In the old Windows <code>cmd</code> window, the exit code is <code>echo %ERRORLEVEL%</code>. In bash and zsh, the usual shells on Linux and macOS, it is <code>echo $?</code>.</p>
+      <p>Notice the shape of <code>count.py</code>. All the work happens in <code>main(argv)</code>, which <em>returns</em> the exit code, and only the last line calls <code>sys.exit</code>. You can call <code>main(["shopping.txt"])</code> from a test or the REPL and check what it returns, without the program ending under you.</p>
+      <p>The course's grader runs your compiler on each test program and reads the one line it prints, such as <code>MATCH case.uir</code> or <code>REJECTED case.uir</code>. A crash prints a traceback instead of that line, so it fails the test, even one where the right answer was <code>REJECTED</code>. <a href="../week0/07-python.html">Lesson 0.7</a> gives the exact rules.</p>
+    </div>
+  </details>
 
   <div class="prose">
-    <h2>Finding a bug</h2>
-    <p>Here's a program with a bug that doesn't crash. It's meant to print the best score, 12, and it prints 9:</p>
+    <h2>Write a test by hand</h2>
+    <p>How do you know a function works? Here is a word counter. <code>text.split(" ")</code> cuts a string at each space and returns the list of pieces.</p>
+<pre><code>def count_words(text):
+    return len(text.split(" "))</code></pre>
+    <p>You try <code>count_words("the cat sat")</code> and get 3. It looks right.</p>
   </div>
-<pre><code>def parse_scores(text):
-    scores = []
-    for line in text.splitlines():
-        name, score = line.split(",")
-        scores.append(score)
-    return scores
 
-def best(text):
-    scores = parse_scores(text)
-    return max(scores)
-
-print(best("ann,7\nbob,12\ncat,9"))</code></pre>
-  <div class="prose">
-    <p>The simplest tool is <code>print</code>, used well. Print the inputs and outputs of the function you suspect, not "got here". Write <code>{name=}</code> inside an f-string to print a variable's name next to its value, with quotes around strings:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; scores = parse_scores("ann,7\nbob,12\ncat,9")
-&gt;&gt;&gt; print(f"{scores=}")
-scores=['7', '12', '9']</code></pre>
-  <div class="prose">
-    <p>The quotes give it away: the scores are strings, and strings compare letter by letter, so <code>'9'</code> beats <code>'12'</code> because 9 comes after 1. The fix is <code>scores.append(int(score))</code>.</p>
-    <p>In a bigger program, you don't know which function to suspect. Then <b>bisect</b>: print the data at a point roughly halfway through. If it's already wrong there, the bug is in the first half, and otherwise it's in the second half. Then split that half again. Each print halves the code you have to read, so even a big program takes only a handful of steps.</p>
-    <p>The other tool is a <b>debugger</b>, which pauses your program and lets you look around. Put <code>breakpoint()</code> on a line of its own, here as the first line of <code>best</code>, and run the program. It stops there and shows a <code>(Pdb)</code> prompt (pdb is Python's debugger). Here's a session. After each <code>(Pdb)</code> is what was typed:</p>
-  </div>
-<pre><code>$ python grades.py
-&gt; c:\users\you\grades.py(10)best()
--&gt; scores = parse_scores(text)
-(Pdb) l
-  5             scores.append(score)
-  6         return scores
-  7
-  8     def best(text):
-  9         breakpoint()
- 10  -&gt;     scores = parse_scores(text)
- 11         return max(scores)
- 12
- 13     print(best("ann,7\nbob,12\ncat,9"))
-[EOF]
-(Pdb) s
---Call--
-&gt; c:\users\you\grades.py(1)parse_scores()
--&gt; def parse_scores(text):
-(Pdb) n
-&gt; c:\users\you\grades.py(2)parse_scores()
--&gt; scores = []
-(Pdb) n
-&gt; c:\users\you\grades.py(3)parse_scores()
--&gt; for line in text.splitlines():
-(Pdb) n
-&gt; c:\users\you\grades.py(4)parse_scores()
--&gt; name, score = line.split(",")
-(Pdb) n
-&gt; c:\users\you\grades.py(5)parse_scores()
--&gt; scores.append(score)
-(Pdb) p name, score
-('ann', '7')
-(Pdb) n
-&gt; c:\users\you\grades.py(3)parse_scores()
--&gt; for line in text.splitlines():
-(Pdb) p scores
-['7']
-(Pdb) c
-9</code></pre>
-  <div class="prose">
-    <p>Each stop shows the file, line number and function, then <code>-&gt;</code> and the line that's about to run (it hasn't run yet). Six commands cover almost everything:</p>
-  </div>
-  <div class="tablewrap"><table>
-    <thead><tr><th>command</th><th>stands for</th><th>what it does</th></tr></thead>
-    <tbody>
-      <tr><td><code>l</code></td><td>list</td><td>shows the code around the current line, marked <code>-&gt;</code></td></tr>
-      <tr><td><code>n</code></td><td>next</td><td>runs the current line, then stops at the next line of the same function</td></tr>
-      <tr><td><code>s</code></td><td>step</td><td>like <code>n</code>, but if the line calls a function, stops inside it</td></tr>
-      <tr><td><code>p expr</code></td><td>print</td><td>shows the value of any expression, like <code>p score</code> or <code>p len(scores)</code></td></tr>
-      <tr><td><code>c</code></td><td>continue</td><td>runs on until the next <code>breakpoint()</code> or the end</td></tr>
-      <tr><td><code>q</code></td><td>quit</td><td>stops the program right there</td></tr>
-    </tbody>
-  </table></div>
-  <div class="prose">
-    <p>In the session, <code>s</code> went into <code>parse_scores</code> instead of running it in one go, and <code>p name, score</code> showed <code>'7'</code> in quotes: the same clue the print gave. When you quit with <code>q</code>, Python prints a short traceback ending in <code>bdb.BdbQuit</code>. That's expected, not a new bug. Remember to delete the <code>breakpoint()</code> line when you're done.</p>
+  <div class="quiz" data-fill="1">
+    <p class="q">Take a guess. What does <code>count_words("")</code> return for the empty string?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">It should be 0. It isn't.</p>
+    <p class="hint"><code>"".split(" ")</code> is <code>['']</code>, a list that holds one empty string.</p>
+    <div class="why"><p>1. Cutting an empty string at spaces leaves one empty piece, and <code>len</code> counts it as a word. You could not see that by reading the code, and one lucky check did not show it.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Testing your code</h2>
-    <p>An <code>assert</code> statement checks that something is true. If it is, nothing happens. If it isn't, it raises <code>AssertionError</code>, with the message after the comma if you gave one. Here's a first try at counting words, and two asserts that check it:</p>
+    <p>A <b>test</b> is a check you write down so you can run it again and again. It has two moves:</p>
+    <ol>
+      <li><strong>Call the function</strong> on an input you chose.</li>
+      <li><strong>Compare</strong> the result with the answer you worked out by hand.</li>
+    </ol>
+    <p>Try the awkward inputs first: the empty one, a single item, extra spaces. Bugs live there. The fix here is <code>text.split()</code> with no argument, which cuts at any run of spaces and gives <code>[]</code> for an empty string.</p>
   </div>
-<pre><code>&gt;&gt;&gt; def count_words(text):
-...     return len(text.split(" "))
-...
-&gt;&gt;&gt; assert count_words("the cat sat") == 3
-&gt;&gt;&gt; assert count_words("") == 0, f"got {count_words('')}"
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-AssertionError: got 1</code></pre>
+
+  <div class="exercise small" data-ex="lp-06n-failures">
+    <h3>Count the failing cases</h3>
+    <p><code>failures(f, cases)</code> tests the function <code>f</code>. Each case is a pair: an input, and the answer you expect. It should return how many cases fail. The loop is written. Finish its body: call <code>f</code> on the input, compare with the expected answer and count each one that differs.</p>
+  </div>
+
   <div class="prose">
-    <p><code>"".split(" ")</code> is <code>['']</code>, a list holding one empty string, so the empty text counts as one word. <code>split()</code> with no argument splits on any run of spaces and ignores spaces at the ends, and <code>"".split()</code> is <code>[]</code>. That's what <code>words.py</code> uses.</p>
-    <p>A <b>test</b> is a function that calls your code and asserts on what comes back. Collect them in their own file, <code>test_words.py</code>, next to <code>words.py</code>:</p>
+    <p>Python has a short way to write "compare, and stop loudly if it is wrong". <code>assert</code> does nothing when the check after it is true, and raises <code>AssertionError</code> when it is false. <b>On your machine</b>, save the two-line <code>count_words</code> above as <code>words.py</code>, bug and all. Save this next to it as <code>test_words.py</code>:</p>
+<pre><code>from words import count_words
+
+assert count_words("the cat sat") == 3
+assert count_words("") == 0
+assert count_words("  two   words ") == 2
+print("all tests passed")</code></pre>
+    <p>The first line fetches <code>count_words</code> from <code>words.py</code>. Run <code>python test_words.py</code>. You should see a traceback that points at line 4 and ends with <code>AssertionError</code>. Now change <code>split(" ")</code> to <code>split()</code> in <code>words.py</code> and run the test again. You should see <code>all tests passed</code>. Run your tests after every change, so you know the old behavior still works.</p>
   </div>
+
+  <details class="toggle">
+    <summary>Which inputs to test, and a test file that finds its own tests</summary>
+    <div class="prose">
+      <p>An <code>assert</code> can carry a message after a comma, shown when it fails: <code>assert count_words("") == 0, f"got {count_words('')}"</code> ends with <code>AssertionError: got 1</code>.</p>
+      <p>The inputs where bugs hide are called <b>edge cases</b>. Most bugs live at the edges of what a function accepts, not in the middle:</p>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>input is a</th><th>try</th><th>bugs it catches</th></tr></thead>
+      <tbody>
+        <tr><td>list or string</td><td>empty, one item, all items the same</td><td><code>max([])</code> crashing, dividing by <code>len</code> of nothing, an off-by-one</td></tr>
+        <tr><td>number</td><td>zero, one, negative</td><td>dividing by zero, a loop that never runs, <code>%</code> and <code>//</code> on negatives</td></tr>
+        <tr><td>number</td><td>huge, like <code>2**64</code></td><td>going through a float, which loses digits past about 2**53</td></tr>
+        <tr><td>text</td><td>spaces only, a missing separator, characters like <code>é</code></td><td><code>split</code> surprises, a forgotten <code>encoding="utf-8"</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <p>Write the test for an edge case before you fix it, and watch it fail. Then you know the test can catch the bug, and that your fix is what made it pass. The course's own tests work this way, in bulk: a folder of small programs, each with the answer it should give, run against your compiler after every change.</p>
+      <p>Once you have many tests, give each one a name by making it a function, and let the file call them all:</p>
 <pre><code>from words import count_words
 
 def test_simple():
@@ -411,35 +425,168 @@ for name, f in list(globals().items()):
 ok test_simple
 ok test_empty
 ok test_extra_spaces</code></pre>
+      <p>The loop at the bottom uses an idea from P.5: functions are values. <code>globals()</code> is a dict of every name defined in the file, so the loop finds each function whose name starts with <code>test_</code> and calls it. If an assert fails, the program stops with a traceback that points at the failing line.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>The loop at the bottom uses an idea from lesson 5: functions are values. <code>globals()</code> is a dict of every name defined in the file, so the loop finds each function whose name starts with <code>test_</code> and calls it. If an assert fails, the program stops with a traceback that points at the failing line. Run the tests after every change. When they pass, you know the old behavior still works.</p>
-    <p>Which inputs should a test try? The ones where bugs hide, called <b>edge cases</b>. Most bugs live at the edges of what a function accepts, not in the middle:</p>
+    <h2>Read a long traceback</h2>
+    <p>When a test fails or a program crashes, the traceback is your first clue. Real errors happen several calls deep. This report adds up scores, and one line of its data is bad:</p>
+<pre><code>def parse_score(line):
+    name, score = line.split(",")
+    return int(score)
+
+def total(lines):
+    result = 0
+    for line in lines:
+        result += parse_score(line)
+    return result
+
+def main():
+    lines = ["ann,7", "bob,12", "cat,nine"]
+    print(total(lines))
+
+main()</code></pre>
+<pre><code>Traceback (most recent call last):
+  File "C:\Users\you\learn-python\report.py", line 15, in &lt;module&gt;
+    main()
+  File "C:\Users\you\learn-python\report.py", line 13, in main
+    print(total(lines))
+          ^^^^^^^^^^^^
+  File "C:\Users\you\learn-python\report.py", line 8, in total
+    result += parse_score(line)
+              ^^^^^^^^^^^^^^^^^
+  File "C:\Users\you\learn-python\report.py", line 3, in parse_score
+    return int(score)
+           ^^^^^^^^^^
+ValueError: invalid literal for int() with base 10: 'nine'</code></pre>
+    <p>A traceback is the call stack from P.5, printed at the moment of the error. Each <code>File ... line ... in ...</code> entry is one waiting call, with the line it was running under it. The newest call is at the bottom. Read it in two passes:</p>
+    <ol>
+      <li><strong>Bottom up, for what and where.</strong> The last line is the error: <code>int</code> was given <code>'nine'</code>. The entry right above it is where it happened.</li>
+      <li><strong>Top down, for how you got there.</strong> <code>main</code> called <code>total</code>, which called <code>parse_score</code>. The bad value <code>'nine'</code> came from the list in <code>main</code>, so that is what to fix.</li>
+    </ol>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">Which line number of <code>report.py</code> was running when the error happened?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Find the last <code>File</code> entry, right above the <code>ValueError</code> line.</p>
+    <div class="why"><p>Line 3, <code>return int(score)</code>, inside <code>parse_score</code>. The <code>^^^^</code> marks show which part of the line was running. Newer versions of Python may draw them a little differently.</p></div>
+  </div>
+
+  <div class="note">
+    <span class="label">Frames you didn't write</span>
+    <p>Sometimes the bottom entries are inside Python's own files, with paths like <code>...\Lib\json\decoder.py</code>. Read upward until you reach the first entry in one of <em>your</em> files. That's the line of yours that passed something bad in.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Step through a program to find a bug</h2>
+    <p>Some bugs do not crash. This program is meant to print the best score. <code>max</code> returns the largest item of a list.</p>
+<pre><code>def parse_scores(text):
+    scores = []
+    for line in text.splitlines():
+        name, score = line.split(",")
+        scores.append(score)
+    return scores
+
+def best(text):
+    scores = parse_scores(text)
+    return max(scores)
+
+print(best("ann,7\nbob,12\ncat,9"))</code></pre>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">The best score is 12. What does the program print?</p>
+    <div class="opts"><button data-k="a"><code>12</code></button><button data-k="b"><code>9</code></button><button data-k="c">A traceback</button></div>
+    <p class="hint">Look at what <code>append</code> adds to the list. Is <code>score</code> a number, or a piece of text?</p>
+    <div class="why"><p>It prints 9. <code>split</code> returns strings, so the list is <code>['7', '12', '9']</code>. Strings compare character by character, and <code>'9'</code> comes after <code>'1'</code>. The fix is <code>scores.append(int(score))</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>You found that by reading. When reading is not enough, look at the values while the program runs. There are two calm ways to do it.</p>
+    <p><strong>Print the value you suspect.</strong> Add <code>print(f"{scores=}")</code> before the <code>return</code> in <code>best</code>. It prints <code>scores=['7', '12', '9']</code>: the name, then the value. The quotes give the bug away.</p>
+    <p><strong>Pause the program and look around.</strong> <b>On your machine</b>, save the program as <code>grades.py</code> and add a line <code>breakpoint()</code> as the first line of <code>best</code>. Run <code>python grades.py</code>. It stops and waits at a <code>(Pdb)</code> prompt. Pdb is Python's <b>debugger</b>, a tool that runs a program one line at a time. Type three commands, pressing Enter after each:</p>
+<pre><code>-&gt; scores = parse_scores(text)
+(Pdb) n
+-&gt; return max(scores)
+(Pdb) p scores
+['7', '12', '9']
+(Pdb) c
+9</code></pre>
+    <p>The line after <code>-&gt;</code> is the one about to run. <code>n</code> (next) runs it. <code>p scores</code> prints a value. <code>c</code> (continue) lets the program finish. You will also see a line with the file name before each <code>-&gt;</code>. On Python 3.13 and newer the first stop is on the <code>breakpoint()</code> line itself, so type <code>n</code> one more time. Delete the <code>breakpoint()</code> line when you are done.</p>
   </div>
   <div class="tablewrap"><table>
-    <thead><tr><th>input is a</th><th>try</th><th>bugs it catches</th></tr></thead>
+    <thead><tr><th>command</th><th>stands for</th><th>what it does</th></tr></thead>
     <tbody>
-      <tr><td>list or string</td><td>empty, one item, all items the same</td><td><code>max([])</code> crashing, dividing by <code>len</code> of nothing, an off-by-one</td></tr>
-      <tr><td>number</td><td>zero, one, negative</td><td>dividing by zero, a loop that never runs, <code>%</code> and <code>//</code> on negatives</td></tr>
-      <tr><td>number</td><td>huge, like <code>2**64</code></td><td>going through a float, which loses digits past about 2**53</td></tr>
-      <tr><td>text</td><td>spaces only, a missing separator, characters like <code>é</code></td><td><code>split</code> surprises, a forgotten <code>encoding="utf-8"</code></td></tr>
+      <tr><td><code>n</code></td><td>next</td><td>runs the current line, then stops at the next line of the same function</td></tr>
+      <tr><td><code>s</code></td><td>step</td><td>like <code>n</code>, but if the line calls a function, stops inside it</td></tr>
+      <tr><td><code>p expr</code></td><td>print</td><td>shows the value of any expression, like <code>p score</code> or <code>p len(scores)</code></td></tr>
+      <tr><td><code>l</code></td><td>list</td><td>shows the code around the current line, marked <code>-&gt;</code></td></tr>
+      <tr><td><code>c</code></td><td>continue</td><td>runs on until the next <code>breakpoint()</code> or the end</td></tr>
+      <tr><td><code>q</code></td><td>quit</td><td>stops the program right there</td></tr>
     </tbody>
   </table></div>
-  <div class="prose">
-    <p>Write the test for an edge case before you fix it, and watch it fail. Then you know the test can catch the bug, and that your fix is what made it pass. The course's own tests work this way, in bulk: a folder of small programs, each with the answer it should give, run against your compiler after every change.</p>
-  </div>
+
+  <details class="toggle">
+    <summary>A full debugger session, and how to search a big program for a bug</summary>
+    <div class="prose">
+      <p>Here is a longer session on <code>grades.py</code> with Python 3.11. After each <code>(Pdb)</code> is what was typed. Each stop shows the file, line number and function, then <code>-&gt;</code> and the line that's about to run (it hasn't run yet).</p>
+<pre><code>$ python grades.py
+&gt; c:\users\you\learn-python\grades.py(10)best()
+-&gt; scores = parse_scores(text)
+(Pdb) l
+  5             scores.append(score)
+  6         return scores
+  7
+  8     def best(text):
+  9         breakpoint()
+ 10  -&gt;     scores = parse_scores(text)
+ 11         return max(scores)
+ 12
+ 13     print(best("ann,7\nbob,12\ncat,9"))
+[EOF]
+(Pdb) s
+--Call--
+&gt; c:\users\you\learn-python\grades.py(1)parse_scores()
+-&gt; def parse_scores(text):
+(Pdb) n
+&gt; c:\users\you\learn-python\grades.py(2)parse_scores()
+-&gt; scores = []
+(Pdb) n
+&gt; c:\users\you\learn-python\grades.py(3)parse_scores()
+-&gt; for line in text.splitlines():
+(Pdb) n
+&gt; c:\users\you\learn-python\grades.py(4)parse_scores()
+-&gt; name, score = line.split(",")
+(Pdb) n
+&gt; c:\users\you\learn-python\grades.py(5)parse_scores()
+-&gt; scores.append(score)
+(Pdb) p name, score
+('ann', '7')
+(Pdb) n
+&gt; c:\users\you\learn-python\grades.py(3)parse_scores()
+-&gt; for line in text.splitlines():
+(Pdb) p scores
+['7']
+(Pdb) c
+9</code></pre>
+      <p>In the session, <code>s</code> went into <code>parse_scores</code> instead of running it in one go, and <code>p name, score</code> showed <code>'7'</code> in quotes: the same clue the print gave. When you quit with <code>q</code>, Python prints a short traceback ending in <code>bdb.BdbQuit</code>. That's expected, not a new bug.</p>
+      <p>When you use <code>print</code>, print the inputs and outputs of the function you suspect, not "got here". In a bigger program, you don't know which function to suspect. Then <b>bisect</b>: print the data at a point roughly halfway through. If it's already wrong there, the bug is in the first half, and otherwise it's in the second half. Then split that half again. Each print halves the code you have to read, so even a big program takes only a handful of steps.</p>
+    </div>
+  </details>
 
   <div class="prose">
     <h2>What you can do now</h2>
     <ul>
-      <li>Split a program into modules, import between them, and use <code>if __name__ == "__main__":</code>.</li>
-      <li>Read and write text files with <code>with open(..., encoding="utf-8")</code>, and split them with <code>splitlines()</code>.</li>
-      <li>Raise exceptions, catch the specific one you expect, and define your own exception class.</li>
+      <li>Read a text file with <code>with open(..., encoding="utf-8")</code>, and split it with <code>splitlines()</code>.</li>
+      <li>Catch the one exception you expect with <code>try</code> and <code>except</code>, raise your own, and define your own exception class.</li>
       <li>Read <code>sys.argv</code>, and report success or failure with an exit code.</li>
+      <li>Write a test: call the function, compare with what you expect, and try the awkward inputs first.</li>
       <li>Read a traceback bottom up and then top down.</li>
-      <li>Find a bug with good prints, bisecting, or <code>breakpoint()</code> and pdb.</li>
-      <li>Write small tests with <code>assert</code>, and pick edge cases for them.</li>
+      <li>Find a bug with a well-placed print, or with <code>breakpoint()</code> and pdb.</li>
     </ul>
-    <p>That's everything this track set out to teach. Next comes week 0, starting with <a href="../week0/01-c-and-pointers.html">lesson 0.1: C and pointers</a>. It ends with <a href="../week0/07-python.html">lesson 0.7</a>, which shows how to set your compiler up as a project the grader can run, and where Python's numbers differ from the ones your compiler must produce.</p>
+    <p>That's everything this track set out to teach. Next, in <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a>, you write a ten-line interpreter in the browser. Then <a href="../week0/07-python.html">lesson 0.7</a> turns it into a project on your machine that the grader can run, using the files, imports, exceptions and exit codes from this page. Week 1 fills that project in.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -481,7 +628,7 @@ ok test_extra_spaces</code></pre>
     <p class="q">A Python program stops because of an exception nobody caught. What is its exit code?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">It isn't 0, since 0 means success.</p>
-    <p class="hint">The <code>report.py</code> run on this page ended this way.</p>
+    <p class="hint">The <code>crash.py</code> and <code>report.py</code> runs on this page ended this way.</p>
     <div class="why"><p>1. Python prints the traceback and exits with 1. The course's grader reads the outcome line your compiler prints, not this number, so a crash, which prints no outcome, fails the test.</p></div>
   </div>
 

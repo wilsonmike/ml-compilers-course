@@ -1,0 +1,130 @@
+{
+ "id": "w5-04n-valid",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "A two-tap convolution",
+ "starter": "%xb = buffer 5 dtype=f32 slot=0\n%wb = buffer 2 dtype=f32 slot=1\n%yb = buffer 4 dtype=f32 slot=2\n%x  = load %xb\n%w  = load %wb\n%y  = expand 0.0 [4]\n%st = store %yb %y\n%y1 = after %yb %st\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0
+    ],
+    "1": [
+     1.0,
+     1.0
+    ]
+   },
+   "sample": true,
+   "expect": "[3.0 5.0 7.0 9.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0
+    ],
+    "1": [
+     -1.0,
+     1.0
+    ]
+   },
+   "sample": true,
+   "expect": "[1.0 1.0 1.0 1.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0
+    ],
+    "1": [
+     1.0,
+     0.0
+    ]
+   },
+   "expect": "[1.0 2.0 3.0 4.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0
+    ],
+    "1": [
+     0.0,
+     1.0
+    ]
+   },
+   "expect": "[2.0 3.0 4.0 5.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     0.0,
+     8.0,
+     0.0,
+     0.0
+    ],
+    "1": [
+     2.0,
+     3.0
+    ]
+   },
+   "expect": "[0.0 24.0 16.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.5,
+     -1.0,
+     2.0,
+     4.0,
+     -0.25
+    ],
+    "1": [
+     4.0,
+     0.5
+    ]
+   },
+   "expect": "[1.5 -3.0 10.0 15.875]"
+  },
+  {
+   "data": {
+    "0": [
+     7.0,
+     7.0,
+     7.0,
+     7.0,
+     7.0
+    ],
+    "1": [
+     0.5,
+     -0.5
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0]"
+  }
+ ],
+ "hints": [
+  "Every window is full here, so there is nothing to pad. You need one shifted copy of x per tap, each 4 long.",
+  "`shrink %x 0 [4]` holds `x[i]` for every i and `shrink %x 1 [4]` holds `x[i+1]`. Stack them into shape `[2 4]`.",
+  "Reshape w to `[2 1]`, expand it to `[2 4]`, multiply by the stack, and `reduce op=add pop=1` adds the two taps."
+ ],
+ "explain": "One `shrink` per tap gives the shifted copies, `stack` puts the taps on a new leading axis, and w is expanded along the outputs. After the `mul`, a `reduce` over the tap axis leaves one sum per output. No pad is needed because no window hangs off the end."
+}

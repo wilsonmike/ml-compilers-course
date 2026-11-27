@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Functions and Types in OCaml</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A function is a value that takes input and gives back a result. In OCaml you&#x27;ll write dozens of small ones, call them without parentheses, pass them to each...">
+<meta name="description" content="A function is a calculation with a name, so you can use it again with different numbers. In this lesson you&#x27;ll write small functions, make them choose between...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/ml-02-functions">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Functions and Types in OCaml">
-<meta property="og:description" content="A function is a value that takes input and gives back a result. In OCaml you&#x27;ll write dozens of small ones, call them without parentheses, pass them to each other, and let OCaml work out their types...">
+<meta property="og:description" content="A function is a calculation with a name, so you can use it again with different numbers. In this lesson you&#x27;ll write small functions, make them choose between two results and make one call itself...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/ml-02-functions">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,203 +20,307 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Learn OCaml|Functions and types" data-root="../">
 <main>
   <p class="eyebrow">Learn OCaml · Lesson 2</p>
   <h1>Functions and types</h1>
-  <p class="lede">A function is a value that takes input and gives back a result. In OCaml you'll write dozens of small ones, call them without parentheses, pass them to each other, and let OCaml work out their types for you. This lesson shows how all of that reads.</p>
+  <p class="lede">A function is a calculation with a name, so you can use it again with different numbers. In this lesson you'll write small functions, make them choose between two results and make one call itself. You'll finish with a function that builds another function. Your compiler is made of pieces like these.</p>
+
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Write functions that take numbers, choose with <code>if</code>, call themselves and build other functions.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">Where this goes</span>
+    <p>Two places later in the course need this lesson. In <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a> you write <code>apply op a b</code>, a function with three inputs that picks one of several results. In <a href="../week1/01-the-uop.html#repair">lesson 1.1</a> you write a function that builds and returns another function. The last two screens here get you ready for that one.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Values and their types, <code>let</code>, arithmetic with <code>+</code> and <code>+.</code>, and how to read a type error. All of it is in <a href="ml-01-first-steps.html">O.1</a>, which also gets OCaml and the exercise runner working on your machine.</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from O.1, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="12">
+    <p class="q">What number does the second reply show?</p>
+<pre><code># let price = 4;;
+# price * 3;;</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The first line gives the value 4 a name. The second line uses the name.</p>
+    <div class="why"><p><code>price</code> is 4, and 4 * 3 is 12. The reply is <code>- : int = 12</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Which line is a type error?</p>
+    <div class="opts"><button data-k="a"><code>2 + 3</code></button><button data-k="b"><code>2.5 +. 1.0</code></button><button data-k="c"><code>2.5 + 1.0</code></button></div>
+    <p class="hint">One of the two plus signs works only on whole numbers.</p>
+    <div class="why"><p><code>+</code> adds two <code>int</code> values. Numbers with a decimal point are <code>float</code> values, and they need <code>+.</code> with a dot.</p></div>
+  </div>
 
   <div class="prose">
-    <h2>Your first function</h2>
-    <p>You define a function with the same <code>let</code> you used for values. The difference is that the name is followed by one or more <b>parameters</b>: names for the inputs.</p>
+    <h2>Name a calculation to use it again</h2>
+    <p>Say you need the double of 21, then of 8, then of 150. You could type <code>21 * 2</code>, <code>8 * 2</code> and <code>150 * 2</code>. The calculation is the same each time and only the number changes. A <b>function</b> is a calculation with a name and a gap for the part that changes.</p>
   </div>
 <pre><code># let double x = x * 2;;
 val double : int -&gt; int = &lt;fun&gt;
 # double 21;;
 - : int = 42</code></pre>
   <div class="prose">
-    <p><code>let double x = x * 2</code> reads "<code>double</code> of <code>x</code> is <code>x * 2</code>". The part after <code>=</code> is the <b>body</b>, the expression that gives the result. There is no <code>return</code> keyword: the value of the body <em>is</em> the result.</p>
-    <p>To call it, write the function name, a space, then the argument: <code>double 21</code>. No parentheses. With two parameters, you write both arguments after the name, separated by spaces, not commas:</p>
+    <p>This is the <code>let</code> from O.1 with one new thing: a second name, <code>x</code>, after the function's name. <code>x</code> is a <b>parameter</b>, a name for the input. The part after <code>=</code> is the <b>body</b>, the expression that gives the result. There is no <code>return</code> word. The value of the body is the result.</p>
+    <p>To <b>call</b> a function means to use it. Write its name, a space, then the input, which is called the <b>argument</b>. Here is what OCaml does with <code>double 21</code>:</p>
+    <ol>
+      <li><strong>Find the function.</strong> <code>double</code> has the parameter <code>x</code> and the body <code>x * 2</code>.</li>
+      <li><strong>Fill in the parameter.</strong> For this call, <code>x</code> is 21.</li>
+      <li><strong>Work out the body.</strong> <code>21 * 2</code> is 42. That is the value of the call.</li>
+    </ol>
+    <p>In the first reply, <code>&lt;fun&gt;</code> means "a function", because a function can't be printed. The part with the arrow is its type. You'll read it a few screens from now.</p>
+    <p>A function can have more than one parameter. Write them one after another, and call it with the arguments in the same order, with spaces between them:</p>
   </div>
 <pre><code># let add a b = a + b;;
 val add : int -&gt; int -&gt; int = &lt;fun&gt;
 # add 3 4;;
 - : int = 7</code></pre>
-  <div class="prose">
-    <p>Why no parentheses and commas? Calling functions is the most common thing you do in OCaml, so it gets the lightest possible syntax. A space means "apply this function to this". Parentheses are still used, but only for <b>grouping</b>, the way they are in math:</p>
+
+  <div class="exercise small" data-ex="lo-02n-minutes">
+    <h3>Hours and minutes</h3>
+    <p>Write <code>minutes h m</code>: how many minutes there are in <code>h</code> hours and <code>m</code> minutes. <code>minutes 1 30</code> is 90. The body is 0 right now.</p>
   </div>
-<pre><code># double 3 + 1;;
-- : int = 7
-# double (3 + 1);;
-- : int = 8</code></pre>
+
+  <h2>Calls come before arithmetic</h2>
+  <p class="prose">In school math you write f(2 + 3), and the parentheses show where the input stops. An OCaml call has no parentheses. So where does the argument stop? Predict before you read on.</p>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">With <code>let double x = x * 2</code>, what is <code>double 2 + 3</code>?</p>
+    <div class="opts"><button data-k="a">7</button><button data-k="b">10</button><button data-k="c">A type error</button></div>
+    <p class="hint">Either the call happens first or the <code>+</code> does. Work out both and pick one.</p>
+    <div class="why"><p>A call takes only the one value right next to it. So this is <code>(double 2) + 3</code>, which is 4 + 3 = 7. To get 10, write <code>double (2 + 3)</code>.</p></div>
+  </div>
+
   <div class="prose">
-    <p>Calling a function grabs its argument before any operator gets a turn. So <code>double 3 + 1</code> is <code>(double 3) + 1</code>, which is 7. If you want to double 4, put parentheses around <code>3 + 1</code>.</p>
+    <p>A space after a function's name means "call it on the next value". That happens before <code>+</code>, <code>*</code> or any other operator gets a turn. Parentheses do not make the call. They only <b>group</b>, the way they do in arithmetic.</p>
+  </div>
+<pre><code># double 2 + 3;;
+- : int = 7
+# double (2 + 3);;
+- : int = 10</code></pre>
+  <div class="prose">
+    <p>The habit to build: when an argument is more than a single name or number, put parentheses around it. That covers a sum, as in <code>double (2 + 3)</code>. It covers another call, as in <code>double (double 3)</code>. And it covers a negative number, as in <code>double (-7)</code>, because <code>double -7</code> reads as "<code>double</code> minus 7".</p>
   </div>
   <div class="trap">
-    <span class="label">Negative arguments need parentheses</span>
-    <p>For the same reason, <code>double -7</code> reads as <code>double</code> minus 7, which is nonsense: you can't subtract a number from a function. Write <code>double (-7)</code>.</p>
+    <span class="label">No commas either</span>
+    <p><code>add (3, 4)</code> is not <code>add 3 4</code>. In OCaml a comma glues two values into one value called a pair (lesson O.3). So <code>add (3, 4)</code> hands <code>add</code> one argument of the wrong type, and you get a type error.</p>
   </div>
-<pre><code># let abs_val n = if n &lt; 0 then -n else n;;
-val abs_val : int -&gt; int = &lt;fun&gt;
-# abs_val -7;;
-Line 1, characters 0-7:
-1 | abs_val -7;;
-    ^^^^^^^
+
+  <div class="exercise small" data-ex="lo-02n-double-sum">
+    <h3>Double the sum</h3>
+    <p><code>double_sum a b</code> should add <code>a</code> and <code>b</code>, then double the total. <code>double_sum 1 2</code> should be 6. Right now it gives 4. Repair the body.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The error messages these two slips give, for when you meet one</summary>
+    <div class="prose">
+<pre><code># double -7;;
+Line 1, characters 0-6:
+1 | double -7;;
+    ^^^^^^
 Error: This expression has type "int -&gt; int"
        but an expression was expected of type "int"
-# abs_val (-7);;
-- : int = 7</code></pre>
-  <div class="prose">
-    <p>Use the recipe from lesson O.1. The marked piece is <code>abs_val</code> itself, and it has type <code>int -&gt; int</code> (a function). The place, the left side of a minus sign, expects an <code>int</code>. OCaml read your <code>-</code> as subtraction.</p>
-  </div>
-  <div class="trap">
-    <span class="label">f (3, 4) is not f 3 4</span>
-    <p>If you come from another language, you'll write <code>add (3, 4)</code> sooner or later. In OCaml, <code>(3, 4)</code> is a single value, a <b>pair</b> of two numbers (a pair is a kind of tuple, covered in lesson O.3). So <code>add (3, 4)</code> passes one pair where an int was expected.</p>
-  </div>
+# double (-7);;
+- : int = -14</code></pre>
+      <p>Use the recipe from O.1. The marked piece is <code>double</code> itself, and it has type <code>int -&gt; int</code>, a function. The place it sits in, the left side of a minus sign, expects an <code>int</code>. OCaml read your <code>-</code> as subtraction, and you can't subtract a number from a function.</p>
 <pre><code># add (3, 4);;
 Line 1, characters 4-10:
 1 | add (3, 4);;
         ^^^^^^
 Error: This expression has type "'a * 'b"
        but an expression was expected of type "int"</code></pre>
+      <p>The marks are under <code>(3, 4)</code>. Its type <code>'a * 'b</code> means "a pair of something and something". <code>add</code> wanted an <code>int</code> there. The repair is <code>add 3 4</code>.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>The marks are under <code>(3, 4)</code>. Its type <code>'a * 'b</code> means "a pair of something and something" (the <code>'a</code> notation is explained further down). <code>add</code> wanted an <code>int</code> there. Fix: <code>add 3 4</code>.</p>
+    <h2>Choose between two results</h2>
+    <p>A shop charges 5 for shipping, and nothing when the order is 50 or more. That is one function with two possible results, so it has to ask a question. In OCaml the question is a <code>bool</code>, a value that is <code>true</code> or <code>false</code>, such as <code>total &gt;= 50</code>.</p>
+  </div>
+<pre><code># let shipping total = if total &gt;= 50 then 0 else 5;;
+val shipping : int -&gt; int = &lt;fun&gt;
+# shipping 20;;
+- : int = 5
+# shipping 80;;
+- : int = 0</code></pre>
+  <div class="prose">
+    <p>Read it as: if the question is true, the value is the <code>then</code> part. If not, the value is the <code>else</code> part. Now a prediction.</p>
+  </div>
+
+  <div class="quiz" data-fill="11">
+    <p class="q">What is <code>1 + (if 3 &gt; 2 then 10 else 20)</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Work out the part in parentheses first. Is 3 greater than 2?</p>
+    <div class="why"><p>3 &gt; 2 is true, so the <code>if</code> has the value 10, and 1 + 10 is 11. An <code>if</code> can sit anywhere a number can, because it is a value.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Reading arrow types</h2>
-    <p>Look at what utop said about the functions above:</p>
-  </div>
-<pre><code>val double : int -&gt; int = &lt;fun&gt;
-val add : int -&gt; int -&gt; int = &lt;fun&gt;</code></pre>
-  <div class="prose">
-    <p>The value is shown as <code>&lt;fun&gt;</code> because a function can't be printed. Its type is the useful part. An arrow <code>-&gt;</code> means "takes ... and gives ...":</p>
-  </div>
-  <div class="tablewrap"><table>
-    <tr><th>Type</th><th>Read it as</th></tr>
-    <tr><td><code>int -&gt; int</code></td><td>takes an int, gives an int</td></tr>
-    <tr><td><code>int -&gt; int -&gt; int</code></td><td>takes an int, then another int, gives an int</td></tr>
-    <tr><td><code>string -&gt; string</code></td><td>takes a string, gives a string</td></tr>
-    <tr><td><code>string -&gt; int -&gt; unit</code></td><td>takes a string, then an int, gives <code>unit</code> (it probably prints something)</td></tr>
-    <tr><td><code>int -&gt; bool</code></td><td>takes an int, answers yes or no</td></tr>
-  </table></div>
-  <div class="prose">
-    <p>The rule: <b>the last type is the result, every type before it is an input</b>, in order. You'll often know what a library function does from its type alone. <code>String.length : string -&gt; int</code> can hardly do anything except measure a string.</p>
-  </div>
-
-  <div class="prose">
-    <h2>Local names with let ... in</h2>
-    <p>Inside a function you often want a name for a step along the way. <code>let ... in</code> makes a name that exists only in the expression after <code>in</code>:</p>
-  </div>
-<pre><code># let price_with_tax p =
-    let tax = p * 8 / 100 in
-    p + tax;;
-val price_with_tax : int -&gt; int = &lt;fun&gt;
-# price_with_tax 250;;
-- : int = 270
-# tax;;
-Line 1, characters 0-3:
-1 | tax;;
-    ^^^
-Error: Unbound value "tax"
-Hint: Did you mean "max" or "tan"?</code></pre>
-  <div class="prose">
-    <p>Read <code>let tax = p * 8 / 100 in p + tax</code> as "let <code>tax</code> be 8 percent of <code>p</code> in the expression <code>p + tax</code>". Once that expression is done, <code>tax</code> is gone. Outside the function there is no <code>tax</code>, and OCaml says so: "Unbound value" means "I don't know this name". (Its guesses, <code>max</code> and <code>tan</code>, are real functions with similar spellings.)</p>
-    <p>You can chain several, one per line. Each name can use the ones before it:</p>
-  </div>
-<pre><code>let hypotenuse a b =
-  let a2 = a *. a in
-  let b2 = b *. b in
-  sqrt (a2 +. b2)</code></pre>
-  <div class="prose">
-    <p><code>hypotenuse 3.0 4.0</code> is <code>5.</code>. Keeping helper names local means they can't clash with names elsewhere, and a reader knows they matter only here.</p>
-  </div>
-
-  <div class="prose">
-    <h2>if is an expression</h2>
-    <p>In OCaml, <code>if</code> doesn't "do one thing or the other". It <em>has a value</em>: the value of whichever branch was chosen.</p>
+    <p>So <code>if</code> is an expression, the word from O.1 for a piece of code that has a value. It does not "do one thing or the other". It <em>is</em> one value or the other. Two rules follow from that:</p>
+    <ol>
+      <li><strong>Write both parts.</strong> The <code>if</code> needs a value whichever way the question goes, so give it a <code>then</code> and an <code>else</code>.</li>
+      <li><strong>Give both parts the same type.</strong> The whole <code>if</code> has one type. <code>if 3 &gt; 2 then "yes" else 0</code> is a type error, because one part is a string and the other is an int.</li>
+    </ol>
+    <p>For more than two results, put another <code>if</code> in the <code>else</code> part:</p>
   </div>
 <pre><code># let describe_temp t = if t &lt; 10 then "cold" else if t &lt; 25 then "mild" else "hot";;
 val describe_temp : int -&gt; string = &lt;fun&gt;
 # describe_temp 18;;
-- : string = "mild"
-# let is_even n = n mod 2 = 0;;
-val is_even : int -&gt; bool = &lt;fun&gt;</code></pre>
-  <div class="prose">
-    <p>The whole <code>if ... then ... else ...</code> is the function body, and its value is the result. You can chain <code>else if</code> as many times as you like. Notice <code>is_even</code> doesn't need an <code>if</code> at all: <code>n mod 2 = 0</code> is already a <code>bool</code>.</p>
-    <p>Because an <code>if</code> has a value, that value needs one type. So <b>both branches must have the same type</b>:</p>
+- : string = "mild"</code></pre>
+
+  <div class="exercise small" data-ex="lo-02n-bigger">
+    <h3>The bigger of two</h3>
+    <p>Write <code>bigger a b</code>, which gives the larger of two ints. <code>bigger 3 9</code> is 9. Right now it always gives <code>a</code>. You will write this again as the <code>max</code> op of your calculator.</p>
   </div>
+
+  <details class="toggle">
+    <summary>The error for parts with different types, and an <code>if</code> with no <code>else</code>, for when you meet them</summary>
+    <div class="prose">
 <pre><code># if 3 &gt; 2 then "yes" else 0;;
 Line 1, characters 25-26:
 1 | if 3 &gt; 2 then "yes" else 0;;
                              ^
 Error: This expression has type "int" but an expression was expected of type
          "string"</code></pre>
-  <div class="prose">
-    <p>OCaml saw the <code>then</code> branch first, a string, so it expected the <code>else</code> branch to be a string as well. This is the same rule that made the <code>if</code> without <code>else</code> fail in lesson O.1: the missing branch is <code>()</code>, so the other one must be <code>unit</code> too.</p>
+      <p>OCaml saw the <code>then</code> part first, a string, so it expected the <code>else</code> part to be a string as well.</p>
+      <p>You may leave out <code>else</code> in one case. OCaml then uses <code>()</code> for the missing part, so the <code>then</code> part must have type <code>unit</code> too. <code>()</code> is the value that code gives back when it does something, such as printing or changing a value, and has no answer to return. Lesson O.5 is where you first need it.</p>
+      <p>A question is already a <code>bool</code>, so a function that answers yes or no needs no <code>if</code>: <code>let is_even n = n mod 2 = 0</code> has type <code>int -&gt; bool</code>.</p>
+    </div>
+  </details>
+
+  <h2>Read the type OCaml prints</h2>
+  <p class="prose">Each time you defined a function, the reply had a type with an arrow in it, like <code>val double : int -&gt; int</code>. You never typed that. OCaml worked it out from the body. Try to do the same.</p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">You type <code>let is_big n = n &gt; 100;;</code>. Which type does the toplevel print for <code>is_big</code>?</p>
+    <div class="opts"><button data-k="a"><code>int -&gt; int</code></button><button data-k="b"><code>int -&gt; bool</code></button><button data-k="c"><code>bool -&gt; int</code></button></div>
+    <p class="hint">What type is <code>n</code>, if it can be compared with 100? What type is the answer to a question?</p>
+    <div class="why"><p><code>n</code> is compared with 100, so it is an <code>int</code>. The body <code>n &gt; 100</code> is a question, so the result is a <code>bool</code>. The reply is <code>val is_big : int -&gt; bool = &lt;fun&gt;</code>.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Recursion with let rec</h2>
-    <p>A <b>recursive</b> function is one that calls itself. That sounds circular, but it works as long as each call is on a smaller problem and there is a smallest problem you answer directly. Here is factorial: 4! is 4 × 3 × 2 × 1.</p>
+    <p>Read an arrow as "takes this, gives that". The input is on the left and the result is on the right.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>Type</th><th>Read it as</th></tr>
+    <tr><td><code>int -&gt; int</code></td><td>takes an int, gives an int</td></tr>
+    <tr><td><code>int -&gt; bool</code></td><td>takes an int, answers true or false</td></tr>
+    <tr><td><code>int -&gt; string</code></td><td>takes an int, gives a string</td></tr>
+    <tr><td><code>int -&gt; int -&gt; int</code></td><td>takes an int, then another int, gives an int</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>The rule: <b>the last type is the result, and every type before it is an input</b>, in order. That is why <code>add</code>, with two parameters, has two arrows.</p>
+    <p>You may write the types yourself, after a colon. Exercise starters often do: <code>let add (a : int) (b : int) : int = a + b</code> is the same <code>add</code>, with each parameter's type and then the result's type spelled out.</p>
+    <p>Type a function's name alone and the toplevel shows its type. This one comes with OCaml:</p>
+  </div>
+<pre><code># String.length;;
+- : string -&gt; int = &lt;fun&gt;</code></pre>
+  <div class="prose">
+    <p>It takes a string and gives an int: the length you used in O.1.</p>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Which type fits <code>describe_temp</code> from the last screen, which turns 18 into <code>"mild"</code>?</p>
+    <div class="opts"><button data-k="a"><code>string -&gt; int</code></button><button data-k="b"><code>int -&gt; int -&gt; string</code></button><button data-k="c"><code>int -&gt; string</code></button></div>
+    <p class="hint">How many inputs does it take? What type is <code>"mild"</code>?</p>
+    <div class="why"><p>One input, an int, and the result is a string. The input goes on the left of the arrow.</p></div>
+  </div>
+
+  <details class="toggle">
+    <summary>Writing types yourself, and types with <code>'a</code> in them, for when a reply shows a letter with a tick mark</summary>
+    <div class="prose">
+      <p>OCaml looks at how you <em>use</em> each name and works the types out. This is called <b>type inference</b>. In <code>let double x = x * 2</code>, <code>x</code> is used with <code>*</code>, which takes ints, so <code>x</code> must be an int, and so must the result.</p>
+      <p>You can still write types yourself, after a colon. It changes nothing when they match what OCaml inferred. It helps when you are reading an error and want OCaml to check what you believe:</p>
+<pre><code># let add (x : int) (y : int) : int = x + y;;
+val add : int -&gt; int -&gt; int = &lt;fun&gt;</code></pre>
+      <p>Sometimes nothing in the body pins a type down. The simplest case is a function that gives back its argument unchanged:</p>
+<pre><code># let id x = x;;
+val id : 'a -&gt; 'a = &lt;fun&gt;
+# id 5;;
+- : int = 5
+# id "hi";;
+- : string = "hi"</code></pre>
+      <p><code>'a</code> (say "alpha") is a <b>type variable</b>. It stands for "any type". <code>'a -&gt; 'a</code> reads "takes a value of any type, gives back a value of <em>that same</em> type". Use it with an int and <code>'a</code> is <code>int</code> for that call. Use it with a string and <code>'a</code> is <code>string</code>. A function like this is called <b>generic</b> (or polymorphic): it works for many types because it never looks inside its argument.</p>
+<pre><code># let max_of a b = if a &gt; b then a else b;;
+val max_of : 'a -&gt; 'a -&gt; 'a = &lt;fun&gt;
+# max_of 3 9;;
+- : int = 9
+# max_of "apple" "pear";;
+- : string = "pear"</code></pre>
+      <p><code>max_of</code> works on any type as long as both arguments have the <em>same</em> type, because they share the one <code>'a</code>. When you see <code>'a</code> and <code>'b</code> in one type, they may be different types.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>A function that calls itself</h2>
+    <p>You want <code>sum_to n</code>, which adds the whole numbers from 1 up to <code>n</code>. <code>sum_to 4</code> is 4 + 3 + 2 + 1. For 4 you can type that out. For any <code>n</code> you can't, because you don't know how many numbers to type.</p>
+    <p>Here is the way in. <code>sum_to 4</code> is 4 plus everything below it, and "everything below it" is <code>sum_to 3</code>. So a big sum can ask for a smaller sum. The asking has to stop somewhere: <code>sum_to 0</code> is 0, with nothing left to add.</p>
+    <p>Follow <code>sum_to 3</code> by hand, one call per row. Read the "needs" column from top to bottom. Then read the "gives" column from bottom to top.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>Call</th><th>Needs</th><th>Gives</th></tr>
+    <tr><td><code>sum_to 3</code></td><td><code>3 + sum_to 2</code></td><td>3 + 3 = 6</td></tr>
+    <tr><td><code>sum_to 2</code></td><td><code>2 + sum_to 1</code></td><td>2 + 1 = 3</td></tr>
+    <tr><td><code>sum_to 1</code></td><td><code>1 + sum_to 0</code></td><td>1 + 0 = 1</td></tr>
+    <tr><td><code>sum_to 0</code></td><td>nothing</td><td>0</td></tr>
+  </table></div>
+
+  <div class="quiz" data-fill="15">
+    <p class="q">Two more rows go on top of the table: <code>sum_to 4</code>, then <code>sum_to 5</code> above it. What does <code>sum_to 5</code> give?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>sum_to 4</code> needs <code>4 + sum_to 3</code>, and the table says what <code>sum_to 3</code> gives.</p>
+    <div class="why"><p><code>sum_to 4</code> gives 4 + 6 = 10. <code>sum_to 5</code> needs <code>5 + sum_to 4</code>, and 5 + 10 is 15. You did not have to redo the smaller sums.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The table turns into code almost word for word:</p>
+  </div>
+<pre><code># let rec sum_to n = if n = 0 then 0 else n + sum_to (n - 1);;
+val sum_to : int -&gt; int = &lt;fun&gt;
+# sum_to 4;;
+- : int = 10</code></pre>
+  <div class="prose">
+    <p>A function that calls itself is called <b>recursive</b>. It has two parts, and now they get names:</p>
+    <ol>
+      <li><strong>The base case.</strong> The smallest input, answered at once with no further call. Here: when <code>n</code> is 0, the answer is 0.</li>
+      <li><strong>The step.</strong> Every other input, answered with a call on a smaller number. Here: <code>n + sum_to (n - 1)</code>.</li>
+    </ol>
+    <p>The word <code>rec</code> after <code>let</code> tells OCaml that the function may use its own name in its body.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Calls wait, then answers come back</h2>
+    <p>Here is a second recursive function. The factorial of 4 is 4 × 3 × 2 × 1. Base case: for 1 or less, the answer is 1. Step: <code>n</code> times the factorial of one less.</p>
   </div>
 <pre><code># let rec factorial n = if n &lt;= 1 then 1 else n * factorial (n - 1);;
 val factorial : int -&gt; int = &lt;fun&gt;
 # factorial 4;;
 - : int = 24</code></pre>
   <div class="prose">
-    <p>Read it as two cases. The <b>base case</b>: if <code>n</code> is 1 or less, the answer is 1. The <b>recursive case</b>: otherwise, the answer is <code>n</code> times the factorial of one less. Each call makes <code>n</code> smaller, so it must reach the base case. Step through <code>factorial 4</code>. Each call waits for the one it made, like a stack of plates.</p>
+    <p>Step through <code>factorial 4</code>. Each call waits for the call it made, like plates in a pile. Before each click, say which call comes next or which answer comes back.</p>
   </div>
 
   <div class="fig" id="fact" data-title="factorial 4: calls pile up, then answers come back"></div>
 
-  <div class="prose">
-    <p>The same thing as a trace table, one row per call. Read the "waits for" column top to bottom, then the "returns" column bottom to top.</p>
-  </div>
-  <div class="tablewrap"><table>
-    <tr><th>Call</th><th>n</th><th>Base case?</th><th>Waits for</th><th>Returns</th></tr>
-    <tr><td><code>factorial 4</code></td><td>4</td><td>no</td><td><code>4 * factorial 3</code></td><td>4 × 6 = 24</td></tr>
-    <tr><td><code>factorial 3</code></td><td>3</td><td>no</td><td><code>3 * factorial 2</code></td><td>3 × 2 = 6</td></tr>
-    <tr><td><code>factorial 2</code></td><td>2</td><td>no</td><td><code>2 * factorial 1</code></td><td>2 × 1 = 2</td></tr>
-    <tr><td><code>factorial 1</code></td><td>1</td><td>yes</td><td>nothing</td><td>1</td></tr>
-  </table></div>
-  <div class="prose">
-    <p>Why the extra word <code>rec</code>? Normally a <code>let</code> name can't be used inside its own definition. That is what makes shadowing safe: in <code>let x = x + 1</code>, the <code>x</code> on the right is the <em>old</em> <code>x</code>. <code>rec</code> says "this name refers to itself". Forget it and OCaml tells you, with a very direct hint. (This uses a new name, <code>fact</code>. If you reused <code>factorial</code>, the <code>factorial</code> you already defined would be found and there would be no error.)</p>
-  </div>
-<pre><code># let fact n = if n &lt;= 1 then 1 else n * fact (n - 1);;
-Line 1, characters 39-43:
-1 | let fact n = if n &lt;= 1 then 1 else n * fact (n - 1);;
-                                           ^^^^
-Error: Unbound value "fact"
-Hint: If this is a recursive definition,
-you should add the "rec" keyword on line 1</code></pre>
-  <div class="prose">
-    <p>One more, to practice reading. <code>sum_to n</code> adds up 1 + 2 + ... + n:</p>
-  </div>
-<pre><code># let rec sum_to n = if n = 0 then 0 else n + sum_to (n - 1);;
-val sum_to : int -&gt; int = &lt;fun&gt;
-# sum_to 4;;
-- : int = 10</code></pre>
-  <div class="tablewrap"><table>
-    <tr><th>Call</th><th>n</th><th>Waits for</th><th>Returns</th></tr>
-    <tr><td><code>sum_to 4</code></td><td>4</td><td><code>4 + sum_to 3</code></td><td>4 + 6 = 10</td></tr>
-    <tr><td><code>sum_to 3</code></td><td>3</td><td><code>3 + sum_to 2</code></td><td>3 + 3 = 6</td></tr>
-    <tr><td><code>sum_to 2</code></td><td>2</td><td><code>2 + sum_to 1</code></td><td>2 + 1 = 3</td></tr>
-    <tr><td><code>sum_to 1</code></td><td>1</td><td><code>1 + sum_to 0</code></td><td>1 + 0 = 1</td></tr>
-    <tr><td><code>sum_to 0</code></td><td>0</td><td>nothing (base case)</td><td>0</td></tr>
-  </table></div>
   <div class="trap">
     <span class="label">A recursion that never shrinks</span>
-    <p>If the recursive call doesn't move toward the base case, for example <code>sum_to n</code> instead of <code>sum_to (n - 1)</code>, the calls never end. Your program hangs, or stops with "Stack overflow". Before you run a recursive function, check two things: there is a base case, and every call gets closer to it.</p>
+    <p>If the step doesn't move toward the base case, for example <code>sum_to n</code> where it should say <code>sum_to (n - 1)</code>, the calls never end. Your program hangs, or stops with "Stack overflow". Before you run a recursive function, check two things: there is a base case, and every call gets closer to it.</p>
   </div>
 
   <div class="exercise small" data-ex="lo-02-power">
     <h3>Power with let rec</h3>
-    <p>Write <code>power base exp</code>: <code>base</code> multiplied by itself <code>exp</code> times, for <code>exp</code> of 0 or more. <code>power 2 10</code> is 1024 and <code>power 5 0</code> is 1.</p>
-    <p class="muted">Base case: anything to the power 0 is 1. Then say it as a sentence, the way <code>factorial</code> does.</p>
+    <p>Repair <code>power base exp</code>: <code>base</code> multiplied by itself <code>exp</code> times, for <code>exp</code> of 0 or more. <code>power 2 10</code> is 1024 and <code>power 5 0</code> is 1. The base case is written. The step is wrong.</p>
+    <p class="muted">Anything to the power 0 is 1. Then say the step as a sentence, the way <code>factorial</code> does.</p>
   </div>
 
   <div class="exercise small" data-ex="lo-02-count-digits">
@@ -225,100 +329,210 @@ val sum_to : int -&gt; int = &lt;fun&gt;
     <p class="muted">What is <code>12345 / 10</code>? How many digits does it have?</p>
   </div>
 
+  <details class="toggle">
+    <summary>Why <code>rec</code> is a separate word, and the error when you forget it</summary>
+    <div class="prose">
+      <p>Normally a <code>let</code> name can't be used inside its own definition. That is what makes it safe to reuse a name: in <code>let x = x + 1</code>, the <code>x</code> on the right is the <em>old</em> <code>x</code>. <code>rec</code> says "this name refers to itself". Forget it and OCaml tells you, with a very direct hint. (This uses a new name, <code>fact</code>. If you reused <code>factorial</code>, the <code>factorial</code> you already defined would be found and there would be no error.)</p>
+<pre><code># let fact n = if n &lt;= 1 then 1 else n * fact (n - 1);;
+Line 1, characters 39-43:
+1 | let fact n = if n &lt;= 1 then 1 else n * fact (n - 1);;
+                                           ^^^^
+Error: Unbound value "fact"
+Hint: If this is a recursive definition,
+you should add the "rec" keyword on line 1</code></pre>
+      <p>The trace of <code>factorial 4</code> as a table, one row per call:</p>
+      <div class="tablewrap"><table>
+        <tr><th>Call</th><th>n</th><th>Base case?</th><th>Waits for</th><th>Returns</th></tr>
+        <tr><td><code>factorial 4</code></td><td>4</td><td>no</td><td><code>4 * factorial 3</code></td><td>4 × 6 = 24</td></tr>
+        <tr><td><code>factorial 3</code></td><td>3</td><td>no</td><td><code>3 * factorial 2</code></td><td>3 × 2 = 6</td></tr>
+        <tr><td><code>factorial 2</code></td><td>2</td><td>no</td><td><code>2 * factorial 1</code></td><td>2 × 1 = 2</td></tr>
+        <tr><td><code>factorial 1</code></td><td>1</td><td>yes</td><td>nothing</td><td>1</td></tr>
+      </table></div>
+    </div>
+  </details>
+
   <div class="prose">
-    <h2>Types OCaml works out for you</h2>
-    <p>You haven't written a single type yet, but every reply has had one. OCaml looks at how you <em>use</em> each name and works the types out. This is called <b>type inference</b>. In <code>let double x = x * 2</code>, <code>x</code> is used with <code>*</code>, which takes ints, so <code>x</code> must be an int, and so must the result.</p>
-    <p>You can still write types yourself, after a colon. It changes nothing when they match what OCaml inferred, and it helps when you want to be sure, or when you are reading an error and want OCaml to check your belief:</p>
+    <h2>A name that lives inside a function</h2>
+    <p>The last screens build up to a function that returns a function, in three small pieces. This is the first. Inside a body you often want a name for a step along the way. <code>let ... in</code> makes one:</p>
   </div>
-<pre><code># let add (x : int) (y : int) : int = x + y;;
-val add : int -&gt; int -&gt; int = &lt;fun&gt;</code></pre>
+<pre><code># let price_with_tax p =
+    let tax = p * 8 / 100 in
+    p + tax;;
+val price_with_tax : int -&gt; int = &lt;fun&gt;
+# price_with_tax 200;;
+- : int = 216</code></pre>
   <div class="prose">
-    <p>Sometimes nothing in the body pins a type down. The simplest case is a function that gives back its argument unchanged:</p>
+    <p>Read the body as "let <code>tax</code> be 8 percent of <code>p</code>, in the expression <code>p + tax</code>". For 200, <code>tax</code> is 16 and the result is 216.</p>
   </div>
-<pre><code># let id x = x;;
-val id : 'a -&gt; 'a = &lt;fun&gt;
-# id 5;;
-- : int = 5
-# id "hi";;
-- : string = "hi"</code></pre>
-  <div class="prose">
-    <p><code>'a</code> (say "alpha") is a <b>type variable</b>. It stands for "any type". <code>'a -&gt; 'a</code> reads "takes a value of any type, gives back a value of <em>that same</em> type". Use it with an int and <code>'a</code> is <code>int</code> for that call. Use it with a string and <code>'a</code> is <code>string</code>. A function like this is called <b>generic</b> (or polymorphic): it works for many types because it never looks inside its argument.</p>
-    <p>You'll meet <code>'a</code> constantly in library functions:</p>
-  </div>
-<pre><code># List.length;;
-- : 'a list -&gt; int = &lt;fun&gt;
-# let max_of a b = if a &gt; b then a else b;;
-val max_of : 'a -&gt; 'a -&gt; 'a = &lt;fun&gt;
-# max_of 3 9;;
-- : int = 9
-# max_of "apple" "pear";;
-- : string = "pear"</code></pre>
-  <div class="prose">
-    <p><code>List.length</code> counts the elements of a list of anything, so its type says "a list of any type, gives an int" (lists are lesson O.3). <code>max_of</code> works on any type as long as both arguments have the <em>same</em> type, because they share the one <code>'a</code>. When you see <code>'a</code> and <code>'b</code> in one type, they may be different types.</p>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Right after that, you type <code>tax;;</code> at the toplevel. What happens?</p>
+    <div class="opts"><button data-k="a">It prints 16, the last tax worked out</button><button data-k="b">It prints 0</button><button data-k="c">An error: OCaml knows no <code>tax</code> here</button></div>
+    <p class="hint">Where does the name <code>tax</code> exist? Look at what comes after <code>in</code>.</p>
+    <div class="why"><p>The reply is <code>Error: Unbound value "tax"</code>, which means "I don't know this name". <code>tax</code> exists only in the expression after <code>in</code>.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Functions are values</h2>
-    <p>A function is a value like 5 or <code>"hi"</code>. You can make one without a name, give it to another function, or get one back.</p>
-    <h3>Functions without names</h3>
-    <p><code>fun x -&gt; x * 2</code> is a function with no name, called an <b>anonymous function</b>. Read the arrow as "goes to": "x goes to x times 2".</p>
+    <p>A name made with <code>let ... in</code> is <b>local</b>: it can be used only in the expression after <code>in</code>. Each call of <code>price_with_tax</code> makes its own fresh <code>tax</code>, uses it and lets it go. Nothing outside the function can see it or clash with it.</p>
+    <p>So a function can keep private names. Hold on to that for two screens.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Several local names in a row, for longer bodies</summary>
+    <div class="prose">
+      <p>You can chain several, one per line. Each name can use the ones before it:</p>
+<pre><code>let hypotenuse a b =
+  let a2 = a *. a in
+  let b2 = b *. b in
+  sqrt (a2 +. b2)</code></pre>
+      <p><code>hypotenuse 3.0 4.0</code> is <code>5.</code>. Keeping helper names local means they can't clash with names elsewhere, and a reader knows they matter only here.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>A function is a value too</h2>
+    <p>Every reply for a function said <code>&lt;fun&gt;</code> in the spot where a value goes. That is because a function <em>is</em> a value, like 5 or <code>"hi"</code>. You can write one without giving it a name:</p>
   </div>
 <pre><code># fun x -&gt; x * 2;;
 - : int -&gt; int = &lt;fun&gt;
 # (fun x -&gt; x * 2) 21;;
 - : int = 42</code></pre>
   <div class="prose">
-    <p>In fact <code>let double x = x * 2</code> is a shorter way to write <code>let double = fun x -&gt; x * 2</code>. Both give the same <code>val double : int -&gt; int</code>. A named function is a value with a name.</p>
-    <h3>Passing a function to a function</h3>
+    <p>Read <code>fun x -&gt; x * 2</code> as "a function that takes <code>x</code> and gives <code>x * 2</code>". The second line calls it on 21 right away. In fact <code>let double x = x * 2</code> is a short way to write <code>let double = fun x -&gt; x * 2</code>. A named function is a function value with a name.</p>
+    <p>A value can be handed to a function, so a function can be handed to a function. Here <code>f</code> is a parameter that holds a function:</p>
   </div>
 <pre><code># let apply_to_5 f = f 5;;
 val apply_to_5 : (int -&gt; 'a) -&gt; 'a = &lt;fun&gt;
 # apply_to_5 double;;
 - : int = 10
 # apply_to_5 (fun x -&gt; x * x);;
-- : int = 25
-# apply_to_5 string_of_int;;
-- : string = "5"</code></pre>
+- : int = 25</code></pre>
   <div class="prose">
-    <p>Read the type slowly. The parentheses in <code>(int -&gt; 'a) -&gt; 'a</code> group one input: "takes a function from int to anything, gives back that anything". Pass <code>double</code> and you get an int. Pass <code>string_of_int</code> and you get a string.</p>
-    <p>Why care? Because it lets you write the "walk over everything" part once and pass in the "what to do with each one" part. Lesson O.3 does exactly that with lists, and in the course your compiler walks a whole tree of operations the same way.</p>
+    <p>In the type, the parentheses group one input: a function that takes an int. The <code>'a</code> stands for "whatever type that function gives". Lesson O.3 uses this idea to do one thing to every item of a list.</p>
+  </div>
+
+  <div class="quiz" data-fill="6">
+    <p class="q">What is <code>apply_to_5 (fun x -&gt; x + 1)</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The body of <code>apply_to_5</code> is <code>f 5</code>. Here <code>f</code> is the function you passed in.</p>
+    <div class="why"><p><code>f 5</code> with <code>f</code> filled in is <code>(fun x -&gt; x + 1) 5</code>, which is 6.</p></div>
   </div>
 
   <div class="exercise small" data-ex="lo-02-apply-twice">
     <h3>Apply a function twice</h3>
-    <p>Write <code>apply_twice f x</code>, which calls <code>f</code> on <code>x</code>, then calls <code>f</code> again on that result. <code>apply_twice (fun x -&gt; x + 3) 10</code> is 16.</p>
+    <p>Write <code>apply_twice f x</code>, which calls <code>f</code> on <code>x</code>, then calls <code>f</code> again on that result. <code>apply_twice (fun x -&gt; x + 3) 10</code> is 16. Right now it calls <code>f</code> once.</p>
     <p class="muted">Parentheses are for grouping. What do you want to pass to the outer <code>f</code>?</p>
   </div>
 
   <div class="prose">
-    <h3>Giving a function some of its arguments</h3>
-    <p>Here is something that surprises everyone. Give <code>add</code> only one argument:</p>
+    <h2>A function that builds a function</h2>
+    <p>You need a function that adds 5, one that adds 100 and one that adds 3. You could write each by hand. Or you could write one function that builds them. Its body is a <code>fun</code>, so its result is a function:</p>
   </div>
+<pre><code># let make_adder n = fun x -&gt; x + n;;
+val make_adder : int -&gt; int -&gt; int = &lt;fun&gt;
+# let add5 = make_adder 5;;
+val add5 : int -&gt; int = &lt;fun&gt;</code></pre>
+  <div class="prose">
+    <ol>
+      <li><strong>Call the builder.</strong> <code>make_adder 5</code> fills in <code>n</code> with 5.</li>
+      <li><strong>Work out the body.</strong> The body is <code>fun x -&gt; x + n</code>. Its value is a function, one that still knows <code>n</code> is 5.</li>
+      <li><strong>Name the result.</strong> <code>add5</code> is that function. Its type is <code>int -&gt; int</code>, so you can call it.</li>
+    </ol>
+    <p>Now call the result twice.</p>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">You type <code>add5 10;;</code> and then <code>add5 1;;</code>. What are the two answers?</p>
+    <div class="opts"><button data-k="a">15, then 6</button><button data-k="b">15, then 16</button><button data-k="c">15, then 21</button></div>
+    <p class="hint"><code>add5</code> is <code>fun x -&gt; x + n</code> with <code>n</code> fixed at 5. What is <code>x</code> in each call?</p>
+    <div class="why"><p>Each call gets a fresh <code>x</code> and the same <code>n</code>. So the answers are 10 + 5 and 1 + 5. The function remembers the 5 it was built with. It does not remember earlier calls.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The builder can be called again, and each result keeps its own <code>n</code>. After <code>let add100 = make_adder 100</code>, <code>add100 1</code> is 101 and <code>add5 1</code> is still 6. A function that remembers names from the place it was built has a name of its own: a <b>closure</b>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-02n-make-adder">
+    <h3>Repair make_adder</h3>
+    <p>This <code>make_adder</code> returns a function, but that function forgets <code>n</code> and gives back <code>x</code> unchanged. Repair it so <code>(make_adder 5) 10</code> is 15.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Build once, use many times</h2>
+    <p>Now put the last two pieces together: a local name, then a <code>fun</code> that uses it.</p>
+  </div>
+<pre><code># let make_taxer percent =
+    let keep = 100 + percent in
+    fun price -&gt; price * keep / 100;;
+val make_taxer : int -&gt; int -&gt; int = &lt;fun&gt;
+# let with_vat = make_taxer 20;;
+val with_vat : int -&gt; int = &lt;fun&gt;
+# with_vat 50;;
+- : int = 60</code></pre>
+  <div class="prose">
+    <p><code>make_taxer 20</code> works out <code>keep</code> once, as 120. Then it returns a function that can still see <code>keep</code>, though nothing else can. Every later call of <code>with_vat</code> uses that same 120.</p>
+  </div>
+
+  <div class="quiz" data-fill="240">
+    <p class="q">What is <code>with_vat 200</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>with_vat</code> is <code>fun price -&gt; price * keep / 100</code>, and <code>keep</code> is 120.</p>
+    <div class="why"><p>200 * 120 is 24000, and 24000 / 100 is 240. <code>keep</code> was worked out when <code>with_vat</code> was built, not now.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>This shape is the one lesson 1.1 needs. There, a function makes a private table once and returns a function that looks things up in it on every call. You now know both halves.</p>
+    <p>One more thing to notice. The toplevel printed <code>int -&gt; int -&gt; int</code> for <code>make_adder</code>, the same type as <code>add</code>. That is no accident. To OCaml, a function with two parameters <em>is</em> a function that takes the first one and gives back a function waiting for the second. So <code>add 10</code>, with one argument missing, is not an error. It is a function that adds 10.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-02n-make-limiter">
+    <h3>Build a limiter</h3>
+    <p>Write <code>make_limiter top</code>. It returns a function that takes an int <code>x</code> and gives <code>x</code> back, unless <code>x</code> is more than <code>top</code>. Then it gives <code>top</code>. So <code>(make_limiter 10) 7</code> is 7 and <code>(make_limiter 10) 25</code> is 10. The function it returns gives 0 for now.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Define a function with <code>let</code> and call it with spaces: <code>add 3 4</code>, with parentheses only to group.</li>
+      <li>Use <code>if ... then ... else</code> as an expression whose two parts share one type.</li>
+      <li>Read an arrow type: the last type is the result and the ones before it are inputs.</li>
+      <li>Write a recursive function with <code>let rec</code>, with a base case and a step, and trace it one call per row.</li>
+      <li>Make a local name with <code>let ... in</code>.</li>
+      <li>Write a function with no name using <code>fun</code>, and pass a function to a function.</li>
+      <li>Write a function that builds and returns another function.</li>
+    </ul>
+    <p>Next, <a href="ml-03-lists-matching.html">O.3</a> gives your functions something bigger to work on: lists, and <code>match</code> to take them apart.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Giving a function only some of its arguments (partial application), for when a type error shows an arrow you did not expect</summary>
+    <div class="prose">
+      <p>Give <code>add</code> only one argument:</p>
 <pre><code># let add_ten = add 10;;
 val add_ten : int -&gt; int = &lt;fun&gt;
 # add_ten 5;;
 - : int = 15</code></pre>
-  <div class="prose">
-    <p>No error. <code>add 10</code> is a new function that is still waiting for the second number. This is called <b>partial application</b>. It explains the arrow types: <code>int -&gt; int -&gt; int</code> really means <code>int -&gt; (int -&gt; int)</code>, "takes an int and gives back a function that takes an int". <code>add 3 4</code> gives <code>add</code> the 3, gets a function back, and gives that function the 4.</p>
-    <p>You won't need this often at first. Know it for two reasons. It is why calls have no commas: each space hands over one more argument. And it is why forgetting an argument gives a strange type error instead of a "missing argument" message. If OCaml says something has type <code>int -&gt; int</code> where you expected <code>int</code>, you left an argument out.</p>
-  </div>
+      <p>No error. <code>add 10</code> is a new function that is still waiting for the second number. This is called <b>partial application</b>. It explains the arrow types: <code>int -&gt; int -&gt; int</code> really means <code>int -&gt; (int -&gt; int)</code>, "takes an int and gives back a function that takes an int". <code>add 3 4</code> gives <code>add</code> the 3, gets a function back, and gives that function the 4.</p>
+      <p>You won't need this often at first. Know it for two reasons. It is why calls have no commas: each space hands over one more argument. And it is why forgetting an argument gives a strange type error instead of a "missing argument" message. If OCaml says something has type <code>int -&gt; int</code> where you expected <code>int</code>, you left an argument out.</p>
+    </div>
+  </details>
 
-  <div class="prose">
-    <h2>The pipe |&gt;</h2>
-    <p>Nested calls read inside out. To find out how many digits 42 has, you might write:</p>
-  </div>
+  <details class="toggle">
+    <summary>The pipe <code>|&gt;</code>, for when nested calls get hard to read</summary>
+    <div class="prose">
+      <p>Nested calls read inside out. To find out how many digits 42 has, you might write:</p>
 <pre><code># String.length (string_of_int (double 21));;
 - : int = 2
 # 21 |&gt; double |&gt; string_of_int |&gt; String.length;;
 - : int = 2</code></pre>
-  <div class="prose">
-    <p>The second line does the same thing. <code>x |&gt; f</code> means <code>f x</code>: "send <code>x</code> into <code>f</code>". A chain of them reads left to right, in the order things happen: start with 21, double it, turn it into a string, measure it. When you have three or more steps, the pipe is usually easier to read. With one step, <code>double 21</code> is fine.</p>
-  </div>
+      <p>The second line does the same thing. <code>x |&gt; f</code> means <code>f x</code>: "send <code>x</code> into <code>f</code>". A chain of them reads left to right, in the order things happen: start with 21, double it, turn it into a string, measure it. When you have three or more steps, the pipe is usually easier to read. With one step, <code>double 21</code> is fine.</p>
+    </div>
+  </details>
 
-  <div class="prose">
-    <h2>Printing, unit and ;</h2>
-    <p>Some functions don't need any input. They still take one argument, the value <code>()</code>, because every OCaml function takes something:</p>
-  </div>
+  <details class="toggle">
+    <summary>Printing, <code>unit</code> and <code>;</code>, for when a function prints or does several things in a row</summary>
+    <div class="prose">
+      <p>Lesson O.5 teaches <code>unit</code> and <code>;</code> when you first need them. This is the longer reference. Some functions don't need any input. They still take one argument, the value <code>()</code>, because every OCaml function takes something:</p>
 <pre><code># let say_hi () = print_endline "hi";;
 val say_hi : unit -&gt; unit = &lt;fun&gt;
 # say_hi ();;
@@ -326,10 +540,8 @@ hi
 - : unit = ()
 # say_hi;;
 - : unit -&gt; unit = &lt;fun&gt;</code></pre>
-  <div class="prose">
-    <p><code>unit -&gt; unit</code>: takes nothing interesting, gives nothing interesting. It is there for what it <em>does</em>, which is print. The last line is a common slip: <code>say_hi</code> without <code>()</code> doesn't call it. It only names the function, so nothing is printed.</p>
-    <p>To do several things in a row, put <code>;</code> between them. <code>a; b</code> means "do <code>a</code>, throw its <code>()</code> away, then do <code>b</code>, and the value of the whole thing is <code>b</code>":</p>
-  </div>
+      <p><code>unit -&gt; unit</code>: takes nothing interesting, gives nothing interesting. It is there for what it <em>does</em>, which is print. The last line is a common slip: <code>say_hi</code> without <code>()</code> doesn't call it. It only names the function, so nothing is printed.</p>
+      <p>To do several things in a row, put <code>;</code> between them. <code>a; b</code> means "do <code>a</code>, throw its <code>()</code> away, then do <code>b</code>, and the value of the whole thing is <code>b</code>":</p>
 <pre><code># let report name score =
     print_string name;
     print_string ": ";
@@ -339,9 +551,7 @@ val report : string -&gt; int -&gt; unit = &lt;fun&gt;
 # report "Ada" 90;;
 Ada: 90
 - : unit = ()</code></pre>
-  <div class="prose">
-    <p><code>print_string</code> prints without a new line, <code>print_int</code> prints an int, and <code>print_newline ()</code> ends the line. Note there is no <code>;</code> after the last step: <code>;</code> goes <em>between</em> steps, not after each one. The last step can also give a real value:</p>
-  </div>
+      <p><code>print_string</code> prints without a new line, <code>print_int</code> prints an int, and <code>print_newline ()</code> ends the line. Note there is no <code>;</code> after the last step: <code>;</code> goes <em>between</em> steps, not after each one. The last step can also give a real value:</p>
 <pre><code># let shout s =
     print_endline (String.uppercase_ascii s);
     String.length s;;
@@ -349,10 +559,7 @@ val shout : string -&gt; int = &lt;fun&gt;
 # shout "hey";;
 HEY
 - : int = 3</code></pre>
-  <div class="trap">
-    <span class="label">Only unit belongs before a ;</span>
-    <p>The value before a <code>;</code> is thrown away. If it isn't <code>()</code>, you probably made a mistake, and OCaml warns you.</p>
-  </div>
+      <p>Only <code>unit</code> belongs before a <code>;</code>. The value before a <code>;</code> is thrown away. If it isn't <code>()</code>, you probably made a mistake, and OCaml warns you.</p>
 <pre><code># let next x = x + 1; x;;
 Line 1, characters 13-18:
 1 | let next x = x + 1; x;;
@@ -360,23 +567,9 @@ Line 1, characters 13-18:
 Warning 10 [non-unit-statement]: this expression should have type unit.
 
 val next : int -&gt; int = &lt;fun&gt;</code></pre>
-  <div class="prose">
-    <p>This is a <b>warning</b>, not an error: the definition still happened. <code>x + 1</code> was computed and thrown away, and <code>next 5</code> is 5, not 6. In a dune project (lesson O.6) this warning stops the build, which is what you want.</p>
-  </div>
-
-  <div class="prose">
-    <h2>What you can do now</h2>
-    <ul>
-      <li>Define functions with <code>let</code> and call them with spaces: <code>add 3 4</code>, using parentheses only to group.</li>
-      <li>Read arrow types: the last type is the result, the ones before are inputs.</li>
-      <li>Make local names with <code>let ... in</code>.</li>
-      <li>Use <code>if ... then ... else</code> as an expression whose branches share one type.</li>
-      <li>Write recursive functions with <code>let rec</code>, with a base case, and trace them with a table.</li>
-      <li>Read <code>'a</code> as "any type, the same each time it appears".</li>
-      <li>Write anonymous functions with <code>fun</code>, pass functions to functions, and recognize partial application.</li>
-      <li>Chain calls with <code>|&gt;</code>, and sequence printing steps with <code>;</code>.</li>
-    </ul>
-  </div>
+      <p>This is a <b>warning</b>, not an error: the definition still happened. <code>x + 1</code> was computed and thrown away, and <code>next 5</code> is 5, not 6. In a dune project (lesson O.6) this warning stops the build, which is what you want.</p>
+    </div>
+  </details>
 
   <h2>Check yourself</h2>
   <p class="score"></p>
@@ -399,9 +592,15 @@ val next : int -&gt; int = &lt;fun&gt;</code></pre>
   <div class="quiz" data-answer="b">
     <p class="q">Why does <code>add (3, 4)</code> give a type error when <code>add</code> is <code>let add a b = a + b</code>?</p>
     <div class="opts"><button data-k="a">Function calls can't use parentheses in OCaml</button><button data-k="b"><code>(3, 4)</code> is one value, a pair, and <code>add</code> expects an int first</button><button data-k="c"><code>add</code> needs three arguments</button></div>
-    <p class="hint">What type does OCaml say <code>(3, 4)</code> has?</p>
     <p class="hint">Parentheses are fine for grouping. What does the comma do?</p>
-    <div class="why"><p>The comma makes a pair, so <code>(3, 4)</code> is a single argument. OCaml shows its type as <code>'a * 'b</code>, a pair of two things, and <code>add</code> wanted an int there. Call it as <code>add 3 4</code>.</p></div>
+    <div class="why"><p>The comma makes a pair, so <code>(3, 4)</code> is a single argument, and <code>add</code> wanted an int there. Call it as <code>add 3 4</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Why is <code>if n &gt; 0 then "up" else 0</code> a type error?</p>
+    <div class="opts"><button data-k="a"><code>n &gt; 0</code> is not a question</button><button data-k="b">The two parts have different types, and the whole <code>if</code> needs one type</button><button data-k="c">An <code>if</code> can't give a string</button></div>
+    <p class="hint">What type is the <code>then</code> part? What type is the <code>else</code> part?</p>
+    <div class="why"><p>An <code>if</code> is an expression with one value, so it has one type. Here one part is a string and the other is an int.</p></div>
   </div>
 
   <div class="quiz" data-fill="10">
@@ -412,12 +611,11 @@ val next : int -&gt; int = &lt;fun&gt;</code></pre>
     <div class="why"><p>The calls go down to <code>sum_to 0</code>, which is 0, and then the additions happen on the way back: 1, 3, 6, 10.</p></div>
   </div>
 
-  <div class="quiz" data-answer="a">
-    <p class="q">utop says <code>val swap : 'a * 'b -&gt; 'b * 'a</code>. What does <code>swap (1, "one")</code> give?</p>
-    <div class="opts"><button data-k="a"><code>("one", 1)</code></button><button data-k="b"><code>(1, "one")</code></button><button data-k="c">A type error, because 1 and <code>"one"</code> have different types</button></div>
-    <p class="hint">Here <code>'a</code> is <code>int</code> and <code>'b</code> is <code>string</code>. Substitute them into the result type.</p>
-    <p class="hint">Are <code>'a</code> and <code>'b</code> allowed to be different types?</p>
-    <div class="why"><p>The result type is <code>'b * 'a</code>, here <code>string * int</code>, so the pair comes back swapped: <code>("one", 1)</code>. Two different type variables may stand for two different types.</p></div>
+  <div class="quiz" data-fill="5">
+    <p class="q">With <code>let make_adder n = fun x -&gt; x + n</code> and <code>let f = make_adder 2</code>, what is <code>f (f 1)</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>f</code> adds 2 to its argument. Work out the part in parentheses first.</p>
+    <div class="why"><p><code>f 1</code> is 3, and <code>f 3</code> is 5. <code>f</code> keeps the 2 it was built with for every call.</p></div>
   </div>
 
   <div class="quiz" data-answer="c">
@@ -425,14 +623,6 @@ val next : int -&gt; int = &lt;fun&gt;</code></pre>
     <div class="opts"><button data-k="a">An error: missing argument</button><button data-k="b">10</button><button data-k="c">A function of type <code>int -&gt; int</code> that adds 10</button></div>
     <p class="hint">What does <code>int -&gt; int -&gt; int</code> look like with parentheses added?</p>
     <div class="why"><p><code>int -&gt; int -&gt; int</code> is <code>int -&gt; (int -&gt; int)</code>. Giving one int gives back a function waiting for the other. This is partial application.</p></div>
-  </div>
-
-  <div class="quiz" data-fill="5">
-    <p class="q">What is <code>"hello" |&gt; String.uppercase_ascii |&gt; String.length</code>?</p>
-    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
-    <p class="hint">Read the pipe left to right. What does the first step turn <code>"hello"</code> into?</p>
-    <p class="hint">Does uppercasing change how many letters a word has?</p>
-    <div class="why"><p>It is <code>String.length (String.uppercase_ascii "hello")</code>. <code>"HELLO"</code> still has 5 letters, so the answer is 5.</p></div>
   </div>
 
   <nav class="pager"><a href="ml-01-first-steps.html">← First steps in OCaml</a><a href="ml-03-lists-matching.html">Lists and pattern matching →</a></nav>

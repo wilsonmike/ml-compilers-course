@@ -1,0 +1,45 @@
+{
+ "id": "w0-07n-outcome",
+ "lang": "python",
+ "title": "Answer with a line, not a crash",
+ "starter": "class Rejected(Exception):\n    pass\n\n\ndef check(text: str) -> None:\n    for line in text.splitlines():\n        if not line.startswith(\"%\"):\n            raise Rejected(\"bad line\")\n\n\ndef judge(path: str, text: str) -> str:\n    check(text)\n    return \"MATCH \" + path\n",
+ "show": "str",
+ "tests": [
+  {
+   "expr": "judge('a.uir', '%a = add 2 3')",
+   "expect": "MATCH a.uir",
+   "sample": true
+  },
+  {
+   "expr": "judge('tests/b.uir', 'a = add 2 3')",
+   "expect": "REJECTED tests/b.uir",
+   "sample": true
+  },
+  {
+   "expr": "judge('C:/tmp/case.uir', '%a = add 2 3' + chr(10) + 'oops')",
+   "expect": "REJECTED C:/tmp/case.uir"
+  },
+  {
+   "expr": "judge('rejected_name.uir', '%a = add 1 1')",
+   "expect": "MATCH rejected_name.uir"
+  },
+  {
+   "expr": "judge('d.uir', '%a = add 2 3' + chr(10) + '%out = mul %a 4')",
+   "expect": "MATCH d.uir"
+  },
+  {
+   "expr": "judge('empty.uir', '')",
+   "expect": "MATCH empty.uir"
+  },
+  {
+   "expr": "judge('x y.uir', 'out = 1')",
+   "expect": "REJECTED x y.uir"
+  }
+ ],
+ "hints": [
+  "`check` raises `Rejected` for a bad program. Right now nothing catches it, so `judge` crashes and returns no line at all.",
+  "Wrap the call in `try:` and add `except Rejected:` below it. Name the class, so that any other exception still crashes loudly.",
+  "Inside the `except Rejected:` block, `return \"REJECTED \" + path`. The `MATCH` line stays as the last line of the function."
+ ],
+ "explain": "The reference puts `check(text)` inside `try:` and returns `\"REJECTED \" + path` from `except Rejected:`. It catches only its own exception class. A bug such as a `KeyError` still shows a traceback, which is what you want while you are building."
+}

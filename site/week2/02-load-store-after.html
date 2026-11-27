@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Load, Store, After</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A store changes memory, but a graph has no &quot;now&quot;. This lesson shows how .uir says when a write happens without any statement order: every store makes a new...">
+<meta name="description" content="By the end of this lesson you can write a program that changes memory and say exactly which reads see the change. Your compiler keeps a program as a graph, and...">
 <link rel="canonical" href="https://sharpterminal.com/site/week2/02-load-store-after">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Load, Store, After">
-<meta property="og:description" content="A store changes memory, but a graph has no &quot;now&quot;. This lesson shows how .uir says when a write happens without any statement order: every store makes a new version of the buffer, and every load names...">
+<meta property="og:description" content="By the end of this lesson you can write a program that changes memory and say exactly which reads see the change. Your compiler keeps a program as a graph, and a graph has no &quot;first&quot; and &quot;next&quot;...">
 <meta property="og:url" content="https://sharpterminal.com/site/week2/02-load-store-after">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,12 +20,12 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
-  .strip .name { font: 0.875rem var(--mono); color: var(--ink-3); min-width: 6.5rem; }
+  .strip .name { font: 0.875rem var(--mono); color: var(--ink-3); min-width: 8.5rem; }
   .strip .row.dim { opacity: .45; }
   .vlab { font: 0.875rem var(--mono); color: var(--ink-2); }
 </style>
@@ -34,23 +34,145 @@
 <main>
 <p class="eyebrow">Week 2 · Lesson 2</p>
 <h1>Load, store, after</h1>
-<p class="lede">A store changes memory, but a graph has no "now". This lesson shows how <code>.uir</code> says <em>when</em> a write happens without any statement order: every store makes a new version of the buffer, and every load names the version it reads.</p>
+<p class="lede">By the end of this lesson you can write a program that changes memory and say exactly which reads see the change. Your compiler keeps a program as a graph, and a graph has no "first" and "next". Memory does, so <code>.uir</code> needs a way to put the order into the graph itself.</p>
 
+<div class="note">
+<span class="label">Goal</span>
+<p>Write programs that store into a buffer and load from the right version of it, and tell when a program's stores are fully ordered.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Buffers, <code>shrink</code> and <code>load</code> from <a href="01-buffers-and-views.html">lesson 2.1</a>, and the idea that a program is a graph where each node points only at its sources, from <a href="../week1/01-the-uop.html">lesson 1.1</a>.</p>
+<p class="only-python">One exercise uses a loop over a list of tuples. If that is new, do <a href="../learn/py-03-collections.html">P.3</a> first.</p>
+<p class="only-ocaml">One exercise uses lists of tuples and the <code>List</code> functions. If those are new, do <a href="../learn/ml-03-lists-matching.html">O.3</a> first.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="20">
+<p class="q"><code>shrink</code> makes a window onto part of a buffer (lesson 2.1). What does <code>%x</code> hold?</p>
+<pre><code>%b = buffer 4 [10 20 30 40] dtype=i32 slot=0
+%e = shrink %b 1 []
+%x = load %e</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Elements are numbered from 0. Which element does offset 1 point at?</p>
+<div class="why"><p><code>%e</code> is a window onto element 1 alone, and element 1 holds 20.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Two week 1 files hold the same three lines. In the second file the first two lines trade places. Does your compiler build a different graph?</p>
+<pre><code>%a   = add 2 3
+%c   = mul 4 5
+%out = add %a %c</code></pre>
+<div class="opts">
+<button data-k="a">No. It is the same graph.</button>
+<button data-k="b">Yes. The <code>mul</code> node now comes first.</button>
+<button data-k="c">Yes. <code>%out</code> gets a different value.</button>
+</div>
+<p class="hint">A node records its op and its sources. Does it record which line it was on?</p>
+<div class="why"><p>A node only points at its sources. Neither <code>%a</code> nor <code>%c</code> uses the other, so nothing in the graph says which one comes first. For arithmetic that never matters. For memory it does, and that is this lesson.</p></div>
+</div>
+
+<h2>The problem: read first or write first?</h2>
 <div class="prose">
-<h2>Stores make versions</h2>
-<p><code>store v x</code> writes the value <code>x</code> into the view <code>v</code>. Its result is <code>void</code>: a store is an event, not a value. To use the memory after the write, you name the new version with <code>after</code>:</p>
+<p>Lesson 2.1 gave you <code>load</code>, which reads elements. Its partner is <code>store</code>: <code>store v x</code> writes the value <code>x</code> into the view <code>v</code>. Here are both, aimed at the same element:</p>
+<pre><code>%b = buffer 4 [10 20 30 40] dtype=i32 slot=0
+%e = shrink %b 1 []
+%s = store %e 99
+%x = load %e</code></pre>
+</div>
+
+<div class="quiz" data-fill="99">
+<p class="q">Pretend the lines run top to bottom, the way Python or C would run them. What does <code>%x</code> hold?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The store runs first and puts 99 in element 1. Then the load reads element 1.</p>
+<div class="why"><p>The write happens first, so the read sees 99.</p></div>
+</div>
+
+<p class="prose">Now trade the last two lines, so the load comes first. Step through both orders.</p>
+
+<div class="fig" id="order" data-title="the same two operations, in both orders"></div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your compiler does not keep the lines. It keeps the graph. What does the graph say about these two nodes?</p>
+<div class="opts">
+<button data-k="a">The load points at the store, so the store goes first.</button>
+<button data-k="b">The store points at the load, so the load goes first.</button>
+<button data-k="c">Both point at <code>%e</code> and neither points at the other, so it says nothing.</button>
+</div>
+<p class="hint">Look at the operands of each line. Does <code>%x</code> appear in the store, or <code>%s</code> in the load?</p>
+<div class="why"><p>The two files build the same graph, and that one graph has two possible answers: 99 and 20. A program with two answers has no meaning. So the program itself has to say which comes first, in a way the graph can hold. (As written, this program is not valid <code>.uir</code>. You'll see why further on.)</p></div>
+</div>
+
+<h2>A store makes a new version</h2>
+<div class="prose">
+<p>The fix is to stop thinking of one row of elements that changes. Think of <strong>versions</strong>: the row as it was before a write, and the row as it is once the write has happened. A store on its own is only an event. Its result is <code>void</code>, which means "no value", so no other line can compute with it. To name the memory once the write has happened, you use <code>after</code>:</p>
 <pre><code>%b  = buffer 4 [10 20 30 40] dtype=i32 slot=0
 %e  = shrink %b 1 []
 %s  = store %e 99
 %b1 = after %b %s          # "%b, once %s has happened"</code></pre>
-<p><code>%b</code> never changes. <code>%b1</code> is the same storage with the write applied. A load of <code>%e</code> (a view of <code>%b</code>) still reads 20. To see 99 you load through a view of <code>%b1</code>. Step through a chain of two stores:</p>
+<ol>
+<li><strong>Start with version 0.</strong> <code>%b</code> is the row as it began: 10, 20, 30, 40.</li>
+<li><strong>Describe the write.</strong> <code>%s</code> is the event "99 goes into element 1 of <code>%b</code>".</li>
+<li><strong>Name the result.</strong> <code>%b1 = after %b %s</code> is version 1: the same row with that one write applied.</li>
+</ol>
+<p><code>%b</code> itself never changes. It is still the name of version 0. Step through a program with two stores and watch the same row at version 0, 1 and 2:</p>
 </div>
 
-<div class="fig" id="chain" data-title="a chain of versions"></div>
+<div class="fig" id="chain" data-title="one row of elements at version 0, 1 and 2"></div>
 
 <div class="prose">
-<p>The rule that keeps this honest: <code>after m s</code> must name the version the store writes into. <code>after %b1 %s</code> is invalid when <code>%s</code> wrote into <code>%b</code>. Its first operand must also be a whole version, not a view: <code>after %e %s</code> is invalid even though <code>%s</code> stored through <code>%e</code>.</p>
-<p>The <strong>outputs</strong> of a program are the final version of each buffer: the one no <code>after</code> builds on. That's what a caller sees when the kernel returns.</p>
+<p>Versions cost no memory. In the C your compiler prints in lesson 2.4, all three versions are one array, written in place. Versions are only how the graph tells time.</p>
+</div>
+
+<div class="quiz" data-fill="30">
+<p class="q">In the figure's last step, what does element 2 hold in version 2 (<code>%b2</code>)?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Neither store wrote to element 2. A new version keeps every element that its store did not touch.</p>
+<div class="why"><p>A version differs from the one before it only in the elements its store wrote. Element 2 holds 30 in all three versions.</p></div>
+</div>
+
+<h2>A load says which version it reads</h2>
+<div class="prose">
+<p>Now the puzzle has an answer. A view is cut from one version, and a load through that view reads that version. <code>%e</code> was cut from <code>%b</code>, so <code>load %e</code> reads version 0, no matter where the line sits in the file. To read the 99, cut a view from <code>%b1</code>:</p>
+<pre><code>%x  = load %e
+%e1 = shrink %b1 1 []
+%y  = load %e1</code></pre>
+<ol>
+<li><strong>Find the version.</strong> <code>%e</code> is a view of <code>%b</code>, version 0. <code>%e1</code> is a view of <code>%b1</code>, version 1.</li>
+<li><strong>Read that row.</strong> Element 1 of version 0 holds 20, so <code>%x</code> is 20. Element 1 of version 1 holds 99, so <code>%y</code> is 99.</li>
+</ol>
+<p>The order is now inside the graph. <code>%y</code> points at <code>%e1</code>, which points at <code>%b1</code>, which points at the store. Follow the arrows and the store has to come before that load. Shuffle the lines however you like and the graph stays the same, with one answer.</p>
+</div>
+
+<div class="quiz" data-fill="6">
+<p class="q">What does <code>%x</code> hold?</p>
+<pre><code>%b  = buffer 2 [5 6] dtype=i32 slot=0
+%e  = shrink %b 0 []
+%s  = store %e 7
+%b1 = after %b %s
+%f  = shrink %b1 1 []
+%x  = load %f</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Which version is <code>%f</code> cut from, and which element? Did the store write that element?</p>
+<div class="why"><p><code>%f</code> is element 1 of version 1. The store only wrote element 0, so element 1 still holds 6.</p></div>
+</div>
+
+<div class="exercise small" data-ex="w2-02-prefix">
+<h3>Running total in place</h3>
+<p>Slot 0 is a buffer of three i32s. In place, set <code>b[1] = b[0] + b[1]</code>, then <code>b[2] = b[1] + b[2]</code> using the <em>new</em> <code>b[1]</code>. The starter has one bug about which version it reads.</p>
+</div>
+
+<h2>Chain the writes</h2>
+<div class="prose">
+<p>A program with several writes makes a chain of versions. Each store goes into a view of the <em>latest</em> version, and each <code>after</code> names the next one:</p>
+<pre><code>%f  = shrink %b1 3 []
+%s2 = store %f 7
+%b2 = after %b1 %s2</code></pre>
+<p>Loads can still reach back. A load through a view of <code>%b</code> reads the starting row even when <code>%b2</code> exists. That is how a swap works: read both old values first, then write them.</p>
+<p>The <strong>outputs</strong> of a program are the final version of each buffer, the one no <code>after</code> builds on. That is what a caller sees when the program is done, and what the next two exercises are graded on.</p>
 </div>
 
 <div class="exercise" data-ex="w2-02-swap">
@@ -59,27 +181,90 @@
 <p class="muted">The grader sets the buffer's data for each test and checks its final contents.</p>
 </div>
 
+<div class="exercise" data-ex="w2-02n-sum-clear">
+<h3>Sum, then clear</h3>
+<p>Now write one from scratch. Slot 0 is a buffer of three i32s. Set <code>b[2]</code> to <code>b[0] + b[1]</code>, using the starting values, and set <code>b[0]</code> to 0. Leave <code>b[1]</code> alone. So <code>[1 2 3]</code> ends as <code>[0 2 3]</code>. Only the <code>buffer</code> line is given.</p>
+</div>
+
+<h2>Two writes with no order</h2>
 <div class="prose">
-<h2>What "fully ordered" means</h2>
-<p>The syllabus says loads and stores "must be fully ordered for programs to be valid". In our format that comes down to three rules:</p>
-<ol>
-<li><strong>One store per version.</strong> At most one store may write into any given version, through any of its views.</li>
-<li><strong>Every store is sequenced.</strong> Each store is the <code>s</code> of exactly one <code>after</code>. A store nothing sequences has no effect anywhere, so it makes the program invalid. It isn't quietly skipped.</li>
-<li><strong>Old versions are read before they're overwritten.</strong> A load of version V has to be able to run before the store that makes V's successor.</li>
-</ol>
-<p>Rule 1 is the interesting one. Two stores into the same version have no order between them, and with two writes, order is the whole answer:</p>
+<p>Versions fix the read and write puzzle. The same puzzle comes back with two writes. Both of these stores go into version <code>%b</code>, into the same element:</p>
+<pre><code>%b  = buffer 2 dtype=i32 slot=0
+%e  = shrink %b 0 []
+%s1 = store %e 1
+%s2 = store %e 2
+%b1 = after %b %s1
+%b2 = after %b %s2</code></pre>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">What does element 0 hold when this program is done?</p>
+<div class="opts">
+<button data-k="a">1</button>
+<button data-k="b">2, because <code>%s2</code> is the later line</button>
+<button data-k="c">There is no way to tell. Nothing puts one store before the other.</button>
+</div>
+<p class="hint">Line order is not part of the graph. Does either store, or either <code>after</code>, point at the other?</p>
+<div class="why"><p>Whichever store runs last wins, and the graph does not say which that is. There are also two "next versions" of <code>%b</code>, and neither builds on the other, so the program has no final version.</p></div>
 </div>
 
 <div class="fig" id="race" data-title="two stores into one version"></div>
 
+<div class="prose">
+<p>So the language forbids it: a version may be written by at most one store. It does not matter that two stores might touch different elements. To write twice, chain the stores, as you did in the swap.</p>
+</div>
+
+<h2>What "fully ordered" means</h2>
+<div class="prose">
+<p>The syllabus says loads and stores "must be fully ordered for programs to be valid". That means the graph itself settles which memory operation comes first, every time the order could change a result. Your compiler will print C, where statements run one at a time on one real array, so every order it may pick has to give the same result. Three rules make sure of it:</p>
+<ol>
+<li><strong>One store per version.</strong> At most one store may write into any given version, through any of its views.</li>
+<li><strong>Every store is sequenced.</strong> Each store is the <code>s</code> of exactly one <code>after</code>, and that <code>after</code> names the version the store writes into.</li>
+<li><strong>Old versions are read before they're overwritten.</strong> A load of version V has to be able to run before the store that makes V's successor.</li>
+</ol>
+<p>A program that breaks any of them is REJECTED before anything runs.</p>
+</div>
+
 <div class="trap">
 <span class="label">A store with no after</span>
-<p>It's tempting to write <code>store</code> and move on, the way you would in C. In a graph, a store that no <code>after</code> names is unreachable from the outputs, so nothing could ever observe it. The oracle rejects it: "a store that no after sequences has no effect".</p>
+<p>It's tempting to write <code>store</code> and move on, the way you would in C. That is what the puzzle program at the start of this lesson did. In a graph, a store that no <code>after</code> names is unreachable from the outputs, so nothing could ever observe it. The oracle rejects it: "a store that no after sequences has no effect".</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%s1</code> stores into a view of <code>%b</code>, and <code>%b1 = after %b %s1</code>. Which second store keeps the program valid?</p>
+<div class="opts">
+<button data-k="a">A store into another view of <code>%b</code>, with <code>after %b</code></button>
+<button data-k="b">A store into a view of <code>%b1</code>, with <code>after %b1</code></button>
+<button data-k="c">A store into a view of <code>%b1</code>, with <code>after %b</code></button>
+</div>
+<p class="hint">Rule 1 rules out one option. Rule 2 says which version the <code>after</code> must name.</p>
+<div class="why"><p>A second store into <code>%b</code> breaks rule 1. A store into <code>%b1</code> is fine, but its <code>after</code> must name <code>%b1</code>, the version it writes into.</p></div>
+</div>
+
+<div class="exercise" data-ex="w2-02n-ordered" data-ex-py="w2-02n-ordered-py">
+<h3>Check rules 1 and 2</h3>
+<p>Your lab compiler has to check these rules, so practice on a small model. A store is a pair <code>("s", "b")</code>: the store named <code>s</code> writes into version <code>b</code>. An after is a triple <code>("b1", "b", "s")</code>, which stands for <code>%b1 = after %b %s</code>.</p>
+<p><code>ordered</code> returns true when rules 1 and 2 both hold. Rule 1 is written. Add rule 2: every store is named by exactly one after, and that after names the version the store writes into.</p>
+</div>
+
+<h2>The old-version trap</h2>
+<div class="prose">
+<p>Rule 3 is about what happens in C. There, every version of <code>%b</code> is the same array, and a store wipes out the old value for good.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">One line loads element 0 of version <code>%b</code>. Another stores into element 0 to make <code>%b1</code>. In the C your compiler prints, where must the load go?</p>
+<div class="opts">
+<button data-k="a">Before the store</button>
+<button data-k="b">After the store</button>
+<button data-k="c">Either side works</button>
+</div>
+<p class="hint">What is in the array's element 0 right after the store has run?</p>
+<div class="why"><p>Before. Once the store runs, the old value is gone. So every load of a version must run before the store that overwrites it.</p></div>
 </div>
 
 <div class="prose">
-<h2>The old-version trap</h2>
-<p>Rule 3 sounds like it can never fail, because a load of V doesn't depend on the store that comes after V. It can fail, though, when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer. The <code>mod</code> is only there to keep the index provably in range (<a href="03-bounds.html">lesson 3</a> explains why), so you can ignore it for now:</p>
+<p>It goes wrong when a load of the <em>old</em> version needs a value that only exists in the <em>new</em> one. Here the index into the old buffer is read from the new buffer. The <code>mod</code> only keeps the index provably in range (<a href="03-bounds.html">lesson 2.3</a> explains why), so ignore it for now:</p>
 <pre><code>%b  = buffer 2 [1 0] dtype=i32 slot=0
 %e0 = shrink %b 0 []
 %s  = store %e0 0
@@ -90,19 +275,48 @@
 %v  = shrink %b %k []       # ...to index the OLD %b
 %y  = load %v
 %t  = assert %y 1</code></pre>
-<p>When your compiler renders C, every version of <code>%b</code> is the same array, written in place. So the load of old <code>%b</code> must run before the store. But it needs <code>%i</code>, which needs <code>%b1</code>, which needs the store. Step through the chain of "must come before":</p>
+<p>The load of old <code>%b</code> must run before the store. But it needs <code>%i</code>, which needs <code>%b1</code>, which needs the store. Step through the chain of "must come before":</p>
 </div>
 
 <div class="fig" id="cycle" data-title="a cycle of must-come-before"></div>
 
 <div class="prose">
-<p>No order satisfies every arrow, so the program is REJECTED: "a load of an old buffer version is needed after that version was overwritten". A compiler could save a copy of the old buffer to make it work, but that's a hidden allocation, and the course's rule is that the program has to say what memory it uses.</p>
+<p>No order satisfies every arrow, so the program is REJECTED: "a load of an old buffer version is needed after that version was overwritten". A compiler could save a copy of the old buffer, but that is a hidden allocation, and the course's rule is that the program says what memory it uses.</p>
 </div>
 
-<div class="exercise small" data-ex="w2-02-prefix">
-<h3>Running total in place</h3>
-<p>A buffer of three i32s. In place: set <code>b[1] = b[0] + b[1]</code>, then <code>b[2] = b[1] + b[2]</code> using the <em>new</em> <code>b[1]</code>. The starter has one bug about which version it reads.</p>
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Explain why a graph alone cannot say whether a read sees a write.</li>
+<li>Write a store, name the new version with <code>after</code>, and chain several writes.</li>
+<li>Tell which version a load reads by finding the version its view was cut from.</li>
+<li>State the three rules behind "fully ordered" and spot a program that breaks one.</li>
+</ul>
+<p>Next, <a href="03-bounds.html">lesson 2.3</a> shows how the compiler proves that every view stays inside its buffer.</p>
 </div>
+
+<details class="toggle">
+<summary>Every rule for store and after, for when you write the lab</summary>
+<div class="prose">
+<ul>
+<li><code>store v x</code>: <code>v</code> is a view or a whole buffer, and <code>x</code> is a value of the same dtype and shape. A <code>[]</code> view takes a scalar. A <code>[k]</code> view, or a whole buffer, takes a rank-1 value such as a <code>stack</code>. The result is <code>void</code>.</li>
+<li><code>after m s</code>: <code>s</code> must be a store, and <code>m</code> must be the version that store writes into. <code>after %b1 %s</code> is invalid when <code>%s</code> wrote into <code>%b</code>, and so is naming an older version of the right buffer. The result is memory with the same dtype and shape as <code>m</code>.</li>
+<li><code>m</code> must be a whole version: a <code>buffer</code>, an <code>alloc</code> or another <code>after</code>. It cannot be a view, so <code>after %e %s</code> is invalid even though <code>%s</code> stored through <code>%e</code>.</li>
+<li>An <code>alloc</code> has versions in the same way. It is scratch memory, so it is never an output.</li>
+<li>The outputs are the final version of every <code>buffer</code>: the version no <code>after</code> builds on.</li>
+<li>In a test file, every line must still be reachable from the assert, as in week 1. A store and its <code>after</code> that the assert never reads make the file REJECTED.</li>
+</ul>
+<p>The reasons the oracle gives, which are handy to search for when a test surprises you:</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>the program has</th><th>the oracle says</th></tr>
+<tr><td>a store that no <code>after</code> names</td><td>a store that no after sequences has no effect</td></tr>
+<tr><td>two stores into one version, with fewer than two <code>after</code> lines on it</td><td>two stores into the same buffer version are unordered</td></tr>
+<tr><td>two <code>after</code> lines on the same version</td><td>two top-level afters on the same buffer version are unordered</td></tr>
+<tr><td>an <code>after</code> that names a version its store did not write into</td><td>after: the store must write into the version after names</td></tr>
+<tr><td>a load of an old version that depends on a newer one</td><td>a load of an old buffer version is needed after that version was overwritten</td></tr>
+</table></div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
@@ -176,7 +390,7 @@
 <button data-k="c">A load can't read a version that has a successor.</button>
 <button data-k="d">The load of old <code>%b</code> must run before the store, but its index needs the store's result.</button>
 </div>
-<p class="hint"><code>%k</code> is masked with <code>mod</code>, and there's only one store. Follow the arrows in the figure.</p>
+<p class="hint"><code>mod</code> keeps <code>%k</code> in range, and there's only one store. Follow the arrows in the figure.</p>
 <div class="why"><p>It's a cycle: the old load must come before the store (it reads the version the store overwrites), and it also must come after it (its index is read from the new version). Loading a version that has a successor is fine on its own, as the previous question showed.</p></div>
 </div>
 
@@ -192,6 +406,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const row = (name, vals, mark, dim) => h('div', { class: 'row' + (dim ? ' dim' : '') }, h('span', { class: 'name', text: name }),
     h('div', { class: 'mem' }, vals.map((v, i) => h('div', { class: 'cell' + (i === mark ? ' hit' : '') }, h('span', { class: 'addr', text: i }), String(v)))));
 
+  const order = [
+    { caption: 'The row before anything runs. Element 1 holds 20.', rows: [['start', [10, 20, 30, 40], -1]], label: '' },
+    { caption: 'Store first: 99 goes into element 1, and then the load reads element 1.', rows: [['store, then load', [10, 99, 30, 40], 1]], label: 'the load reads 99' },
+    { caption: 'Load first: the load reads element 1 while it still holds 20. The 99 goes in afterward.', rows: [['load, then store', [10, 20, 30, 40], 1]], label: 'the load reads 20' },
+  ];
+  CC.stepper(document.getElementById('order'), order, (s, body) => body.append(h('div', { class: 'strip' }, ...s.rows.map(r => row(...r)), s.label ? h('span', { class: 'vlab', text: s.label }) : '')));
+
   // ---- a chain of versions ----
   const src = `%b  = buffer 4 [10 20 30 40] dtype=i32 slot=0
 %e  = shrink %b 1 []
@@ -201,11 +422,11 @@ document.addEventListener('DOMContentLoaded', () => {
 %s2 = store %f 7
 %b2 = after %b1 %s2`;
   const chain = [
-    { caption: 'One buffer, one version so far: <code>%b</code>.', hl: 0, rows: [['%b', [10, 20, 30, 40], -1]] },
-    { caption: '<code>store %e 99</code> writes into element 1 of <code>%b</code>. On its own it\'s only an event.', hl: 2, rows: [['%b', [10, 20, 30, 40], 1]] },
-    { caption: '<code>after %b %s</code> names the result: <code>%b1</code>. <code>%b</code> is untouched, so anything that loads from <code>%b</code> still sees 20.', hl: 3, rows: [['%b', [10, 20, 30, 40], -1, true], ['%b1', [10, 99, 30, 40], 1]] },
-    { caption: 'The second store must go into a view of <code>%b1</code>, the latest version. A second store into <code>%b</code> is invalid, as rule 1 below explains.', hl: 5, rows: [['%b', [10, 20, 30, 40], -1, true], ['%b1', [10, 99, 30, 40], 3]] },
-    { caption: '<code>%b2</code> is the final version: nothing builds on it, so it\'s the buffer\'s output. In C, all three versions are one array, written in place.', hl: 6, rows: [['%b', [10, 20, 30, 40], -1, true], ['%b1', [10, 99, 30, 40], -1, true], ['%b2', [10, 99, 30, 7], 3]] },
+    { caption: 'One buffer, one version so far: <code>%b</code> is version 0.', hl: 0, rows: [['version 0  %b', [10, 20, 30, 40], -1]] },
+    { caption: '<code>store %e 99</code> describes a write into element 1 of <code>%b</code>. On its own it\'s only an event.', hl: 2, rows: [['version 0  %b', [10, 20, 30, 40], 1]] },
+    { caption: '<code>after %b %s</code> names the result: <code>%b1</code>, version 1. <code>%b</code> is untouched, so anything that loads from <code>%b</code> still sees 20.', hl: 3, rows: [['version 0  %b', [10, 20, 30, 40], -1, true], ['version 1  %b1', [10, 99, 30, 40], 1]] },
+    { caption: 'The second store goes into a view of <code>%b1</code>, the latest version. A second store into <code>%b</code> would be invalid, as you\'ll see further on.', hl: 5, rows: [['version 0  %b', [10, 20, 30, 40], -1, true], ['version 1  %b1', [10, 99, 30, 40], 3]] },
+    { caption: '<code>%b2</code> is version 2, the final version: nothing builds on it, so it\'s the buffer\'s output. In C, all three versions are one array, written in place.', hl: 6, rows: [['version 0  %b', [10, 20, 30, 40], -1, true], ['version 1  %b1', [10, 99, 30, 40], -1, true], ['version 2  %b2', [10, 99, 30, 7], 3]] },
   ];
   CC.stepper(document.getElementById('chain'), chain, (s, body) => body.append(h('div', { class: 'strip' }, CC.code(src, s.hl), ...s.rows.map(r => row(...r)))));
 
@@ -220,7 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { caption: 'This store and the one above write the same element of the same version <code>%b</code>.', hl: 3, rows: [['%b', [0, 0], 0]] },
     { caption: 'If <code>%s1</code> runs first, then <code>%s2</code>, the buffer ends up holding 2.', hl: 2, rows: [['s1 then s2', [2, 0], 0]] },
     { caption: 'If <code>%s2</code> runs first, it ends up holding 1. Nothing in the graph says which. Two different answers from one program means the program has no meaning.', hl: 3, rows: [['s2 then s1', [1, 0], 0]] },
-    { caption: 'Worse, <code>%b1</code> and <code>%b2</code> both claim to be "the next version of %b", and neither is final over the other. The oracle rejects this: "two stores into the same buffer version are unordered".', hl: 5, rows: [['%b1', [1, 0], 0], ['%b2', [2, 0], 0]] },
+    { caption: 'Worse, <code>%b1</code> and <code>%b2</code> both claim to be "the next version of %b", and neither is final over the other. The oracle rejects this: "two top-level afters on the same buffer version are unordered".', hl: 5, rows: [['%b1', [1, 0], 0], ['%b2', [2, 0], 0]] },
   ];
   CC.stepper(document.getElementById('race'), race, (s, body) => body.append(h('div', { class: 'strip' }, CC.code(rsrc, s.hl), ...s.rows.map(r => row(...r)))));
 

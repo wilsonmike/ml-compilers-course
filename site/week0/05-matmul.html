@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Matrix Multiply</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="You only need one piece of linear algebra for this course: the dot product, and matrix multiply as a grid of them. Most of the compute in a neural network is...">
+<meta name="description" content="Matrix multiply is the one operation neural networks spend most of their time in, and in week 3 you write it yourself. This page shows what it computes...">
 <link rel="canonical" href="https://sharpterminal.com/site/week0/05-matmul">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Matrix Multiply">
-<meta property="og:description" content="You only need one piece of linear algebra for this course: the dot product, and matrix multiply as a grid of them. Most of the compute in a neural network is matrix multiply, so most of the speed...">
+<meta property="og:description" content="Matrix multiply is the one operation neural networks spend most of their time in, and in week 3 you write it yourself. This page shows what it computes, starting from a table of test scores. You need...">
 <meta property="og:url" content="https://sharpterminal.com/site/week0/05-matmul">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,7 +20,7 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
 <style>
   .mats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s4); font: 0.875rem var(--mono); }
   .mat { display: inline-grid; gap: 2px; }
@@ -38,33 +38,244 @@
 <main>
   <p class="eyebrow">Week 0 · Lesson 5</p>
   <h1>Matrix multiply is a pile of dot products</h1>
-  <p class="lede">You only need one piece of linear algebra for this course: the dot product, and matrix multiply as a grid of them. Most of the compute in a neural network is matrix multiply, so most of the speed work, once kernels are timed from week 6, is about this one loop.</p>
+  <p class="lede">Matrix multiply is the one operation neural networks spend most of their time in, and in week 3 you write it yourself. This page shows what it computes, starting from a table of test scores. You need no linear algebra. It is multiplying and adding.</p>
 
-  <div class="prose">
-    <h2>The dot product</h2>
-    <p>Two vectors of the same length. Multiply them element by element, then add up the products.</p>
-    <pre><code>[1, 2, 3] · [4, 5, 6] = 1*4 + 2*5 + 3*6 = 32</code></pre>
-    <p>That's a <em>multiply</em> followed by a <em>reduce</em> (sum). Hold on to that pattern. Later in this lesson it turns into two operations in the course's IR: a broadcast multiply and a reduce.</p>
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Multiply two grids of numbers by hand and with three loops, and say which shapes can be multiplied.</p>
   </div>
 
-  <div class="exercise small" data-ex="w0-05-strided-dot">
-    <h3>A strided dot product</h3>
-    <p>Write <code>dot(a, sa, b, sb, n)</code>: the sum of <code>a[i*sa] * b[i*sb]</code> for <code>i</code> from 0 to <code>n-1</code>. With a stride, the same function can dot a row (stride 1) with a column (stride = row width) of a flat matrix, which is exactly what one cell of a matmul does.</p>
+  <div class="note">
+    <span class="label">Where this fits</span>
+    <p>Read this page just before week 3, right after <a href="04-tensors-and-shapes.html">lesson 0.4</a>. <a href="../week3/03-gemm.html">Lesson 3.3</a> has you write this multiply in <code>.uir</code>, and it starts from what you do here.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Rows, columns, shapes and the rule <code>r*cols + c</code> from <a href="04-tensors-and-shapes.html">lesson 0.4</a>.</p>
+    <p class="only-python">In the exercises: lists and a <code>for</code> loop inside a <code>for</code> loop (<a href="../learn/py-02-decisions-loops.html">P.2</a>, <a href="../learn/py-03-collections.html">P.3</a>).</p>
+    <p class="only-ocaml">In the exercises: arrays, <code>ref</code> and <code>for</code> loops (<a href="../learn/ml-05-mutation.html">O.5</a>).</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from lesson 0.4, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="7">
+    <p class="q">A grid with 3 columns is stored row after row in a flat buffer. Which position holds row 2, column 1?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>r*cols + c</code> with r = 2, cols = 3 and c = 1.</p>
+    <div class="why"><p><code>2*3 + 1 = 7</code>. Two whole rows are 6 boxes, then one step along.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">A <code>(2, 3)</code> grid is stored as <code>1 2 3 4 5 6</code>. A loop reads positions 1 and 4. What did it walk?</p>
+    <div class="opts">
+      <button data-k="a">Column 1</button>
+      <button data-k="b">Row 1</button>
+      <button data-k="c">A diagonal</button>
+    </div>
+    <p class="hint">The positions are 3 apart, and one row is 3 boxes long.</p>
+    <div class="why"><p>Each step skips one whole row, so the column stays put: <code>0*3 + 1</code> and <code>1*3 + 1</code>. It read 2 and 5, which is column 1. Matrix multiply walks columns this way.</p></div>
   </div>
 
   <div class="prose">
+    <h2>Three students, two tests</h2>
+    <p>A teacher gives two tests, each marked out of 10. Test 1 is a short quiz. Test 2 is the final, so it should count for more. Here are the scores:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>student</th><th>test 1</th><th>test 2</th></tr>
+    <tr><td>Ana</td><td>8</td><td>6</td></tr>
+    <tr><td>Ben</td><td>5</td><td>9</td></tr>
+    <tr><td>Cy</td><td>10</td><td>7</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>The teacher gives each test a <strong>weight</strong>: a number that says how much one point on that test is worth. Test 1 has weight 2 and test 2 has weight 3. A student's total is their test 1 score times 2, plus their test 2 score times 3.</p>
+  </div>
 
-    <h2>Matrix times matrix</h2>
-    <p>If <code>A</code> has shape <code>(M, K)</code> and <code>B</code> has shape <code>(K, N)</code>, then <code>C = A @ B</code> has shape <code>(M, N)</code>. (<code>@</code> means matrix multiply. It's the Python and NumPy symbol for it.) Each output cell is one dot product:</p>
-    <pre><code>C[i][j] = sum over k of  A[i][k] * B[k][j]</code></pre>
-    <p>That's row <code>i</code> of <code>A</code> dotted with column <code>j</code> of <code>B</code>. The two inner sizes (both <code>K</code>) have to match, and they disappear from the result.</p>
+  <div class="quiz" data-fill="34">
+    <p class="q">What is Ana's total?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Her test 1 score is 8 and its weight is 2. Her test 2 score is 6 and its weight is 3.</p>
+    <div class="why"><p><code>8*2 + 6*3 = 16 + 18 = 34</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>You just did this whole lesson in small. You multiplied numbers that belong together, then added the products. Matrix multiply is that same move, done once for every student and every way of weighting. A neural network does it with millions of numbers. Its scores are the numbers coming in, and its weights are what it learned in training.</p>
+
+    <h2>A dot product: multiply matching pairs and add</h2>
+    <p>The move has a name. Lesson 0.4 called a row of numbers a vector. The <strong>dot product</strong> of two vectors of the same length is one number: multiply the matching pairs, then add the products. It is written with a dot. Here are Ben's scores and the weights:</p>
+    <pre><code>[5, 9] · [2, 3] = 5*2 + 9*3 = 37</code></pre>
+    <ol>
+      <li><strong>Pair them up.</strong> First with first, second with second: 5 with 2, and 9 with 3.</li>
+      <li><strong>Multiply each pair.</strong> <code>5*2 = 10</code> and <code>9*3 = 27</code>.</li>
+      <li><strong>Add the products.</strong> <code>10 + 27 = 37</code>.</li>
+    </ol>
+    <p>The two vectors must have the same length. If they did not, some number would have no partner.</p>
+  </div>
+
+  <div class="quiz" data-fill="11">
+    <p class="q"><code>[1, 0, 2] · [3, 5, 4]</code> = ?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Three pairs, so three products. Then add them.</p>
+    <div class="why"><p><code>1*3 + 0*5 + 2*4 = 3 + 0 + 8 = 11</code>.</p></div>
+  </div>
+
+  <div class="exercise" data-ex="w0-05n-dot" data-ex-py="w0-05n-dot-py">
+    <h3>Complete: a dot product</h3>
+    <p><code>dot</code> takes two vectors of the same length and returns their dot product. The loop and the running total are written. One line still adds 0 on every turn. Make it add the product of the matching pair.</p>
+  </div>
+
+  <div class="prose">
+    <h2>A matrix times a vector: one dot product per row</h2>
+    <p>Now do all three students at once. The scores are a matrix of shape <code>(3, 2)</code>: 3 rows of 2. The weights are a vector of 2 numbers. A matrix times a vector does one dot product for each row of the matrix, so the answer has one number per row:</p>
+<pre><code>scores      weights    totals
+[ 8  6]                [34]
+[ 5  9]  @  [2  3]  =  [37]
+[10  7]                [ ?]</code></pre>
+    <p>The <code>@</code> sign means this kind of multiply. It is the symbol Python uses for it.</p>
+  </div>
+
+  <div class="quiz" data-fill="41">
+    <p class="q">What is the missing total?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Dot the last row, <code>[10, 7]</code>, with the weights <code>[2, 3]</code>.</p>
+    <div class="why"><p><code>10*2 + 7*3 = 20 + 21 = 41</code>. The weights were used three times, once for each row.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>In memory the matrix is flat, row after row: <code>8 6 5 9 10 7</code>. Lesson 0.4 found row <code>r</code>, column <code>c</code> at position <code>r*cols + c</code>. So a program needs two loops:</p>
+    <ol>
+      <li><strong>Loop over the rows.</strong> For each row <code>r</code>, start a total at 0.</li>
+      <li><strong>Walk the row.</strong> For each column <code>c</code>, multiply the matrix number at <code>r*cols + c</code> by vector number <code>c</code>, and add the product to the total.</li>
+      <li><strong>Keep the total.</strong> It is number <code>r</code> of the answer.</li>
+    </ol>
+  </div>
+
+  <div class="exercise" data-ex="w0-05n-matvec" data-ex-py="w0-05n-matvec-py">
+    <h3>A matrix times a vector</h3>
+    <p>Write <code>matvec</code>. It takes a matrix <code>m</code> stored flat, row after row, its number of rows and columns, and a vector <code>v</code> with one number per column. It returns one total per row. The scores <code>8 6 5 9 10 7</code> with 3 rows, 2 columns and the weights <code>2 3</code> give <code>34 37 41</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>A matrix times a matrix: one dot product per row and column</h2>
+    <p>The teacher wants to compare two grading plans. Plan 0 is the weights from before. Plan 1 gives test 1 a weight of 4 and test 2 a weight of 1. Put each plan in its own column, and the weights become a matrix too:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>weights</th><th>plan 0</th><th>plan 1</th></tr>
+    <tr><td>test 1</td><td>2</td><td>4</td></tr>
+    <tr><td>test 2</td><td>3</td><td>1</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>Now there is a total for every student under every plan. Each one is a dot product: one student's row of scores with one plan's column of weights.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>totals</th><th>plan 0</th><th>plan 1</th></tr>
+    <tr><td>Ana</td><td>34</td><td>38</td></tr>
+    <tr><td>Ben</td><td>37</td><td>?</td></tr>
+    <tr><td>Cy</td><td>41</td><td>47</td></tr>
+  </table></div>
+
+  <div class="quiz" data-fill="29">
+    <p class="q">What is Ben's total under plan 1?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Ben's row of scores is <code>[5, 9]</code>. The plan 1 column of weights, read downward, is <code>[4, 1]</code>.</p>
+    <div class="why"><p><code>5*4 + 9*1 = 20 + 9 = 29</code>. Ben beats Ana under plan 0 and loses to her under plan 1.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>That table of totals is a <strong>matrix multiply</strong>, written <code>C = A @ B</code>. Rows and columns count from 0, and <code>C[i][j]</code> means the cell of C at row i, column j. The whole rule is one sentence: <code>C[i][j]</code> is row i of A dotted with column j of B.</p>
+    <p>Step through a second one. Here A has 2 rows of 3 and B has 3 rows of 2. Week 3 uses these same two matrices.</p>
   </div>
 
   <div class="fig" id="mm" data-title="(2, 3) @ (3, 2), one multiply-add per step"></div>
 
   <div class="prose">
-    <h2>The triple loop</h2>
-    <p>In C, with all three matrices stored row-major as flat arrays (lesson 4):</p>
+    <h2>Which shapes can be multiplied</h2>
+    <p>Not every pair of matrices can be multiplied. Predict the rule before you read it.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">The scores have shape <code>(3, 2)</code>: 3 students and 2 tests. The teacher writes five grading plans. Which shape must the weights have for <code>scores @ weights</code> to work?</p>
+    <div class="opts">
+      <button data-k="a"><code>(3, 5)</code></button>
+      <button data-k="b"><code>(2, 5)</code></button>
+      <button data-k="c"><code>(5, 3)</code></button>
+    </div>
+    <p class="hint">Each plan is one column of weights. How many weights does one plan need?</p>
+    <div class="why"><p>A plan needs one weight per test, so each column holds 2 numbers. That is 2 rows and 5 columns: <code>(2, 5)</code>. The answer has shape <code>(3, 5)</code>, one total for each student under each plan.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>A row of A has as many numbers as A has columns. A column of B has as many numbers as B has rows. A dot product needs two vectors of the same length, so those two sizes must be equal.</p>
+    <pre><code>(M, K) @ (K, N)  gives  (M, N)</code></pre>
+    <ol>
+      <li><strong>Write the shapes side by side.</strong> <code>(3, 2) @ (2, 5)</code>.</li>
+      <li><strong>Check the inner sizes.</strong> The two in the middle are 2 and 2. They match, so the multiply works.</li>
+      <li><strong>Keep the outer sizes.</strong> The answer is <code>(3, 5)</code>. The inner size is gone, because each dot product added it away.</li>
+    </ol>
+    <p>The order matters. <code>(2, 5) @ (3, 2)</code> does not work, because its inner sizes are 5 and 3.</p>
+
+    <h2>Three loops</h2>
+    <p>A program fills C one cell at a time. One loop picks the row <code>i</code>, one picks the column <code>j</code>, and the innermost loop does the dot product for that cell. All three matrices are flat, so every read uses <code>r*cols + c</code>. Here A has shape <code>(rows, mid)</code> and B has shape <code>(mid, cols)</code>.</p>
+<pre class="only-python"><code>def matmul(a, b, rows, mid, cols):
+    c = [0] * (rows * cols)
+    for i in range(rows):
+        for j in range(cols):
+            total = 0
+            for k in range(mid):
+                total = total + a[i * mid + k] * b[k * cols + j]
+            c[i * cols + j] = total
+    return c</code></pre>
+<pre class="only-ocaml"><code>let matmul a b rows mid cols =
+  let c = Array.make (rows * cols) 0 in
+  for i = 0 to rows - 1 do
+    for j = 0 to cols - 1 do
+      let total = ref 0 in
+      for k = 0 to mid - 1 do
+        total := !total + a.(i * mid + k) * b.(k * cols + j)
+      done;
+      c.(i * cols + j) &lt;- !total
+    done
+  done;
+  c</code></pre>
+    <ol>
+      <li><strong>Pick a cell.</strong> The <code>i</code> and <code>j</code> loops visit every cell of C.</li>
+      <li><strong>Start its total at 0.</strong> Each cell is its own dot product.</li>
+      <li><strong>Walk a row and a column.</strong> As <code>k</code> counts up, <code>i*mid + k</code> steps along row i of A. <code>k*cols + j</code> steps down column j of B, jumping one whole row each turn.</li>
+      <li><strong>Store the total.</strong> It goes in row i, column j of C.</li>
+    </ol>
+    <p>The innermost line does one multiply and one add. It runs <code>rows * cols * mid</code> times.</p>
+  </div>
+
+  <div class="quiz" data-fill="24">
+    <p class="q">How many times does the innermost line run for <code>(2, 3) @ (3, 4)</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The answer has shape <code>(2, 4)</code>. How many cells is that, and how many pairs does each cell multiply?</p>
+    <div class="why"><p><code>2 * 4 = 8</code> cells, and each is a dot product of 3 pairs: <code>8 * 3 = 24</code>.</p></div>
+  </div>
+
+  <div class="exercise" data-ex="w0-05n-matmul" data-ex-py="w0-05n-matmul-py">
+    <h3>Repair: the triple loop</h3>
+    <p>This <code>matmul</code> is the one above with one line in the wrong place. It gets the first cell right and every later cell too big. Find the line and move it.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Take a dot product: multiply matching pairs and add.</li>
+      <li>Multiply a matrix by a vector with one dot product per row.</li>
+      <li>Multiply two matrices by hand: <code>C[i][j]</code> is row i of A dotted with column j of B.</li>
+      <li>Tell from two shapes if they can be multiplied, and give the shape of the answer.</li>
+      <li>Read the triple loop and say what each index does.</li>
+    </ul>
+    <p>Next is week 3, where <a href="../week3/03-gemm.html">lesson 3.3</a> writes these three loops in <code>.uir</code>.</p>
+    <p>The rest of this page is optional and looks ahead to weeks 5 and 7. Skip it now if you like.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The triple loop in C, its strides and its FLOP count, for when week 7 makes it fast</summary>
+    <div class="prose">
+      <p>In C, with all three matrices stored row-major as flat arrays (lesson 0.4):</p>
 <pre><code>void matmul(int M, int N, int K, const float *A, const float *B, float *C) {
   for (int i = 0; i &lt; M; i++)
     for (int j = 0; j &lt; N; j++) {
@@ -74,10 +285,37 @@
       C[i*N + j] = acc;
     }
 }</code></pre>
-    <p>It does <code>M * N * K</code> multiplies and the same number of adds. Look at the index into <code>B</code>: as <code>k</code> goes up it jumps <code>N</code> floats at a time, a stride of <code>N</code>, so it's cache-unfriendly for large <code>N</code>. Reordering the loops, tiling them and keeping values in registers is how later weeks make this fast. The math doesn't change, only the order.</p>
-  </div>
+      <p>It does <code>M * N * K</code> multiplies and the same number of adds. Look at the index into <code>B</code>: as <code>k</code> goes up it jumps <code>N</code> floats at a time, a stride of <code>N</code>, so it's cache-unfriendly for large <code>N</code>. Reordering the loops, tiling them and keeping values in registers is how later weeks make this fast. The math doesn't change, only the order.</p>
+    </div>
+    <div class="note"><span class="label">Count it</span><p>A 256 by 256 matmul is <code>256 * 256 * 256 = 16,777,216</code> multiply-adds. People quote it as about 33.5 million FLOPs (floating point operations), because each multiply-add is 2. That FLOP count is how you'll grade your own speed later: FLOPs divided by seconds.</p></div>
+  </details>
 
-  <div class="note"><span class="label">Count it</span><p>A 256 by 256 matmul is <code>256 * 256 * 256 = 16,777,216</code> multiply-adds. People quote it as about 33.5 million FLOPs (floating point operations), because each multiply-add is 2. That FLOP count is how you'll grade your own speed later: FLOPs divided by seconds.</p></div>
+  <details class="toggle">
+    <summary>A matrix multiply with no loops, from reshape and reduce: week 5 builds this</summary>
+    <div class="prose">
+      <p>This way of writing a matrix multiply now belongs to week 5. <a href="../week5/04-matmul-conv.html">Lesson 5.4</a> teaches it step by step, with the real ops. What follows is a preview and the background for the last C drill below.</p>
+      <p>The dot product is a <em>multiply</em> followed by a <em>reduce</em> (sum). In the course's IR that pattern turns into two operations: a broadcast multiply and a reduce. The course syllabus writes a 256 by 256 matrix multiply (a "GEMM") with no loops at all:</p>
+<pre><code>%0 = buffer 65536 dtype=f32 slot=0
+%1 = buffer 65536 dtype=f32 slot=1
+%2 = reshape %0 [256 256 1]
+%3 = reshape %1 [256 1 256]
+%4 = mul %2 %3
+%5 = reduce %4 op=add pop=1</code></pre>
+      <p>This is the syllabus's shorthand. The course's own <code>.uir</code> spells it out a little more: it loads each buffer before reshaping it, and it broadcasts with an explicit <code>expand</code>. The idea is broadcasting, which week 5 teaches. Reshape both buffers to 3 axes, with a size-1 axis in a different place in each. Then <code>mul</code> broadcasts each to the full <code>(K, M, N)</code> cube of products, and <code>reduce</code> sums away the leading axis <code>k</code> (<code>pop=1</code> means it sums away 1 leading axis). That's the multiply-then-sum of the dot product, done for every <code>(i, j)</code> at once.</p>
+      <p>Here <code>%4</code> has shape <code>[256 256 256]</code>: each size-1 axis broadcasts to match the other side. That's a cube of 16.7 million products, which the reduce collapses to <code>[256 256]</code>. A good compiler never actually stores that cube. It fuses the multiply into the sum (week 4).</p>
+      <p>Below is the same thing with <code>K = 2</code>, <code>M = 2</code>, <code>N = 3</code>, so you can see every number.</p>
+    </div>
+    <div class="fig" id="gemm" data-title="reshape, broadcast-mul, reduce"></div>
+    <div class="trap"><span class="label">Read the axes carefully</span><p>Because the summed axis comes first, slot 0 holds <code>A</code> transposed (<code>K</code> by <code>M</code>). Broadcast-multiply, then reduce, <em>is</em> a matmul.</p></div>
+  </details>
+
+  <h2>Optional drills in C</h2>
+  <p class="prose">These three drills are in C and use the two toggles just above this section. They do not count toward finishing the lesson.</p>
+
+  <div class="exercise small" data-ex="w0-05-strided-dot">
+    <h3>A strided dot product</h3>
+    <p>Write <code>dot(a, sa, b, sb, n)</code>: the sum of <code>a[i*sa] * b[i*sb]</code> for <code>i</code> from 0 to <code>n-1</code>. With a stride, the same function can dot a row (stride 1) with a column (stride = row width) of a flat matrix, which is exactly what one cell of a matmul does.</p>
+  </div>
 
   <div class="exercise small" data-ex="w0-05-gemm-flops">
     <h3>Count the FLOPs</h3>
@@ -85,28 +323,11 @@
     <p class="muted">The starter is the obvious one-liner. Try it on 2048.</p>
   </div>
 
-  <h2>The syllabus GEMM, made small</h2>
-  <div class="prose">
-    <p>The course syllabus writes a 256 by 256 matrix multiply (a "GEMM") with no loops at all:</p>
-<pre><code>%0 = buffer 65536 dtype=f32 slot=0
-%1 = buffer 65536 dtype=f32 slot=1
-%2 = reshape %0 [256 256 1]
-%3 = reshape %1 [256 1 256]
-%4 = mul %2 %3
-%5 = reduce %4 op=add pop=1</code></pre>
-    <p>These ops arrive in weeks 2 to 5, so don't worry about the syntax yet. This is the syllabus's shorthand. The course's own <code>.uir</code> spells it out a little more: it loads each buffer before reshaping it, and it broadcasts with an explicit <code>expand</code>. The idea is lesson 4's broadcasting. Reshape both buffers to 3 axes, with a size-1 axis in a different place in each. Then <code>mul</code> broadcasts each to the full <code>(K, M, N)</code> cube of products, and <code>reduce</code> sums away the leading axis <code>k</code> (<code>pop=1</code> means it sums away 1 leading axis). That's the multiply-then-sum of the dot product, done for every <code>(i, j)</code> at once.</p>
-    <p>Below is the same thing with <code>K = 2</code>, <code>M = 2</code>, <code>N = 3</code>, so you can see every number.</p>
-  </div>
-  <div class="fig" id="gemm" data-title="reshape, broadcast-mul, reduce"></div>
-
-  <div class="trap"><span class="label">Read the axes carefully</span><p>Because the summed axis comes first, slot 0 holds <code>A</code> transposed (<code>K</code> by <code>M</code>). Broadcast-multiply, then reduce, <em>is</em> a matmul.</p></div>
-
-  <h2>Code it</h2>
   <div class="exercise" data-ex="w0-05-matmul-at">
     <h3>The syllabus GEMM, in C</h3>
     <p>Write the matmul that the syllabus program computes. <code>A</code> arrives <strong>stored transposed</strong>: <code>At</code> is <code>K x M</code>, so <code>A[i][k]</code> is <code>At[k*M + i]</code>. <code>B</code> is <code>K x N</code> and <code>C</code> is <code>M x N</code>, all flat and row-major.</p>
     <p>Fill <code>C = A @ B</code>. Overwrite <code>C</code>: the tests hand you a <code>C</code> full of junk.</p>
-    <p class="muted">The triple loop above is your starting point. Only the index into <code>A</code> changes. In the inner loop over <code>k</code>, <code>B</code> was already strided, and now <code>A</code> is strided too.</p>
+    <p class="muted">The C triple loop in the toggle is your starting point. Only the index into <code>A</code> changes. In the inner loop over <code>k</code>, <code>B</code> was already strided, and now <code>A</code> is strided too.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -117,6 +338,13 @@
     <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
     <p class="hint">Multiply matching positions, then add the three products.</p>
     <div class="why"><p><code>4 + 10 + 18 = 32</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">A matrix of shape <code>(4, 3)</code> is multiplied by a vector. How many numbers must the vector have?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Each row of the matrix is dotted with the vector. How long is one row?</p>
+    <div class="why"><p>A row of a <code>(4, 3)</code> matrix holds 3 numbers, so the vector needs 3. The answer has 4 numbers, one per row.</p></div>
   </div>
 
   <div class="quiz" data-answer="b">
@@ -157,21 +385,9 @@
     <div class="why"><p><code>256³ = 16,777,216</code>, which is 2²⁴. Counting the adds too gives about 33.5 million FLOPs.</p></div>
   </div>
 
-  <div class="quiz" data-answer="a">
-    <p class="q">In the syllabus GEMM, what's the shape of <code>%4 = mul %2 %3</code>, before the reduce?</p>
-    <div class="opts">
-      <button data-k="a"><code>[256 256 256]</code></button>
-      <button data-k="b"><code>[256 256 1]</code></button>
-      <button data-k="c"><code>[256 256]</code></button>
-    </div>
-    <p class="hint">Broadcasting stretches every size-1 axis to the other side's size.</p>
-    <p class="hint">Line up <code>[256 256 1]</code> and <code>[256 1 256]</code> axis by axis.</p>
-    <div class="why"><p>Each size-1 axis broadcasts to match the other side. That's a cube of 16.7 million products, which the reduce collapses to <code>[256 256]</code>. A good compiler never actually stores that cube. It fuses the multiply into the sum (week 4).</p></div>
-  </div>
-
   <nav class="pager"><a href="04-tensors-and-shapes.html">← Tensors and shapes</a><a href="07-python.html">0.7 Python for this course →</a></nav>
 </main>
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<script src="../assets/course.js?v=013e314611"></script>
 <script>
 (() => {
   const { h, stepper } = CC;

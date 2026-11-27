@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Your Own Types in Python</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="So far every value you&#x27;ve used came with Python: numbers, strings, lists, dicts. This lesson shows you how to make new kinds of values, like a book, a point...">
+<meta name="description" content="Your compiler will be built out of one kind of thing: a node, a small value that says what one step of a program does. Python has no node type, so in this...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/py-04-your-own-types">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Your Own Types in Python">
-<meta property="og:description" content="So far every value you&#x27;ve used came with Python: numbers, strings, lists, dicts. This lesson shows you how to make new kinds of values, like a book, a point, or a piece of an arithmetic expression...">
+<meta property="og:description" content="Your compiler will be built out of one kind of thing: a node, a small value that says what one step of a program does. Python has no node type, so in this lesson you make one. You&#x27;ll also learn to...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/py-04-your-own-types">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,319 +20,404 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Learn Python|Your own types" data-root="../">
 <main>
   <p class="eyebrow">Learn Python · Lesson 4</p>
   <h1>Your own types</h1>
-  <p class="lede">So far every value you've used came with Python: numbers, strings, lists, dicts. This lesson shows you how to make new kinds of values, like a book, a point, or a piece of an arithmetic expression. By the end you'll build the expression <code>2 + 3 * 4</code> as a tree of small objects and write a function that works out its value. That tree is the same shape as the graph your compiler builds in week 1.</p>
+  <p class="lede">Your compiler will be built out of one kind of thing: a node, a small value that says what one step of a program does. Python has no node type, so in this lesson you make one. You'll also learn to tell two equal nodes from one node with two names, because week 1 depends on that difference.</p>
 
-  <div class="prose">
-    <h2>Why make your own type</h2>
-    <p>Say you want to keep track of a book. You know three things about it: the title, the author, and the year. With what you have so far, you might put them in a tuple:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; book = ("Dune", "Frank Herbert", 1965)
-&gt;&gt;&gt; book[2]
-1965</code></pre>
-  <div class="prose">
-    <p>That works, but <code>book[2]</code> doesn't say what it means. You have to remember that position 2 is the year. Mix up the order once, and your program quietly uses the author as the title. With ten kinds of things and five fields each, nobody can keep the positions in their head.</p>
-    <p>A <b>type</b> is a kind of value: <code>int</code>, <code>str</code> and <code>list</code> are types. Making your own type lets you bundle related values together under one name and give each one a name of its own. Then you write <code>book.year</code> instead of <code>book[2]</code>. Each named value inside is called a <b>field</b> (or an <b>attribute</b>).</p>
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Define a small node type, build a tree out of it, and tell <code>==</code> (equal) from <code>is</code> (the very same object).</p>
   </div>
 
-  <div class="prose">
-    <h2>A class, one line at a time</h2>
-    <p>A <b>class</b> is the recipe for a new type. Each value you make from it is an <b>object</b> (also called an <b>instance</b> of the class). Here is a class for books:</p>
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Functions and <code>if</code> from <a href="py-02-decisions-loops.html">P.2</a>. Lists, tuples, dicts and two names for one list from <a href="py-03-collections.html">P.3</a>. The picture of boxes and arrows from <a href="../start/01-run-a-program.html">Run your first program</a>.</p>
   </div>
-<pre><code>class Book:
-    def __init__(self, title, author, year):
-        self.title = title
-        self.author = author
-        self.year = year</code></pre>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from P.3, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">What is <code>len(a)</code> after these three lines?</p>
+<pre><code>a = [1, 2]
+b = a
+b.append(3)</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Does <code>b = a</code> make a second list?</p>
+    <div class="why"><p>3. <code>b = a</code> copies nothing. There is one list with two names, so a change made through <code>b</code> shows through <code>a</code>.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What is <code>line[1]</code>?</p>
+<pre><code>line = ("out", "mul", "a", 4)</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>"out"</code></button>
+      <button data-k="b"><code>"mul"</code></button>
+      <button data-k="c"><code>"a"</code></button>
+    </div>
+    <p class="hint">Positions count from 0.</p>
+    <div class="why"><p><code>"mul"</code>. Notice that <code>line[1]</code> doesn't say what it means. You have to remember that position 1 is the op.</p></div>
+  </div>
+
   <div class="prose">
-    <p>Read it slowly:</p>
+    <h2>A dict lets a typo through</h2>
+    <p>In the start steps, every line of a program was a box in a picture. A compiler keeps each box as a value called a <b>node</b>. A node has three parts:</p>
     <ul>
-      <li><code>class Book:</code> starts the recipe. Class names start with a capital letter by habit, so you can tell them apart from functions.</li>
-      <li><code>def __init__(...)</code> is a function that lives inside the class. Its name has two underscores on each side, and Python calls it automatically every time you make a new <code>Book</code>. Its job is to fill in the fields. "init" is short for initialize.</li>
-      <li><code>self</code> is the new object being filled in. Python passes it as the first argument without you writing it.</li>
-      <li><code>self.title = title</code> creates a field called <code>title</code> on the object and stores the argument in it.</li>
+      <li><b>op</b>: what the node does, like <code>"add"</code>.</li>
+      <li><b>src</b> (short for sources): the list of nodes it reads.</li>
+      <li><b>arg</b>: one extra piece of data, such as the number in a constant. Most nodes have none.</li>
     </ul>
-    <p>To make a book, call the class like a function:</p>
+    <p>A tuple could hold the three parts, but you just saw that <code>line[1]</code> hides its meaning. A dict gives each part a name. Here is one. Read it closely, because one key is spelled wrong:</p>
+<pre><code>node = {"op": "add", "scr": [], "arg": None}</code></pre>
   </div>
-<pre><code>&gt;&gt;&gt; b = Book("Dune", "Frank Herbert", 1965)
-&gt;&gt;&gt; b.title
-'Dune'
-&gt;&gt;&gt; b.year
-1965</code></pre>
-  <div class="prose">
-    <p>Here's what happens when Python runs <code>Book("Dune", "Frank Herbert", 1965)</code>:</p>
-  </div>
-  <div class="tablewrap"><table>
-    <thead><tr><th>step</th><th>what Python does</th><th>the object afterwards</th></tr></thead>
-    <tbody>
-      <tr><td>1</td><td>makes a new, empty <code>Book</code> object</td><td>no fields yet</td></tr>
-      <tr><td>2</td><td>calls <code>__init__(self=that object, title="Dune", author="Frank Herbert", year=1965)</code></td><td>no fields yet</td></tr>
-      <tr><td>3</td><td>runs <code>self.title = title</code></td><td><code>title='Dune'</code></td></tr>
-      <tr><td>4</td><td>runs <code>self.author = author</code></td><td><code>title='Dune'</code>, <code>author='Frank Herbert'</code></td></tr>
-      <tr><td>5</td><td>runs <code>self.year = year</code></td><td>all three fields</td></tr>
-      <tr><td>6</td><td>hands the object back, and <code>b</code> now names it</td><td>all three fields</td></tr>
-    </tbody>
-  </table></div>
-  <div class="prose">
-    <p>You passed three arguments, and <code>__init__</code> has four parameters. The extra one is <code>self</code>, which Python fills in. Every function inside a class takes <code>self</code> first for this reason.</p>
-  </div>
-  <div class="trap">
-    <span class="label">Forgetting self</span>
-    <p>Leave out <code>self</code> and write <code>def __init__(title, author, year):</code>. Python still passes the new object first, so now there's one argument too many: <code>TypeError: Book.__init__() takes 3 positional arguments but 4 were given</code>. When an error counts one more argument than you wrote, look for a missing <code>self</code>.</p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Guess first. When does Python complain about <code>"scr"</code>?</p>
+    <div class="opts">
+      <button data-k="a">On that line, when the dict is built</button>
+      <button data-k="b">Later, when some code reads <code>node["src"]</code></button>
+      <button data-k="c">Before the program starts</button>
+    </div>
+    <p class="hint">A dict accepts any key you give it.</p>
+    <div class="why"><p>Later. The line runs with no complaint. The error is <code>KeyError: 'src'</code>, and it shows up wherever the node is first read, which may be far from the mistake.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Methods and printing</h2>
-    <p>A <b>method</b> is a function that lives inside a class and works on one object. You've used methods already: <code>text.lower()</code> and <code>words.append("x")</code> are method calls. Here's a book with a method that works out how old the book is:</p>
-  </div>
-<pre><code>class Book:
-    def __init__(self, title, author, year):
-        self.title = title
-        self.author = author
-        self.year = year
-
-    def age(self, now):
-        return now - self.year</code></pre>
-<pre><code>&gt;&gt;&gt; b = Book("Dune", "Frank Herbert", 1965)
-&gt;&gt;&gt; b.age(2026)
-61</code></pre>
-  <div class="prose">
-    <p><code>b.age(2026)</code> is a short way of writing <code>Book.age(b, 2026)</code>. The object before the dot becomes <code>self</code>, and <code>2026</code> becomes <code>now</code>. Inside the method, <code>self.year</code> is this book's year.</p>
-    <p>Now try printing a book:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; print(b)
-&lt;__main__.Book object at 0x000001E6C3A5F290&gt;</code></pre>
-  <div class="prose">
-    <p>Python doesn't know how you'd like a book to look, so it prints the class name and the object's address in memory (the hex number, which is different every run). To choose the text yourself, add a method called <code>__repr__</code>. It takes only <code>self</code> and returns a string. "repr" is short for representation.</p>
-  </div>
-<pre><code>class Book:
-    def __init__(self, title, author, year):
-        self.title = title
-        self.author = author
-        self.year = year
-
-    def __repr__(self):
-        return f"Book({self.title!r}, {self.author!r}, {self.year})"</code></pre>
-<pre><code>&gt;&gt;&gt; b = Book("Dune", "Frank Herbert", 1965)
-&gt;&gt;&gt; print(b)
-Book('Dune', 'Frank Herbert', 1965)
-&gt;&gt;&gt; [b, b]
-[Book('Dune', 'Frank Herbert', 1965), Book('Dune', 'Frank Herbert', 1965)]</code></pre>
-  <div class="prose">
-    <p>The <code>!r</code> inside the f-string means "show this value the way the REPL would", so strings keep their quotes. A good <code>__repr__</code> looks like the code that would build the object. That makes error messages and debugging prints much easier to read.</p>
+    <p>So a dict has two problems. Nothing checks its keys. And nothing says that this dict is a node: to Python it is a dict like any other.</p>
+    <p>The fix is to make a new type. A <b>type</b> is a kind of value: <code>int</code>, <code>str</code> and <code>list</code> are types. A type of your own has a name, and a fixed set of named parts called <b>fields</b>.</p>
   </div>
 
   <div class="prose">
-    <h2>Dataclasses: the short way</h2>
-    <p>Writing <code>__init__</code> and <code>__repr__</code> by hand gets boring, and it's easy to forget a field. A <b>dataclass</b> writes them for you. You list the fields with their types, and put <code>@dataclass</code> on the line above the class:</p>
+    <h2>A class: a name and fixed fields</h2>
+    <p>A <b>class</b> is the recipe for a new type. Each value made from the recipe is an <b>object</b>.</p>
+<pre><code>class Node:
+    def __init__(self, op, src, arg):
+        self.op = op
+        self.src = src
+        self.arg = arg</code></pre>
+    <ol>
+      <li><strong>Name the type.</strong> <code>class Node:</code> starts the recipe. Class names start with a capital letter by habit.</li>
+      <li><strong>Write the setup function.</strong> <code>__init__</code> has two underscores on each side. Python runs it every time you make a <code>Node</code>, and its job is to fill in the fields.</li>
+      <li><strong>Fill each field.</strong> <code>self</code> is the new object. <code>self.op = op</code> stores the argument in a field called <code>op</code>.</li>
+    </ol>
+    <p>To make a node, call the class like a function. To read a field, use a dot:</p>
+<pre><code>n = Node("const", [], 7)
+print(n.arg)</code></pre>
+<pre><code>7</code></pre>
+    <p>You pass three arguments and <code>__init__</code> has four parameters. The extra one is <code>self</code>, which Python fills in for you.</p>
+    <p>Now there are no keys to misspell when you build a node. And a misspelled field is caught where you read it, with a message that names the type: <code>n.scr</code> gives <code>AttributeError: 'Node' object has no attribute 'scr'</code>.</p>
   </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What does <code>Node("add", [])</code> do, with the class above?</p>
+    <div class="opts">
+      <button data-k="a">It makes a node with no <code>arg</code> field</button>
+      <button data-k="b">It stops with an error on that line</button>
+      <button data-k="c">It makes a node whose <code>arg</code> is 0</button>
+    </div>
+    <p class="hint"><code>__init__</code> asks for <code>op</code>, <code>src</code> and <code>arg</code>. Count what was passed.</p>
+    <div class="why"><p><code>TypeError: Node.__init__() missing 1 required positional argument: 'arg'</code>. A node can't be built with a part missing, and the error is on the line with the mistake.</p></div>
+  </div>
+
+  <details class="toggle">
+    <summary>What Python does, step by step, when you call <code>Node("const", [], 7)</code>, and the error a missing <code>self</code> gives</summary>
+    <div class="prose">
+      <div class="tablewrap"><table>
+        <thead><tr><th>step</th><th>what Python does</th><th>the object afterward</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>makes a new, empty <code>Node</code> object</td><td>no fields yet</td></tr>
+          <tr><td>2</td><td>calls <code>__init__(self=that object, op="const", src=[], arg=7)</code></td><td>no fields yet</td></tr>
+          <tr><td>3</td><td>runs <code>self.op = op</code></td><td><code>op='const'</code></td></tr>
+          <tr><td>4</td><td>runs <code>self.src = src</code></td><td><code>op='const'</code>, <code>src=[]</code></td></tr>
+          <tr><td>5</td><td>runs <code>self.arg = arg</code></td><td>all three fields</td></tr>
+          <tr><td>6</td><td>hands the object back, and <code>n</code> now names it</td><td>all three fields</td></tr>
+        </tbody>
+      </table></div>
+      <p>Every function inside a class takes <code>self</code> first. Leave it out and write <code>def __init__(op, src, arg):</code>. Python still passes the new object first, so there is one argument too many: <code>TypeError: Node.__init__() takes 3 positional arguments but 4 were given</code>. When an error counts one more argument than you wrote, look for a missing <code>self</code>.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>A dataclass: the short way</h2>
+    <p>The class works, but it has two rough edges. <code>__init__</code> made you type every field name three times. And printing a node shows nothing useful:</p>
+<pre><code>print(n)</code></pre>
+<pre><code>&lt;__main__.Node object at 0x000001BD8E6A4310&gt;</code></pre>
+    <p>That is the class name and the object's address in memory. A <b>dataclass</b> fixes both. You list the fields, put <code>@dataclass</code> on the line above the class, and Python writes <code>__init__</code> and a readable printout for you:</p>
 <pre><code>from dataclasses import dataclass
 
 @dataclass
-class Book:
-    title: str
-    author: str
-    year: int
-
-    def age(self, now):
-        return now - self.year</code></pre>
-<pre><code>&gt;&gt;&gt; b = Book("Dune", "Frank Herbert", 1965)
-&gt;&gt;&gt; b
-Book(title='Dune', author='Frank Herbert', year=1965)
-&gt;&gt;&gt; b.age(2026)
-61</code></pre>
-  <div class="prose">
-    <p>The first line, <code>from dataclasses import dataclass</code>, loads <code>dataclass</code> from a module that comes with Python. Lesson 6 explains imports. For now, copy the line as it is.</p>
-    <p>A line that starts with <code>@</code> is a <b>decorator</b>: it takes the class (or function) below it and changes it. <code>@dataclass</code> reads the field list and adds an <code>__init__</code>, a <code>__repr__</code>, and an <code>==</code> that compares fields. You can still add your own methods, like <code>age</code>.</p>
-    <p>The <code>: str</code> and <code>: int</code> parts are <b>type hints</b>. Python doesn't check them when it runs, so <code>Book("Dune", "Frank Herbert", "long ago")</code> won't fail. Your editor reads them, though, and can warn you (in VS Code, once you turn on type checking as lesson 2 describes).</p>
-    <p>You can change a field after the object is built: <code>b.year = 1966</code> works. Often you don't want that. A value that never changes is easier to reason about, since nothing far away can alter it behind your back. Add <code>frozen=True</code> and the fields become read-only:</p>
-  </div>
-<pre><code>@dataclass(frozen=True)
-class Point:
-    x: int
-    y: int</code></pre>
-<pre><code>&gt;&gt;&gt; p = Point(1, 2)
-&gt;&gt;&gt; p.x = 5
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-  File "&lt;string&gt;", line 4, in __setattr__
-dataclasses.FrozenInstanceError: cannot assign to field 'x'</code></pre>
-  <div class="prose">
-    <p>A value that can't change is <b>immutable</b>. Ints, strings and tuples are immutable too. To "move" a frozen point, you build a new one: <code>Point(p.x + 1, p.y)</code>. The nodes of your compiler's graph will be frozen dataclasses, for reasons the next two sections explain.</p>
+class Node:
+    op: str
+    src: list
+    arg: int | None = None</code></pre>
+<pre><code>print(Node("const", [], 7))
+print(Node("add", []))</code></pre>
+<pre><code>Node(op='const', src=[], arg=7)
+Node(op='add', src=[], arg=None)</code></pre>
+    <ul>
+      <li>The first line loads <code>dataclass</code> from a module that comes with Python. P.6 explains imports. For now, copy the line.</li>
+      <li><code>: str</code> is a type hint, like the ones on <code>def</code> lines. It says what kind of value belongs in the field. <code>int | None</code> means an int or <code>None</code>.</li>
+      <li><code>= None</code> is a <b>default</b>. Leave <code>arg</code> out and it is <code>None</code>.</li>
+    </ul>
   </div>
 
-  <div class="exercise small" data-ex="lp-04-point">
-    <h3>A frozen point with a distance</h3>
-    <p>The starter has a <code>Point</code> dataclass with fields <code>x</code> and <code>y</code>. Make it frozen, and write the method <code>distance(self, other)</code>: the straight-line distance between the two points, <code>√((x₁ − x₂)² + (y₁ − y₂)²)</code>. <code>Point(0, 0).distance(Point(3, 4))</code> is <code>5.0</code>.</p>
-    <p class="muted"><code>math.sqrt</code> takes a square root. One hidden test puts two equal points in a set, which only works for a frozen dataclass.</p>
+  <div class="quiz" data-answer="a">
+    <p class="q">The hint says <code>arg</code> is an int or <code>None</code>. What does <code>Node("const", [], "seven")</code> do?</p>
+    <div class="opts">
+      <button data-k="a">It builds the node, with the string in <code>arg</code></button>
+      <button data-k="b">It stops with a <code>TypeError</code></button>
+      <button data-k="c">It turns <code>"seven"</code> into 7</button>
+    </div>
+    <p class="hint">A hint is a note for the reader and for your editor.</p>
+    <div class="why"><p>It builds the node. Python does not check hints when it runs. Your editor reads them and can warn you.</p></div>
+  </div>
+
+  <div class="exercise" data-ex="lp-04n-node">
+    <h3>Write the node type</h3>
+    <p>Type it yourself. Make <code>Node</code> a dataclass with the fields <code>op</code>, <code>src</code> and <code>arg</code>, where <code>arg</code> may be left out.</p>
+    <p>Then write the helper <code>lit(v)</code>. It returns the node for the number <code>v</code>: the op is <code>"const"</code>, there are no sources and the arg is <code>v</code>. The name is short for literal, a number written straight into a program.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Writing the printout by hand with <code>__repr__</code>, for a class that is not a dataclass</summary>
+    <div class="prose">
+      <p>To choose the printed text yourself, add a function called <code>__repr__</code> to the class. It takes only <code>self</code> and returns a string. The name is short for representation.</p>
+<pre><code>class Book:
+    def __init__(self, title, year):
+        self.title = title
+        self.year = year
+
+    def __repr__(self):
+        return f"Book({self.title!r}, {self.year})"</code></pre>
+<pre><code>print(Book("Dune", 1965))</code></pre>
+<pre><code>Book('Dune', 1965)</code></pre>
+      <p>The <code>!r</code> inside the f-string means "show this value the way you would type it in code", so strings keep their quotes. A good <code>__repr__</code> looks like the code that would build the object, which makes error messages easier to read.</p>
+      <p>A line that starts with <code>@</code>, like <code>@dataclass</code>, is a <b>decorator</b>: it takes the class or function below it and changes it.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>Build (2 + 3) * 4 as a tree</h2>
+    <p>With <code>Node</code> and <code>lit</code> you can hold a whole expression. Each line below makes one node, and the last two put earlier nodes in their <code>src</code> list:</p>
+  </div>
+
+  <div class="fig" id="treefig" data-title="(2 + 3) * 4, one node at a time"></div>
+
+  <div class="prose">
+    <p>This is the picture you know from the start steps. Each node is a box, and an arrow runs from each source to the node that reads it. The shape is called a <b>tree</b>. The nodes with no sources, at the top, are its <b>leaves</b>. The node at the bottom is the result.</p>
+    <p>The parentheses are gone. The tree doesn't need them, because the grouping is the shape: the <code>add</code> node sits inside the <code>mul</code> node's sources. You can walk from node to node with dots:</p>
+<pre><code>print(tree.op)
+print(tree.src[0].op)</code></pre>
+<pre><code>mul
+add</code></pre>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">What is <code>tree.src[0].src[1].arg</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>tree.src[0]</code> is the <code>add</code> box. Which box is its second source?</p>
+    <div class="why"><p>3. <code>tree.src[0]</code> is the <code>add</code> node, its <code>src[1]</code> is the node <code>lit(3)</code> made, and that node's arg is 3.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Equal, or the same object?</h2>
-    <p>A dataclass's <code>==</code> compares the fields one by one. Two points with the same <code>x</code> and the same <code>y</code> are equal, even though you built them separately. Python has a second question you can ask: <code>a is b</code> means "are these the very same object in memory?"</p>
+    <h2>Equal, or the very same object?</h2>
+    <p>Python can ask two different questions about two values. <code>a == b</code> asks "are they equal?" and <code>a is b</code> asks "are they the very same object?" Try both on two nodes built the same way:</p>
+<pre><code>a = lit(2)
+b = lit(2)
+c = a</code></pre>
   </div>
-<pre><code>&gt;&gt;&gt; a = Point(1, 2)
-&gt;&gt;&gt; b = Point(1, 2)
-&gt;&gt;&gt; c = a
-&gt;&gt;&gt; a == b
-True
-&gt;&gt;&gt; a is b
-False
-&gt;&gt;&gt; a is c
-True</code></pre>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Guess first. What are <code>a == b</code> and <code>a is b</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>True</code> and <code>True</code></button>
+      <button data-k="b"><code>True</code> and <code>False</code></button>
+      <button data-k="c"><code>False</code> and <code>False</code></button>
+    </div>
+    <p class="hint">How many times did <code>lit</code> run? Each call builds a new object.</p>
+    <div class="why"><p><code>True</code> and <code>False</code>. A dataclass's <code>==</code> compares the fields, and they match. But <code>lit</code> ran twice, so there are two objects.</p></div>
+  </div>
+
   <div class="prose">
-    <p>A variable is a name that points at an object. <code>c = a</code> doesn't copy anything. It makes <code>c</code> a second name for the object <code>a</code> already names. Step through the picture: each box is an object, and each line joins a name to the object it names.</p>
+    <p>Think of two printed copies of one book. They are equal: the same words on every page. They are not the same book: write in one and the other stays clean. <code>==</code> asks "same words?" and <code>is</code> asks "same book?"</p>
+    <p><code>a is c</code> is <code>True</code>. <code>c = a</code> builds nothing. It is two names for one object, like the two names for one list in the warm up. Step through the picture.</p>
   </div>
 
   <div class="fig" id="eqis" data-title="names, objects, == and is"></div>
 
   <div class="prose">
-    <p>Think of two copies of the same printed book. They're equal: same words on every page. They aren't the same book: write in one, and the other stays clean. <code>==</code> asks "same words?" and <code>is</code> asks "same book?"</p>
-    <p>For plain classes you write yourself (without <code>@dataclass</code>), <code>==</code> falls back to <code>is</code>: two separate objects are never equal unless you write an <code>__eq__</code> method. That's one more thing a dataclass does for you.</p>
+    <p>The dataclass changed the first answer. With the hand-written class from earlier, <code>a == b</code> is <code>False</code>, because a plain class's <code>==</code> means the same as <code>is</code>. <code>@dataclass</code> writes an <code>==</code> that compares the fields. Writing <code>@dataclass(eq=False)</code> turns that off again, and you'll see week 1's node do that.</p>
   </div>
   <div class="note">
     <span class="label">Why the course cares</span>
-    <p>Comparing with <code>==</code> on a big tree of dataclasses compares every field of every node inside, all the way down. <code>is</code> compares two addresses, which takes almost no time. In week 1 you'll arrange things so that equal nodes are always the same object, and then <code>is</code> is all you need.</p>
+    <p><code>==</code> on a big tree compares every field of every node, all the way down. <code>is</code> takes one step. In week 1 you'll arrange things so that equal nodes are always the same object, and then <code>is</code> is all you need.</p>
+  </div>
+
+  <div class="exercise" data-ex="lp-04n-shared">
+    <h3>Equal, or the same node?</h3>
+    <p><code>shared(n)</code> should say whether a node's two sources are the very same object. <code>square(lit(3))</code> puts one node in the list twice, so the answer is <code>True</code>. <code>Node("mul", [lit(3), lit(3)])</code> holds two equal nodes, so the answer is <code>False</code>. The function asks the wrong question. Repair it.</p>
   </div>
 
   <div class="prose">
-    <h2>Hashable values: what can be a key</h2>
-    <p>You've used dicts and sets. They find things fast because they don't search. Each key is turned into a number called its <b>hash</b>, and the hash says which drawer the key is filed in. To look a key up, Python computes its hash, opens that one drawer, and checks with <code>==</code>. A value that can be hashed is <b>hashable</b>.</p>
-    <p>Here's the catch. Suppose you filed a list as a key, then appended to the list. Its hash would change, but it would still sit in the old drawer. Looking it up would open the new drawer and find nothing. To stop that from happening, Python's built-in types that can change, like lists, dicts and sets, refuse to be dict keys or set members, and so does a dataclass that isn't frozen:</p>
+    <h2>Walk the tree to get its value</h2>
+    <p>The tree holds (2 + 3) * 4, but the number 20 is nowhere in it. A function has to work it out by visiting the nodes.</p>
   </div>
-<pre><code>&gt;&gt;&gt; {(1, 2): "a"}
-{(1, 2): 'a'}
-&gt;&gt;&gt; {[1, 2]: "a"}
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-TypeError: unhashable type: 'list'</code></pre>
-  <div class="prose">
-    <p>A frozen dataclass is immutable, so it's hashable. Its hash comes from its fields, so equal points land in the same drawer, and a set keeps only one of them:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; hash(Point(1, 2)) == hash(Point(1, 2))
-True
-&gt;&gt;&gt; len({Point(1, 2), Point(1, 2), Point(3, 4)})
-2
-&gt;&gt;&gt; seen = {Point(0, 0): "start"}
-&gt;&gt;&gt; seen[Point(0, 0)]
-'start'</code></pre>
-  <div class="prose">
-    <p>A dataclass that isn't frozen can change, so Python refuses to hash it:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; {Book("Dune", "Frank Herbert", 1965)}
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-TypeError: unhashable type: 'Book'</code></pre>
-  <div class="trap">
-    <span class="label">Frozen only goes one level deep</span>
-    <p>A frozen dataclass with a list field can still be changed through the list, and hashing it fails with <code>unhashable type: 'list'</code>. If a frozen class needs a sequence, use a tuple: <code>srcs: tuple</code> rather than <code>srcs: list</code>. Your compiler's nodes keep their inputs in a tuple for this reason.</p>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Guess first. You are at the <code>mul</code> box at the bottom. What do you need before you can multiply?</p>
+    <div class="opts">
+      <button data-k="a">Nothing. Multiply 2, 3 and 4.</button>
+      <button data-k="b">The ops of the two sources</button>
+      <button data-k="c">The value of each of its two sources</button>
+    </div>
+    <p class="hint">One source of the <code>mul</code> is the <code>add</code> box, which is not a number yet.</p>
+    <div class="why"><p>The value of each source: 5 from the <code>add</code> and 4 from the leaf. The <code>add</code> needs its own sources first, in the same way.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Enums, isinstance and match</h2>
-    <p>Some values come from a short, fixed list of choices: the colors of a traffic light, the suits of a deck, the operations of a calculator. An <b>enum</b> (short for enumeration) gives each choice a name:</p>
-  </div>
-<pre><code>from enum import Enum
-
-class Light(Enum):
-    RED = 1
-    YELLOW = 2
-    GREEN = 3</code></pre>
-<pre><code>&gt;&gt;&gt; Light.RED
-&lt;Light.RED: 1&gt;
-&gt;&gt;&gt; print(Light.RED)
-Light.RED
-&gt;&gt;&gt; Light.RED.name, Light.RED.value
-('RED', 1)
-&gt;&gt;&gt; Light.RED == 1
-False
-&gt;&gt;&gt; list(Light)
-[&lt;Light.RED: 1&gt;, &lt;Light.YELLOW: 2&gt;, &lt;Light.GREEN: 3&gt;]</code></pre>
-  <div class="prose">
-    <p>Why not the strings <code>"red"</code>, <code>"yellow"</code> and <code>"green"</code>? Because a typo like <code>"gren"</code> is still a perfectly good string, and your program carries on with it. <code>Light.GREN</code> is an <code>AttributeError</code> the moment it runs. And <code>Light.RED == 1</code> is <code>False</code>: an enum member is only ever equal to itself, so it can't be confused with a number by accident. The numbers 1, 2, 3 only need to be different from each other.</p>
+    <p>That is the whole plan, and it fits in one function:</p>
+<pre><code>def value(n):
+    if n.op == "const":
+        return n.arg
+    a = value(n.src[0])
+    b = value(n.src[1])
+    if n.op == "add":
+        return a + b
+    if n.op == "mul":
+        return a * b
+    raise ValueError(n.op)</code></pre>
+    <ol>
+      <li><strong>Answer a leaf.</strong> A <code>const</code> node is worth the number in its arg.</li>
+      <li><strong>Ask each source.</strong> <code>value</code> calls itself on the two sources. Each call gets a smaller tree, so the calls end at the leaves.</li>
+      <li><strong>Apply the op.</strong> By now <code>a</code> and <code>b</code> are plain numbers.</li>
+      <li><strong>Refuse the rest.</strong> <code>raise</code> stops the function with an error you choose, so a misspelled op is loud.</li>
+    </ol>
+    <p>Step through it on your tree and watch the values arrive.</p>
   </div>
 
-  <div class="exercise small" data-ex="lp-04-next-light">
-    <h3>The next traffic light</h3>
-    <p>Write <code>next_light(light)</code> for the <code>Light</code> enum above. A red light turns green, green turns yellow, and yellow turns red.</p>
-    <p class="muted">Three <code>if</code> tests with <code>==</code> work. So does a dict from each light to the next one, since enum members are hashable.</p>
-  </div>
+  <div class="fig" id="evalfig" data-title="value(tree)"></div>
 
   <div class="prose">
-    <p>When a value can be one of several classes, you often need to ask which one it is. <code>isinstance(x, C)</code> answers "is <code>x</code> an object of class <code>C</code>?" Here are two shapes:</p>
+    <p>A function that calls itself is called <b>recursion</b>. The next lesson is all about it, and there you write such functions from scratch. Here you only extend one.</p>
   </div>
+
+  <div class="exercise" data-ex="lp-04n-value">
+    <h3>Teach value two more ops</h3>
+    <p><code>value</code> knows <code>const</code>, <code>add</code> and <code>mul</code>. Add two ops. <code>sub</code> takes the second source away from the first. <code>max</code> is the larger of the two.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Methods, and fields that cannot change</h2>
+    <p>Two more tools before you leave classes. In P.3 you called methods such as <code>scores.append(100)</code>. Now you write one: a <b>method</b> is a function that lives inside a class and works on one object. And <code>frozen=True</code> makes a dataclass's fields read-only:</p>
 <pre><code>import math
 from dataclasses import dataclass
 
 @dataclass(frozen=True)
-class Circle:
-    radius: float
+class Point:
+    x: float
+    y: float
 
-@dataclass(frozen=True)
-class Rect:
-    width: float
-    height: float</code></pre>
-<pre><code>&gt;&gt;&gt; isinstance(Circle(1.0), Circle)
-True
-&gt;&gt;&gt; isinstance(Circle(1.0), Rect)
-False</code></pre>
-  <div class="prose">
-    <p>To work out an area, you could write <code>if isinstance(shape, Circle): ... elif isinstance(shape, Rect): ...</code> and then read the fields. <code>match</code> does both in one go. It is new, so here it is first with plain values. It compares one value with each <code>case</code> in turn, from the top, and runs the first one that fits:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; def describe(n):
-...     match n:
-...         case 0:
-...             return "zero"
-...         case 1:
-...             return "one"
-...         case _:
-...             return "many"
-...
-&gt;&gt;&gt; describe(1)
-'one'
-&gt;&gt;&gt; describe(7)
-'many'</code></pre>
-  <div class="prose">
-    <p><code>case _:</code> fits any value, so it catches whatever the cases above missed. A <code>case</code> can also hold a <b>class pattern</b>:</p>
-  </div>
-<pre><code>def area(shape):
-    match shape:
-        case Circle(r):
-            return math.pi * r * r
-        case Rect(w, h):
-            return w * h
-        case _:
-            raise TypeError(f"not a shape: {shape!r}")</code></pre>
-<pre><code>&gt;&gt;&gt; area(Rect(2, 3))
-6
-&gt;&gt;&gt; area(Circle(1))
-3.141592653589793
-&gt;&gt;&gt; area("square")
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-  File "&lt;stdin&gt;", line 8, in area
-TypeError: not a shape: 'square'</code></pre>
-  <div class="prose">
-    <p><code>case Circle(r):</code> reads as "if <code>shape</code> is a <code>Circle</code>, call its first field <code>r</code> and run this case". <code>case Rect(w, h):</code> names both fields of a <code>Rect</code>, in the order the class lists them. The cases are tried from the top, and the first one that matches wins. Ending with a <code>case _:</code> that raises an error means a forgotten case is loud instead of silently returning <code>None</code>. <code>raise TypeError("...")</code> stops the function right there with an error of your choosing, the same kind of error Python itself shows. Lesson 6 covers errors properly.</p>
-  </div>
-  <div class="trap">
-    <span class="label">Parentheses after the class name</span>
-    <p><code>case Circle:</code> without parentheses doesn't test the class. A bare name in a pattern is a <b>capture</b>: it matches anything and stores it in a variable called <code>Circle</code>. Python notices when cases follow it and stops with <code>SyntaxError: name capture 'Circle' makes remaining patterns unreachable</code>. To match a class without naming its fields, write <code>case Circle():</code>.</p>
+    def length(self):
+        return math.sqrt(self.x ** 2 + self.y ** 2)</code></pre>
+<pre><code>p = Point(3, 4)
+print(p.length())
+p.x = 5</code></pre>
+<pre><code>5.0
+dataclasses.FrozenInstanceError: cannot assign to field 'x'</code></pre>
+    <p>In <code>p.length()</code>, the object before the dot becomes <code>self</code>, so <code>self.x</code> is 3. <code>math.sqrt</code> takes a square root.</p>
+    <p>A value that can't change is <b>immutable</b>, like a string or a tuple. That makes it safe to share: no other name for the same object can change it behind your back. To "move" a frozen point you build a new one, <code>Point(p.x + 1, p.y)</code>.</p>
+    <p>A frozen dataclass can also go in a set or be a dict key, as a tuple can. One that is not frozen can't.</p>
   </div>
 
-  <div class="prose">
-    <h2>A tree of arithmetic</h2>
-    <p>Now put it all together. How would a program hold the expression <code>2 + 3 * 4</code>? Not as a string: a string is only characters, and nothing in it says that the <code>*</code> happens first. Instead, use one small class for each kind of piece:</p>
+  <div class="quiz" data-fill="1">
+    <p class="q">With the frozen <code>Point</code>, what is <code>len({Point(1, 2), Point(1, 2)})</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">A set keeps one of each value. Are the two points equal?</p>
+    <div class="why"><p>1. The two points are equal, because a dataclass compares fields, and a set keeps only one of two equal values.</p></div>
   </div>
-<pre><code>from dataclasses import dataclass
 
-@dataclass(frozen=True)
+  <div class="exercise small" data-ex="lp-04-point">
+    <h3>A frozen point with a distance</h3>
+    <p>The starter has a <code>Point</code> dataclass with fields <code>x</code> and <code>y</code>. Make it frozen, and write the method <code>distance(self, other)</code>: the straight-line distance between the two points, <code>√((x₁ − x₂)² + (y₁ − y₂)²)</code>. <code>Point(0, 0).distance(Point(3, 4))</code> is <code>5.0</code>.</p>
+    <p class="muted">One hidden test puts two equal points in a set, which only works for a frozen dataclass.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>How a dict files its keys, and why only values that cannot change may be keys</summary>
+    <div class="prose">
+      <p>Dicts and sets find things fast because they don't search. Each key is turned into a number called its <b>hash</b>, and the hash says which drawer the key is filed in. To look a key up, Python computes its hash, opens that one drawer and checks with <code>==</code>. A value that can be hashed is <b>hashable</b>.</p>
+      <p>Suppose you filed a list as a key and then appended to it. Its hash would change, but it would still sit in the old drawer, and a lookup would open the new drawer and find nothing. So the built-in types that can change (lists, dicts and sets) refuse to be keys, and so does a dataclass that is not frozen:</p>
+<pre><code>print({(1, 2): "a"})
+print({[1, 2]: "a"})</code></pre>
+<pre><code>{(1, 2): 'a'}
+TypeError: unhashable type: 'list'</code></pre>
+      <p>The set <code>{lit(2)}</code> stops the same way, with <code>unhashable type: 'Node'</code>.</p>
+      <p>A frozen dataclass is hashable. Its hash comes from its fields, so equal points land in the same drawer:</p>
+<pre><code>print(hash(Point(1, 2)) == hash(Point(1, 2)))
+seen = {Point(0, 0): "start"}
+print(seen[Point(0, 0)])</code></pre>
+<pre><code>True
+start</code></pre>
+      <p>Frozen only goes one level deep. A frozen dataclass with a list field can still be changed through the list, and hashing it fails with <code>unhashable type: 'list'</code>. If a frozen class needs a sequence, use a tuple: <code>srcs: tuple</code>, not <code>srcs: list</code>.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>A fixed list of choices</h2>
+    <p>The node type still has one weak spot. Look at the op in this line:</p>
+<pre><code>bad = Node("ad", [lit(2), lit(3)])</code></pre>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Guess first. What does Python do on that line?</p>
+    <div class="opts">
+      <button data-k="a">It builds the node</button>
+      <button data-k="b">It stops, because <code>"ad"</code> is not an op</button>
+      <button data-k="c">It corrects the op to <code>"add"</code></button>
+    </div>
+    <p class="hint">The op field holds a string. Which strings are allowed?</p>
+    <div class="why"><p>It builds the node. Any string is a good string. The mistake only shows later, when <code>value(bad)</code> stops with <code>ValueError: ad</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>It is the dict typo again, one level down. When a value must come from a short, fixed list of choices, use an <b>enum</b> (short for enumeration). It gives each choice a name:</p>
+<pre><code>from enum import Enum
+
+class Op(Enum):
+    CONST = 1
+    ADD = 2
+    MUL = 3</code></pre>
+    <p>Now you write <code>Op.ADD</code> where you wrote <code>"add"</code>, and compare with <code>n.op == Op.ADD</code>. A typo such as <code>Op.AD</code> is an <code>AttributeError</code> on the line where you typed it. The numbers only need to differ from each other. <code>Op.ADD == 2</code> is <code>False</code>: an enum member equals only itself, so it can't be mixed up with a number.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-04-next-light">
+    <h3>The next traffic light</h3>
+    <p>The starter has an enum <code>Light</code> with the members <code>RED</code>, <code>YELLOW</code> and <code>GREEN</code>. Write <code>next_light(light)</code>. A red light turns green, green turns yellow, and yellow turns red.</p>
+    <p class="muted">Three <code>if</code> tests with <code>==</code> work. So does a dict from each light to the next one, since enum members can be dict keys.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>What an enum member prints as, its name and value, and looping over an enum</summary>
+    <div class="prose">
+<pre><code>print(Op.ADD)
+print(Op.ADD.name, Op.ADD.value)
+print(list(Op))</code></pre>
+<pre><code>Op.ADD
+ADD 2
+[&lt;Op.CONST: 1&gt;, &lt;Op.ADD: 2&gt;, &lt;Op.MUL: 3&gt;]</code></pre>
+      <p>Other fixed lists make good enums too: the colors of a traffic light, the suits of a deck of cards.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>One class per kind of node, and match</h2>
+    <p>There is a second common way to build a tree, and P.5's exercises use it. In place of one <code>Node</code> type with an op field, you write one small class for each kind of node. Each class has exactly the fields it needs:</p>
+<pre><code>@dataclass(frozen=True)
 class Num:
     value: int
 
@@ -347,24 +432,8 @@ class Mul:
     right: "Expr"
 
 Expr = Num | Add | Mul</code></pre>
-  <div class="prose">
-    <p>A <code>Num</code> holds a number. An <code>Add</code> holds two smaller expressions, the things on its left and right, and so does a <code>Mul</code>. The last line names the idea "any of these three", so the hints can say <code>Expr</code>. The hints are in quotes because <code>Expr</code> doesn't exist yet when Python reads those lines.</p>
-    <p>Since <code>*</code> happens before <code>+</code>, <code>2 + 3 * 4</code> means <code>2 + (3 * 4)</code>: an <code>Add</code> whose right side is a <code>Mul</code>.</p>
-  </div>
-<pre><code>&gt;&gt;&gt; e = Add(Num(2), Mul(Num(3), Num(4)))
-&gt;&gt;&gt; e
-Add(left=Num(value=2), right=Mul(left=Num(value=3), right=Num(value=4)))
-&gt;&gt;&gt; e.right.left
-Num(value=3)</code></pre>
-  <div class="prose">
-    <p>Each object is a <b>node</b>, and the objects it holds are its <b>children</b>. A node with no children, like a <code>Num</code>, is a <b>leaf</b>. Drawn as a picture, it's a <b>tree</b>. The course draws trees with the leaves at the top and the result at the bottom, because values flow down from the numbers to the answer:</p>
-  </div>
-
-  <div class="fig" id="evalfig" data-title="evaluate(Add(Num(2), Mul(Num(3), Num(4))))"></div>
-
-  <div class="prose">
-    <p>To work out the value of a tree, look at the node you have. A <code>Num</code> is worth its number. An <code>Add</code> is worth the value of its left side plus the value of its right side. A <code>Mul</code> is the same, with times instead of plus. That's a sentence per case, so it's a <code>match</code> with a case per class:</p>
-  </div>
+    <p>The last line names the idea "any of these three", so the hints can say <code>Expr</code>. Then (2 + 3) * 4 is <code>Mul(Add(Num(2), Num(3)), Num(4))</code>.</p>
+    <p>To work out a value you now ask which class a node is, and then read its fields. <code>match</code> does both at once:</p>
 <pre><code>def evaluate(e):
     match e:
         case Num(v):
@@ -375,13 +444,22 @@ Num(value=3)</code></pre>
             return evaluate(left) * evaluate(right)
         case _:
             raise TypeError(f"not an expression: {e!r}")</code></pre>
-<pre><code>&gt;&gt;&gt; evaluate(Add(Num(2), Mul(Num(3), Num(4))))
-14
-&gt;&gt;&gt; evaluate(Mul(Add(Num(2), Num(3)), Num(4)))
-20</code></pre>
-  <div class="prose">
-    <p><code>evaluate</code> calls itself on the children. That's called <b>recursion</b>, and it works because each call gets a smaller tree, until it reaches a <code>Num</code>, which needs no further calls. The next lesson is all about how that works. For now, step through the picture above to watch the values arrive.</p>
-    <p>Look at the second example. <code>(2 + 3) * 4</code> needs parentheses as text, and the tree needs none. The grouping is the shape of the tree: the <code>Add</code> is inside the <code>Mul</code>. Turning text into a tree like this is called <b>parsing</b>, and walking the tree to get an answer is <b>interpreting</b> it. Week 1 of the course does both, with nodes that are frozen dataclasses much like these.</p>
+    <ol>
+      <li><strong>Try each case from the top.</strong> The first one that fits runs, and the others are skipped.</li>
+      <li><strong>Test the class and name the fields.</strong> <code>case Num(v):</code> reads "if <code>e</code> is a <code>Num</code>, call its first field <code>v</code>". <code>case Add(left, right):</code> names both fields, in the order the class lists them.</li>
+      <li><strong>Catch the rest.</strong> <code>case _:</code> fits anything. Raising there makes a forgotten case loud, and <code>{e!r}</code> puts the odd value in the message.</li>
+    </ol>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Which case runs first in the call <code>evaluate(Mul(Add(Num(2), Num(3)), Num(4)))</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>case Num(v)</code></button>
+      <button data-k="b"><code>case Add(left, right)</code></button>
+      <button data-k="c"><code>case Mul(left, right)</code></button>
+    </div>
+    <p class="hint">The cases test <code>e</code> itself, not what is inside it. What class is the outermost object?</p>
+    <div class="why"><p>The <code>Mul</code> case. The outermost object is a <code>Mul</code>. That case then calls <code>evaluate</code> on the <code>Add</code> and on <code>Num(4)</code>, and those calls pick their own cases.</p></div>
   </div>
 
   <div class="exercise small" data-ex="lp-04-evaluate">
@@ -390,36 +468,61 @@ Num(value=3)</code></pre>
     <p class="muted"><code>Neg</code> has one field, so its pattern names one thing: <code>case Neg(inner):</code>. For <code>Sub</code>, which side comes first?</p>
   </div>
 
+  <details class="toggle">
+    <summary>More on <code>match</code>: plain values, <code>isinstance</code>, quoted hints and the trap of missing parentheses</summary>
+    <div class="prose">
+      <p><b>Plain values.</b> A case can hold a plain value, and then <code>match</code> compares with it:</p>
+<pre><code>def describe(n):
+    match n:
+        case 0:
+            return "zero"
+        case 1:
+            return "one"
+        case _:
+            return "many"
+
+print(describe(1))
+print(describe(7))</code></pre>
+<pre><code>one
+many</code></pre>
+      <p><b>isinstance.</b> <code>isinstance(x, C)</code> answers "is <code>x</code> an object of class <code>C</code>?" So <code>isinstance(Num(1), Num)</code> is <code>True</code> and <code>isinstance(Num(1), Add)</code> is <code>False</code>. You could write <code>evaluate</code> as <code>if isinstance(e, Num): ... elif isinstance(e, Add): ...</code> and read the fields with dots. A <code>case Num(v):</code> is called a <b>class pattern</b>, and it does the test and the reading together.</p>
+      <p><b>Quoted hints.</b> The hints <code>"Expr"</code> are in quotes because <code>Expr</code> doesn't exist yet when Python reads those lines.</p>
+      <p><b>Parentheses after the class name.</b> <code>case Num:</code> without parentheses doesn't test the class. A bare name in a pattern is a <b>capture</b>: it matches anything and stores it in a variable called <code>Num</code>. Python notices when cases follow it and stops with <code>SyntaxError: name capture 'Num' makes remaining patterns unreachable</code>. To match a class without naming its fields, write <code>case Num():</code>.</p>
+      <p><b>Two words you'll meet in week 1.</b> Turning text such as <code>(2 + 3) * 4</code> into a tree is called <b>parsing</b>. Walking the tree to get an answer is <b>interpreting</b> it.</p>
+    </div>
+  </details>
+
   <div class="prose">
     <h2>What you can do now</h2>
     <ul>
-      <li>Write a class with <code>__init__</code>, explain what <code>self</code> is, and add methods.</li>
-      <li>Give objects a readable <code>__repr__</code>, or let <code>@dataclass</code> write it.</li>
-      <li>Freeze a dataclass so it can't change and can be a dict key or set member.</li>
+      <li>Say why a type of your own beats a dict or a tuple: it has a name and fixed fields.</li>
+      <li>Write a class with <code>__init__</code>, and write the same type as a dataclass.</li>
+      <li>Build an expression tree out of nodes and draw it as boxes and arrows.</li>
       <li>Tell <code>==</code> (same fields) from <code>is</code> (same object).</li>
-      <li>Use an <code>Enum</code> for a fixed set of choices.</li>
-      <li>Take objects apart with <code>match</code> and class patterns, ending with a <code>case _:</code> that raises.</li>
-      <li>Build an expression tree and evaluate it.</li>
+      <li>Read and extend a function that walks a tree to compute its value.</li>
+      <li>Add a method, freeze a dataclass, and use an <code>Enum</code> for a fixed set of choices.</li>
+      <li>Take objects apart with <code>match</code>, ending with a <code>case _:</code> that raises.</li>
     </ul>
+    <p>Next, <a href="py-05-recursion.html">P.5</a> explains how a function can call itself, so you can write tree walks like <code>evaluate</code> from an empty function.</p>
   </div>
 
   <h2>Check yourself</h2>
   <p class="score"></p>
 
   <div class="quiz" data-answer="b">
-    <p class="q">With the <code>Book</code> class that has an <code>age(self, now)</code> method, what is <code>self</code> during the call <code>b.age(2026)</code>?</p>
-    <div class="opts"><button data-k="a">The class <code>Book</code></button><button data-k="b">The object <code>b</code></button><button data-k="c">The number <code>2026</code></button></div>
-    <p class="hint">Rewrite the call the long way, as <code>Book.age(?, 2026)</code>. What goes in the gap?</p>
+    <p class="q">With the <code>Point</code> class that has a <code>length(self)</code> method, what is <code>self</code> during the call <code>p.length()</code>?</p>
+    <div class="opts"><button data-k="a">The class <code>Point</code></button><button data-k="b">The object <code>p</code></button><button data-k="c">The number <code>5.0</code></button></div>
+    <p class="hint">Rewrite the call the long way, as <code>Point.length(?)</code>. What goes in the gap?</p>
     <p class="hint">The object before the dot is passed first.</p>
-    <div class="why"><p><code>b.age(2026)</code> is <code>Book.age(b, 2026)</code>. The object before the dot becomes <code>self</code>, and <code>2026</code> becomes <code>now</code>.</p></div>
+    <div class="why"><p><code>p.length()</code> is <code>Point.length(p)</code>. The object before the dot becomes <code>self</code>.</p></div>
   </div>
 
   <div class="quiz" data-answer="c">
     <p class="q">A class with no <code>__repr__</code> and no <code>@dataclass</code>. What does printing one of its objects show?</p>
-    <div class="opts"><button data-k="a">Its fields, like <code>Book(title='Dune', ...)</code></button><button data-k="b">An error</button><button data-k="c">The class name and a memory address</button></div>
+    <div class="opts"><button data-k="a">Its fields, like <code>Node(op='const', ...)</code></button><button data-k="b">An error</button><button data-k="c">The class name and a memory address</button></div>
     <p class="hint">Who would have written the text with the fields in it?</p>
     <p class="hint">Without <code>__repr__</code>, Python has nothing to go on except the class and where the object lives.</p>
-    <div class="why"><p>You get something like <code>&lt;__main__.Book object at 0x...&gt;</code>. Writing <code>__repr__</code>, or using <code>@dataclass</code>, gives you readable output.</p></div>
+    <div class="why"><p>You get something like <code>&lt;__main__.Node object at 0x...&gt;</code>. Using <code>@dataclass</code>, or writing <code>__repr__</code>, gives you readable output.</p></div>
   </div>
 
   <div class="quiz" data-answer="a">
@@ -432,23 +535,23 @@ Num(value=3)</code></pre>
 
   <div class="quiz" data-answer="b">
     <p class="q">Which of these can be a key in a dict?</p>
-    <div class="opts"><button data-k="a"><code>[3, 4]</code></button><button data-k="b"><code>(3, 4)</code></button><button data-k="c">a <code>Book</code> from the dataclass without <code>frozen=True</code></button></div>
-    <p class="hint">Keys must be hashable. Which of these can never change after it's made?</p>
+    <div class="opts"><button data-k="a"><code>[3, 4]</code></button><button data-k="b"><code>(3, 4)</code></button><button data-k="c">a <code>Node</code> from the dataclass without <code>frozen=True</code></button></div>
+    <p class="hint">A key must be a value that can never change after it's made.</p>
     <p class="hint">Lists can grow. A dataclass that isn't frozen lets you assign to its fields.</p>
-    <div class="why"><p>Only the tuple is immutable, so only it is hashable. A key that could change would end up filed in the wrong drawer, so Python refuses lists and unfrozen dataclasses with <code>TypeError: unhashable type</code>.</p></div>
+    <div class="why"><p>Only the tuple is immutable. Python refuses lists and unfrozen dataclasses as keys with <code>TypeError: unhashable type</code>.</p></div>
   </div>
 
   <div class="quiz" data-fill="5">
-    <p class="q">How many nodes does the tree <code>Add(Num(2), Mul(Num(3), Num(4)))</code> have?</p>
-    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="q">How many nodes does the tree <code>Mul(Add(Num(2), Num(3)), Num(4))</code> have?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
     <p class="hint">Count every object you'd have to build, each class name in the line once.</p>
-    <p class="hint">One <code>Add</code>, one <code>Mul</code>, and how many <code>Num</code>s?</p>
-    <div class="why"><p>Five: <code>Add</code>, <code>Mul</code>, and three <code>Num</code> leaves. Count them in the picture, too.</p></div>
+    <p class="hint">One <code>Mul</code>, one <code>Add</code>, and how many <code>Num</code>s?</p>
+    <div class="why"><p>Five: <code>Mul</code>, <code>Add</code>, and three <code>Num</code> leaves. It is the same count as the boxes in the picture of <code>tree</code>.</p></div>
   </div>
 
   <div class="quiz" data-fill="15">
     <p class="q">What is <code>evaluate(Mul(Add(Num(1), Num(2)), Num(5)))</code>?</p>
-    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
     <p class="hint">Start at the inside: what is the <code>Add</code> worth?</p>
     <p class="hint">The <code>Add</code> is 3, and the <code>Mul</code> multiplies it by 5.</p>
     <div class="why"><p>The tree means <code>(1 + 2) * 5</code>, which is 15. The <code>Add</code> sits inside the <code>Mul</code>, so it's worked out first.</p></div>
@@ -460,26 +563,39 @@ Num(value=3)</code></pre>
 <script>
 (() => {
   const { h } = CC;
+  const box = (id, v) => ({ id, op: 'const', sub: String(v) });
   const names = [
-    { caption: '<code>a = Point(1, 2)</code> builds an object, and the name <code>a</code> points at it.',
-      nodes: [{ id: 'o1', op: 'Point(1, 2)' }, { id: 'a', op: 'a', src: ['o1'], cls: 'new' }] },
-    { caption: '<code>b = Point(1, 2)</code> builds a second object with the same fields. <code>a == b</code> is <code>True</code>, since the fields match. <code>a is b</code> is <code>False</code>, since they are two boxes.',
-      nodes: [{ id: 'o1', op: 'Point(1, 2)' }, { id: 'o2', op: 'Point(1, 2)', cls: 'new' }, { id: 'a', op: 'a', src: ['o1'] }, { id: 'b', op: 'b', src: ['o2'], cls: 'new' }] },
+    { caption: '<code>a = lit(2)</code> builds an object, and the name <code>a</code> points at it.',
+      nodes: [box('o1', 2), { id: 'a', op: 'a', src: ['o1'], cls: 'new' }] },
+    { caption: '<code>b = lit(2)</code> builds a second object with the same fields. <code>a == b</code> is <code>True</code>, since the fields match. <code>a is b</code> is <code>False</code>, since they are two boxes.',
+      nodes: [box('o1', 2), { ...box('o2', 2), cls: 'new' }, { id: 'a', op: 'a', src: ['o1'] }, { id: 'b', op: 'b', src: ['o2'], cls: 'new' }] },
     { caption: '<code>c = a</code> builds nothing. It points a new name at the object <code>a</code> already names. <code>a is c</code> is <code>True</code>: one box, two names.',
-      nodes: [{ id: 'o1', op: 'Point(1, 2)', cls: 'hit' }, { id: 'o2', op: 'Point(1, 2)' }, { id: 'a', op: 'a', src: ['o1'] }, { id: 'b', op: 'b', src: ['o2'] }, { id: 'c', op: 'c', src: ['o1'], cls: 'new' }] },
+      nodes: [{ ...box('o1', 2), cls: 'hit' }, box('o2', 2), { id: 'a', op: 'a', src: ['o1'] }, { id: 'b', op: 'b', src: ['o2'] }, { id: 'c', op: 'c', src: ['o1'], cls: 'new' }] },
   ];
   CC.stepper(document.getElementById('eqis'), names, (s, body) => body.append(CC.graph(s.nodes)));
 
-  const T = [{ id: 'n2', op: 'Num(2)' }, { id: 'n3', op: 'Num(3)' }, { id: 'n4', op: 'Num(4)' },
-    { id: 'mul', op: 'Mul', src: ['n3', 'n4'] }, { id: 'add', op: 'Add', src: ['n2', 'mul'] }];
+  const T = [box('n2', 2), box('n3', 3), box('n4', 4),
+    { id: 'add', op: 'add', src: ['n2', 'n3'] }, { id: 'mul', op: 'mul', src: ['add', 'n4'] }];
+  const prog = 'two = lit(2)\nthree = lit(3)\nfour = lit(4)\ntotal = Node("add", [two, three])\ntree = Node("mul", [total, four])';
+  const built = [
+    'A leaf: the op is <code>const</code>, there are no sources and the arg is 2.',
+    'A second leaf, with arg 3.',
+    'A third leaf, with arg 4.',
+    'The <code>add</code> node. Its <code>src</code> list holds the first two leaves, so two arrows come in.',
+    'The <code>mul</code> node reads the <code>add</code> node and the last leaf. The whole expression is now one value, <code>tree</code>.',
+  ];
+  CC.stepper(document.getElementById('treefig'), built.map((caption, k) => ({ k, caption })), (s, body) =>
+    body.append(h('div', { class: 'split' }, h('div', {}, CC.code(prog, s.k)),
+      h('div', {}, CC.graph(T.slice(0, s.k + 1).map((n, i) => ({ ...n, cls: i === s.k ? 'new' : '' })))))));
+
   const ev = [
-    ['add', {}, 'The tree. <code>evaluate</code> starts at the result node, the <code>Add</code> at the bottom. To add, it needs both of its children first.'],
-    ['n2', { n2: 2 }, 'Left child: <code>Num(2)</code> is a leaf. Its value is <b>2</b>.'],
-    ['mul', { n2: 2 }, 'Right child: a <code>Mul</code>. It also needs its children first.'],
-    ['n3', { n2: 2, n3: 3 }, '<code>Num(3)</code> is worth <b>3</b>.'],
-    ['n4', { n2: 2, n3: 3, n4: 4 }, '<code>Num(4)</code> is worth <b>4</b>.'],
-    ['mul', { n2: 2, n3: 3, n4: 4, mul: 12 }, 'Both children of the <code>Mul</code> are known: 3 * 4 = <b>12</b>.'],
-    ['add', { n2: 2, n3: 3, n4: 4, mul: 12, add: 14 }, 'Back at the <code>Add</code>: 2 + 12 = <b>14</b>. That is the answer.'],
+    ['mul', {}, '<code>value(tree)</code> starts at the result, the <code>mul</code> at the bottom. It is not a <code>const</code>, so it asks its first source.'],
+    ['add', {}, 'The first source is the <code>add</code>. It also has to ask its sources first.'],
+    ['n2', { n2: 2 }, 'A <code>const</code> is a leaf. Its value is its arg, <b>2</b>.'],
+    ['n3', { n2: 2, n3: 3 }, 'The other leaf is worth <b>3</b>.'],
+    ['add', { n2: 2, n3: 3, add: 5 }, 'Both sources of the <code>add</code> are known: 2 + 3 = <b>5</b>.'],
+    ['n4', { n2: 2, n3: 3, add: 5, n4: 4 }, 'Back in the <code>mul</code>, the second source is a leaf worth <b>4</b>.'],
+    ['mul', { n2: 2, n3: 3, add: 5, n4: 4, mul: 20 }, 'Both sources of the <code>mul</code> are known: 5 * 4 = <b>20</b>. That is the answer.'],
   ];
   const steps = ev.map(([at, vals, caption]) => ({ at, vals, caption }));
   CC.stepper(document.getElementById('evalfig'), steps, (s, body) =>

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lists, Dicts and Sets</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A shopping list, a phone book, a guest list. Most real data is a collection of values, not one value. Python has three collections you&#x27;ll use constantly: the...">
+<meta name="description" content="So far each name has pointed at one value. Real programs keep many values together. Here you learn Python&#x27;s collections: the list, the dict, the set and the...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/py-03-collections">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Lists, Dicts and Sets">
-<meta property="og:description" content="A shopping list, a phone book, a guest list. Most real data is a collection of values, not one value. Python has three collections you&#x27;ll use constantly: the list keeps things in order, the dict...">
+<meta property="og:description" content="So far each name has pointed at one value. Real programs keep many values together. Here you learn Python&#x27;s collections: the list, the dict, the set and the tuple. Two of them are things your...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/py-03-collections">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,332 +20,419 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Learn Python|Lists, dicts and sets" data-root="../">
 <main>
   <p class="eyebrow">Learn Python · Lesson 3</p>
   <h1>Lists, dicts and sets</h1>
-  <p class="lede">A shopping list, a phone book, a guest list. Most real data is a collection of values, not one value. Python has three collections you'll use constantly: the list keeps things in order, the dict looks things up by a key, and the set remembers what it has seen. Your compiler will lean on all three, and on the dict most of all.</p>
+  <p class="lede">So far each name has pointed at one value. Real programs keep many values together. Here you learn Python's collections: the list, the dict, the set and the tuple. Two of them are things your compiler needs soon: a dict named <code>env</code> that remembers each answer, and a tuple used as a dict key.</p>
 
-  <div class="prose">
-    <h2>Lists</h2>
-    <p>A <b>list</b> is an ordered sequence of values, written in square brackets with commas between them. It indexes exactly like a string: from 0, with negative indexes counting from the end.</p>
-  </div>
-<pre><code>&gt;&gt;&gt; fruits = ["apple", "pear", "kiwi", "fig"]
-&gt;&gt;&gt; fruits[0]
-'apple'
-&gt;&gt;&gt; fruits[3]
-'fig'
-&gt;&gt;&gt; fruits[-1]
-'fig'
-&gt;&gt;&gt; fruits[-2]
-'kiwi'
-&gt;&gt;&gt; len(fruits)
-4
-&gt;&gt;&gt; fruits[4]
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-IndexError: list index out of range</code></pre>
-  <div class="prose">
-    <p>A list of 4 items has indexes 0 to 3, so <code>fruits[4]</code> is one past the end. The last item is always <code>fruits[len(fruits) - 1]</code>, which you can also write as <code>fruits[-1]</code>.</p>
-    <p>A <b>slice</b> takes a piece of a list: <code>fruits[start:stop]</code> gives the items from <code>start</code> up to, but not including, <code>stop</code>. That's the same rule as <code>range</code>. Leave out <code>start</code> to begin at the front, and leave out <code>stop</code> to go to the end.</p>
-  </div>
-<pre><code>&gt;&gt;&gt; fruits[1:3]
-['pear', 'kiwi']
-&gt;&gt;&gt; fruits[:2]
-['apple', 'pear']
-&gt;&gt;&gt; fruits[2:]
-['kiwi', 'fig']</code></pre>
-  <div class="prose">
-    <p>Unlike a string, a list can change after you make it. You can add to it, remove from it, and replace items. These changes use <b>methods</b>: functions that belong to a value, called with a dot after it. <code>fruits.append("kiwi")</code> means "append <code>"kiwi"</code> to this list".</p>
-  </div>
-<pre><code>&gt;&gt;&gt; fruits = ["apple", "pear"]
-&gt;&gt;&gt; fruits.append("kiwi")
-&gt;&gt;&gt; fruits
-['apple', 'pear', 'kiwi']
-&gt;&gt;&gt; fruits.pop()
-'kiwi'
-&gt;&gt;&gt; fruits
-['apple', 'pear']
-&gt;&gt;&gt; fruits.pop(0)
-'apple'
-&gt;&gt;&gt; fruits[0] = "plum"
-&gt;&gt;&gt; fruits
-['plum']
-&gt;&gt;&gt; "plum" in fruits
-True
-&gt;&gt;&gt; "pear" in fruits
-False</code></pre>
-  <div class="prose">
-    <p><code>append</code> adds to the end. <code>pop()</code> removes the last item and returns it, and <code>pop(0)</code> removes the first. <code>x in fruits</code> asks whether <code>x</code> is somewhere in the list, and gives a boolean. An empty list is <code>[]</code>, and popping from it is an error: <code>IndexError: pop from empty list</code>.</p>
-  </div>
-  <div class="trap">
-    <span class="label">append returns None</span>
-    <p>Methods that change a list in place, like <code>append</code>, return <code>None</code>. So <code>fruits = fruits.append("fig")</code> changes the list and then points <code>fruits</code> at <code>None</code>, losing the list. Call <code>fruits.append("fig")</code> on a line by itself.</p>
-  </div>
-
-  <div class="prose">
-    <h2>Looping over a list</h2>
-    <p>A <code>for</code> loop goes through a list item by item. Here it adds up some prices:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; total = 0
-&gt;&gt;&gt; for p in [3, 5, 2]:
-...     total += p
-...
-&gt;&gt;&gt; total
-10</code></pre>
-  <div class="prose">
-    <p><code>total += p</code> is short for <code>total = total + p</code>. <code>-=</code> and <code>*=</code> work the same way.</p>
-    <p>Sometimes you need each item's position as well as the item. <code>enumerate</code> gives you both, as a pair you can split into two names. And <code>zip</code> walks two lists side by side, taking one item from each at a time:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; for i, fruit in enumerate(["apple", "pear", "kiwi"]):
-...     print(i, fruit)
-...
-0 apple
-1 pear
-2 kiwi
-&gt;&gt;&gt; names = ["Ada", "Alan", "Grace"]
-&gt;&gt;&gt; ages = [36, 41, 85]
-&gt;&gt;&gt; for name, age in zip(names, ages):
-...     print(name, age)
-...
-Ada 36
-Alan 41
-Grace 85</code></pre>
-  <div class="prose">
-    <p>A very common pattern is building a new list in a loop. Start with an empty list, and append to it as you go:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; squares = []
-&gt;&gt;&gt; for n in range(5):
-...     squares.append(n * n)
-...
-&gt;&gt;&gt; squares
-[0, 1, 4, 9, 16]</code></pre>
-  <div class="trap">
-    <span class="label">Don't change a list while looping over it</span>
-    <p>Removing items from a list inside a <code>for</code> loop over that same list makes the loop skip items, because everything after the removed one shifts down by one. Build a new list of the items you want to keep instead.</p>
-  </div>
-
-  <div class="prose">
-    <h2>Two names, one list</h2>
-    <p>In lesson 1 you saw that <code>=</code> points a name at a value. With numbers, that detail didn't matter. With lists, which can change in place, it matters a great deal:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; a = [1, 2, 3]
-&gt;&gt;&gt; b = a
-&gt;&gt;&gt; b.append(4)
-&gt;&gt;&gt; a
-[1, 2, 3, 4]
-&gt;&gt;&gt; a is b
-True</code></pre>
-  <div class="prose">
-    <p>You changed <code>b</code>, and <code>a</code> changed too. <code>b = a</code> did not copy the list. It pointed a second name at the <em>same</em> list. Two names for one value is called <b>aliasing</b>. <code>a is b</code> asks "are these the very same object?", and the answer is <code>True</code>. Step through it:</p>
-  </div>
-  <div class="fig" id="alias" data-title="names pointing at lists"></div>
-  <div class="prose">
-    <p>To get a separate list, make a copy, with <code>.copy()</code> or <code>list(a)</code>. A copy is equal to the original, with <code>==</code>, but it is not the same object, so <code>is</code> says no:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; c = a.copy()
-&gt;&gt;&gt; c.append(5)
-&gt;&gt;&gt; a
-[1, 2, 3, 4]
-&gt;&gt;&gt; c
-[1, 2, 3, 4, 5]
-&gt;&gt;&gt; d = list(a)
-&gt;&gt;&gt; d == a
-True
-&gt;&gt;&gt; d is a
-False</code></pre>
-  <div class="prose">
-    <p>The same thing happens when you pass a list to a function. The parameter is one more name for the caller's list, so a function that changes its argument changes the caller's list:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; def add_bonus(scores):
-...     scores.append(100)
-...     return scores
-...
-&gt;&gt;&gt; mine = [70, 80]
-&gt;&gt;&gt; theirs = add_bonus(mine)
-&gt;&gt;&gt; theirs
-[70, 80, 100]
-&gt;&gt;&gt; mine
-[70, 80, 100]</code></pre>
-  <div class="trap">
-    <span class="label">The bug aliasing causes</span>
-    <p>You keep a list, hand it to some code, and later find it changed behind your back. When a list has the wrong contents and no line you can see changed it, look for a second name pointing at it. Functions that need a changed version should build a new list and return it, and leave their arguments alone.</p>
-  </div>
   <div class="note">
-    <span class="label">== and is, again later</span>
-    <p><code>==</code> asks "equal contents?" and <code>is</code> asks "same object?". This difference comes back in week 1, where your compiler makes sure that two equal nodes are always the same object, so the fast <code>is</code> check is enough.</p>
+    <span class="label">Goal</span>
+    <p>Keep answers in a dict under their names, and know why a tuple can be a dict key when a list cannot.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Names that point at values and string indexes from <a href="py-01-first-steps.html">P.1</a>. Functions, <code>if</code> and <code>for</code> loops from <a href="py-02-decisions-loops.html">P.2</a>.</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from the last two lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">What does this print?</p>
+<pre><code>price = 3
+count = price
+price = 5
+print(count)</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>count = price</code> points <code>count</code> at the value <code>price</code> points at right then.</p>
+    <div class="why"><p>It prints 3. Line 3 moves the name <code>price</code> to a new value. It does not touch <code>count</code>. Hold on to this. A list will seem to break the rule later on this page.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="6">
+    <p class="q">What does this print?</p>
+<pre><code>total = 0
+for n in range(4):
+    total = total + n
+print(total)</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>range(4)</code> gives 0, 1, 2 and 3.</p>
+    <div class="why"><p>0 + 1 + 2 + 3 is 6. You'll use this same loop shape with lists in a moment.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Tuples</h2>
-    <p>A <b>tuple</b> is like a list that can never change. It's written with parentheses. Use it for a small, fixed group of values that belong together, like a point's x and y.</p>
+    <h2>Keep many values in order</h2>
+    <p>You have three test scores. Three names, <code>s1</code>, <code>s2</code> and <code>s3</code>, would work. Three hundred scores would not. You need one name for the whole row.</p>
+    <p>A <b>list</b> is a row of values in order. You write it in square brackets with commas between the values:</p>
+<pre><code>scores = [70, 85, 90]</code></pre>
   </div>
-<pre><code>&gt;&gt;&gt; point = (3, 4)
-&gt;&gt;&gt; point[0]
-3
-&gt;&gt;&gt; len(point)
-2
-&gt;&gt;&gt; point[0] = 5
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-TypeError: 'tuple' object does not support item assignment
-&gt;&gt;&gt; x, y = point
-&gt;&gt;&gt; x
-3
-&gt;&gt;&gt; y
-4</code></pre>
-  <div class="prose">
-    <p>A value that can't change is called <b>immutable</b>. Ints, floats, strings and tuples are immutable. Lists, dicts and sets are <b>mutable</b>. <code>x, y = point</code> is called <b>unpacking</b>: it points <code>x</code> at the first item and <code>y</code> at the second. It's what <code>for i, fruit in enumerate(...)</code> was doing.</p>
-    <p>A tuple of one needs a trailing comma, <code>(5,)</code>, because <code>(5)</code> is the number 5 in parentheses. Why have tuples at all? Because a tuple can't change, Python can use it as a dict key, which you'll need in a moment. A list can't be a key.</p>
 
-    <h2>Dicts</h2>
-    <p>A <b>dict</b>, short for dictionary, maps <b>keys</b> to <b>values</b>, like a phone book maps names to numbers. You look a value up by its key instead of by its position.</p>
+  <div class="quiz" data-fill="85">
+    <p class="q">A list is indexed the same way as a string. What is <code>scores[1]</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">What number does counting start from?</p>
+    <div class="why"><p>Counting starts at 0, so <code>scores[0]</code> is 70 and <code>scores[1]</code> is 85.</p></div>
   </div>
-<pre><code>&gt;&gt;&gt; ages = {"Ada": 36, "Alan": 41}
-&gt;&gt;&gt; ages["Ada"]
-36
-&gt;&gt;&gt; ages["Grace"]
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-KeyError: 'Grace'</code></pre>
+
   <div class="prose">
-    <p>Each entry is <code>key: value</code>. Square brackets look a key up, and a missing key is a <code>KeyError</code>, with the missing key on the last line. When a key might be missing, use <code>get</code>. It returns <code>None</code> for a missing key, or the default you give it:</p>
+    <p>Here is what you can do with a list:</p>
+<pre><code>scores = [70, 85, 90]
+print(len(scores))
+print(scores[-1])
+print(scores[0:2])
+scores.append(100)
+scores[0] = 75
+print(scores)</code></pre>
+    <p>It prints:</p>
+<pre><code>3
+90
+[70, 85]
+[75, 85, 90, 100]</code></pre>
+    <ul>
+      <li><code>len(scores)</code> is how many items there are.</li>
+      <li><code>scores[-1]</code> is the last item. Negative indexes count from the end.</li>
+      <li><code>scores[0:2]</code> is a <b>slice</b>, a piece of the list. It starts at index 0 and stops before index 2, the same rule as <code>range</code>.</li>
+      <li><code>scores.append(100)</code> adds 100 to the end. <code>append</code> is a <b>method</b>: a function that belongs to a value, called with a dot after it.</li>
+      <li><code>scores[0] = 75</code> replaces the first item.</li>
+    </ul>
+    <p>The last two lines change the list itself. A string can never change. A list can. That matters a lot later on this page.</p>
   </div>
-<pre><code>&gt;&gt;&gt; print(ages.get("Grace"))
-None
-&gt;&gt;&gt; ages.get("Grace", 0)
-0
-&gt;&gt;&gt; ages["Grace"] = 85
-&gt;&gt;&gt; ages["Ada"] = 37
-&gt;&gt;&gt; ages
-{'Ada': 37, 'Alan': 41, 'Grace': 85}
-&gt;&gt;&gt; "Grace" in ages
-True
-&gt;&gt;&gt; 85 in ages
-False
-&gt;&gt;&gt; del ages["Alan"]
-&gt;&gt;&gt; ages
-{'Ada': 37, 'Grace': 85}</code></pre>
+
+  <details class="toggle">
+    <summary>More list tools, for when you need them: <code>pop</code>, <code>in</code>, open slices, <code>enumerate</code>, <code>zip</code> and two traps</summary>
+    <div class="prose">
+<pre><code>fruits = ["apple", "pear", "kiwi", "fig"]
+print(fruits[-2])
+print(fruits[:2])
+print(fruits[2:])
+print(fruits.pop())
+print(fruits.pop(0))
+print(fruits)
+print("pear" in fruits)</code></pre>
+<pre><code>kiwi
+['apple', 'pear']
+['kiwi', 'fig']
+fig
+apple
+['pear', 'kiwi']
+True</code></pre>
+      <p>A list of 4 items has indexes 0 to 3, so <code>fruits[4]</code> is one past the end and stops with <code>IndexError: list index out of range</code>. Leave out a slice's start to begin at the front, and leave out its stop to go to the end. <code>pop()</code> removes the last item and returns it, and <code>pop(0)</code> removes the first. <code>x in fruits</code> asks whether <code>x</code> is somewhere in the list. An empty list is <code>[]</code>, and popping from it is an error: <code>IndexError: pop from empty list</code>.</p>
+      <p><code>enumerate</code> gives each item's position along with the item. <code>zip</code> walks two lists side by side:</p>
+<pre><code>for i, fruit in enumerate(["apple", "pear"]):
+    print(i, fruit)
+for name, age in zip(["Ada", "Alan"], [36, 41]):
+    print(name, age)</code></pre>
+<pre><code>0 apple
+1 pear
+Ada 36
+Alan 41</code></pre>
+      <p><code>total += p</code> is short for <code>total = total + p</code>. <code>-=</code> and <code>*=</code> work the same way.</p>
+      <p><strong>Trap: append returns None.</strong> Methods that change a list in place, like <code>append</code>, return <code>None</code>. So <code>fruits = fruits.append("fig")</code> changes the list and then points <code>fruits</code> at <code>None</code>, losing the list. Call <code>fruits.append("fig")</code> on a line by itself.</p>
+      <p><strong>Trap: don't change a list while looping over it.</strong> Removing items from a list inside a <code>for</code> loop over that same list makes the loop skip items, because everything after the removed one shifts down by one. Build a new list of the items you want to keep instead.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>Assigning to a key adds it if it's new and replaces the value if it's not. A key appears at most once. <code>in</code> checks the <em>keys</em>, not the values, which is why <code>85 in ages</code> is <code>False</code>. <code>del</code> removes a key. A dict remembers the order its keys were first added, and prints them in that order.</p>
-    <p>Looping over a dict gives you its keys. To get keys and values together, loop over <code>.items()</code>, which gives <code>(key, value)</code> pairs:</p>
+    <h2>Build a list in a loop</h2>
+    <p>A <code>for</code> loop can walk a list directly. Each time around, the loop name points at the next item. The most common thing to do with that is to build a second list as you go:</p>
+<pre><code>squares = []
+for n in [1, 2, 3]:
+    squares.append(n * n)
+print(squares)</code></pre>
+    <p>It prints <code>[1, 4, 9]</code>. The pattern has three steps:</p>
+    <ol>
+      <li><strong>Start empty.</strong> <code>[]</code> is a list with nothing in it.</li>
+      <li><strong>Walk the items.</strong> <code>for n in ...</code> hands you one item at a time.</li>
+      <li><strong>Append what you want to keep.</strong> Each <code>append</code> makes the new list one item longer.</li>
+    </ol>
+    <p>Your compiler's parser builds its list of lines this way.</p>
   </div>
-<pre><code>&gt;&gt;&gt; for name, age in ages.items():
-...     print(name, age)
-...
-Ada 37
-Grace 85</code></pre>
+
+  <div class="exercise small" data-ex="lp-03n-over">
+    <h3>Keep the big ones</h3>
+    <p><code>over(nums, limit)</code> should return a new list of the numbers in <code>nums</code> that are bigger than <code>limit</code>, in the same order. <code>over([3, 9, 5, 12], 4)</code> is <code>[9, 5, 12]</code>. The three steps are all here, but one line is wrong. Run it, look at what comes back, and repair that line.</p>
+  </div>
+
   <div class="prose">
-    <p>Keys can be any immutable value: strings, ints, tuples. A tuple key is how you index by two things at once, like a grid square <code>(row, column)</code>. A list key fails with <code>TypeError: unhashable type: 'list'</code>, where "unhashable" means "can't be used as a key".</p>
-    <p>Here is the dict pattern you will write more than any other: counting. <code>"the cat saw the dog".split()</code> cuts the text into a list of words, <code>['the', 'cat', 'saw', 'the', 'dog']</code>. Then:</p>
+    <h2>Look a value up by its name</h2>
+    <p>The calculator you build after these lessons runs programs like this one:</p>
+<pre><code>%a   = add 2 3
+%out = mul %a 4</code></pre>
+    <p>To run line 2 it has to find what <code>a</code> stands for. A list is no help. A list finds things by position, and you would have to remember which position was <code>a</code>'s. You want to look things up by name.</p>
+    <p>A <b>dict</b>, short for dictionary, stores each value under a <b>key</b>. You write it in curly braces. This dict is named <code>env</code>, the name the calculator uses:</p>
+<pre><code>env = {}
+env["a"] = 2 + 3
+env["out"] = env["a"] * 4
+print(env["out"])
+print(env)</code></pre>
+    <p>It prints:</p>
+<pre><code>20
+{'a': 5, 'out': 20}</code></pre>
+    <ol>
+      <li><strong>Start empty.</strong> <code>{}</code> is a dict with nothing in it.</li>
+      <li><strong>Save under a key.</strong> <code>env["a"] = 5</code> stores 5 under the key <code>"a"</code>. If the key is already there, its value is replaced.</li>
+      <li><strong>Look up by key.</strong> <code>env["a"]</code> gives back the value stored under <code>"a"</code>.</li>
+    </ol>
   </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Nothing was ever saved under <code>"b"</code>. What does <code>print(env["b"])</code> do?</p>
+    <div class="opts">
+      <button data-k="a">It prints 0.</button>
+      <button data-k="b">It prints nothing.</button>
+      <button data-k="c">The program stops with an error.</button>
+    </div>
+    <p class="hint">Python does not make up values. What would it have to invent here?</p>
+    <div class="why"><p>It stops with <code>KeyError: 'b'</code>. The last line of the error names the missing key.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>That error is useful. In your calculator, a <code>KeyError</code> means the program used a name that no earlier line made. To ask first, write <code>"b" in env</code>, which is <code>True</code> or <code>False</code>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-03n-env">
+    <h3>Remember each answer</h3>
+    <p>Here is a tiny calculator. Each line of its program is a list of three things, such as <code>["out", "a", 4]</code>. That means "<code>out</code> is the value of <code>a</code> plus 4". <code>env</code> starts with one name in it, <code>"start"</code>, which is 0. <code>run</code> returns <code>env</code> when every line is done.</p>
+    <p>The loop is written. Two places still say 0. Work out <code>value</code> by looking up <code>earlier</code> in <code>env</code> and adding <code>n</code>. Then save <code>value</code> under <code>name</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Count with a dict</h2>
+    <p>A dict is also how you count things: the key is the thing, and the value is how many you have seen. There is one snag. The first time you meet a word it is not in the dict yet, so <code>counts[w] + 1</code> stops with a <code>KeyError</code>.</p>
+    <p><code>counts.get(w, 0)</code> fixes that. It looks up <code>w</code>, and if the key is missing it gives you 0 and no error.</p>
 <pre><code>counts = {}
-for w in words:
-    counts[w] = counts.get(w, 0) + 1</code></pre>
-  <div class="prose">
-    <p>For each word, <code>counts.get(w, 0)</code> is how many times you've seen it so far, 0 if never. Add 1 and store it back. Trace it:</p>
+for w in ["the", "cat", "the"]:
+    counts[w] = counts.get(w, 0) + 1
+print(counts)</code></pre>
+    <p>It prints <code>{'the': 2, 'cat': 1}</code>. Follow it one word at a time:</p>
   </div>
   <div class="tablewrap"><table>
-    <thead><tr><th>step</th><th><code>w</code></th><th><code>counts.get(w, 0)</code></th><th><code>counts</code> afterwards</th></tr></thead>
+    <thead><tr><th><code>w</code></th><th><code>counts.get(w, 0)</code></th><th><code>counts</code> afterward</th></tr></thead>
     <tbody>
-      <tr><td>start</td><td></td><td></td><td><code>{}</code></td></tr>
-      <tr><td>1</td><td><code>'the'</code></td><td>0</td><td><code>{'the': 1}</code></td></tr>
-      <tr><td>2</td><td><code>'cat'</code></td><td>0</td><td><code>{'the': 1, 'cat': 1}</code></td></tr>
-      <tr><td>3</td><td><code>'saw'</code></td><td>0</td><td><code>{'the': 1, 'cat': 1, 'saw': 1}</code></td></tr>
-      <tr><td>4</td><td><code>'the'</code></td><td>1</td><td><code>{'the': 2, 'cat': 1, 'saw': 1}</code></td></tr>
-      <tr><td>5</td><td><code>'dog'</code></td><td>0</td><td><code>{'the': 2, 'cat': 1, 'saw': 1, 'dog': 1}</code></td></tr>
+      <tr><td><code>'the'</code></td><td>0, not there yet</td><td><code>{'the': 1}</code></td></tr>
+      <tr><td><code>'cat'</code></td><td>0, not there yet</td><td><code>{'the': 1, 'cat': 1}</code></td></tr>
+      <tr><td><code>'the'</code></td><td>1</td><td><code>{'the': 2, 'cat': 1}</code></td></tr>
     </tbody>
   </table></div>
-  <div class="prose">
-    <p>Step 4 is the interesting one: <code>'the'</code> is already there, so <code>get</code> finds 1 and the count becomes 2. Writing <code>counts[w] + 1</code> instead of <code>counts.get(w, 0) + 1</code> would fail with <code>KeyError: 'the'</code> at step 1, because the first time you meet a word it isn't in the dict yet.</p>
-  </div>
 
   <div class="exercise small" data-ex="lp-03-count-words">
     <h3>Count the words</h3>
     <p>Write <code>count_words(text)</code>, which returns a dict from each word to how many times it appears. Treat capitals as the same word: <code>count_words("The the THE")</code> is <code>{'the': 3}</code>. Keep the words in the order they first appear. In the starter, <code>dict[str, int]</code> is a type hint for a dict with str keys and int values.</p>
-    <p class="muted"><code>text.lower()</code> gives the text in lowercase, and <code>.split()</code> cuts it into words at any run of spaces. Then the counting loop above.</p>
+    <p class="muted"><code>text.lower()</code> gives the text in lowercase, and <code>.split()</code> cuts it into a list of words at any run of spaces. Then the counting loop above.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>More dict tools, for when you need them: <code>del</code>, what <code>in</code> checks, order and looping</summary>
+    <div class="prose">
+<pre><code>ages = {"Ada": 36, "Alan": 41}
+print(ages.get("Grace"))
+ages["Grace"] = 85
+print("Grace" in ages)
+print(85 in ages)
+del ages["Alan"]
+print(ages)
+for name in ages:
+    print(name)</code></pre>
+<pre><code>None
+True
+False
+{'Ada': 36, 'Grace': 85}
+Ada
+Grace</code></pre>
+      <p>You can write a dict with entries already in it, each one <code>key: value</code>. <code>get</code> with no default returns <code>None</code> for a missing key. <code>in</code> checks the <em>keys</em>, not the values, which is why <code>85 in ages</code> is <code>False</code>. <code>del</code> removes a key. A key appears at most once. A dict remembers the order its keys were first added, and prints them in that order. Looping over a dict gives you its keys.</p>
+      <p>A compiler keeps many tables like <code>env</code>: from a name to its value, from a name to its type, from a node to the code made for it. Each one is a dict.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>Have I seen this before?</h2>
+    <p>Sometimes all you need to know about a value is whether you have met it already. A <b>set</b> is a collection built for that one question. It keeps each value once and has no order.</p>
+<pre><code>seen = set()
+seen.add("shop")
+seen.add("park")
+seen.add("shop")
+print(len(seen))</code></pre>
+  </div>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">What does that program print?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">A set keeps each value once. What happens to the second <code>"shop"</code>?</p>
+    <div class="why"><p>It prints 2. Adding a value that is already in the set does nothing.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Sets</h2>
-    <p>A <b>set</b> is a collection with no repeats and no order. You use it for one question: "have I got this one?" Adding a value that's already there does nothing.</p>
-  </div>
-<pre><code>&gt;&gt;&gt; colors = {"red", "green", "red"}
-&gt;&gt;&gt; len(colors)
-2
-&gt;&gt;&gt; "red" in colors
-True
-&gt;&gt;&gt; "blue" in colors
-False
-&gt;&gt;&gt; nums = {3, 1, 3, 2}
-&gt;&gt;&gt; nums.add(5)
-&gt;&gt;&gt; len(nums)
-4
-&gt;&gt;&gt; set([1, 2, 2, 1])
-{1, 2}</code></pre>
-  <div class="prose">
-    <p><code>set(some_list)</code> drops the repeats from a list. An empty set is <code>set()</code>, because <code>{}</code> already means an empty dict. When Python prints a set of strings, the order can look random, and it can differ from one run to the next, so never rely on a set's order.</p>
-    <p>Sets and dicts are fast at <code>in</code>. For a list, <code>x in items</code> compares <code>x</code> with every item, one by one. A set or a dict jumps straight to where <code>x</code> would be, so the check takes about the same time with ten items or ten million. The classic use is a "visited" set, which remembers where you've already been:</p>
-  </div>
-<pre><code>path = ["home", "shop", "park", "shop", "home", "school"]
-visited = set()
-for place in path:
-    if place in visited:
+    <p>A set with values in it is written <code>{"shop", "park"}</code>. An empty set is <code>set()</code>, because <code>{}</code> already means an empty dict. <code>add</code> puts a value in, and <code>in</code> asks whether it is there. Here a set spots the places a walk comes back to:</p>
+<pre><code>seen = set()
+for place in ["home", "shop", "park", "shop", "home"]:
+    if place in seen:
         print("again:", place)
     else:
-        visited.add(place)
-print(len(visited))</code></pre>
-<pre><code>again: shop
-again: home
-4</code></pre>
-  <div class="prose">
-    <p>In week 1 your compiler walks a graph of nodes in which the same node can be reached many times. A visited set is what makes it handle each node once instead of once per path.</p>
+        seen.add(place)</code></pre>
+    <p>It prints <code>again: shop</code> and then <code>again: home</code>. Given two values, <code>print</code> shows both with a space between.</p>
+    <p>A list can answer <code>in</code> too, but it checks every item one by one. A set jumps straight to the answer, even with a million items. In week 1 your compiler walks a graph in which the same box can be reached by many arrows. A set like <code>seen</code> lets it handle each box once.</p>
   </div>
 
   <div class="exercise small" data-ex="lp-03-dedupe">
     <h3>Remove repeats, keep the order</h3>
-    <p>Write <code>dedupe(items)</code>, which returns a new list with each item once, in the order of its first appearance. <code>dedupe([3, 1, 3, 2, 1])</code> is <code>[3, 1, 2]</code>. The starter uses <code>list(set(items))</code>. Run it to see why that isn't enough.</p>
+    <p>Write <code>dedupe(items)</code>, which returns a new list with each item once, in the order of its first appearance. <code>dedupe([3, 1, 3, 2, 1])</code> is <code>[3, 1, 2]</code>. The starter turns the list into a set and back into a list. Run it to see why that isn't enough.</p>
     <p class="muted">A set to remember what you've seen, and a list for the answer.</p>
   </div>
 
+  <details class="toggle">
+    <summary>More about sets: writing one with values in it, and why the printed order moves around</summary>
+    <div class="prose">
+<pre><code>colors = {"red", "green", "red"}
+print(len(colors))
+print("blue" in colors)
+print(set([1, 2, 2, 1]))</code></pre>
+<pre><code>2
+False
+{1, 2}</code></pre>
+      <p>Curly braces with single values, not <code>key: value</code> pairs, make a set. <code>set(some_list)</code> drops the repeats from a list. When Python prints a set of strings, the order can look random, and it can differ from one run to the next, so never rely on a set's order.</p>
+      <p>A dict is as fast at <code>in</code> as a set is. Both jump straight to where the key would be, so the check takes about the same time with ten items or ten million.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <h2>Sorting</h2>
-    <p><code>sorted()</code> takes a collection and returns a new list in order. It leaves the original alone. <code>reverse=True</code> sorts biggest first.</p>
+    <h2>Two names, one list</h2>
+    <p>This is the idea on this page that trips up almost everyone once. Guess before you read on.</p>
+<pre><code>a = [1, 2, 3]
+b = a
+b.append(4)
+print(a)</code></pre>
   </div>
-<pre><code>&gt;&gt;&gt; sorted([3, 1, 2])
-[1, 2, 3]
-&gt;&gt;&gt; sorted([3, 1, 2], reverse=True)
+
+  <div class="quiz" data-answer="b">
+    <p class="q">The program never appends to <code>a</code>. What does it print?</p>
+    <div class="opts">
+      <button data-k="a"><code>[1, 2, 3]</code></button>
+      <button data-k="b"><code>[1, 2, 3, 4]</code></button>
+      <button data-k="c">An error</button>
+    </div>
+    <p class="hint">Did <code>b = a</code> make a second list, or a second name?</p>
+    <div class="why"><p>It prints <code>[1, 2, 3, 4]</code>. <code>b = a</code> did not copy the list. It pointed a second name at the same list.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Draw it like the picture of a program in the start step: a box for each value and an arrow from each name to its box. There is one list box, with two arrows into it. Press Next to watch it happen.</p>
+  </div>
+  <div class="fig" id="alias" data-title="names pointing at lists"></div>
+  <div class="prose">
+    <p>Two names for one value is called <b>aliasing</b>. The warm up did not behave this way because <code>price = 5</code> moved an arrow. <code>b.append(4)</code> moves no arrow. It changes the box, and every name pointing at that box sees the change.</p>
+    <p>When you want a separate list, ask for one. <code>a.copy()</code> makes a new list with the same items. The last two steps of the picture show it.</p>
+    <p>A function's parameter is one more name for the list you pass in. So a function that appends to its parameter changes the caller's list. When a list has the wrong contents and no line you can see changed it, look for a second name.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-03n-own-copy">
+    <h3>Give it its own copy</h3>
+    <p><code>before_and_after(scores)</code> should return two lists: the scores as they came in, and the scores with a bonus of 100 on the end. <code>before_and_after([70, 80])</code> should be <code>[[70, 80], [70, 80, 100]]</code>. Right now the bonus shows up in both. Repair one line.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Go deeper: <code>==</code> and <code>is</code>, and aliasing through a function call</summary>
+    <div class="prose">
+      <p><code>==</code> asks "equal contents?" and <code>is</code> asks "the very same object?". A copy is equal to the original, but it is not the same object. <code>list(a)</code> copies a list as well.</p>
+<pre><code>a = [1, 2, 3]
+b = a
+print(a is b)
+d = list(a)
+print(d == a)
+print(d is a)</code></pre>
+<pre><code>True
+True
+False</code></pre>
+      <p>Here is the function case in full. <code>theirs</code> and <code>mine</code> end up as two names for one list:</p>
+<pre><code>def add_bonus(scores):
+    scores.append(100)
+    return scores
+
+mine = [70, 80]
+theirs = add_bonus(mine)
+print(theirs)
+print(mine)</code></pre>
+<pre><code>[70, 80, 100]
+[70, 80, 100]</code></pre>
+      <p>Functions that need a changed version should build a new list and return it, and leave their arguments alone. The difference between <code>==</code> and <code>is</code> comes back in <a href="py-04-your-own-types.html">P.4</a> and in week 1, where your compiler makes sure that two equal nodes are always the same object, so the fast <code>is</code> check is enough.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2 id="tuples">A list that cannot change</h2>
+    <p>In week 1 your compiler asks "have I already built <code>add 2 3</code>?". That is a lookup, so it wants a dict. But the key is three things at once: the op and its two values. Try a list as the key:</p>
+<pre><code>built = {}
+built[["add", 2, 3]] = 0</code></pre>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">What happens when this runs?</p>
+    <div class="opts">
+      <button data-k="a">It works. The dict has one key.</button>
+      <button data-k="b">It works, but only <code>"add"</code> becomes the key.</button>
+      <button data-k="c">Python stops with an error on line 2.</button>
+    </div>
+    <p class="hint">A dict finds a key by its contents. What could happen to a list's contents after it is stored?</p>
+    <div class="why"><p>It stops with <code>TypeError: unhashable type: 'list'</code>. "Unhashable" means "cannot be used as a key".</p></div>
+  </div>
+
+  <div class="prose">
+    <p>A dict finds a key by its contents. If a key could change after it was stored, the dict could never find it again. A list can change, so Python refuses it.</p>
+    <p>A <b>tuple</b> is a list that cannot change. You write it with parentheses. Because it cannot change, it can be a key:</p>
+<pre><code>built = {}
+built[("add", 2, 3)] = 0
+print(("add", 2, 3) in built)
+print(("add", 3, 2) in built)</code></pre>
+    <p>It prints <code>True</code> and then <code>False</code>. Order counts, as it does in a list. You index a tuple like a list, and <code>tuple(some_list)</code> makes a tuple with the same items as a list.</p>
+    <p>You can also split a tuple into names in one line. This is called <b>unpacking</b>:</p>
+<pre><code>line = ("out", "mul", "a", 4)
+name, op, x, y = line</code></pre>
+    <p>Now <code>name</code> is <code>"out"</code> and <code>y</code> is 4. A <code>for</code> loop can unpack too. The calculator's loop starts <code>for name, op, x, y in prog:</code>. And <code>env.items()</code> gives a dict's entries as <code>(key, value)</code> tuples, so <code>for name, value in env.items():</code> walks both.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-03n-line-count">
+    <h3>Count the repeated lines</h3>
+    <p>Write <code>count_lines(lines)</code>. Each line is a list such as <code>["add", 2, 3]</code>. Return a dict that maps each line, as a tuple, to how many times it appears. <code>count_lines([["add", 2, 3], ["mul", 2, 3], ["add", 2, 3]])</code> is <code>{('add', 2, 3): 2, ('mul', 2, 3): 1}</code>.</p>
+    <p class="muted">The counting loop again, with a tuple as the key.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>More about tuples: the error when you try to change one, a tuple of one item, and the words mutable and immutable</summary>
+    <div class="prose">
+<pre><code>point = (3, 4)
+print(point[0])
+print(len(point))
+point[0] = 5</code></pre>
+<pre><code>3
+2
+TypeError: 'tuple' object does not support item assignment</code></pre>
+      <p>A value that can't change is called <b>immutable</b>. Ints, floats, strings and tuples are immutable. Lists, dicts and sets are <b>mutable</b>. Keys can be any immutable value: strings, ints, tuples. A tuple key is how you index by two things at once, like a grid square <code>(row, column)</code>. A tuple that has a list inside it still can't be a key.</p>
+      <p>A tuple of one needs a trailing comma, <code>(5,)</code>, because <code>(5)</code> is the number 5 in parentheses. Use a tuple for a small, fixed group of values that belong together, like a point's x and y.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>Put things in order</h2>
+    <p>You counted words. Which word won? To find out you need to sort. <code>sorted()</code> takes a collection and returns a new list in order. It leaves the original alone.</p>
+<pre><code>print(sorted([3, 1, 2]))
+print(sorted([3, 1, 2], reverse=True))
+print(sorted(["pear", "apple", "fig"], key=len))</code></pre>
+    <p>It prints:</p>
+<pre><code>[1, 2, 3]
 [3, 2, 1]
-&gt;&gt;&gt; sorted(["pear", "Apple", "fig"])
-['Apple', 'fig', 'pear']</code></pre>
-  <div class="prose">
-    <p>Strings sort by character codes, and every capital letter comes before every lowercase one, which is why <code>'Apple'</code> is first. Lists also have a <code>.sort()</code> method that sorts in place and, like <code>append</code>, returns <code>None</code>. So <code>nums = nums.sort()</code> loses your list.</p>
-    <p>To sort by something other than the value itself, pass <code>key=</code> a function. <code>sorted</code> calls it on each item and sorts by what it returns. <code>key=len</code> sorts words by length:</p>
+['fig', 'pear', 'apple']</code></pre>
+    <p><code>reverse=True</code> puts the biggest first. <code>key=</code> takes a function. <code>sorted</code> calls it on each item and sorts by what it returns, so <code>key=len</code> sorts words by length. Write <code>len</code> with no parentheses, because you are handing over the function, not calling it.</p>
+    <p>Tuples compare item by item: the first items decide, and the second items only break ties. So a key that returns a tuple sorts by one thing and then another. This sorts <code>(word, count)</code> pairs with the biggest count first and ties from A to Z:</p>
+<pre><code>def most_first(pair):
+    return (-pair[1], pair[0])
+
+counts = {"b": 2, "a": 2, "c": 5}
+print(sorted(counts.items(), key=most_first))</code></pre>
+    <p>It prints <code>[('c', 5), ('a', 2), ('b', 2)]</code>. The minus sign flips the order of the counts and leaves the words alone.</p>
   </div>
-<pre><code>&gt;&gt;&gt; sorted(["pear", "apple", "fig"], key=len)
-['fig', 'pear', 'apple']
-&gt;&gt;&gt; def by_count(pair):
-...     return pair[1]
-...
-&gt;&gt;&gt; counts = {"the": 2, "cat": 1, "dog": 3}
-&gt;&gt;&gt; sorted(counts.items(), key=by_count, reverse=True)
-[('dog', 3), ('the', 2), ('cat', 1)]</code></pre>
-  <div class="prose">
-    <p>Notice <code>key=len</code> and <code>key=by_count</code> have no parentheses after the function's name. You're handing <code>sorted</code> the function itself, for it to call, not calling it yourself. Lesson 5 says more about passing functions around like this. You'll also see the short form <code>key=lambda pair: pair[1]</code>, which makes the same small function without a <code>def</code>.</p>
-    <p>Tuples compare item by item: the first items decide, and only if they're equal do the second items count. So a key that returns a tuple sorts by one thing, then breaks ties with another. Negating a number flips its order. Together, these two ideas give "biggest count first, ties A to Z":</p>
-  </div>
-<pre><code>&gt;&gt;&gt; (1, "b") &lt; (2, "a")
-True
-&gt;&gt;&gt; (1, "a") &lt; (1, "b")
-True
-&gt;&gt;&gt; def most_first(pair):
-...     return (-pair[1], pair[0])
-...
-&gt;&gt;&gt; sorted({"b": 2, "a": 2, "c": 5}.items(), key=most_first)
-[('c', 5), ('a', 2), ('b', 2)]</code></pre>
 
   <div class="exercise small" data-ex="lp-03-most-common">
     <h3>The most common word</h3>
@@ -353,57 +440,51 @@ True
     <p class="muted">Count with a dict, then sort its items with a tuple key and take the first.</p>
   </div>
 
+  <details class="toggle">
+    <summary>More about sorting: capital letters, <code>.sort()</code> and <code>lambda</code></summary>
+    <div class="prose">
+<pre><code>print(sorted(["pear", "Apple", "fig"]))
+print((1, "b") &lt; (2, "a"))
+print((1, "a") &lt; (1, "b"))</code></pre>
+<pre><code>['Apple', 'fig', 'pear']
+True
+True</code></pre>
+      <p>Strings sort by character codes, and every capital letter comes before every lowercase one, which is why <code>'Apple'</code> is first. Lists also have a <code>.sort()</code> method that sorts in place and, like <code>append</code>, returns <code>None</code>. So <code>nums = nums.sort()</code> loses your list.</p>
+      <p><a href="py-05-recursion.html">P.5</a> says more about passing functions around. You'll also see the short form <code>key=lambda pair: pair[1]</code>, which makes a small function without a <code>def</code>.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <h2>Comprehensions</h2>
-    <p>Building a list in a loop is so common that Python has a one-line form for it, called a <b>list comprehension</b>. Read it as "the list of <code>n * n</code> for each <code>n</code> in <code>range(5)</code>":</p>
-  </div>
-<pre><code>&gt;&gt;&gt; [n * n for n in range(5)]
-[0, 1, 4, 9, 16]
-&gt;&gt;&gt; [w for w in ["a", "bb", "ccc"] if len(w) &gt; 1]
+    <h2>A loop in one line</h2>
+    <p>Building a list in a loop is so common that Python has a short form for it, called a <b>comprehension</b>. You will see it in other people's code, so learn to read it. Read the first line below as "the list of <code>n * n</code> for each <code>n</code> in <code>[1, 2, 3]</code>":</p>
+<pre><code>print([n * n for n in [1, 2, 3]])
+print([w for w in ["a", "bb", "ccc"] if len(w) &gt; 1])
+print({w: len(w) for w in ["cat", "horse"]})</code></pre>
+    <p>It prints:</p>
+<pre><code>[1, 4, 9]
 ['bb', 'ccc']
-&gt;&gt;&gt; {w: len(w) for w in ["cat", "horse"]}
-{'cat': 3, 'horse': 5}
-&gt;&gt;&gt; {n % 3 for n in range(10)}
-{0, 1, 2}</code></pre>
-  <div class="prose">
-    <p>The first line does the same as the <code>squares</code> loop earlier. An <code>if</code> at the end keeps only the items that pass. Curly braces with <code>key: value</code> make a <b>dict comprehension</b>, and curly braces with a single value make a set. Comprehensions are good for short, simple transformations. When one grows past a line, or needs several <code>if</code>s, an ordinary loop is easier to read.</p>
+{'cat': 3, 'horse': 5}</code></pre>
+    <p>The first line does the same as the <code>squares</code> loop earlier. An <code>if</code> at the end keeps only the items that pass. Curly braces with <code>key: value</code> build a dict. When a comprehension grows past one line, an ordinary loop is easier to read.</p>
   </div>
 
   <div class="exercise small" data-ex="lp-03-invert">
     <h3>Swap keys and values</h3>
     <p>Write <code>invert(d)</code>, which returns a new dict with each key and value swapped. <code>invert({"a": 1, "b": 2})</code> is <code>{1: 'a', 2: 'b'}</code>. You can assume all the values are different and can be used as keys.</p>
-    <p class="muted">One dict comprehension over <code>d.items()</code>.</p>
+    <p class="muted">A loop over <code>d.items()</code> works. So does one dict comprehension.</p>
   </div>
 
   <div class="prose">
-    <h2>Why a compiler uses dicts everywhere</h2>
-    <p>A compiler keeps a lot of tables: from a name to its value, from a name to its type, from a node to the code made for it. Each of those is a dict. Week 1 starts with programs like this, where each <code>%name =</code> gives a name to a result:</p>
-  </div>
-<pre><code>%a = add 2 3
-%b = mul %a 4</code></pre>
-  <div class="prose">
-    <p>To work out <code>%b</code>, your compiler needs to know what <code>%a</code> stands for. A dict from the name to the value is exactly that table:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; values = {}
-&gt;&gt;&gt; values["%a"] = 2 + 3
-&gt;&gt;&gt; values["%b"] = values["%a"] * 4
-&gt;&gt;&gt; values
-{'%a': 5, '%b': 20}</code></pre>
-  <div class="prose">
-    <p>A <code>KeyError: '%c'</code> here would mean the program used a name it never defined, a program your compiler must reject. The visited set from the walk, the counting pattern, the tuple key and the difference between <code>==</code> and <code>is</code> all come back in week 1, on graphs instead of words.</p>
-
     <h2>What you can do now</h2>
     <ul>
-      <li>Make a list, index it from either end, slice it, and change it with <code>append</code> and <code>pop</code>.</li>
-      <li>Loop over a list, with <code>enumerate</code> for positions and <code>zip</code> for two lists at once.</li>
+      <li>Keep many values in a list, index it, and build a new list in a loop with <code>append</code>.</li>
+      <li>Save answers in a dict named <code>env</code> and look them up by name.</li>
+      <li>Count things with <code>get</code>.</li>
+      <li>Use a set to answer "have I seen this before?".</li>
       <li>Explain why changing <code>b</code> after <code>b = a</code> also changes <code>a</code>, and copy a list when you need your own.</li>
-      <li>Use a tuple for a fixed group of values, and as a dict key.</li>
-      <li>Look values up in a dict, handle a missing key with <code>get</code>, and count things.</li>
-      <li>Use a set to answer "have I seen this before?" quickly.</li>
-      <li>Sort with <code>key=</code> and <code>reverse=</code>, and break ties with a tuple key.</li>
-      <li>Write short list and dict comprehensions.</li>
+      <li>Use a tuple as a dict key, and say why a list cannot be one.</li>
+      <li>Sort with <code>key=</code>, and read a comprehension.</li>
     </ul>
-    <p>Next, <a href="py-04-your-own-types.html">lesson 4</a> shows how to make your own types, such as a card or an expression like <code>Add(Num(2), Num(3))</code>.</p>
+    <p>Next, <a href="py-04-your-own-types.html">P.4</a> shows how to make your own types, starting with the node your compiler is built from.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -418,7 +499,7 @@ True
   </div>
 
   <div class="quiz" data-fill="[20, 30]">
-    <p class="q">With the same <code>nums</code>, what is <code>nums[1:3]</code>? Write it like the REPL would.</p>
+    <p class="q">With the same <code>nums</code>, what is <code>nums[1:3]</code>? Write it as <code>print</code> shows it.</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">A slice includes its start index and stops before its stop index.</p>
     <p class="hint">Indexes 1 and 2. What's there?</p>

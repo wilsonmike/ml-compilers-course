@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Registers and Register Tiles</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Week 8&#x27;s tiled kernel, run on the 768×768 GEMM from week 7, reaches 1.8 TFLOP/s, on a GPU that peaks near 22. Its threads spend their time reading shared...">
+<meta name="description" content="Your GPU kernels from week 8 give the right bits. Week 9, the last week, makes them fast, with two ideas: registers, which keep a thread&#x27;s working numbers...">
 <link rel="canonical" href="https://sharpterminal.com/site/week9/01-registers">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Registers and Register Tiles">
-<meta property="og:description" content="Week 8&#x27;s tiled kernel, run on the 768×768 GEMM from week 7, reaches 1.8 TFLOP/s, on a GPU that peaks near 22. Its threads spend their time reading shared memory, two loads for every multiply-add...">
+<meta property="og:description" content="Your GPU kernels from week 8 give the right bits. Week 9, the last week, makes them fast, with two ideas: registers, which keep a thread&#x27;s working numbers inside the thread, and tensor cores, units...">
 <meta property="og:url" content="https://sharpterminal.com/site/week9/01-registers">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .rt { display: grid; grid-template-columns: repeat(5, 2.75rem); gap: 3px; align-items: center; }
   .rt .c { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 1.9rem; }
@@ -35,44 +35,288 @@
 <main>
 <p class="eyebrow">Week 9 · Lesson 1</p>
 <h1>Registers and register tiles</h1>
-<p class="lede">Week 8's tiled kernel, run on the 768×768 GEMM from week 7, reaches 1.8 TFLOP/s, on a GPU that peaks near 22. Its threads spend their time reading shared memory, two loads for every multiply-add. This lesson gives each thread a small tile of outputs of its own, keeps their sums in registers, and more than triples the speed. In .uir that takes one new rule and no new syntax.</p>
+<p class="lede">Your GPU kernels from week 8 give the right bits. Week 9, the last week, makes them fast, with two ideas: registers, which keep a thread's working numbers inside the thread, and tensor cores, units that multiply small matrices in one step. This lesson is the first: each thread makes a small patch of outputs and keeps their sums in registers.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Count the shared-memory reads a kernel makes, and decide which allocs are per-thread memory that <code>render-cuda</code> may keep in registers.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Registers and upcast loops from <a href="../week7/03-upcast.html">lesson 7.3</a>, the slice rule from <a href="../week7/04-threads.html">lesson 7.4</a>, shared memory and phases from <a href="../week8/03-shared-memory.html">lesson 8.3</a> and rendered CUDA from <a href="../week8/04-rendering-cuda.html">lesson 8.4</a>.</p>
+<p class="only-python">In the exercises: a list of tuples and <code>None</code> (<a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">In the exercises: a list of tuples and an <code>option</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>, <a href="../learn/ml-04-your-own-types.html">O.4</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from weeks 7 and 8, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="c">
+<p class="q">On the CPU, the C compiler could keep the sums <code>acc[0]</code> to <code>acc[3]</code> in registers only after the loop was unrolled with upcast (lesson 7.3). Why not before?</p>
+<div class="opts">
+<button data-k="a">Registers can only hold whole numbers</button>
+<button data-k="b">A loop is too long to fit in a register</button>
+<button data-k="c">The index was a loop counter, and a register cannot be picked by a number that changes</button>
+</div>
+<p class="hint">Is there a machine instruction for "register number <code>r7</code>"?</p>
+<div class="why"><p>An instruction names its registers outright. After unrolling, every index is a literal, so each element can get a register of its own.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Every load and store of an alloc is inside one global loop (lesson 8.3). What is that alloc, and who can read it?</p>
+<div class="opts">
+<button data-k="a">Global memory. Every thread of every block can read it</button>
+<button data-k="b">The block's shared memory. Every thread of that block can read it</button>
+<button data-k="c">A register. Only one thread can read it</button>
+</div>
+<p class="hint">Phase 2 of the reverse read slots that other threads had written.</p>
+<div class="why"><p>Any thread of the block may read any element of it. This lesson has to rule that out before memory can move into registers.</p></div>
+</div>
+
+<h2>Count the reads in week 8's kernel</h2>
+<div class="prose">
+<p>On the 768×768 GEMM from week 7, week 8's kernel reaches 1.8 TFLOP/s (trillion float operations a second), on a GPU that peaks near 22. Count what it does.</p>
+<p>A block copies a tile of A and a tile of B into shared memory. Each thread owns one element of C. For every step of <code>k</code>, the thread reads one value of A's tile and one of B's tile, multiplies them and adds the product to its sum. One multiply and one add together are a <b>multiply-add</b>.</p>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">How many shared-memory reads does that thread make for each multiply-add?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Which numbers does one multiply need?</p>
+<div class="why"><p>One value of A and one of B, for every multiply-add in the kernel.</p></div>
+</div>
 
 <div class="prose">
-<h2>Where the time goes</h2>
-<p>In week 8's kernel, each thread owns one element of C. For every step of <code>k</code> it loads one value of A's tile and one of B's tile from shared memory, multiplies them, and adds the product to its sum. Shared memory is fast, but a load still costs more than a multiply-add, and every multiply-add needs two. The arithmetic units wait on the loads.</p>
-<p>The fix is reuse. Give each thread a 4×4 piece of C instead of one element. For one step of <code>k</code>, the thread loads 4 values from a column of A's tile and 4 from a row of B's tile, then does all 16 products: every A value meets every B value. That's 16 multiply-adds for 8 loads, four times the work per load.</p>
+<p>A shared-memory read costs more than the multiply-add it feeds, so the arithmetic units wait on the reads. And the thread next door reads the very same A value, to multiply it by a different B value. Every number is read again for each use.</p>
+</div>
+
+<h2>Let one thread make a 4×4 patch</h2>
+<div class="prose">
+<p>The fix is reuse. Give each thread a 4×4 patch of C, 16 outputs, where it had one. For one step of <code>k</code>, those 16 outputs need only 4 values of A, one for each row of the patch, and 4 values of B, one for each column.</p>
+</div>
+
+<div class="quiz" data-fill="4">
+<p class="q">The thread reads those 4 A values and 4 B values, then multiplies every A value by every B value. In how many multiply-adds is each number it read used?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Pick one A value. How many B values does it meet?</p>
+<div class="why"><p>Each A value meets all 4 B values, and each B value all 4 A values. In week 8's kernel every number was used once.</p></div>
+</div>
+
+<div class="prose">
+<p>One step of <code>k</code> for the patch:</p>
+<ol>
+<li><strong>Read.</strong> 4 values of A and 4 of B: 8 reads from shared memory.</li>
+<li><strong>Multiply.</strong> Every A value times every B value: 16 products.</li>
+<li><strong>Add.</strong> Each product goes into its own running sum: 16 multiply-adds.</li>
+</ol>
+<p>That is half a read for each multiply-add. Week 8's kernel needed 2, four times as many. Such a patch is called a <b>register tile</b>. Step through it.</p>
 </div>
 
 <div class="fig" id="tile" data-title="One step of k for a 4×4 register tile"></div>
 
+<h2>Where the 16 sums go</h2>
 <div class="prose">
-<h2>Where the 16 sums live</h2>
-<p>The thread now has 16 running sums, so the program needs memory for them: an alloc of 16 per thread, 4096 for a block of 256 threads. Thread <code>t</code> keeps its sums at <code>acc[t·16 + i·4 + j]</code>.</p>
-<p>By week 8's rule, an alloc used inside one global loop is the block's <b>shared memory</b>. That works, and the bits are right. But each sum is read and written once per step, so the loads we just saved come back as shared-memory traffic for the sums.</p>
-<p>The sums belong in <b>registers</b>: each thread has its own, hundreds of them, and using one costs nothing beyond the instruction itself. A register has no address, though, so the CUDA compiler can only keep an array in registers if it knows, when it compiles, which element every access touches.</p>
+<p>The thread now has 16 running sums, and the program needs memory for them: an alloc of 16 for each thread, 4096 for a block of 256 threads. Thread <code>t</code> keeps sum <code>(i, j)</code> at <code>acc[t·16 + i·4 + j]</code>.</p>
+<p>By week 8's rule, an alloc used inside one global loop is the block's shared memory.</p>
+</div>
 
-<h2>Per-thread memory</h2>
-<p>Look at how <code>acc</code> is used. Every access is <code>t·16 + e</code>, where <code>t</code> is the thread and <code>e</code> is between 0 and 15. Thread 3 only ever touches elements 48 to 63. No other thread ever reads or writes them, in any phase. Week 7 had a name for this shape, the thread slice rule <code>r·S + e</code> (<a href="../week7/04-threads.html">lesson 7.4</a>).</p>
-<p>So week 9 adds a rule. An alloc of a kernel is <b>per-thread</b> when every load and store of it is inside a local loop, at <code>t·S + e</code> with <code>t</code> that loop's range, one <code>S</code> for all of them, and <code>0 ≤ e</code>, <code>e + size ≤ S</code> provable. No access may be in a warp loop or be an operand of an <code>mma</code>. Lesson 9.3 adds both: a warp loop is a phase run by whole warps of 32 threads, and an mma is a tensor-core instruction those 32 threads issue together. A warp's threads share those accesses, so they can't be split into per-thread slices. A per-thread alloc means the same as before: it's still shared memory, zero at the start of every block. But since no thread can see another's slice, <code>render-cuda</code> may give each thread its own <code>S</code> elements instead:</p>
+<div class="quiz" data-fill="2">
+<p class="q">Every multiply-add loads its sum from <code>acc</code>, adds the product and stores the sum back. With <code>acc</code> in shared memory, how many shared-memory accesses does each multiply-add make for its sum alone?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Count the load and the store.</p>
+<div class="why"><p>One load and one store. The patch cut the reads of A and B to half a read for each multiply-add, and the sums put two accesses back.</p></div>
+</div>
+
+<div class="prose">
+<p>The traffic we saved came back. The sums belong in <b>registers</b>, as in lesson 7.3. A GPU thread has up to 255 of its own, and using one costs nothing beyond the instruction itself.</p>
+<p>But any thread of a block may read any element of shared memory. Before <code>acc</code> can leave it, the compiler must know that no thread ever looks at another thread's sums.</p>
+</div>
+
+<h2 id="per-thread-memory">Per-thread memory</h2>
+<div class="prose">
+<p>Here are two allocs. Both are shared memory by week 8's rule.</p>
+<ul>
+<li><code>sh</code>, from lesson 8.3's reverse: phase 1 stores <code>sh[t]</code>, and phase 2 loads <code>sh[7 - u]</code>.</li>
+<li><code>acc</code>, the sums: every load and store, in every phase, is at <code>acc[t·16 + e]</code> with <code>e</code> from 0 to 15.</li>
+</ul>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Which alloc could be swapped for a small private array inside each thread, with no thread able to tell?</p>
+<div class="opts">
+<button data-k="a"><code>sh</code></button>
+<button data-k="b"><code>acc</code></button>
+<button data-k="c">Both</button>
+</div>
+<p class="hint">Does a thread ever read an element that another thread wrote?</p>
+<div class="why"><p>In <code>sh</code>, thread 0 reads slot 7, which thread 7 wrote. In <code>acc</code>, thread 3 only ever touches elements 48 to 63, and no other thread does.</p></div>
+</div>
+
+<div class="prose">
+<p>Lesson 7.4's slice rule named this shape: <code>t·S</code> picks slice <code>t</code>, and <code>e</code> picks a place inside it. Week 9 builds one new rule on it. An alloc of a kernel is <b>per-thread</b> when every load and store of it passes three checks:</p>
+<ol>
+<li><strong>It is inside a local loop.</strong> <code>t</code> is that loop's range, the thread number.</li>
+<li><strong>Its offset is <code>t·S + e</code>.</strong> <code>S</code> is a positive literal, the same one for every access.</li>
+<li><strong>It stays in the slice.</strong> <code>0 ≤ e</code> and <code>e + size ≤ S</code> can be proved, where <code>size</code> is how many elements the access touches.</li>
+</ol>
+<p>Then thread <code>t</code> only ever touches elements <code>t·S</code> to <code>t·S + S - 1</code>, in every phase. The program means what it meant before: the alloc is still shared memory, zero at the start of every block. The rule is a permission. <code>render-cuda</code> may give each thread its own array of <code>S</code> elements.</p>
+</div>
+
+<div class="exercise" data-ex="w9-01n-own-slice" data-ex-py="w9-01n-own-slice-py">
+<h3>Does the access stay in its slice?</h3>
+<p>Thread <code>t</code> owns elements <code>t·s</code> to <code>t·s + s - 1</code>. <code>owns s t off size</code> should say whether an access that starts at element <code>off</code> and touches <code>size</code> elements stays inside them. The starter forgets how far the access reaches. Repair it.</p>
+</div>
+
+<details class="toggle"><summary>The whole rule, with warp loops and <code>mma</code>, for when you write the check in the lab</summary><div class="prose">
+<p>An alloc of a kernel is per-thread when every load and store of it is inside a local loop, at <code>t·S + e</code> with <code>t</code> that loop's range, one <code>S</code> for all of them, and <code>0 ≤ e</code>, <code>e + size ≤ S</code> provable. As in week 7, a bare <code>t</code> counts as <code>S = 1</code>.</p>
+<p>No access may be in a warp loop or be an operand of an <code>mma</code>. Lesson 9.3 adds both: a warp loop is a phase run by whole warps of 32 threads, and an mma is a tensor-core instruction those 32 threads issue together. A warp's threads share those accesses, so they can't be split into per-thread slices.</p>
+<p>In <code>render-cuda</code>, per-thread memory may be a plain array in each thread, <code>T a[S] = {0};</code> at the top of the kernel, indexed by <code>e</code>.</p>
+</div></details>
+
+<h2 id="when-it-isnt-per-thread">When an alloc does not qualify</h2>
+<div class="prose">
+<p>One access outside the pattern loses the permission. Recall lesson 8.3: a later phase may read anything an earlier phase wrote to shared memory.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A block has 4 threads. Phase 1 stores <code>acc[t·4 + e]</code>. Phase 2 loads <code>acc[((u + 1) mod 4)·4 + e]</code>. In both, <code>e</code> is 0 or 1. Is <code>acc</code> per-thread?</p>
+<div class="opts">
+<button data-k="a">Yes: both offsets are a multiple of 4 plus <code>e</code></button>
+<button data-k="b">No: in phase 2, thread <code>u</code> reads the next thread's slice</button>
+<button data-k="c">No: <code>e</code> never reaches 3, so the slice is not full</button>
+</div>
+<p class="hint">Thread 0 is in phase 2. Which elements does it load, and who stored them?</p>
+<div class="why"><p>Thread 0 loads elements 4 and 5, which thread 1 stored. The offset is not <code>u·S + e</code>, so the alloc stays in shared memory. Unused room in a slice is fine.</p></div>
+</div>
+
+<div class="prose">
+<p>That program is the test <code>c_shared_not_per_thread</code>. A private array there gives wrong bits. So the check has to see every access before it says yes. Write it.</p>
+</div>
+
+<div class="exercise" data-ex="w9-01-per-thread" data-ex-py="w9-01-per-thread-py">
+<h3>Can it live in registers?</h3>
+<p>Each access to one alloc is <code>(s, lo, hi, size)</code>: its offset is <code>t·S + e</code> with <code>e</code> in <code>[lo, hi]</code>, and it touches <code>size</code> elements. <code>s</code> is <code>Some S</code>, or <code>None</code> when the offset lacks that form. Write <code>per_thread accesses</code>: <code>S</code> when every access has the same positive <code>S</code> and stays in its slice, otherwise 0. An empty list gives 0. The starter trusts the first access.</p>
+</div>
+
+<h2>What render-cuda prints</h2>
+<div class="prose">
+<p>Here is a small kernel: 2 blocks of 4 threads, where each thread keeps 2 sums at <code>acc[t·2 + e]</code>. This is what the reference compiler's <code>render-cuda</code> prints for the top of the kernel, up to the first load of a sum:</p>
+</div>
+<pre><code>__global__ void k0(int32_t *__restrict__ b0, int32_t *__restrict__ b1) {
+  int32_t r5 = blockIdx.x;
+  int32_t a6[2] = {0};
+  int32_t v7 = (int32_t)((uint32_t)r5 * (uint32_t)8);
+  {
+    int32_t r8 = threadIdx.x;
+    int32_t v9 = (int32_t)((uint32_t)r8 * (uint32_t)2);
+    int32_t v10 = (int32_t)((uint32_t)v9 + (uint32_t)0);
+    int32_t v12 = a6[(int32_t)((uint32_t)(v10) - (uint32_t)r8 * 2u)];
+    ...</code></pre>
+<div class="prose">
+<ol>
+<li><strong>The array.</strong> <code>int32_t a6[2] = {0};</code> is a plain array of <code>S</code> = 2 elements, zeroed at the top of the kernel. It has no <code>__shared__</code>, so every thread gets its own.</li>
+<li><strong>The index.</strong> The program's offset is <code>t·2 + e</code>, but the private array is indexed by <code>e</code> alone. So the renderer prints the offset minus <code>t·2</code>.</li>
+</ol>
+</div>
+
+<div class="quiz" data-fill="0">
+<p class="q"><code>v10</code> is <code>r8·2 + 0</code>. For thread 3, which element of <code>a6</code> does <code>a6[v10 - r8·2]</code> touch?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>r8</code> is the thread number, 3. Work out <code>v10</code> first.</p>
+<div class="why"><p>6 - 6 = 0, for every thread. The subtraction is done in <code>uint32_t</code>, where the two <code>r8·2</code> terms cancel exactly, so the CUDA compiler can see the literal 0. The copy for <code>e</code> = 1 gives <code>a6[1]</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>Change phase 2 so that it reads the next thread's slice, and the rule says no. The same renderer then prints week 8's form, <code>__shared__ __align__(32) int32_t a7[8];</code>, and indexes it with the full offset: <code>a7[v11]</code>.</p>
+</div>
+
+<details class="toggle"><summary>The whole .uir program for this example, for when you want to render it yourself</summary><div class="prose">
+<p>Save it to a file and run <code>python _reference/uirc.py render-cuda FILE</code>. The output starts with a block of helper functions, and the kernel comes after them.</p>
+<pre><code>%x = buffer 16 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16] dtype=i32 slot=0
+%o = buffer 16 dtype=i32 slot=1
+%acc = alloc 8 dtype=i32
+%g = range 2 axis=global
+%t = range 4 axis=local
+%e = range 2 axis=upcast
+%g8 = mul %g 8
+%t2 = mul %t 2
+%s = add %t2 %e
+%xo = add %g8 %s
+%av = shrink %acc %s []
+%cur = load %av
+%xv = shrink %x %xo []
+%xe = load %xv
+%sum = add %cur %xe
+%st = store %av %sum
+%ee = end %st %e
+%e1 = end %ee %t
+%acc1 = after %acc %e1
+%u = range 4 axis=local
+%f = range 2 axis=upcast
+%u2 = mul %u 2
+%s2 = add %u2 %f
+%oo = add %g8 %s2
+%rv = shrink %acc1 %s2 []
+%r = load %rv
+%ov = shrink %o %oo []
+%so = store %ov %r
+%ef = end %so %f
+%e2 = end %ef %u
+%eb = end %e1 %e2 %g
+%o1 = after %o %eb</code></pre>
+<p>For the version that stays shared, replace the <code>%rv</code> line with these five, so phase 2 reads slice <code>(u + 1) mod 4</code>:</p>
+<pre><code>%n1 = add %u 1
+%n2 = mod %n1 4
+%n3 = mul %n2 2
+%n4 = add %n3 %f
+%rv = shrink %acc1 %n4 []</code></pre>
+<p>For the plain-loop version in the next section, take <code>axis=upcast</code> off the <code>%e</code> line.</p>
+</div></details>
+
+<details class="toggle"><summary>The same lines in the real 768×768 GEMM kernel, for when you read your own rendered CUDA</summary><div class="prose">
+<p>These lines are from the reference's CUDA for <code>s_cuda_gemm_registers</code>, with the lines between them left out. <code>a15</code> is the A tile, which stays shared. <code>a17</code> holds thread <code>t</code>'s 16 sums and is per-thread. <code>v130</code> is <code>r114·16 + 0</code>, so the access is <code>a17[0]</code>.</p>
 <pre><code>__global__ void k0(float *__restrict__ b0, float *__restrict__ b1, float *__restrict__ b2) {
   int32_t r14 = blockIdx.x;
-  __shared__ __align__(32) float a15[1024];        /* the A tile: shared */
+  __shared__ __align__(32) float a15[1024];
   ...
-  float a17[16] = {0};                              /* thread t's 16 sums: per-thread */
+  float a17[16] = {0};
   ...
     {
       int32_t r114 = threadIdx.x;
       ...
       for (int32_t r120 = 0; r120 &lt; 16; r120++) {
         ...
-        float v132 = a17[(int32_t)((uint32_t)(v130) - (uint32_t)r114 * 16u)];   /* v130 = r114*16 + 0: a17[0] */</code></pre>
-<p>Two details make it registers rather than an array in memory. The offset minus <code>t·S</code> is <code>e</code>, and computing it in <code>uint32_t</code> lets the CUDA compiler cancel the <code>t·S</code> terms exactly. And <code>e</code> must be a literal in each copy of the body, which is what an <code>upcast</code> loop gives: <code>i</code> and <code>j</code> are unrolled, so the 16 accesses are <code>a17[0]</code> to <code>a17[15]</code>. With a plain loop index in <code>e</code>, the array still works but lives in slower <b>local memory</b>. That's CUDA's name for memory private to one thread that actually sits in the GPU's DRAM, behind the caches. It has nothing to do with <code>axis=local</code>.</p>
+        float v132 = a17[(int32_t)((uint32_t)(v130) - (uint32_t)r114 * 16u)];</code></pre>
+</div></details>
 
-<h2>When it isn't per-thread</h2>
-<p>A later phase may read anything an earlier phase wrote to shared memory. If phase 2 reads <code>acc[(t + 1)·16 + e]</code>, thread <code>t</code> reads its neighbor's sums, and that only works if they're in memory the whole block shares. The access isn't <code>t·S + e</code>, so the rule says no, and the alloc stays shared. The test <code>c_shared_not_per_thread</code> is exactly that case: a compiler that keeps it in registers gets wrong bits.</p>
+<h2>Literal indexes make it registers</h2>
+<div class="prose">
+<p>A private array is not yet a register. In the kernel above, <code>e</code> comes from an <code>upcast</code> loop. Each copy of the body has a literal <code>e</code>, so the indexes work out to <code>a6[0]</code> and <code>a6[1]</code>, and the CUDA compiler keeps those two elements in registers.</p>
+<p>Here is the start of the same phase with a plain loop for <code>e</code>:</p>
+<pre><code>    for (int32_t r10 = 0; r10 &lt; 2; r10++) {
+      int32_t v11 = (int32_t)((uint32_t)v9 + (uint32_t)r10);
+      int32_t v13 = a6[(int32_t)((uint32_t)(v11) - (uint32_t)r8 * 2u)];
+      ...</code></pre>
+</div>
 
-<h2>What it bought</h2>
-<p>The 768×768 GEMM from week 7, on the RTX 4060 Ti:</p>
+<div class="quiz" data-answer="b">
+<p class="q">The index now works out to <code>r10</code>, the loop counter. What can the CUDA compiler count on doing with <code>a6</code>?</p>
+<div class="opts">
+<button data-k="a">Keep it in registers, as before</button>
+<button data-k="b">Keep it in memory that is private to the thread, since only memory can be indexed by a number that changes</button>
+<button data-k="c">Move it back to shared memory</button>
+</div>
+<p class="hint">It is the first warm up question again, on a GPU.</p>
+<div class="why"><p>The bits are still right, but the array may sit in memory. An upcast loop does not leave it to chance.</p></div>
+</div>
+
+<div class="prose">
+<p>That private memory is called <b>local memory</b>: CUDA's name for memory that belongs to one thread but sits in the GPU's DRAM, behind the caches. It is far slower than a register, and it has nothing to do with <code>axis=local</code>.</p>
+</div>
+
+<div class="prose">
+<p>The fast GEMM needs both pieces. The per-thread rule makes the 16 sums private, and upcast loops over <code>i</code> and <code>j</code> of the 4×4 patch make their indexes the literals 0 to 15. Here is what that bought on the 768×768 GEMM from week 7, measured on the RTX 4060 Ti this course was written on:</p>
 </div>
 <div class="tablewrap"><table>
 <thead><tr><th>kernel (768×768 f32 GEMM)</th><th>time</th><th>speed</th></tr></thead>
@@ -82,12 +326,28 @@
 <tr><td>the same, sums in registers</td><td>0.145 ms</td><td>6.2 TFLOP/s</td></tr>
 </tbody></table></div>
 <div class="prose">
-<p>The last kernel is the reference for <code>s_cuda_gemm_registers</code>, and the test asks for at least 0.8 of its speed. Keeping the sums in shared memory gives about 0.67, so the test fails without this lesson's rule.</p>
+<p>The second row also grows the block's tile, which lesson 9.2 explains. The third row changes only where the sums live, and it is about 1.5 times faster.</p>
+<p>The last kernel is the reference for the speed test <code>s_cuda_gemm_registers</code>, which asks for at least 0.8 of its speed. Sums in shared memory give about 0.67, so the test fails without this lesson's rule.</p>
 </div>
 
-<div class="exercise" data-ex="w9-01-per-thread" data-ex-py="w9-01-per-thread-py">
-<h3>Can it live in registers?</h3>
-<p>Given every access to an alloc, decide whether it's per-thread, and with what stride.</p>
+<details class="toggle"><summary>The tests for per-thread memory, for when you do the lab</summary><div class="prose">
+<ul>
+<li><code>c_per_thread_fresh_each_block</code>: per-thread memory starts at zero in every block, in registers or not.</li>
+<li><code>c_per_thread_plain_loop</code>: a per-thread alloc indexed by a plain loop. It may not fit in registers, but the bits are the same.</li>
+<li><code>c_shared_not_per_thread</code>: phase 2 reads the next thread's slice, so the alloc must stay shared.</li>
+<li><code>c_regtile_gemm</code>: a small GEMM with 4×4 register tiles, checked for bits.</li>
+<li><code>s_cuda_gemm_registers</code>: the 768×768 speed test. Without a GPU it only checks that your CUDA builds.</li>
+</ul>
+</div></details>
+
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Count shared-memory reads for each multiply-add, and say why a 4×4 patch for each thread cuts them by four.</li>
+<li>Decide whether an alloc is per-thread: every access in a local loop, at <code>t·S + e</code>, inside the slice.</li>
+<li>Read the private array and its index in rendered CUDA, and say why upcast loops turn it into registers.</li>
+</ul>
+<p>Next, <a href="02-fast-gemm.html">lesson 9.2</a> picks the tile sizes and asks how close they get to the GPU's peak.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -151,9 +411,9 @@ document.addEventListener('DOMContentLoaded', () => {
     return h('div', {}, [h('div', { class: 'rt' }, cells), h('div', { class: 'tally', text: tally })]);
   };
   const steps = [
-    { caption: 'Thread <code>t</code> owns a 4×4 piece of C: 16 sums, all 0 at the start. Left: the column of A it needs, right of it the row of B.', draw: () => draw(false, false, false, () => '0', 'loads 0, multiply-adds 0') },
+    { caption: 'Thread <code>t</code> owns a 4×4 piece of C: 16 sums, all 0 at the start. Left: the column of A it needs. Top: the row of B.', draw: () => draw(false, false, false, () => '0', 'loads 0, multiply-adds 0') },
     { caption: 'Step <code>k</code>: it loads <code>a0..a3</code> from the A tile and <code>b0..b3</code> from the B tile, 8 loads from shared memory.', draw: () => draw(true, true, false, () => '0', 'loads 8, multiply-adds 0') },
-    { caption: 'Then every A value meets every B value: sum <code>(i, j)</code> gets <code>a<sub>i</sub>·b<sub>j</sub></code>. 16 multiply-adds, and the 16 sums are in registers, so they cost no loads at all.', draw: () => draw(false, false, true, (i, j) => 'a' + i + 'b' + j, 'loads 8, multiply-adds 16') },
+    { caption: 'Then every A value meets every B value: sum <code>(i, j)</code> gets <code>a<sub>i</sub>·b<sub>j</sub></code>. 16 multiply-adds from the 8 values it loaded.', draw: () => draw(false, false, true, (i, j) => 'a' + i + 'b' + j, 'loads 8, multiply-adds 16') },
     { caption: 'With one output per thread, the same step is 2 loads for 1 multiply-add. The 4×4 tile does 2 per load, four times the work for every value read.', draw: () => draw(false, false, false, (i, j) => (i === 0 && j === 0 ? 'a0b0' : ''), '1×1: loads 2, multiply-adds 1') },
   ];
   CC.stepper(document.getElementById('tile'), steps, (s, body) => body.append(s.draw()));

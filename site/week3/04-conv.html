@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Convolutions</title>
+<title>A Convolution by Hand</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A convolution slides a small kernel along an input and takes a dot product at every position. With range and end you can write one by hand: two loops for a 1D...">
+<meta name="description" content="A convolution slides a small window along a row of numbers and adds up what it sees. It is how a program blurs a sound or finds an edge in a photo, and next to...">
 <link rel="canonical" href="https://sharpterminal.com/site/week3/04-conv">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
-<meta property="og:title" content="Convolutions">
-<meta property="og:description" content="A convolution slides a small kernel along an input and takes a dot product at every position. With range and end you can write one by hand: two loops for a 1D convolution, four for a 2D one. The only...">
+<meta property="og:title" content="A Convolution by Hand">
+<meta property="og:description" content="A convolution slides a small window along a row of numbers and adds up what it sees. It is how a program blurs a sound or finds an edge in a photo, and next to the matrix multiply it is the loop nest...">
 <meta property="og:url" content="https://sharpterminal.com/site/week3/04-conv">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,33 +20,112 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .strip { display: grid; gap: var(--s3); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
   .strip .name { font: 500 0.875rem var(--mono); color: var(--ink-3); min-width: 2rem; }
   .strip .mem .cell.pad { border-style: dashed; color: var(--ink-3); } /* design-ok: dashed is the diagram notation for padding and out-of-bounds cells, named in the captions */
   .strip .sum { font: 0.875rem/1.6 var(--mono); color: var(--ink-2); }
+  .strip .grids { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
+  .strip .mem.g { display: grid; justify-content: start; }
+  .strip .mem.g .cell { min-width: 3rem; }
+  .strip .mem .cell { min-height: 3.25rem; }
 </style>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 3 · Lesson 4</p>
-<h1>Convolutions</h1>
-<p class="lede">A convolution slides a small kernel along an input and takes a dot product at every position. With <code>range</code> and <code>end</code> you can write one by hand: two loops for a 1D convolution, four for a 2D one. The only new difficulty is padding, which reads outside the input, and you already have the tool for that: prove the index in range, then zero what doesn't belong.</p>
+<h1>A convolution by hand</h1>
+<p class="lede">A convolution slides a small window along a row of numbers and adds up what it sees. It is how a program blurs a sound or finds an edge in a photo, and next to the matrix multiply it is the loop nest machine learning runs most. You will write one in .uir, so that your compiler can turn it into C in the next lesson.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Write a 1D convolution, handle its edges with a mask, and index a 2D one on a flat buffer.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>The GEMM from <a href="03-gemm.html">lesson 3.3</a>: an accumulator that lives in the output element, and <code>r*cols + c</code> indexing. Bounds proved from intervals (<a href="../week2/03-bounds.html">lesson 2.3</a>). The ops <code>where</code>, <code>cmplt</code> and <code>mod</code> from week 1. If a <code>mod</code> that floors feels shaky, see <a href="../learn/hard-04-numbers-like-c.html">H.4 Numbers that behave like C</a>.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two ideas from earlier lessons that this one needs. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="10">
+<p class="q">A matrix with 6 columns sits in a flat row-major buffer. At which offset is the element in row 1, column 4?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Element (r, c) is at <code>r*cols + c</code>.</p>
+<div class="why"><p>1*6 + 4 = 10. One full row of 6, then four steps.</p></div>
+</div>
+
+<div class="quiz" data-fill="5">
+<p class="q">In .uir, what is <code>mod -1 6</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">.uir's <code>mod</code> floors. Dividing by 6, the remainder is always one of 0 to 5.</p>
+<div class="why"><p>5, because -1 = 6*(-1) + 5. C's <code>%</code> would say -1. You will need this at the edges.</p></div>
+</div>
 
 <div class="prose">
-<h2>A valid 1D convolution</h2>
-<p>Take an input <code>x</code> of length 6 and a kernel <code>w</code> of length 3. Output position <code>i</code> is the dot product of the kernel with the window of <code>x</code> that starts at <code>i</code>:</p>
+<h2>Slide a window and add up</h2>
+<p>Take a row of numbers, <code>x</code>. It could be sound samples, or one row of pixels in a photo. In this one the brightness jumps from 2 to 8:</p>
+<pre><code>x = [2 2 2 8 8 8]</code></pre>
+<p>Now take a short list of weights called the <strong>kernel</strong>: <code>w = [-1 0 1]</code>. (Unrelated to the C function named <code>kernel</code> that your renderer prints.) Lay it over the first three numbers of <code>x</code>. Those three numbers are the <strong>window</strong>. Multiply each one by the weight above it and add the three products. That sum is the first output. Slide the kernel one step right and repeat. Doing this at every position is a <strong>convolution</strong>:</p>
 <pre><code>y[i] = x[i]*w[0] + x[i+1]*w[1] + x[i+2]*w[2]</code></pre>
-<p>"Valid" means the window never leaves the input, so there are 6 - 3 + 1 = 4 outputs. Step through it with <code>x = [1 2 3 4 5 6]</code> and <code>w = [1 0 -1]</code>.</p>
+</div>
+
+<div class="quiz" data-fill="6">
+<p class="q">Work out <code>y[1]</code> by hand.</p>
+<div class="fill"><input aria-label="y[1]" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The window for output 1 is <code>x[1], x[2], x[3]</code>, which is 2, 2, 8.</p>
+<div class="why"><p>2*(-1) + 2*0 + 8*1 = 6. The window sits across the jump, so the answer is large.</p></div>
+</div>
+
+<div class="prose">
+<p>This kernel subtracts the left neighbor from the right one. It gives 0 where the row is flat and a large number where it jumps, so it finds edges. Change the kernel to <code>[1 1 1]</code> and each output adds three neighbors, which smooths the row: a blur. The loops are the same and only the weights differ. A convolution layer in a neural network is this too, with weights it learned.</p>
 </div>
 
 <div class="fig" id="slide" data-title="conv1d: the window slides one element per output"></div>
 
 <div class="prose">
-<p>In .uir that's a loop over <code>i</code> with a loop over <code>k</code> inside it. The accumulator is the output element itself: reset <code>y[i]</code> to zero with a store that depends on <code>i</code>, then add into the version after that store, once per <code>k</code>.</p>
+<p>There are 4 outputs and not 6, because the window has to fit inside <code>x</code>. It can start at 0, 1, 2 or 3, which is 6 - 3 + 1 places. A convolution whose window never leaves the input is called <strong>valid</strong>. One element of the kernel is called a <strong>tap</strong>.</p>
+</div>
+
+<details class="toggle">
+<summary>For readers who know the math definition: this one does not flip the kernel</summary>
+<div class="prose">
+<p>A math textbook's convolution reverses the kernel first, so it computes <code>x[i+2]*w[0] + x[i+1]*w[1] + x[i]*w[2]</code>. What this lesson computes is called cross-correlation there. Machine learning libraries use the unflipped form and call it convolution, and so does this course. The loops are the same either way.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>The window sum as two loops</h2>
+<p>Put this next to one output element of the GEMM in lesson 3.3:</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th></th><th>GEMM</th><th>1D convolution</th></tr>
+<tr><td>the accumulator</td><td><code>C[i*N + j]</code></td><td><code>y[i]</code></td></tr>
+<tr><td>the inner loop</td><td><code>k</code>, along a row of A</td><td><code>k</code>, along the kernel</td></tr>
+<tr><td>what it multiplies</td><td><code>A[i*K + k] * B[k*N + j]</code></td><td><code>x[i + k] * w[k]</code></td></tr>
+</table></div>
+<div class="prose">
+<p>The one new thing is the index <code>i + k</code>: start at <code>i</code>, then step <code>k</code> into the window. Two outputs next to each other read some of the same inputs. Before you read the program, predict what the bounds check makes of that index.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>%i = range 4</code>, <code>%k = range 3</code> and <code>%ik = add %i %k</code>. The buffer <code>%x</code> has 6 elements. What does the compiler do with <code>shrink %x %ik []</code>?</p>
+<div class="opts">
+<button data-k="a">Accepts it</button>
+<button data-k="b">Rejects it, because 4 + 3 is more than 6</button>
+<button data-k="c">Accepts it only if a <code>where</code> guards the load</button>
+</div>
+<p class="hint">A range's interval is [0, n-1]. Add the two intervals end by end.</p>
+<div class="why"><p><code>i</code> is in [0, 3] and <code>k</code> is in [0, 2], so <code>i + k</code> is in [0, 5]. That fits a 6-element buffer exactly, with no extra work.</p></div>
+</div>
+
+<div class="prose">
+<p>Here is the whole loop nest, for f32 buffers <code>%x</code> (6), <code>%w</code> (3) and <code>%y</code> (4):</p>
 <pre><code>%i   = range 4
 %yv  = shrink %y %i []
 %z   = store %yv 0.0          # reset y[i], once per i
@@ -65,6 +144,22 @@
 %ek  = end %s %k
 %ei  = end %ek %i
 %y1  = after %y %ei</code></pre>
+<ol>
+<li><strong>Reset the output.</strong> <code>%z</code> stores 0.0 into <code>y[i]</code>. Its offset uses <code>%i</code>, so it runs once per output.</li>
+<li><strong>Read the two inputs.</strong> <code>x[i + k]</code> and <code>w[k]</code>, both inside the <code>k</code> loop.</li>
+<li><strong>Add into the output.</strong> Load <code>y[i]</code> from <code>%y0</code>, the version after the reset. Add the product and store it back.</li>
+<li><strong>Close the loops.</strong> <code>k</code> first, which makes it the inner loop, then <code>i</code>.</li>
+</ol>
+</div>
+
+<div class="exercise small" data-ex="w3-04-conv1d-valid">
+<h3>Write the valid convolution</h3>
+<p>Slot 0 is <code>x</code> (6 i32), slot 1 is <code>w</code> (3 i32), slot 2 is <code>y</code> (4 i32). Make the final contents of slot 2 equal <code>y[i] = x[i]*w[0] + x[i+1]*w[1] + x[i+2]*w[2]</code> for every <code>i</code> in 0..3. The starter only uses <code>w[0]</code>. The tests set slots 0 and 1. i32 sums wrap as usual.</p>
+</div>
+
+<details class="toggle">
+<summary>The C the oracle renders for this loop nest, for when you write your renderer</summary>
+<div class="prose">
 <p>No masking is needed: the range intervals alone prove <code>i + k</code> stays in [0, 5]. The oracle renders it as two loops, with the reset store in the outer one:</p>
 <pre><code>for (int32_t r6 = 0; r6 &lt; 4; r6++) {
   b2[r6] = 0x0.0p+0f;
@@ -79,21 +174,38 @@
   }
 }</code></pre>
 </div>
+</details>
 
-<div class="exercise small" data-ex="w3-04-conv1d-valid">
-<h3>Write the valid convolution</h3>
-<p>Slot 0 is <code>x</code> (6 i32), slot 1 is <code>w</code> (3 i32), slot 2 is <code>y</code> (4 i32). Make the final contents of slot 2 equal <code>y[i] = x[i]*w[0] + x[i+1]*w[1] + x[i+2]*w[2]</code> for every <code>i</code> in 0..3. The starter only uses <code>w[0]</code>. The tests set slots 0 and 1. i32 sums wrap as usual.</p>
+<div class="prose">
+<h2>The edges: reading past the end</h2>
+<p>Often you want as many outputs as inputs, so that a blurred row is as long as the original. Then the window is centered on <code>i</code>, and it hangs off both ends: <code>y[0]</code> needs <code>x[-1]</code> and <code>y[5]</code> needs <code>x[6]</code>. The usual answer is <strong>zero padding</strong>: any read outside <code>x</code> counts as 0.</p>
+<pre><code>y[i] = x[i-1]*w[0] + x[i]*w[1] + x[i+1]*w[2]     with x = 0 outside [0, 6)</code></pre>
+</div>
+
+<div class="fig" id="padded" data-title="zero padding: six outputs, and two reads that fall outside x"></div>
+
+<div class="prose">
+<p>Call the index that gets read <code>j = i + k - 1</code>. The obvious program shrinks <code>x</code> at <code>j</code>.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">With <code>%i = range 6</code> and <code>%k = range 3</code>, a program does <code>shrink %x %j []</code> on the 6-element <code>x</code>. What does <code>./compile</code> print?</p>
+<div class="opts">
+<button data-k="a"><code>MATCH</code>: reads outside a buffer give 0</button>
+<button data-k="b"><code>REJECTED</code></button>
+<button data-k="c">It depends on the data in <code>x</code></button>
+</div>
+<p class="hint">Work out the interval of <code>i + k - 1</code>. The bounds check runs before the program does.</p>
+<div class="why"><p><code>j</code> is in [-1, 6]. A view has to be provably inside its buffer for every value in that interval, and -1 and 6 are not, so the program is rejected before it runs.</p></div>
 </div>
 
 <div class="prose">
-<h2>Zero padding</h2>
-<p>Usually you want as many outputs as inputs. That means the window hangs off both ends: for a kernel of 3, <code>y[0]</code> needs <code>x[-1]</code> and <code>y[5]</code> needs <code>x[6]</code>. "Zero padding" says those reads count as zero.</p>
-<pre><code>y[i] = x[i-1]*w[0] + x[i]*w[1] + x[i+1]*w[2]     with x = 0 outside [0, 6)</code></pre>
-<p>Write the index as <code>j = i + k - 1</code>. With <code>i</code> in [0, 5] and <code>k</code> in [0, 2], <code>j</code> is in [-1, 6], and a <code>shrink</code> at <code>j</code> fails the bounds proof from lesson 2.3. You need two separate things:</p>
-<ol>
-<li><strong>An offset that's always legal</strong>, even when it points at the wrong element. <code>max j 0</code> is in [0, 6], still one too many. <code>mod j 6</code> is in [0, 5], because <code>mod</code> floors: by a fixed positive 6, the result is never negative and never reaches 6, whatever <code>j</code> is. That's provably inside <code>x</code>.</li>
-<li><strong>A mask</strong> that throws the wrong element away. <code>j</code> is a real element exactly when <code>0 ≤ j</code> and <code>j &lt; 6</code>. When it isn't, use <code>0.0</code> instead of the loaded value.</li>
-</ol>
+<p>So the offset itself has to change. You need one that is legal for every <code>i</code> and <code>k</code>, even when it points at the wrong element. <code>mod %j 6</code> is one: <code>mod</code> floors, so its result is always in [0, 5], as in the warm up. At <code>j = -1</code> it reads <code>x[5]</code>, and at <code>j = 6</code> it reads <code>x[0]</code>. Both are the wrong element, read legally. The next part throws them away.</p>
+</div>
+
+<div class="prose">
+<h2>A mask instead of an if</h2>
+<p>In C you would put <code>if (j &gt;= 0 &amp;&amp; j &lt; 6)</code> around the read. .uir has no <code>if</code>. A program is a graph of values, and every line of a loop body is computed on every pass. What it has is <code>where</code>, which computes both of its sides and then picks one. So the plan has two parts: always load something legal, then pick between the loaded value and 0. The bool that does the picking is called a <strong>mask</strong>.</p>
 </div>
 <pre><code>%j  = add %ik -1              # i + k - 1, in [-1, 6]
 %lo = cmplt %j 0              # off the left end
@@ -103,9 +215,17 @@
 %xv = shrink %x %jm []
 %xe = load %xv                # a real element, maybe the wrong one
 %xz = where %ok %xe 0.0       # the padding value where j is off the end</code></pre>
+<div class="prose">
+<p>Read <code>%ok</code> as: if <code>j</code> is below 0 then false, otherwise whether <code>j</code> is below 6. The rest of the loop is the valid convolution, with <code>%xz</code> in place of <code>%xe</code>.</p>
+</div>
 <div class="trap">
 <span class="label">The mask doesn't prove anything</span>
 <p>It's tempting to think <code>where %ok ...</code> makes the raw index safe, because the bad element is never used. But the load still happens, and the bounds proof only looks at the offset's interval. A <code>where</code> doesn't narrow an interval (lesson 2.3). The offset itself has to be provably legal, which is why you need both the <code>mod</code> and the mask.</p>
+</div>
+
+<div class="exercise small" data-ex="w3-04n-mask">
+<h3>Add the mask</h3>
+<p>Slots 0, 1 and 2 are <code>x</code> (6 i32), <code>w</code> (3 i32) and <code>y</code> (6 i32). The starter is the whole padded convolution except the mask, so at the two ends it wraps around and reads the far end of <code>x</code>. Add the mask so that reads outside <code>x</code> count as 0.</p>
 </div>
 
 <div class="exercise" data-ex="w3-04-conv1d-pad">
@@ -115,11 +235,52 @@
 <p>for every <code>i</code> in 0..5, where any <code>x</code> outside [0, 6) counts as <code>0.0</code>. Every view must be provably in bounds, so mask the index instead of shrinking at <code>i + k - 1</code> directly. Add terms in order <code>k = 0, 1, 2</code>, starting from <code>0.0</code>, so the f32 rounding matches.</p>
 </div>
 
+<details class="toggle">
+<summary>Why real compilers like masks even where an if is allowed</summary>
 <div class="prose">
-<h2>2D convolution on flat buffers</h2>
-<p>A 2D input of H rows and W columns lives in a flat row-major buffer, so element <code>(r, c)</code> is at <code>r*W + c</code> (lesson 0.4). A valid 2D convolution with a KH by KW kernel has four loops: output row and column, kernel row and column.</p>
+<p>A loop body with no branch does the same work on every pass. That is the shape a CPU's vector instructions need, since they run several passes at once and cannot take a branch for only some of them. Picking with a mask after computing both sides is how compilers vectorize loops that had an <code>if</code> in them.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>Two dimensions on a flat buffer</h2>
+<p>A photo has rows and columns, so its kernel does too: a small rectangle that slides right and down. The buffers stay flat. As in the GEMM, element <code>(r, c)</code> of a buffer with <code>W</code> columns is at <code>r*W + c</code> (lesson 0.4).</p>
+<p>What is the same: the accumulator in the output element, its reset, and bounds from intervals. What is new: four loops and not three. Two pick the output position, <code>oi</code> and <code>oj</code>. Two walk the kernel, <code>ki</code> and <code>kj</code>. The input under kernel tap <code>(ki, kj)</code> is in row <code>oi + ki</code> and column <code>oj + kj</code>, which is the 1D index once per direction. For an H by W input and a KH by KW kernel:</p>
 <pre><code>y[oi*OW + oj] = sum over ki, kj of x[(oi + ki)*W + (oj + kj)] * w[ki*KW + kj]
 OH = H - KH + 1,  OW = W - KW + 1</code></pre>
+</div>
+
+<div class="fig" id="grid" data-title="conv2d: a 2 by 2 window on a 4 by 4 input, with flat offsets"></div>
+
+<div class="prose">
+<p>Take output <code>(1, 1)</code> of that figure by hand:</p>
+<ol>
+<li><strong>Find the window.</strong> Rows 1 to 2 and columns 1 to 2 of <code>x</code>: 6 7 above 10 11.</li>
+<li><strong>Turn each position into an offset.</strong> Each buffer uses its own row length: <code>r*4 + c</code> in <code>x</code>, <code>ki*2 + kj</code> in <code>w</code> and <code>oi*3 + oj</code> in <code>y</code>.</li>
+<li><strong>Multiply and add.</strong> 6*1 + 7*0 + 10*0 + 11*(-1) = -5, stored at <code>y[1*3 + 1]</code>.</li>
+</ol>
+</div>
+
+<div class="quiz" data-fill="14">
+<p class="q">Same 4 by 4 input. Which offset in <code>x</code> does output <code>(2, 1)</code> read for kernel tap <code>(1, 1)</code>?</p>
+<div class="fill"><input aria-label="offset" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Row <code>oi + ki</code>, column <code>oj + kj</code>, then <code>r*4 + c</code>.</p>
+<div class="why"><p>Row 2 + 1 = 3 and column 1 + 1 = 2, so 3*4 + 2 = 14.</p></div>
+</div>
+
+<div class="exercise small" data-ex="w3-04n-conv2d-fix">
+<h3>Fix the two offsets</h3>
+<p>Slot 0 is <code>x</code> (4 by 4 i32), slot 1 is <code>w</code> (2 by 2), slot 2 is <code>y</code> (3 by 3). The starter is a whole valid 2D convolution, and the compiler accepts it, but two of its lines multiply by the wrong row length. Find them and fix them.</p>
+</div>
+
+<div class="exercise small" data-ex="w3-04-conv2d-c">
+<h3>2D convolution in C</h3>
+<p>Write <code>void conv2d(const int *x, int H, int W, const int *k, int KH, int KW, int *y)</code>: a valid 2D convolution on flat row-major arrays. <code>x</code> is H by W, <code>k</code> is KH by KW, and <code>y</code> is (H-KH+1) by (W-KW+1). Overwrite every element of <code>y</code>. The values are small, so plain <code>int</code> arithmetic is fine here.</p>
+</div>
+
+<details class="toggle">
+<summary>The whole 2D program in .uir, its bounds and its rendered C, for the lab</summary>
+<div class="prose">
 <p>Every offset is a sum of products of ranges and constants, so the interval analysis proves it automatically. For a 4 by 4 input and a 2 by 2 kernel, <code>oi</code> is in [0, 2] and <code>ki</code> in [0, 1], so <code>oi + ki</code> is in [0, 3], and the same goes for <code>oj + kj</code>. That puts <code>(oi + ki)*4 + (oj + kj)</code> in [0, 3*4 + 3] = [0, 15]. Here is that program in .uir, from <code>tests/week3/run/conv2d_valid.uir</code> without its data and assert. <code>%oy</code>, <code>%ox</code>, <code>%ky</code> and <code>%kx</code> are <code>oi</code>, <code>oj</code>, <code>ki</code> and <code>kj</code>, and the reset and the accumulation follow the 1D pattern above:</p>
 <pre><code>%X = buffer 16 dtype=f32 slot=0
 %W = buffer 4 dtype=f32 slot=1
@@ -166,16 +327,24 @@ OH = H - KH + 1,  OW = W - KW + 1</code></pre>
       for (int32_t r19 = 0; r19 &lt; 2; r19++) {      // kj
         float v20 = b2[v10];
         ...</code></pre>
-<p>Lesson 5 explains where each of those lines goes and why.</p>
+<p>Lesson 3.5 explains where each of those lines goes and why.</p>
 </div>
-
-<div class="exercise small" data-ex="w3-04-conv2d-c">
-<h3>2D convolution in C</h3>
-<p>Write <code>void conv2d(const int *x, int H, int W, const int *k, int KH, int KW, int *y)</code>: a valid 2D convolution on flat row-major arrays. <code>x</code> is H by W, <code>k</code> is KH by KW, and <code>y</code> is (H-KH+1) by (W-KW+1). Overwrite every element of <code>y</code>. The values are small, so plain <code>int</code> arithmetic is fine here.</p>
-</div>
+</details>
 
 <div class="prose">
-<h2>A convolution is a matrix multiply in disguise</h2>
+<h2>What you can do now</h2>
+<ul>
+<li>Say what a convolution is: slide a kernel along an input, and at each position multiply and add.</li>
+<li>Write a valid 1D convolution as two loops, with the output element as the accumulator.</li>
+<li>Pad the edges with an offset that is always legal and a mask that zeroes the wrong reads.</li>
+<li>Index a 2D convolution on flat buffers, with each buffer's own row length.</li>
+</ul>
+<p>Every output here was a dot product of the kernel with one window, like one GEMM element. Stack the windows as the rows of a matrix and the whole convolution is <code>windows @ w</code>. The toggle shows it. Next, lesson 3.5 turns loop nests like these into C: it decides which line goes inside which <code>for</code>.</p>
+</div>
+
+<details class="toggle">
+<summary>A convolution is a matrix multiply in disguise, and what week 5 does with that</summary>
+<div class="prose">
 <p>Look at the valid 1D convolution again. Every output is a dot product of the kernel with one window. Write the windows as the rows of a matrix:</p>
 <pre><code>windows (4 x 3)      w (3)        y (4)
 [1 2 3]              [ 1]         [-2]
@@ -184,6 +353,7 @@ OH = H - KH + 1,  OW = W - KW + 1</code></pre>
 [4 5 6]                           [-2]</code></pre>
 <p>That windows matrix doesn't need to exist in memory. Row <code>i</code>, column <code>k</code> of it is just <code>x[i + k]</code>, the same element read by several rows. The whole trick of a convolution is that index map: <code>(i, k) → i + k</code>. Week 5 introduces movement ops (<code>reshape</code>, <code>permute</code>, <code>pad</code>) that describe exactly these index maps on shapes, so you'll write <code>conv</code> as a few movement ops followed by a multiply and a reduce, and the compiler will produce these loops for you. Padding becomes a <code>pad</code> op, and the masking you wrote by hand becomes something the compiler emits.</p>
 </div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
@@ -252,7 +422,7 @@ OH = H - KH + 1,  OW = W - KW + 1</code></pre>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  const x = [1, 2, 3, 4, 5, 6], w = [1, 0, -1];
+  const x = [2, 2, 2, 8, 8, 8], w = [-1, 0, 1];
   const strip = (name, vals, cls, labels) => CC.h('div', { class: 'row' }, CC.h('span', { class: 'name', text: name }),
     CC.h('div', { class: 'mem' }, vals.map((v, i) => CC.h('div', { class: 'cell ' + (cls[i] || '') }, CC.h('span', { class: 'addr', text: labels ? labels[i] : String(i) }), String(v)))));
   const steps = [{ caption: 'Input <code>x</code> (6 elements), kernel <code>w</code> (3), and an empty output <code>y</code> (4). Each output takes one window of 3 consecutive inputs.', i: -1 }];
@@ -262,13 +432,53 @@ document.addEventListener('DOMContentLoaded', () => {
     const v = w.reduce((a, wk, k) => a + x[i + k] * wk, 0); ys.push(v);
     steps.push({ caption: `Output ${i}: the window starts at <code>x[${i}]</code>. Inside the <code>k</code> loop the accumulator <code>y[${i}]</code> goes ${['0', ...w.map((_, k) => String(w.slice(0, k + 1).reduce((a, wk, kk) => a + x[i + kk] * wk, 0)))].join(' → ')}.`, i, terms, v, ys: ys.slice() });
   }
-  steps.push({ caption: 'Done. The window never left the input, so no masking was needed: every offset <code>i + k</code> is provably in [0, 5].', i: -1, ys: ys.slice(), done: true });
+  steps.push({ caption: 'Done. The output is 0 where <code>x</code> is flat and 6 at the two windows that cross the jump. The window never left the input, so no masking was needed: every offset <code>i + k</code> is provably in [0, 5].', i: -1, ys: ys.slice(), done: true });
   CC.stepper(document.getElementById('slide'), steps, (s, body) => {
     const xc = x.map((_, j) => (s.i >= 0 && j >= s.i && j < s.i + 3 ? 'on' : ''));
     const yv = [0, 1, 2, 3].map(j => (s.ys && j < s.ys.length ? s.ys[j] : ''));
     const yc = [0, 1, 2, 3].map(j => (s.i === j ? 'hit' : ''));
     body.append(CC.h('div', { class: 'strip' }, strip('x', x, xc), strip('w', w, s.i >= 0 ? ['on', 'on', 'on'] : []), strip('y', yv, yc),
       s.terms ? CC.h('p', { class: 'sum', text: `y[${s.i}] = ${s.terms.join(' + ')} = ${s.v}` }) : null));
+  });
+
+  const xp = [0, ...x, 0], plabels = ['-1', '0', '1', '2', '3', '4', '5', '6'], six = [0, 1, 2, 3, 4, 5];
+  const psteps = [{ caption: 'The dashed cells are the padding. They are not in memory: a read there counts as 0. Now each of the 6 inputs gets an output.', i: -1 }];
+  const pys = [];
+  for (let i = 0; i < 6; i++) {
+    const terms = w.map((wk, k) => `${xp[i + k]}*${wk}`);
+    const v = w.reduce((a, wk, k) => a + xp[i + k] * wk, 0); pys.push(v);
+    const off = i === 0 ? ' The left tap reads <code>x[-1]</code>, which is padding.' : i === 5 ? ' The right tap reads <code>x[6]</code>, which is padding.' : ' All three reads are real elements.';
+    psteps.push({ caption: `Output ${i}: the window is centered on <code>x[${i}]</code> and reads <code>x[${i - 1}]</code>, <code>x[${i}]</code> and <code>x[${i + 1}]</code>.${off}`, i, terms, v, ys: pys.slice() });
+  }
+  psteps.push({ caption: 'Done. Only outputs 0 and 5 touched the padding. They are not 0: to an edge finder, the step from the padding\'s 0 to a real 2 or 8 looks like an edge.', i: -1, ys: pys.slice() });
+  CC.stepper(document.getElementById('padded'), psteps, (s, body) => {
+    const xc = xp.map((_, j) => (j === 0 || j === 7 ? 'pad ' : '') + (s.i >= 0 && j >= s.i && j < s.i + 3 ? 'on' : ''));
+    const yv = six.map(j => (s.ys && j < s.ys.length ? s.ys[j] : ''));
+    const yc = six.map(j => (s.i === j ? 'hit' : ''));
+    body.append(CC.h('div', { class: 'strip' }, strip('x', xp, xc, plabels), strip('w', w, s.i >= 0 ? ['on', 'on', 'on'] : []), strip('y', yv, yc),
+      s.terms ? CC.h('p', { class: 'sum', text: `y[${s.i}] = ${s.terms.join(' + ')} = ${s.v}` }) : null));
+  });
+
+  const X = Array.from({ length: 16 }, (_, n) => n + 1), K = [1, 0, 0, -1], nine = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  const grid = (name, vals, cols, cls) => CC.h('div', { class: 'row' }, CC.h('span', { class: 'name', text: name }),
+    CC.h('div', { class: 'mem g', style: `grid-template-columns: repeat(${cols}, auto)` }, vals.map((v, n) => CC.h('div', { class: 'cell ' + (cls[n] || '') }, CC.h('span', { class: 'addr', text: String(n) }), String(v)))));
+  const gsteps = [{ caption: 'A 4 by 4 input <code>x</code>, a 2 by 2 kernel <code>w</code> and a 3 by 3 output <code>y</code>. The small number in each cell is its offset in the flat buffer.', o: -1, ys: [] }];
+  const gys = [];
+  for (let oi = 0; oi < 3; oi++) for (let oj = 0; oj < 3; oj++) {
+    const offs = [], terms = [];
+    let v = 0;
+    for (let ki = 0; ki < 2; ki++) for (let kj = 0; kj < 2; kj++) {
+      const xo = (oi + ki) * 4 + (oj + kj); offs.push(xo); terms.push(`${X[xo]}*${K[ki * 2 + kj]}`); v += X[xo] * K[ki * 2 + kj];
+    }
+    gys.push(v);
+    gsteps.push({ caption: `Output (${oi}, ${oj}) is <code>y[${oi}*3 + ${oj}]</code>. Its window starts at row ${oi}, column ${oj} and reads offsets ${offs.join(', ')} of <code>x</code>. One row down is 4 more in the offset.`, o: oi * 3 + oj, offs, terms, v, ys: gys.slice() });
+  }
+  CC.stepper(document.getElementById('grid'), gsteps, (s, body) => {
+    const xc = X.map((_, n) => (s.offs && s.offs.includes(n) ? 'on' : ''));
+    const yv = nine.map(n => (n < s.ys.length ? s.ys[n] : ''));
+    const yc = nine.map(n => (s.o === n ? 'hit' : ''));
+    body.append(CC.h('div', { class: 'strip' }, CC.h('div', { class: 'grids' }, grid('x', X, 4, xc), grid('w', K, 2, s.o >= 0 ? ['on', 'on', 'on', 'on'] : []), grid('y', yv, 3, yc)),
+      s.terms ? CC.h('p', { class: 'sum', text: `y[${s.o}] = ${s.terms.join(' + ')} = ${s.v}` }) : null));
   });
 });
 </script>

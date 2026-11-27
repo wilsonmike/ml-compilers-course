@@ -1,0 +1,41 @@
+{
+ "id": "s2-run",
+ "lang": "ocaml",
+ "title": "Run a whole program",
+ "show": "string_of_int",
+ "starter": "type arg = Lit of int | Name of string\n\nlet apply (op : string) (a : int) (b : int) : int =\n  match op with\n  | \"add\" -> a + b\n  | \"mul\" -> a * b\n  | \"max\" -> max a b\n  | _ -> failwith op\n\nlet run (prog : (string * string * arg * arg) list) : int =\n  let env = Hashtbl.create 16 in\n  let value = function Lit n -> n | Name s -> Hashtbl.find env s in\n  let last = ref 0 in\n  List.iter (fun (name, op, x, y) ->\n    let a = value x in\n    let b = 0 in\n    let v = ignore (op, a, y); 0 in\n    Hashtbl.replace env name v;\n    last := v) prog;\n  !last\n",
+ "tests": [
+  {
+   "expr": "run [(\"a\", \"add\", Lit 2, Lit 3)]",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "run [(\"a\", \"add\", Lit 2, Lit 3); (\"out\", \"mul\", Name \"a\", Lit 4)]",
+   "expect": "20",
+   "sample": true
+  },
+  {
+   "expr": "run [(\"a\", \"add\", Lit 2, Lit 3); (\"out\", \"mul\", Name \"a\", Name \"a\")]",
+   "expect": "25"
+  },
+  {
+   "expr": "run [(\"a\", \"mul\", Lit 3, Lit 3); (\"b\", \"add\", Name \"a\", Lit 1); (\"c\", \"max\", Name \"b\", Name \"a\")]",
+   "expect": "10"
+  },
+  {
+   "expr": "run [(\"a\", \"add\", Lit 1, Lit 1); (\"b\", \"add\", Name \"a\", Name \"a\"); (\"c\", \"add\", Name \"b\", Name \"b\"); (\"d\", \"add\", Name \"c\", Name \"c\")]",
+   "expect": "16"
+  },
+  {
+   "expr": "run [(\"a\", \"max\", Lit (-5), Lit (-9)); (\"b\", \"mul\", Lit 2, Name \"a\")]",
+   "expect": "-10"
+  }
+ ],
+ "hints": [
+  "`b` is found exactly like `a`: `value y`.",
+  "`value` turns a `Lit` into its number and looks a `Name` up in `env`.",
+  "The last blank is `apply op a b`. `Hashtbl.replace` then saves it so later lines can use it."
+ ],
+ "explain": "For each line, `run` turns both operands into numbers (looking names up in `env`), calls `apply`, and saves the answer under the line's name. Later lines find it there. That loop is a complete interpreter for this tiny language."
+}

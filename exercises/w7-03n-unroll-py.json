@@ -1,0 +1,50 @@
+{
+ "id": "w7-03n-unroll-py",
+ "lang": "python",
+ "title": "Unroll a loop body",
+ "prompt": "<p>Write <code>unroll(n, body)</code>. <code>body</code> is a list of C lines, where <code>@</code> stands for the loop counter. Return the list of lines for the unrolled loop: the whole body with <code>@</code> replaced by 0, then the whole body with 1, up to <code>n - 1</code>. Keep the lines of each copy in their original order.</p>",
+ "show": "lambda v: v if isinstance(v, str) else str(v) if isinstance(v, int) else ' | '.join(v)",
+ "starter": "def unroll(n: int, body: list[str]) -> list[str]:\n    return []\n",
+ "tests": [
+  {
+   "expr": "unroll(2, [\"acc[@] = acc[@] + x[@];\"])",
+   "expect": "acc[0] = acc[0] + x[0]; | acc[1] = acc[1] + x[1];",
+   "sample": true
+  },
+  {
+   "expr": "unroll(3, [\"float v = a[@];\", \"b[@] = v;\"])",
+   "expect": "float v = a[0]; | b[0] = v; | float v = a[1]; | b[1] = v; | float v = a[2]; | b[2] = v;",
+   "sample": true
+  },
+  {
+   "expr": "unroll(1, [\"s = s + x[@];\"])",
+   "expect": "s = s + x[0];"
+  },
+  {
+   "expr": "unroll(0, [\"s = s + x[@];\"])",
+   "expect": ""
+  },
+  {
+   "expr": "unroll(3, [\"n = n + 1;\"])",
+   "expect": "n = n + 1; | n = n + 1; | n = n + 1;"
+  },
+  {
+   "expr": "unroll(4, [])",
+   "expect": ""
+  },
+  {
+   "expr": "len(unroll(32, [\"a[@] = 0;\", \"b[@] = 1;\"]))",
+   "expect": "64"
+  },
+  {
+   "expr": "unroll(12, [\"t[@] = @;\"])[11]",
+   "expect": "t[11] = 11;"
+  }
+ ],
+ "hints": [
+  "You need two loops: the outer one over the counter values <code>0</code> to <code>n - 1</code>, the inner one over the lines of <code>body</code>.",
+  "<code>line.replace(\"@\", str(r))</code> gives one line with every <code>@</code> replaced by the number <code>r</code>.",
+  "<code>return [line.replace(\"@\", str(r)) for r in range(n) for line in body]</code>"
+ ],
+ "explain": "The outer loop walks the counter values in order and the inner loop walks the body in order, so the copies come out in the same order the loop would have run them. That is all unrolling is: the loop is gone, the counter is a number in each copy, and every statement still runs in its old place. Your renderer does the same thing with real nodes in place of strings."
+}

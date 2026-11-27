@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Call and Param</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Week 1 programs can define functions. A function is just a graph with holes in it: param marks a hole, and call fills the holes and evaluates the graph.">
+<meta name="description" content="You will be able to write a piece of a program once and use it many times, and to keep several values in one table and pick one out. Real models repeat the...">
 <link rel="canonical" href="https://sharpterminal.com/site/week1/05-call-and-param">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Call and Param">
-<meta property="og:description" content="Week 1 programs can define functions. A function is just a graph with holes in it: param marks a hole, and call fills the holes and evaluates the graph.">
+<meta property="og:description" content="You will be able to write a piece of a program once and use it many times, and to keep several values in one table and pick one out. Real models repeat the same work thousands of times, so a compiler...">
 <meta property="og:url" content="https://sharpterminal.com/site/week1/05-call-and-param">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   svg.g .edge.body { stroke-dasharray: 5 4; }
   svg.g .edge.body.hit { stroke: var(--accent); }
@@ -35,29 +35,116 @@
 <main>
 <p class="eyebrow">Week 1 · Lesson 5</p>
 <h1>call, param, stack and index</h1>
-<p class="lede">Week 1 programs can define functions. A function is just a graph with holes in it: <code>param</code> marks a hole, and <code>call</code> fills the holes and evaluates the graph.</p>
+<p class="lede">You will be able to write a piece of a program once and use it many times, and to keep several values in one table and pick one out. Real models repeat the same work thousands of times, so a compiler needs a way to say "do that again, with these numbers".</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Read, write and run programs that use <code>call</code>, <code>param</code>, <code>stack</code> and <code>index</code>, and say why each one is accepted or rejected.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Three ideas from earlier lessons: the same line twice is one node (<a href="01-the-uop.html">1.1</a>), an evaluator remembers each node's value (<a href="02-uir-and-interpreting.html">1.2</a>), and bounds say what range a value can be in (<a href="04-symbolic.html">1.4</a>).</p>
+<p class="only-python">The two coding exercises use a small type of your own with <code>match</code> (<a href="../learn/py-04-your-own-types.html">P.4</a>) and a function that calls itself (<a href="../learn/py-05-recursion.html">P.5</a>). If either is new, read that lesson first and come back.</p>
+<p class="only-ocaml">The two coding exercises use a small type of your own with <code>match</code> (<a href="../learn/ml-04-your-own-types.html">O.4</a>) and lists (<a href="../learn/ml-03-lists-matching.html">O.3</a>). If either is new, read that lesson first and come back.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="1">
+<p class="q">How many <code>add</code> nodes does this program have?</p>
+<pre><code>%a = add 2 3
+%b = add 2 3
+%c = mul %a %b</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Lesson 1.1: a node is never built twice. Compare the op and the sources of the first two lines.</p>
+<div class="why"><p>One. Both lines have the same op and the same sources, so <code>%a</code> and <code>%b</code> are two names for one node. That fact matters a lot later in this lesson.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%x</code> is always somewhere in <code>[0, 9]</code>. What are the bounds of <code>add %x 1</code>?</p>
+<div class="opts">
+<button data-k="a"><code>[0, 9]</code></button>
+<button data-k="b"><code>[1, 10]</code></button>
+<button data-k="c"><code>[0, 10]</code></button>
+</div>
+<p class="hint">Lesson 1.4: add the low ends together, then the high ends.</p>
+<div class="why"><p>The smallest it can be is 0 + 1 and the largest is 9 + 1. You never ran the program to learn that. Bounds come back when you pick a value out of a table.</p></div>
+</div>
+
+<h2>The problem: the same lines, twice</h2>
+<div class="prose">
+<p>This program takes a number, adds 1, multiplies the answer by itself and adds 10. It does that for 3, then again for 5, and adds the two answers. Press Next to run it and guess each value.</p>
+</div>
+
+<div class="fig" id="rep"></div>
 
 <div class="prose">
-<h2>The lambda calculus in one paragraph</h2>
-<p>In the 1930s Alonzo Church showed that a language with only three things (variables, function definitions and function application) can express any computation. Evaluation is one move, <strong>beta reduction</strong>: to apply a function, replace its variable with the argument everywhere it appears. In math notation, <code>λx. x + 1</code> is "the function taking x to x + 1". Applying it to 41, written <code>(λx. x + 1) 41</code>, becomes <code>41 + 1</code>. That's exactly what <code>call</code> does to a graph.</p>
-
-<h2>param and call</h2>
-<pre><code>%x    = param [] slot=0 dtype=i32 addrspace=ALU     # hole number 0, holds an i32
-%body = add %x 1              # a graph with a hole: "x + 1"
-%r    = call %body 41         # fill hole 0 with 41 and evaluate
-%t    = assert %r 42</code></pre>
-<p><code>call</code>'s first source is the <strong>body</strong>. The rest are the <strong>args</strong>: arg i fills the slot <code>i</code> param reachable from the body. Args are checked statically. A missing arg, or one with the wrong dtype or shape, makes the file <code>REJECTED</code>. Extra args and unused slots are allowed. An extra arg is still a source of the call, so it counts as reachable from the assert.</p>
-<p>A body is just an ordinary UOp. Nothing marks <code>%body</code> as "a function". It becomes one when a <code>call</code> uses it as src 0. In the graphs below, that src 0 edge is drawn dashed. In week 1 the body and every arg are scalars: a call takes numbers and returns a number.</p>
-
-<h2>Writing a param</h2>
-<pre><code>%x = param [] [0 9] slot=0 dtype=i32 addrspace=ALU</code></pre>
-<ul>
-<li><strong>The shape</strong>, <code>[]</code>, is the first source. It means a scalar, and week 1 requires it. Later weeks write things like <code>[3]</code> here.</li>
-<li><strong>The limits</strong>, <code>[0 9]</code>, are an optional second source: two literals of the param's dtype, low first. They promise every argument is in <code>[0, 9]</code>. Leave them out and the param is the full range (for a bool, <code>[0, 1]</code>).</li>
-<li><strong>The attributes</strong>: <code>slot=k</code> (a plain decimal number), <code>dtype=i32</code> or <code>dtype=bool</code>, and <code>addrspace=ALU</code>, which every week 1 value has. All three are required.</li>
-</ul>
-<p>The limits are checked at every call, with the bounds from lesson 4. An argument's bounds must fit inside its param's limits. <code>call %body 5</code> fits <code>[0, 9]</code>, and <code>call %body 10</code> is rejected. When the argument is an outer param, it brings its own limits: an outer <code>[0, 3]</code> fits an inner <code>[0, 5]</code>, but an outer <code>[0, 9]</code> doesn't, even if the call that runs passes 2. An outer param with no limits is the full i32 range, so it doesn't fit an inner param with narrower limits.</p>
+<p>Lines 1 to 3 and lines 4 to 6 are the same three lines with one number changed. If the work took thirty lines, you would write thirty lines twice, and fix every mistake twice.</p>
+<p>Here is a second version. It uses one op you have not been taught yet. Guess what it computes before you read on.</p>
+<pre><code>%n   = param [] slot=0 dtype=i32 addrspace=ALU
+%a   = add %n 1
+%b   = mul %a %a
+%f   = add %b 10
+%r1  = call %f 3
+%r2  = call %f 5
+%out = add %r1 %r2</code></pre>
 </div>
+
+<div class="quiz" data-fill="72">
+<p class="q">What is <code>%out</code> in the second version?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Lines 2 to 4 are the same three steps as before, with <code>%n</code> where the number was. What could <code>call %f 3</code> mean?</p>
+<div class="why"><p>72, the same as the first version. <code>call %f 3</code> runs the three lines with 3 in place of <code>%n</code> and gets 26. <code>call %f 5</code> runs them with 5 and gets 46. The three lines are written once and used twice.</p></div>
+</div>
+
+<h2>A function is a graph with holes</h2>
+<div class="prose">
+<p>A <strong>function</strong> is a piece of a program that you write once and use many times. In .uir a function is not a new kind of thing. It is a graph with a hole in it.</p>
+<ul>
+<li><code>param</code> makes a hole. Its <code>slot=0</code> is the hole's number.</li>
+<li>The <strong>body</strong> is the node whose value you want back. Above, the body is <code>%f</code>.</li>
+<li><code>call</code> fills the holes and gives back the body's value. Its first source is the body. The rest are the <strong>args</strong> (short for arguments): the first arg fills slot 0, the next fills slot 1 and so on. Every slot the body uses needs an arg, or the file is rejected.</li>
+</ul>
+<p>Follow <code>%r1 = call %f 3</code> by hand:</p>
+<ol>
+<li><strong>Find the body.</strong> The first source is <code>%f</code>.</li>
+<li><strong>Fill the holes.</strong> There is one arg, 3. It goes in slot 0, so <code>%n</code> is 3.</li>
+<li><strong>Work out the body.</strong> 3 + 1 is 4. 4 × 4 is 16. 16 + 10 is 26.</li>
+<li><strong>Hand the answer back.</strong> <code>%r1</code> is 26.</li>
+</ol>
+<p>Here is the body by itself, with 3 in the hole. Step through it.</p>
+</div>
+
+<div class="fig" id="hole3"></div>
+
+<div class="prose">
+<p>Nothing marks <code>%f</code> as a function. It is an ordinary node that becomes a body when a <code>call</code> uses it as its first source. Every exercise so far worked this way: your <code>%out</code> was a body, and the page was the caller that filled the slots.</p>
+</div>
+
+<div class="quiz" data-fill="74">
+<p class="q">This body has two holes. What is <code>%r</code>?</p>
+<pre><code>%a = param [] slot=0 dtype=i32 addrspace=ALU
+%b = param [] slot=1 dtype=i32 addrspace=ALU
+%m = mul %b 10
+%f = add %a %m
+%r = call %f 4 7</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The first arg after the body fills slot 0. The second fills slot 1. Which name is slot 1?</p>
+<div class="why"><p>4 fills slot 0, so <code>%a</code> is 4. 7 fills slot 1, so <code>%b</code> is 7. Then 7 × 10 is 70, and 4 + 70 is 74.</p></div>
+</div>
+
+<div class="prose">
+<p>A slot number belongs to the call that is running. Inside <code>call %f 3</code>, slot 0 means 3. Inside <code>call %f 5</code> it means 5. In the next exercise, <code>%x</code> is slot 0 for the tests and <code>%p</code> is slot 0 for the body <code>%f</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w1-05n-second-call">
+<h3>Add the second call</h3>
+<p>Make <code>%out</code> equal to (x + 1) × (x + 1) + (y + 1) × (y + 1). The body <code>%f</code> and the first call are written. Add a second call that hands in <code>%y</code>, then repair the last line so it adds the two results.</p>
+</div>
+
+<p class="prose">Now the same idea from a nearly empty page.</p>
 
 <div class="exercise small" data-ex="w1-05-sum-squares">
 <h3>Call one body twice</h3>
@@ -65,55 +152,150 @@
 <p class="muted">Your body's slot 0 param and the outer <code>%x</code> are the same hash-consed node. Why is that fine?</p>
 </div>
 
-<h2>Beta reduction on a graph</h2>
-<p class="prose">The spec's nested example, traced. <code>%inner</code> doubles its param. <code>%outer</code> passes its <em>own</em> slot 0 param into inner's slot 0.</p>
-<div class="split">
+<h2>Two ways to run a call</h2>
+<div class="prose">
+<p>The interpreter you have so far stops at <code>%n</code>: a <code>param</code> has no sources to work out and no number written in it. There are two ways to give it one, and they always agree.</p>
+<h3>Way 1: substitute, then evaluate</h3>
+<p>To <strong>substitute</strong> is to swap one thing for another. Build a copy of the body with every hole swapped for its arg. For <code>call %f 3</code> that is <code>add 3 1</code>, then the <code>mul</code>, then the <code>add</code> of 10. No params are left, so the copy is a program you already know how to run, and it folds down to 26. It is exactly lines 1 to 3 of the long program this lesson started with.</p>
+<h3>Way 2: evaluate with an environment</h3>
+<p>In <a href="../start/02-build-a-calculator.html">step 2</a> your interpreter kept an <code>env</code>, a place to look values up. A call gets one too. Its <strong>environment</strong> says which value each slot holds for this one call. No copy is built.</p>
+<ol>
+<li><strong>Work out the args.</strong> For <code>call %f 5</code> there is one, and it is 5.</li>
+<li><strong>Make the environment.</strong> Slot 0 holds 5.</li>
+<li><strong>Evaluate the body.</strong> It goes as always, except that a <code>param</code> looks up its slot in the environment.</li>
+<li><strong>Drop the environment.</strong> The body's value is the call's value. The next call starts with a new one.</li>
+</ol>
+<p>Here is the same body with 5 in the environment. The boxes and arrows are the same as before, and every value is different.</p>
+</div>
+
+<div class="fig" id="hole5"></div>
+
+<div class="prose">
+<p>Substitution is the way to think about a call. An environment is the way most compilers run one, because it builds no new nodes.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">You run <code>call %f 5</code> with an environment. What happens when the evaluator reaches <code>%n</code>?</p>
+<div class="opts">
+<button data-k="a">It builds a new node for 5 and rewrites the body to use it.</button>
+<button data-k="b">It stops, because a param has no value.</button>
+<button data-k="c">It looks up slot 0 in this call's environment and gets 5.</button>
+</div>
+<p class="hint">Which of the two ways builds new nodes, and which one looks things up?</p>
+<div class="why"><p>The environment holds one value per slot for the call that is running. The body is not changed at all, so the next call can use it again with a different number.</p></div>
+</div>
+
+<h2>The value cache must be per call</h2>
+<div class="prose">
+<p>In lesson 1.2 your evaluator kept a <strong>cache</strong>: a table from node to value, so that no node is worked out twice. Now suppose that one cache lives for the whole program, and you run this again:</p>
+<pre><code>%r1  = call %f 3
+%r2  = call %f 5
+%out = add %r1 %r2</code></pre>
+</div>
+
+<div class="quiz" data-fill="52">
+<p class="q">The right answer is 72. What does an evaluator with one cache for the whole program give for <code>%out</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The first call works out <code>%f</code> and saves 26 for that node. What does the second call find when it asks for <code>%f</code>?</p>
+<div class="why"><p>52. The first call saves "<code>%f</code> is 26". The second call asks for <code>%f</code>, finds 26 in the cache and never looks at the 5. So it adds 26 and 26.</p></div>
+</div>
+
+<div class="prose">
+<p>The cache was safe in lesson 1.2 because a node had one value, forever. A node in a body has one value <em>per call</em>. So each call gets two fresh things: its environment and its own empty cache. Inside one call the cache still saves work. When the call ends, both are dropped.</p>
+</div>
+
+<div class="trap">
+<span class="label">Params are hash consed too</span>
+<p>Two <code>param</code> lines with the same slot and dtype are the <strong>same node</strong> (lesson 1.1), even when they're written for two different functions. That's fine: a param has no value of its own. Its value comes from whichever <code>call</code> is evaluating it right now.</p>
+</div>
+
+<h2>A call inside a body</h2>
+<div class="prose">
+<p>A body can call another body. Then two calls are running at once, and each has its own slot 0. Guess which one wins here. <code>%inner</code> multiplies its slot 0 by 10. <code>%outer</code> has two slots and hands its slot 1 to <code>%inner</code>.</p>
 <pre><code>%p0    = param [] slot=0 dtype=i32 addrspace=ALU
-%inner = mul %p0 2
-%outer = call %inner %p0
-%r     = call %outer 5
-%t     = assert %r 10</code></pre>
-<div class="fig" id="beta" data-title="evaluate %r by substitution"></div>
+%p1    = param [] slot=1 dtype=i32 addrspace=ALU
+%inner = mul %p0 10
+%outer = call %inner %p1
+%r     = call %outer 3 4</code></pre>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">What is <code>%r</code>?</p>
+<div class="opts">
+<button data-k="a">30, because slot 0 is 3</button>
+<button data-k="b">40, because <code>%inner</code> is handed 4</button>
+<button data-k="c">70, because both are used</button>
+</div>
+<p class="hint">The last line gives <code>%outer</code> slot 0 = 3 and slot 1 = 4. Which of those does <code>%outer</code> pass on as the arg of <code>call %inner</code>?</p>
+<div class="why"><p><code>%outer</code> passes its slot 1, which is 4, into <code>%inner</code>'s slot 0. Inside <code>%inner</code>, slot 0 means 4. The 3 belongs to <code>%outer</code> and is never used.</p></div>
 </div>
 
 <div class="key">
 <span class="label">Bodies are closed</span>
-<p>Substitution walks the body, but it <strong>does not walk into the body (src 0) of a nested <code>call</code></strong>. It <em>does</em> walk into that call's args. A nested function's params belong to that function, and the only way to give them a value is through its args.</p>
+<p><strong>Closed</strong> means nothing gets in from outside except through the args. Substitution walks the body, but it <strong>does not walk into the body (src 0) of a nested <code>call</code></strong>. It <em>does</em> walk into that call's args.</p>
 </div>
 
 <div class="prose">
-<p>Why does this matter? Look at this variant, where inner uses slot 0 and outer passes its slot 1:</p>
+<p>With an environment the rule takes care of itself. The inner call works out its args with the outer environment, then runs its body with a new environment that holds only those args.</p>
+<p>Here is the bug the rule prevents. Inner adds 100 to its slot 0, and outer passes its slot 1:</p>
 <pre><code>%p0    = param [] slot=0 dtype=i32 addrspace=ALU
 %p1    = param [] slot=1 dtype=i32 addrspace=ALU
 %inner = add %p0 100
 %outer = call %inner %p1      # inner's slot 0 := outer's slot 1
 %r     = call %outer 1 2      # outer: slot 0 := 1, slot 1 := 2</code></pre>
-<p>Done right, outer substitutes into its args only: <code>call %inner 2</code>, which gives <code>2 + 100 = 102</code>. If your substitution wrongly walked into inner's body too, it would turn inner's <code>%p0</code> into <code>1</code> (outer's slot 0) and get <code>101</code>.</p>
+<p>Done right, outer substitutes into its args only: <code>call %inner 2</code>, which gives 102. A substitution that wrongly walked into inner's body would turn inner's <code>%p0</code> into 1 and get 101. The <a href="#reference">reference</a> traces a nested call one step at a time.</p>
 </div>
 
 <h2>Code it</h2>
+<p class="prose">Both ways of running a call, on a toy type in your language. First repair an evaluator that uses an environment. Then write substitution from an empty function.</p>
+
+<div class="exercise" data-ex="w1-05n-eval-env" data-ex-py="w1-05n-eval-env-py">
+<h3>Give each call its own environment</h3>
+<p>Here is a toy term language with numbers, params, <code>Add</code> and <code>Call (body, args)</code>. <code>eval env t</code> works out the value of <code>t</code>. <code>env</code> is the environment of the call that is running: a list whose i-th element is the value in slot <code>i</code>.</p>
+<p>Three cases are right. The <code>Call</code> case is wrong: it runs the body with the caller's <code>env</code>, so the args are never used. Repair it in two moves. Work out each arg with the caller's <code>env</code>. Then run the body with a new environment made of those values.</p>
+</div>
+
 <div class="exercise" data-ex="w1-05-subst" data-ex-py="w1-05-subst-py">
 <h3>Substitution with closed bodies</h3>
-<p>Here is a toy term language with numbers, params, <code>Add</code>, and <code>Call (body, args)</code>. Write <code>subst args t</code>: replace every <code>Param i</code> reachable from <code>t</code> with the i-th element of <code>args</code>.</p>
+<p>On the same toy term language, write <code>subst args t</code>: replace every <code>Param i</code> reachable from <code>t</code> with the i-th element of <code>args</code>.</p>
 <ul>
 <li>A nested <code>Call</code>'s <strong>body is closed</strong>: leave it exactly as it is.</li>
 <li>Its <strong>args are not</strong>: substitute inside them.</li>
 <li>If there is no i-th arg, leave <code>Param i</code> alone.</li>
 </ul>
-<p class="muted">This is the 101 vs 102 bug from above, on a type small enough to see in one screen. Keep the given <code>show</code> function, because the tests print with it.</p>
+<p class="muted">This is the 101 vs 102 bug from above. Keep the given <code>show</code> function, because the tests print with it.</p>
 </div>
 
-<div class="trap">
-<span class="label">Params are hash consed too</span>
-<p><code>%a = param [] slot=0 dtype=i32 addrspace=ALU</code> and <code>%b = param [] slot=0 dtype=i32 addrspace=ALU</code> are the <strong>same UOp</strong>, even when they're written for two different functions. That's fine: a param doesn't have a value on its own. Its value comes from whichever <code>call</code> is evaluating it right now. So never cache "the value of this node" globally. Cache it per call.</p>
-<p>Substitution, as traced above, is the mental model. The usual implementation doesn't build new nodes: it evaluates the body with an <strong>environment</strong>, a map from slot number to value for the current call, and a fresh cache for that call.</p>
+<h2>Limits: a promise every call must keep</h2>
+<div class="prose">
+<p>Lesson 1.4 showed a param with <strong>limits</strong>, like the <code>[0 5]</code> here:</p>
+<pre><code>%k = param [] [0 5] slot=0 dtype=i32 addrspace=ALU
+%f = add %k 1</code></pre>
+<p>The limits are a promise: every value put in this hole is from 0 to 5. The body's bounds are built on that promise, so somebody has to keep it.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Which call makes the file <code>REJECTED</code>?</p>
+<div class="opts">
+<button data-k="a"><code>call %f 0</code></button>
+<button data-k="b"><code>call %f 5</code></button>
+<button data-k="c"><code>call %f 6</code></button>
+</div>
+<p class="hint">The limits include both ends. Which arg is outside 0 to 5?</p>
+<div class="why"><p>6 breaks the promise, so the file is rejected before anything runs. 0 and 5 are the two ends of the limits, and the ends are allowed.</p></div>
 </div>
 
 <div class="prose">
-<p>Two more rules. A <code>param</code> only has a value inside a call, so a param the assert can reach without going through a call body makes the file <code>REJECTED</code>. It's caught before anything runs. And a <code>call</code> has no side effects (it's <strong>pure</strong>), so the simplifier can always <strong>inline</strong> it: replace the call with its body, params substituted, then keep folding. That works whether the args are constants or params. <code>call %body 41</code> with <code>%body = add %x 1</code> simplifies all the way to <code>42</code>.</p>
+<p>The check uses bounds, not the value that happens to arrive: the arg's bounds must sit inside the param's limits. A literal 6 has bounds <code>[6, 6]</code>, which is not inside <code>[0, 5]</code>. A param with no limits allows every i32.</p>
+<p>When the arg is itself a param of an outer body, its bounds are its own limits. An outer <code>[0, 3]</code> fits an inner <code>[0, 5]</code>. An outer <code>[0, 9]</code> does not, even if the call that runs passes 2.</p>
+</div>
 
-<h2>stack and index: rank 1</h2>
-<p><code>stack</code> takes scalars of one dtype and adds a new leading axis: <code>stack 10 20 30</code> has shape <code>(3,)</code>, a shape with one axis of size 3. The bracket form <code>[10 20 30]</code> builds the very same node. <code>index x i</code> pops that axis back off and returns one element as a scalar. The index is checked before anything runs, by its bounds (lesson 4): every value the index could have must be in <code>[0, n - 1]</code>, or the file is <code>REJECTED</code>.</p>
+<h2>stack: several values in one</h2>
+<div class="prose">
+<p>Every value so far has been one number. Suppose a body should give 7, 8 or 9 depending on whether <code>%k</code> is 0, 1 or 2. With <code>cmplt</code> and <code>where</code>, that is a chain that grows with every entry. What you want is a table: write the numbers in a row and pick one by its position.</p>
+<pre><code>%s = stack 10 20 30
+%r = index %s 1</code></pre>
+<p>Positions are counted from 0, so <code>%r</code> is 20. Try each position:</p>
 </div>
 
 <div class="fig">
@@ -127,14 +309,95 @@
 </div>
 
 <div class="prose">
-<p>ALU ops only take rank-0 operands, and in week 1 a call's args and result are scalars too, so a rank-1 value can only be indexed. A typical week 1 use is a small table inside a body, read at a limited index:</p>
-<pre><code>%k = param [] [0 2] slot=0 dtype=i32 addrspace=ALU
-%f = index [7 8 9] %k
-%r = call %f 1             # 8</code></pre>
-<p>Params with a shape like <code>[3]</code>, vector args and vector asserts arrive in week 2.</p>
+<p><code>stack</code> takes scalars of one dtype and adds a new leading axis: <code>stack 10 20 30</code> has shape <code>(3,)</code>, a shape with one axis of size 3. The bracket form <code>[10 20 30]</code> builds the very same node. <code>index x i</code> pops that axis back off and returns one element as a scalar. The elements can be any scalars, not only literals: <code>stack %a %b %c</code> makes a table of three params.</p>
 </div>
+
+<h2>An index has to be proven in range</h2>
 <div class="prose">
-<h2>Rejected before anything runs</h2>
+<p>In the figure, positions -1 and 3 do not exist. With a literal index that is easy to see. Here the index is a param, and the one call in the file passes 1, a position that does exist.</p>
+<pre><code>%i = param [] slot=0 dtype=i32 addrspace=ALU
+%f = index [10 20 30] %i
+%r = call %f 1
+%t = assert %r 20</code></pre>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">What does <code>./compile</code> print for this file?</p>
+<div class="opts">
+<button data-k="a"><code>MATCH</code>: element 1 is 20</button>
+<button data-k="b"><code>MISMATCH</code></button>
+<button data-k="c"><code>REJECTED</code></button>
+</div>
+<p class="hint"><code>%i</code> has no limits. What are its bounds, and do they fit inside 0 to 2?</p>
+<div class="why"><p><code>REJECTED</code>. The check does not ask "is this call's index fine?". It asks "is every index this node could ever have fine?". <code>%i</code> has no limits, so it could be any i32.</p></div>
+</div>
+
+<div class="prose">
+<p>Your compiler promises that a program it accepts can never go wrong while it runs. So, as lesson 1.4 said, the index is checked once, before anything runs: for a stack of <code>n</code> elements, the bounds of the index must sit inside <code>[0, n - 1]</code>, or the file is <code>REJECTED</code>.</p>
+<p>There are two usual ways to make the proof work. Give the param limits, such as <code>[0 2]</code> for a table of three. Or compute the index with an op whose bounds are narrow: <code>mod %j 3</code> is always 0, 1 or 2, whatever <code>%j</code> is, and its bounds say so.</p>
+</div>
+
+<div class="exercise small" data-ex="w1-05n-table">
+<h3>Finish the lookup table</h3>
+<p><code>%out</code> should be the number of days in month <code>%i</code>, counting January as 0: 31, 28, 31, 30, 31 for January to May. The limits on <code>%i</code> are right. Two things are not. The table is one entry short, and the last line always reads position 0. Repair both.</p>
+<p class="muted">Try changing only the last line first and read what the checker says.</p>
+</div>
+
+<p class="prose">Now one with no limits to lean on. The proof has to come from the arithmetic.</p>
+
+<div class="exercise small" data-ex="w1-05-rotate">
+<h3>Rotate with stack and index</h3>
+<p>Params <code>a</code>, <code>b</code>, <code>c</code> and <code>i</code> are i32. Stack <code>a b c</code>. Compute <code>j = i + 1</code> with i32 <code>add</code>, then return the element at position <code>j mod 3</code>. For example, <code>i = 0</code> gives <code>b</code> and <code>i = 2</code> gives <code>a</code>.</p>
+</div>
+
+<div class="prose">
+<p>ALU ops only take scalars, and in week 1 a call's args and result are scalars too, so a stack can only be indexed. Params with a shape like <code>[3]</code>, vector args and vector asserts arrive in week 2.</p>
+
+<h2>What you can do now</h2>
+<ul>
+<li>Say what a function is in .uir: a graph with holes, where <code>param</code> makes a hole and <code>call</code> fills it.</li>
+<li>Work out a <code>call</code> by hand, with more than one slot and with a call inside a body.</li>
+<li>Run a call two ways: substitute and then evaluate, or evaluate with an environment.</li>
+<li>Explain why the value cache has to be per call, and why bodies are closed.</li>
+<li>Build a table with <code>stack</code>, read it with <code>index</code>, and say whether an index is proven in range.</li>
+</ul>
+<p>Next is the lab, where you put lessons 1 to 5 together into your own compiler.</p>
+
+<h2 id="reference">Reference for the lab</h2>
+<p>The exact rules, for when you write the parser, the validator and the cost counter. Open one when you need it.</p>
+</div>
+
+<details class="toggle">
+<summary>Every part of a param line, for when you parse and check one</summary>
+<div class="prose">
+<h3>Writing a param</h3>
+<pre><code>%x = param [] [0 9] slot=0 dtype=i32 addrspace=ALU</code></pre>
+<ul>
+<li><strong>The shape</strong>, <code>[]</code>, is the first source. It means a scalar, and week 1 requires it. Later weeks write things like <code>[3]</code> here.</li>
+<li><strong>The limits</strong>, <code>[0 9]</code>, are an optional second source: two literals of the param's dtype, low first. They promise every argument is in <code>[0, 9]</code>. Leave them out and the param is the full range (for a bool, <code>[0, 1]</code>).</li>
+<li><strong>The attributes</strong>: <code>slot=k</code> (a plain decimal number), <code>dtype=i32</code> or <code>dtype=bool</code>, and <code>addrspace=ALU</code>, which every week 1 value has. All three are required.</li>
+</ul>
+<p>The limits are checked at every call, with the bounds from lesson 4. An argument's bounds must fit inside its param's limits. <code>call %body 5</code> fits <code>[0, 9]</code>, and <code>call %body 10</code> is rejected. When the argument is an outer param, it brings its own limits: an outer <code>[0, 3]</code> fits an inner <code>[0, 5]</code>, but an outer <code>[0, 9]</code> doesn't, even if the call that runs passes 2. An outer param with no limits is the full i32 range, so it doesn't fit an inner param with narrower limits.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>What a call checks about its args, for when you write the validator</summary>
+<div class="prose">
+<pre><code>%x    = param [] slot=0 dtype=i32 addrspace=ALU     # hole number 0, holds an i32
+%body = add %x 1              # a graph with a hole: "x + 1"
+%r    = call %body 41         # fill hole 0 with 41 and evaluate
+%t    = assert %r 42</code></pre>
+<p><code>call</code>'s first source is the <strong>body</strong>. The rest are the <strong>args</strong>: arg i fills the slot <code>i</code> param reachable from the body. Args are checked statically. A missing arg, or one with the wrong dtype or shape, makes the file <code>REJECTED</code>. Extra args and unused slots are allowed. An extra arg is still a source of the call, so it counts as reachable from the assert.</p>
+<p>A body is just an ordinary UOp. Nothing marks <code>%body</code> as "a function". It becomes one when a <code>call</code> uses it as src 0. In the traced graph in this reference, that src 0 edge is drawn dashed. In week 1 the body and every arg are scalars: a call takes numbers and returns a number.</p>
+<p>The slots a body uses are the params you can reach from the body without walking into the body of a nested call. That is the closed-body rule again: a nested call's params are filled by its own args.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Every way this lesson's ops get a file rejected, for when a rejected_ test fails</summary>
+<div class="prose">
+<h3>Rejected before anything runs</h3>
 <p>These are static errors. Each makes the file <code>REJECTED</code>:</p>
 <ul>
 <li>Two different param nodes for one slot in one body, like <code>add %a %c</code> where <code>%a</code> is a slot 0 i32 param and <code>%c</code> casts a slot 0 bool param. Each slot a body uses has exactly one param node: one dtype, one shape, one set of limits. The same slot can mean different things in <em>different</em> bodies.</li>
@@ -142,13 +405,52 @@
 <li>A call whose body or args aren't scalars, or whose args don't fit their params' limits.</li>
 <li>A body nothing calls. Every node must be reachable from the assert, so a function you define and never use is rejected too.</li>
 </ul>
+<p>Two more. A <code>param</code> only has a value inside a call, so a param the assert can reach without going through a call body makes the file <code>REJECTED</code>. It's caught before anything runs. And an <code>index</code> is checked by its bounds: every value the index could have must be in <code>[0, n - 1]</code>.</p>
 </div>
+</details>
 
-<div class="exercise small" data-ex="w1-05-rotate">
-<h3>Rotate with stack and index</h3>
-<p>Params <code>a</code>, <code>b</code>, <code>c</code> and <code>i</code> are i32. Stack <code>a b c</code>. Compute <code>j = i + 1</code> with i32 <code>add</code> (so <code>INT_MAX + 1</code> wraps to <code>INT_MIN</code>), then return the element at position <code>j mod 3</code>. For example, <code>i = 0</code> gives <code>b</code> and <code>i = 2</code> gives <code>a</code>.</p>
-<p class="muted">The tests include <code>i = 300</code>, <code>i = -2</code> and <code>i = INT_MAX</code>. Because <code>mod</code> floors, <code>j mod 3</code> is always 0, 1 or 2, even for a negative <code>j</code>, and its bounds say so. That's what makes the <code>index</code> valid, with no fixing up.</p>
+<details class="toggle">
+<summary>What a call costs, for when you add up static cost</summary>
+<div class="prose">
+<p>Lesson 1.1 said a <code>call</code> costs 1 plus the cost of its body. The body's cost is the same sum you already know, taken over the distinct nodes reachable from the body. Walk into a nested call's args but not into its body, because that call charges for its own body.</p>
+<pre><code>%x = param [] slot=0 dtype=i32 addrspace=ALU
+%s = add %x %x
+%v = call %s 3
+%t = assert %v 6</code></pre>
+<p>This file costs 3. The call is 1. Its body is the <code>add</code>, which costs 1, plus the param's <code>[]</code>, which costs 1. The param and the literals cost 0. Limits like <code>[0 9]</code> are a stack of two elements, so they add 2 more. A <code>stack</code> of n scalars costs n and an <code>index</code> costs 1.</p>
+<p>Two different call nodes with the same body each pay for the body. That is how a small file can have a large cost: sharing a body saves lines, not work.</p>
 </div>
+</details>
+
+<details class="toggle">
+<summary>A nested call traced one step at a time, for when your substitution gives the wrong answer</summary>
+<div class="prose">
+<p>Filling a function's holes with its args has an old name, <strong>beta reduction</strong>. Here is the spec's nested example, traced one step at a time. <code>%inner</code> doubles its param. <code>%outer</code> passes its <em>own</em> slot 0 param into inner's slot 0. In the picture, the edge from a body into the <code>call</code> that uses it is dashed.</p>
+</div>
+<div class="split">
+<pre><code>%p0    = param [] slot=0 dtype=i32 addrspace=ALU
+%inner = mul %p0 2
+%outer = call %inner %p0
+%r     = call %outer 5
+%t     = assert %r 10</code></pre>
+<div class="fig" id="beta" data-title="evaluate %r by substitution"></div>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Calls and the simplifier: inlining, for the lab's last simplify tests</summary>
+<div class="prose">
+<p>A <code>call</code> has no side effects (it's <strong>pure</strong>): it gives back a value and changes nothing else. So the simplifier can always <strong>inline</strong> it: replace the call with its body, params substituted, then keep folding. That works whether the args are constants or params. <code>call %body 41</code> with <code>%body = add %x 1</code> simplifies all the way to <code>42</code>.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Where the idea comes from: the lambda calculus (optional)</summary>
+<div class="prose">
+<h3>The lambda calculus in one paragraph</h3>
+<p>In the 1930s Alonzo Church showed that a language with only three things (variables, function definitions and function application) can express any computation. Evaluation is one move, <strong>beta reduction</strong>: to apply a function, replace its variable with the argument everywhere it appears. In math notation, <code>λx. x + 1</code> is "the function taking x to x + 1". Applying it to 41, written <code>(λx. x + 1) 41</code>, becomes <code>41 + 1</code>. That's exactly what <code>call</code> does to a graph.</p>
+</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
@@ -202,6 +504,17 @@
 <div class="why"><p>One. Same op, same source (the shape <code>[]</code>), same arg and dtype, so hash consing returns the existing node.</p></div>
 </div>
 
+<div class="quiz" data-answer="b">
+<p class="q">An evaluator runs <code>call %f 3</code> and then <code>call %f 5</code>. When should it throw away the cache of node values?</p>
+<div class="opts">
+<button data-k="a">Never. A node's value does not change.</button>
+<button data-k="b">Each call starts with its own empty cache.</button>
+<button data-k="c">Only when the file ends.</button>
+</div>
+<p class="hint">Does the node <code>%f</code> have the same value in both calls?</p>
+<div class="why"><p>A node inside a body has one value per call. A cache kept across calls hands the second call the first call's answers.</p></div>
+</div>
+
 <div class="quiz" data-fill="REJECTED">
 <p class="q">What does <code>./compile</code> print for this file? Just the outcome word.</p>
 <pre><code>%s = stack 10 20 30
@@ -248,6 +561,11 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const { h } = CC;
+  const P = 'param [] slot=0 dtype=i32 addrspace=ALU';
+  const fbody = '%n = ' + P + '\n%a = add %n 1\n%b = mul %a %a\n%f = add %b 10';
+  CC.trace(document.getElementById('rep'), '%a1 = add 3 1\n%b1 = mul %a1 %a1\n%c1 = add %b1 10\n%a2 = add 5 1\n%b2 = mul %a2 %a2\n%c2 = add %b2 10\n%out = add %c1 %c2', { title: 'The same three lines, written twice', edit: true });
+  CC.trace(document.getElementById('hole3'), fbody, { title: 'The body, with 3 in slot 0', args: { 0: 3 } });
+  CC.trace(document.getElementById('hole5'), fbody, { title: 'The same body, with 5 in slot 0', args: { 0: 5 } });
   const N = (id, op, src = [], cls = '', sub, ecls) => ({ id, op, src, cls, sub, ecls });
   const B = 'body', BH = 'body hit';
   const steps = [

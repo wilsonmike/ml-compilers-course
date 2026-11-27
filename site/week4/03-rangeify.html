@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rangeify</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="The syllabus puts it in one line: &quot;rangeify removes shapes from all ops.&quot; When your compiler runs a test it can evaluate vectors directly, but render can&#x27;t...">
+<meta name="description" content="In lessons 4.1 and 4.2 you wrote programs on whole values, with no loops in sight. C has no add for whole vectors, so somebody still has to write the week 3...">
 <link rel="canonical" href="https://sharpterminal.com/site/week4/03-rangeify">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Rangeify">
-<meta property="og:description" content="The syllabus puts it in one line: &quot;rangeify removes shapes from all ops.&quot; When your compiler runs a test it can evaluate vectors directly, but render can&#x27;t unroll a 4096-element vector into 4096...">
+<meta property="og:description" content="In lessons 4.1 and 4.2 you wrote programs on whole values, with no loops in sight. C has no add for whole vectors, so somebody still has to write the week 3 loop. In this lesson your compiler learns...">
 <meta property="og:url" content="https://sharpterminal.com/site/week4/03-rangeify">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .stack { display: grid; gap: var(--s4); }
 </style>
@@ -30,13 +30,146 @@
 <main>
 <p class="eyebrow">Week 4 · Lesson 3</p>
 <h1>Rangeify</h1>
-<p class="lede">The syllabus puts it in one line: "rangeify removes shapes from all ops." When your compiler runs a test it can evaluate vectors directly, but <code>render</code> can't unroll a 4096-element vector into 4096 lines of C. It has to turn every vector back into a loop, and the way to do that is to ask each value one question: what is your element at index i?</p>
+<p class="lede">In lessons 4.1 and 4.2 you wrote programs on whole values, with no loops in sight. C has no add for whole vectors, so somebody still has to write the week 3 loop. In this lesson your compiler learns to write it, by asking every value one question: what is your element at index i?</p>
 
-<div class="prose">
-<h2>One question per value</h2>
-<p>Pick an index variable <code>i</code>. Every vector value can answer "what is my element at <code>i</code>" with a <em>scalar</em> graph, and the answers are short:</p>
+<div class="note">
+<span class="label">Goal</span>
+<p>Turn a program on whole values into week 3 loops by hand, one rule per op, the way your compiler will.</p>
 </div>
 
+<div class="note">
+<span class="label">You'll use</span>
+<p>Ranges and ends (<a href="../week3/01-ranges.html">lesson 3.1</a>), the accumulator loop (<a href="../week3/02-memory-in-loops.html">3.2</a>), elementwise ops (<a href="01-vectors.html">4.1</a>) and <code>reduce</code> and <code>expand</code> (<a href="02-reduce-expand.html">4.2</a>).</p>
+<p class="only-python">In the exercises: <code>match</code> on your own classes (<a href="../learn/py-04-your-own-types.html">P.4</a>) and a function that calls itself (<a href="../learn/py-05-recursion.html">P.5</a>).</p>
+<p class="only-ocaml">In the exercises: <code>let rec</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>) and <code>match</code> on your own types (<a href="../learn/ml-04-your-own-types.html">O.4</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from lesson 3.1, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="0 3 6 9 | [0 3 6 9] | 0, 3, 6, 9">
+<p class="q">What values does <code>%t</code> take, in order?</p>
+<pre><code>%i = range 4
+%t = mul %i 3</code></pre>
+<div class="fill"><input aria-label="answer" placeholder="e.g. 1 2 3 4"><button class="btn">check</button></div>
+<p class="hint">A range counts from 0 and stops before its bound.</p>
+<div class="why"><p><code>%i</code> is 0, 1, 2, 3, so <code>%t</code> is 0, 3, 6, 9. Anything built from a range is computed once for each value of the range.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%s</code> is a store that uses <code>%i</code>. What does <code>%e = end %s %i</code> do?</p>
+<div class="opts">
+<button data-k="a">It runs the store once, with the last value of <code>%i</code>.</button>
+<button data-k="b">It runs the store once for every value of <code>%i</code>, and closes the range.</button>
+<button data-k="c">It stops the program when <code>%i</code> reaches its bound.</button>
+</div>
+<p class="hint"><code>range</code> makes the counter. Which op says what gets repeated?</p>
+<div class="why"><p><code>end</code> repeats its effects for each value of the range, in order, and closes the range. A loop is a <code>range</code>, some work and an <code>end</code>.</p></div>
+</div>
+
+<h2>One program, written two ways</h2>
+<div class="prose">
+<p>Take three buffers of four floats: <code>%a</code>, <code>%b</code> and an empty <code>%y</code>. The job is <code>y = a + b</code>. You can write it the week 4 way, on whole values:</p>
+<pre><code>%va = load %a
+%vb = load %b
+%z  = add %va %vb
+%s  = store %y %z</code></pre>
+<p>Or the week 3 way, as a loop:</p>
+<pre><code>%i  = range 4
+%pa = shrink %a %i []
+%xa = load %pa
+%pb = shrink %b %i []
+%xb = load %pb
+%z  = add %xa %xb
+%py = shrink %y %i []
+%s  = store %py %z
+%e  = end %s %i</code></pre>
+<p>With <code>[1.0 2.0 3.0 4.0]</code> in <code>%a</code> and <code>[10.0 20.0 30.0 40.0]</code> in <code>%b</code>, both put <code>[11.0 22.0 33.0 44.0]</code> in <code>%y</code>. The reference compiler renders both to the same C, character for character. So somewhere inside the compiler, the short program becomes the long one.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">You want to turn the short program into the long one with fixed rules, no cleverness. What must you be able to get from a value like <code>%z</code>?</p>
+<div class="opts">
+<button data-k="a">Its four numbers, worked out ahead of time.</button>
+<button data-k="b">The name of the buffer it is kept in.</button>
+<button data-k="c">A scalar recipe for its element at any index <code>i</code>.</button>
+</div>
+<p class="hint">Look at the loop version. What does its <code>%z</code> line compute on each trip?</p>
+<div class="why"><p>The numbers are not known until the program runs, and <code>%z</code> is kept in no buffer. The loop body needs a way to compute element <code>i</code> of <code>%z</code> from scalars. In the loop version that is <code>add %xa %xb</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>The pass that builds that recipe is called <strong>rangeify</strong>: it replaces every op on a shaped value with scalar ops inside a <code>range</code>. Replacing an op with simpler ones is called <strong>lowering</strong> it.</p>
+</div>
+
+<h2>Ask each value for its element at i</h2>
+<div class="prose">
+<p>Pick an index <code>i</code>. Every vector can answer "what is your element at <code>i</code>?" with a small scalar graph. Two rules cover the program above:</p>
+<ul>
+<li><strong>An elementwise op</strong> at <code>i</code> is the same op on its operands' elements at <code>i</code>.</li>
+<li><strong>A load of a buffer</strong> at <code>i</code> is a scalar load through <code>shrink %buf %i []</code>.</li>
+</ul>
+<p>The asking starts at the <code>store</code>, because a store of a whole vector is where the loop comes from:</p>
+<ol>
+<li><strong>Open a range.</strong> The store writes 4 elements, so make <code>%i = range 4</code> and aim the store at box <code>i</code> of <code>%y</code>.</li>
+<li><strong>Ask the add.</strong> Its element at <code>i</code> is a scalar <code>add</code> of two answers it does not have yet.</li>
+<li><strong>Ask each load.</strong> Each one answers with a scalar load at <code>i</code>. Nothing is left to ask.</li>
+<li><strong>Close the range.</strong> Wrap the store in <code>end</code>.</li>
+</ol>
+<p>Step through it. A box marked <code>?</code> is a question that has not been answered yet.</p>
+</div>
+
+<div class="fig" id="steps" data-title="rangeify y = a + b, one value at a time"></div>
+
+<div class="prose">
+<p>The same <code>i</code> went to both operands. That works because the ops are elementwise: element <code>i</code> of the result never needs element <code>i + 1</code> of anything. One index flows down the graph, and every shape is gone by the time it reaches the bottom.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%w = mul %z %vb</code>, where <code>%z = add %va %vb</code>. What is the element of <code>%w</code> at <code>i</code>, written the way C would show it?</p>
+<div class="opts">
+<button data-k="a"><code>(a[i] + b[i]) * b[i + 1]</code></button>
+<button data-k="b"><code>(a[i] + b[i]) * b[i]</code></button>
+<button data-k="c"><code>(a[0] + b[0]) * b[i]</code></button>
+</div>
+<p class="hint">Ask the <code>mul</code>. It asks <code>%z</code> and <code>%vb</code>, with the same index.</p>
+<div class="why"><p>The <code>mul</code> asks both operands at <code>i</code>, and <code>%z</code> asks its own operands at <code>i</code> in turn. The answers nest, and the index never changes on the way down.</p></div>
+</div>
+
+<h2>expand ignores the index</h2>
+<div class="prose">
+<p>Now <code>y = x * 2.0</code>. A scalar cannot meet a vector directly, so the program broadcasts it first (lesson 4.2):</p>
+<pre><code>%v = load %x
+%c = expand 2.0 [4]
+%z = mul %v %c
+%s = store %y %z</code></pre>
+</div>
+
+<div class="quiz" data-fill="1">
+<p class="q">The compiler turns this into one loop. How many loads from memory does each trip of the loop do?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">What is element <code>i</code> of four copies of 2.0? Does it need memory?</p>
+<div class="why"><p>One, for <code>x[i]</code>. Every element of <code>%c</code> is 2.0, so its element at <code>i</code> is the scalar 2.0 itself.</p></div>
+</div>
+
+<div class="prose">
+<p>That is the third rule: <strong><code>expand %s [n]</code> at <code>i</code> is <code>%s</code></strong>. The index is thrown away. No four-element copy is ever built, so a broadcast costs nothing in the loop. Here is the loop the reference compiler prints. <code>0x1.0000000000000p+1f</code> is 2.0 written as a hex float (lesson 2.4):</p>
+<pre><code>for (int32_t r4 = 0; r4 &lt; 4; r4++) {
+  float v7 = b0[r4];
+  float v8 = (v7 * 0x1.0000000000000p+1f);
+  b1[r4] = v8;
+}</code></pre>
+<p>You now have three rules, and each one is a single case of a function that calls itself. Write it on a small model: one type for vector expressions and one for the scalar expressions they turn into.</p>
+</div>
+
+<div class="exercise" data-ex="w4-03-lower" data-ex-py="w4-03-lower-py">
+<h3>The element at index i</h3>
+<p>On a toy type of vector expressions (buffers, broadcasts, adds and multiplies), write <span class="only-ocaml"><code>at e i</code></span><span class="only-python"><code>at(e, i)</code></span>: the scalar expression for element <code>i</code> of <code>e</code>. The buffer case and the printer are given.</p>
+</div>
+
+<details class="toggle">
+<summary>Every element rule in one table, for when you write the lab</summary>
+<div class="prose">
 <div class="tablewrap">
 <table>
 <thead><tr><th>value</th><th>its element at <code>i</code></th></tr></thead>
@@ -48,22 +181,67 @@
 </tbody>
 </table>
 </div>
-
-<div class="prose">
-<p>The answers recurse: asking the <code>add</code> asks both operands, with the same <code>i</code>. Elementwise is what makes that work. Element i of the result never needs element <code>i + 1</code> of anything, so one index flows down the whole graph and every shape disappears on the way.</p>
 <p>Two things consume a vector and produce a scalar or an effect, and those are where the loops come from:</p>
 <ul>
-<li>A <strong>rank-1 store</strong> becomes a loop: <code>range n</code>, then store element i of the value into element i of the view, then <code>end</code>.</li>
+<li>A <strong>rank-1 store</strong> (a store of a whole vector) becomes a loop: <code>range n</code>, then store element i of the value into element i of the view, then <code>end</code>.</li>
 <li>A <strong>reduce</strong> becomes an accumulator loop, exactly week 3's pattern: seed a one-element <code>alloc</code> with the element at 0, loop over 1 to n-1 folding in the element at each index, and load the result after the loop.</li>
 </ul>
 </div>
+</details>
 
-<div class="fig" id="steps" data-title="rangeify y = x * 2.0, one rule at a time"></div>
+<h2>A reduce makes its own loop</h2>
+<div class="prose">
+<p><code>%t = reduce %v op=add</code> adds up a vector. Its result is one number.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">A later op needs <code>%t</code> inside its loop, at index <code>i</code>. What can <code>%t</code> do?</p>
+<div class="opts">
+<button data-k="a">Answer like <code>add</code>: pass <code>i</code> down to <code>%v</code>.</button>
+<button data-k="b">Nothing. A reduce cannot be rangeified.</button>
+<button data-k="c">It is a scalar, so <code>i</code> is no use to it. It needs a loop of its own that visits every element of <code>%v</code>.</button>
+</div>
+<p class="hint">How many elements of <code>%v</code> does one sum need?</p>
+<div class="why"><p>One sum needs all of <code>%v</code>, not one element. So the reduce opens its own range and does the asking itself.</p></div>
+</div>
 
 <div class="prose">
-<p>That's the oracle's real output for <code>store %y (mul (load %x) (expand 2.0))</code> on four floats: one loop, with the constant folded right into the loop body because <code>expand</code>'s element at any index is just <code>2.0</code>. In the C, <code>0x1.0000000000000p+1f</code> is 2.0 written as a hex float, which round-trips exactly (lesson 2.4).</p>
+<p>The loop it builds is lesson 3.2's accumulator loop, with a one-element <code>alloc</code> holding the running total.</p>
+<ol>
+<li><strong>Seed.</strong> Store <code>%v</code>'s element at 0 into the accumulator.</li>
+<li><strong>Fold.</strong> Open <code>%r = range n-1</code>. Each trip loads the accumulator, adds <code>%v</code>'s element at <code>r + 1</code> and stores the total back. Close with <code>end</code>.</li>
+<li><strong>Read.</strong> After the loop, load the accumulator. That scalar is <code>%t</code>.</li>
+</ol>
+<p>The reduce asks the same question a store asks, but its index is <code>0</code> and then <code>r + 1</code>: an index can be any i32 scalar. And the seed is the first element, not zero, so the fold runs left to right from <code>x[0]</code>, as the spec requires. The C exercise below has the one kind of input where a zero seed goes wrong.</p>
+</div>
 
-<h2>reduce becomes an accumulator loop</h2>
+<div class="exercise small" data-ex="w4-03-sumleft">
+<h3>The reduce loop in C</h3>
+<p>Write <code>float sum_left(const float *x, int n)</code> (with n ≥ 1) so that it computes exactly what <code>reduce op=add</code> does: start from <code>x[0]</code>, then add <code>x[1]</code> to <code>x[n-1]</code> in order. The starter is right for every input but one kind. The tests compare the 32 bits of your result, printed in hex, so <code>-0.0</code> (<code>80000000</code>) and <code>0.0</code> (<code>00000000</code>) differ.</p>
+</div>
+
+<details class="toggle">
+<summary>The reduce loop in full, as .uir and as the oracle's C, for when you compare your renderer's output</summary>
+<div class="prose">
+<p>This hand-written week 3 program computes the same value as <code>reduce (load %x) op=add</code> on four floats:</p>
+<pre><code>%acc  = alloc 1 dtype=f32
+%a    = shrink %acc 0 []
+%p0   = shrink %x 0 []
+%x0   = load %p0
+%s0   = store %a %x0
+%acc1 = after %acc %s0
+%r    = range 3
+%a1   = shrink %acc1 0 []
+%cur  = load %a1
+%j    = add %r 1
+%pj   = shrink %x %j []
+%xj   = load %pj
+%sum  = add %cur %xj
+%s    = store %a1 %sum
+%e    = end %s %r
+%acc2 = after %acc1 %e
+%a2   = shrink %acc2 0 []
+%t    = load %a2</code></pre>
 <p>Here's what the oracle renders for <code>reduce (load %x) op=add</code> on four floats, stored into a one-element buffer. Compare it with lesson 3.2's accumulator:</p>
 <pre><code>float a4[1] = {0};
 float v7 = b0[0];                /* the element at 0 seeds the fold */
@@ -81,25 +259,49 @@ b1[0] = v24;</code></pre>
 <p>The <code>% 4</code> line is there because the oracle builds every index as if the value could have several axes, so it always adds a <code>% n</code> step. For a vector that step never changes the value. Here <code>r + 1</code> is always below 4, so it's provably redundant. Lesson 5.5 shows how a simplifier removes lines like this one.</p>
 <p>The loop runs n-1 times over indices 1 to n-1, so the fold is left to right from <code>x[0]</code>, as the spec requires. The accumulator's load sits inside the loop because of week 3's placement rule: its only use is in the loop, and the loop stores into the version it reads.</p>
 </div>
+</details>
+
+<h2>Write the reduce rule</h2>
+<div class="prose">
+<p>The reduce does not care what its operand is. For a sum of squares, <code>reduce (mul %v %v) op=add</code>, it asks the <code>mul</code> for its element at <code>0</code> and at <code>r + 1</code>. The <code>mul</code> answers with the rules you already wrote, so no new case is needed.</p>
+</div>
+
+<div class="exercise" data-ex="w4-03n-reduce" data-ex-py="w4-03n-reduce-py">
+<h3>Lower a reduce</h3>
+<p><code>at</code> and <code>show</code> are written. Write <code>lower_reduce e n</code>: the accumulator loop for <code>reduce op=add</code> of the n-element vector expression <code>e</code>, as one line of text. For <code>Vec "x"</code> and 4 it returns <code>acc = x[0]; for r &lt; 3: acc = acc + x[r+1]</code>. Ask <code>e</code> for its element at <code>"0"</code> for the seed and at <code>"r+1"</code> for the step.</p>
+</div>
+
+<div class="prose">
+<p>A reduce's result is a scalar, so whatever uses it just uses it. Take <code>x / sum(x)</code> from lesson 4.2: reduce, <code>recip</code>, <code>expand</code>, <code>mul</code>, store. The reduce becomes one loop. The <code>recip</code> runs once, between the loops. The store becomes a second loop, and the <code>expand</code> vanishes into it.</p>
+</div>
 
 <div class="key">
 <span class="label">Rangeify reuses everything you built</span>
 <p>After rangeify, the graph has no vector values left: only scalars, <code>range</code>, <code>end</code>, <code>alloc</code>, loads and stores. That's a week 3 program, and your week 3 renderer already knows how to place each value at the right loop depth and print it. Week 4's new work is entirely in the lowering.</p>
 </div>
 
-<div class="exercise" data-ex="w4-03-lower" data-ex-py="w4-03-lower-py">
-<h3>The element at index i</h3>
-<p>On a toy type of vector expressions (buffers, broadcasts, adds and multiplies), write <span class="only-ocaml"><code>at e i</code></span><span class="only-python"><code>at(e, i)</code></span>: the scalar expression for element <code>i</code> of <code>e</code>. The printer is given.</p>
-</div>
-
 <h2>Why the C must be small</h2>
 <div class="prose">
-<p>Week 4 render tests include vectors of 4096 floats, and the grader rejects rendered C over 20,000 bytes. A renderer that kept vectors as C arrays and unrolled every elementwise op would emit thousands of lines, but a rangeified one emits a few loops no matter how big n is. The <code>x / sum(x)</code> example from lesson 4.2, on 4096 floats, renders to about 1.6 kilobytes (1,579 bytes with the current oracle, most of it helper functions at the top of the file) with two loops: the reduce's 4095 iterations, then the 4096-iteration store.</p>
+<p>When your compiler runs a test it can still evaluate vectors directly. <code>render</code> cannot take that shortcut. Week 4 render tests include vectors of 4096 floats, and the grader rejects rendered C over 20,000 bytes. A renderer that unrolled every elementwise op, one line per element, would print thousands of lines. A rangeified one prints a few loops no matter how big n is. <code>x / sum(x)</code> on 4096 floats renders to 1,579 bytes by the grader's count, most of it helper functions at the top, with two loops: 4095 trips for the reduce, then 4096 for the store.</p>
 </div>
 
-<div class="exercise small" data-ex="w4-03-sumleft">
-<h3>The reduce loop in C</h3>
-<p>Write <code>float sum_left(const float *x, int n)</code> (with n ≥ 1) so that it computes exactly what <code>reduce op=add</code> does: start from <code>x[0]</code>, then add <code>x[1]</code> to <code>x[n-1]</code> in order. The starter is right for every input but one kind. The tests compare the 32 bits of your result, printed in hex, so <code>-0.0</code> (<code>80000000</code>) and <code>0.0</code> (<code>00000000</code>) differ.</p>
+<div class="quiz" data-fill="1">
+<p class="q">The first program of this lesson, <code>y = a + b</code>, now on buffers of 4096 floats. How many <code>for</code> loops does it render to?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Which op in that program opens a range?</p>
+<div class="why"><p>One. Only the store opens a range. The add and both loads answer inside it, and the size only changes the loop's bound.</p></div>
+</div>
+
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Say what rangeify does: it replaces ops on shaped values with scalar ops inside ranges.</li>
+<li>Give the element at <code>i</code> of an elementwise op, a load and an <code>expand</code>.</li>
+<li>Turn a store of a vector into a <code>range</code>, a scalar store and an <code>end</code>.</li>
+<li>Turn a <code>reduce</code> into an accumulator loop seeded with the first element.</li>
+<li>Say why the result is a week 3 program, and why its size does not grow with n.</li>
+</ul>
+<p>Next, lesson 4.4 looks at a value that two loops both ask about, and the choice between computing it twice and saving it once.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -177,27 +379,29 @@ b1[0] = v24;</code></pre>
 document.addEventListener('DOMContentLoaded', () => {
   const { h } = CC;
   const N = (id, op, sub, src, cls) => ({ id, op, sub, src: src || [], cls });
-  const vec = [N('bx', 'buffer x', 'f32 (4,)'), N('ld', 'load', '(4,)', ['bx']), N('c2', '2.0'), N('ex', 'expand', '[4]', ['c2']),
-    N('m', 'mul', '(4,)', ['ld', 'ex']), N('by', 'buffer y', 'f32 (4,)'), N('st', 'store', '', ['by', 'm'])];
-  const c = `void kernel(float *b0, float *b1) {
+  const vec = [N('ba', 'buffer a', 'f32 (4,)'), N('la', 'load', '(4,)', ['ba']), N('bb', 'buffer b', 'f32 (4,)'), N('lb', 'load', '(4,)', ['bb']),
+    N('ad', 'add', '(4,)', ['la', 'lb']), N('by', 'buffer y', 'f32 (4,)'), N('st', 'store', '', ['by', 'ad'])];
+  const c = `void kernel(float *restrict b0, float *restrict b1, float *restrict b2) {
   for (int32_t r4 = 0; r4 < 4; r4++) {
     float v7 = b0[r4];
-    float v8 = (v7 * 0x1.0000000000000p+1f);
-    b1[r4] = v8;
+    float v9 = b1[r4];
+    float v10 = (v7 + v9);
+    b2[r4] = v10;
   }
 }`;
+  const done = cls => [N('i', 'range', '4'), N('ba', 'buffer a'), N('av', 'shrink', 'a, i', ['ba', 'i'], cls), N('la', 'load', 'scalar', ['av'], cls),
+    N('bb', 'buffer b'), N('bv', 'shrink', 'b, i', ['bb', 'i'], cls), N('lb', 'load', 'scalar', ['bv'], cls),
+    N('ad', 'add', 'scalar', ['la', 'lb']), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i']), N('st', 'store', '', ['yv', 'ad'])];
   const steps = [
-    { caption: 'The vector program. Three values have shape <code>(4,)</code>, and the store writes a whole vector.', nodes: vec },
-    { caption: 'A rank-1 store becomes a loop: make <code>range 4</code>, store into <code>y</code> at <code>i</code>, and ask the value for its element at <code>i</code>.',
-      nodes: [N('i', 'range', '4', [], 'new'), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i'], 'new'), N('mi', 'mul @ i', '?', [], 'hit'), N('st', 'store', '', ['yv', 'mi'], 'new')] },
-    { caption: 'The <code>mul</code> is elementwise, so its element at <code>i</code> is a scalar <code>mul</code> of its operands\' elements at <code>i</code>.',
-      nodes: [N('i', 'range', '4'), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i']), N('li', 'load @ i', '?', [], 'hit'), N('ei', 'expand @ i', '?', [], 'hit'), N('mi', 'mul', 'scalar', ['li', 'ei'], 'new'), N('st', 'store', '', ['yv', 'mi'])] },
-    { caption: 'The load\'s element at <code>i</code> is a scalar load through <code>shrink x i</code>. The expand\'s element at <code>i</code> is just <code>2.0</code>.',
-      nodes: [N('i', 'range', '4'), N('bx', 'buffer x'), N('xv', 'shrink', 'x, i', ['bx', 'i'], 'new'), N('li', 'load', 'scalar', ['xv'], 'new'), N('c2', '2.0', '', [], 'new'),
-        N('mi', 'mul', 'scalar', ['li', 'c2']), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i']), N('st', 'store', '', ['yv', 'mi'])] },
-    { caption: 'Close the loop with <code>end</code>. No vectors are left: this is a week 3 program, and the week 3 renderer prints it. (<code>0x1.0000000000000p+1f</code> is 2.0 as a C hex float.)', code: true,
-      nodes: [N('i', 'range', '4'), N('bx', 'buffer x'), N('xv', 'shrink', 'x, i', ['bx', 'i']), N('li', 'load', 'scalar', ['xv']), N('c2', '2.0'),
-        N('mi', 'mul', 'scalar', ['li', 'c2']), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i']), N('st', 'store', '', ['yv', 'mi']), N('e', 'end', '', ['st', 'i'], 'new')] },
+    { caption: 'The program on whole values. Three values have shape <code>(4,)</code>, and the store writes a whole vector.', nodes: vec },
+    { caption: 'Open a range. The store becomes a scalar store into box <code>i</code> of <code>y</code>, and it asks the <code>add</code> for its element at <code>i</code>.',
+      nodes: [N('i', 'range', '4', [], 'new'), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i'], 'new'), N('ad', 'add @ i', '?', [], 'hit'), N('st', 'store', '', ['yv', 'ad'], 'new')] },
+    { caption: 'The <code>add</code> is elementwise, so its element at <code>i</code> is a scalar <code>add</code>. It asks each load for its element at the same <code>i</code>.',
+      nodes: [N('i', 'range', '4'), N('by', 'buffer y'), N('yv', 'shrink', 'y, i', ['by', 'i']), N('la', 'load a @ i', '?', [], 'hit'), N('lb', 'load b @ i', '?', [], 'hit'),
+        N('ad', 'add', 'scalar', ['la', 'lb'], 'new'), N('st', 'store', '', ['yv', 'ad'])] },
+    { caption: 'Each load answers with a scalar load through a <code>shrink</code> at <code>i</code>. No questions are left.', nodes: done('new') },
+    { caption: 'Close the range with <code>end</code>. No vectors are left. This is the week 3 loop from the top of the lesson, and the week 3 renderer prints it.', code: true,
+      nodes: [...done(), N('e', 'end', '', ['st', 'i'], 'new')] },
   ];
   CC.stepper(document.getElementById('steps'), steps, (s, body) => body.append(h('div', { class: 'stack' }, CC.graph(s.nodes), s.code ? CC.code(c) : null)));
 });

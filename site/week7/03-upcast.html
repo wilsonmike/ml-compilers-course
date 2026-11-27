@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Upcast</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A tile&#x27;s 32 running sums only help if they stay in registers. An array indexed by a loop variable lives in memory, so the C compiler loads and stores it on...">
+<meta name="description" content="By the end of this lesson you can mark a small loop so that it is printed as straight-line C with no loop at all. That lets the C compiler keep a tile&#x27;s...">
 <link rel="canonical" href="https://sharpterminal.com/site/week7/03-upcast">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Upcast">
-<meta property="og:description" content="A tile&#x27;s 32 running sums only help if they stay in registers. An array indexed by a loop variable lives in memory, so the C compiler loads and stores it on every step. Unroll the loops that index it...">
+<meta property="og:description" content="By the end of this lesson you can mark a small loop so that it is printed as straight-line C with no loop at all. That lets the C compiler keep a tile&#x27;s running sums inside the processor and stop...">
 <meta property="og:url" content="https://sharpterminal.com/site/week7/03-upcast">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,25 +20,245 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 7 · Lesson 3</p>
 <h1>Upcast: unrolling loops into registers</h1>
-<p class="lede">A tile's 32 running sums only help if they stay in registers. An array indexed by a loop variable lives in memory, so the C compiler loads and stores it on every step. Unroll the loops that index it, and every index becomes a constant: the array turns into 32 plain variables, and the C compiler keeps them in registers.</p>
+<p class="lede">By the end of this lesson you can mark a small loop so that it is printed as straight-line C with no loop at all. That lets the C compiler keep a tile's running sums inside the processor and stop sending them to memory and back on every step. The answer stays the same, bit for bit. Only the speed changes.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Turn a loop with a small fixed bound into copies of its body, and say why that is faster and why it cannot change the result.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p class="only-python">Ranges and allocs that hold running sums (<a href="../week3/01-ranges.html">lesson 3.1</a> and <a href="../week3/02-memory-in-loops.html">3.2</a>), loops rendered as C (<a href="../week3/05-rendering-loops.html">3.5</a>) and tiling (<a href="02-caches-and-tiling.html">7.2</a>). The last exercise uses lists and strings (<a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">Ranges and allocs that hold running sums (<a href="../week3/01-ranges.html">lesson 3.1</a> and <a href="../week3/02-memory-in-loops.html">3.2</a>), loops rendered as C (<a href="../week3/05-rendering-loops.html">3.5</a>) and tiling (<a href="02-caches-and-tiling.html">7.2</a>). The last exercise uses lists and strings (<a href="../learn/ml-03-lists-matching.html">O.3</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from the last two lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="c">
+<p class="q">A large matrix multiply does over 100 FLOPs for every byte it moves (lesson 7.1). What holds it back?</p>
+<div class="opts">
+<button data-k="a">How fast memory can deliver bytes</button>
+<button data-k="b">The size of the disk</button>
+<button data-k="c">How fast the processor can do the arithmetic</button>
+</div>
+<p class="hint">Many FLOPs per byte means the kernel needs few bytes for a lot of math.</p>
+<div class="why"><p>It is limited by the arithmetic. Once tiling keeps the data close, memory is no longer the excuse. The arithmetic itself has to get faster, and that is this lesson.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Tiling works on a 4×8 block of outputs side by side (lesson 7.2). What happens to the order of the adds inside any one output's sum?</p>
+<div class="opts">
+<button data-k="a">It is reversed</button>
+<button data-k="b">Nothing. Each sum still adds <code>k = 0, 1, 2, ...</code> in order</button>
+<button data-k="c">The adds are grouped in blocks of 8</button>
+</div>
+<p class="hint">Tiling changed which sums run next to each other, not what happens inside one sum.</p>
+<div class="why"><p>The order inside each sum is untouched, so every result keeps its exact bits. The same promise has to hold for everything in this lesson.</p></div>
+</div>
+
+<h2>What a tiled loop still wastes</h2>
+<div class="prose">
+<p>Here is a small loop with the same shape as a tile's inner loops. It keeps 4 running sums. The outer loop runs 3 times, and each time the inner loop adds one number from <code>x</code> to each sum, so sum <code>i</code> ends up as <code>x[i] + x[4 + i] + x[8 + i]</code>. This is the kernel the reference compiler prints for it with <code>python _reference/uirc.py render</code>:</p>
+</div>
+<pre><code>void kernel(float *restrict b0, float *restrict b1) {
+  float a3[4] = {0};
+  for (int32_t r5 = 0; r5 &lt; 3; r5++) {
+    int32_t v6 = (int32_t)((uint32_t)r5 * (uint32_t)4);
+    for (int32_t r7 = 0; r7 &lt; 4; r7++) {
+      float v9 = a3[r7];
+      int32_t v10 = (int32_t)((uint32_t)v6 + (uint32_t)r7);
+      float v12 = b0[v10];
+      float v13 = (v9 + v12);
+      a3[r7] = v13;
+    }
+  }
+  for (int32_t r16 = 0; r16 &lt; 4; r16++) {
+    float v19 = a3[r16];
+    b1[r16] = v19;
+  }
+}</code></pre>
+<div class="prose">
+<p><code>a3</code> is the alloc that holds the 4 sums, and <code>b0</code> is <code>x</code>. Read the inner loop. Its first line loads a sum from memory, and its last line stores the sum back. The add in between is the only real work. So every add drags along one load and one store whose only job is to remember a total.</p>
+<p>The processor has a better place for a total. A <strong>register</strong> is one of a few dozen slots inside the processor that each hold one number, and reading or writing one causes no memory traffic at all. If the 4 sums lived in 4 registers, that load and that store would disappear.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Guess first. A machine instruction names its registers outright, the way you name a variable. There is no instruction for "register number <code>r7</code>". What can the C compiler do with <code>a3[r7]</code> when it cannot work out which values <code>r7</code> takes?</p>
+<div class="opts">
+<button data-k="a">Put the sums in registers and pick the right one while the program runs</button>
+<button data-k="b">Leave <code>a3</code> in memory, and load and store it on every step</button>
+<button data-k="c">Refuse to compile the loop</button>
+</div>
+<p class="hint">A register cannot be indexed. An array in memory can.</p>
+<div class="why"><p>It has to leave the array in memory, because only memory can be indexed by a number that changes. The compiler can swap an array element for a register only when it knows, while compiling, exactly which element each line touches.</p></div>
+</div>
 
 <div class="prose">
-<h2>axis=upcast</h2>
-<p>A range can now say how its loop runs:</p>
+<p>Sometimes the C compiler works that out on its own. For this toy loop, <code>gcc -O2</code> does. For the real tiled GEMM, with 32 sums inside three more loops, it does not get all the way, and the kernel runs several times slower than it could. Your compiler should not hope. It can print C where nothing is left to work out.</p>
 </div>
-<pre><code>%kj = range 8 axis=upcast</code></pre>
+
+<h2>Upcast prints the loop as copies</h2>
 <div class="prose">
-<p>An <b>upcast</b> loop means the same thing as a plain loop, and <code>./compile</code> treats it exactly like one. The difference is in <code>render</code>: instead of a <code>for</code> loop, emit the body 8 times, with <code>kj</code> replaced by the literal 0, then 1, up to 7. The bound must be a literal from 1 to 32, because the body is copied that many times.</p>
+<p>A range can now say how its loop runs. That setting is called its <strong>axis</strong>:</p>
+<pre><code>%i = range 4 axis=upcast</code></pre>
+<p>An <strong>upcast</strong> loop is printed with no <code>for</code>. The renderer prints the body once for each value of the counter, with the counter replaced by that number. Writing a loop out as copies is called <strong>unrolling</strong>. Here is how the inner loop above gets unrolled:</p>
+<ol>
+<li><strong>Read the bound.</strong> It is the literal 4, so there will be 4 copies.</li>
+<li><strong>Copy the body.</strong> Print its lines 4 times, one copy after another.</li>
+<li><strong>Replace the counter.</strong> In the first copy every <code>r7</code> becomes 0, in the next 1, then 2, then 3.</li>
+<li><strong>Drop the loop.</strong> No <code>for</code> line and no <code>r7</code> are left.</li>
+</ol>
+<p>Add <code>axis=upcast</code> to the inner range, render again, and the outer loop becomes:</p>
+</div>
+<pre><code>  for (int32_t r5 = 0; r5 &lt; 3; r5++) {
+    int32_t v6 = (int32_t)((uint32_t)r5 * (uint32_t)4);
+    float v8 = a3[0];
+    int32_t v9 = (int32_t)((uint32_t)v6 + (uint32_t)0);
+    float v11 = b0[v9];
+    float v12 = (v8 + v11);
+    a3[0] = v12;
+    float v15 = a3[1];
+    int32_t v16 = (int32_t)((uint32_t)v6 + (uint32_t)1);
+    float v18 = b0[v16];
+    float v19 = (v15 + v18);
+    a3[1] = v19;
+    float v22 = a3[2];
+    int32_t v23 = (int32_t)((uint32_t)v6 + (uint32_t)2);
+    float v25 = b0[v23];
+    float v26 = (v22 + v25);
+    a3[2] = v26;
+    float v29 = a3[3];
+    int32_t v30 = (int32_t)((uint32_t)v6 + (uint32_t)3);
+    float v32 = b0[v30];
+    float v33 = (v29 + v32);
+    a3[3] = v33;
+  }</code></pre>
+<div class="prose">
+<p>Every index into <code>a3</code> is now a plain number. <code>a3[2]</code> is always the same slot, so the C compiler can treat it as an ordinary variable and keep it in a register for the whole outer loop. The loads and stores of the sums are still written in the C, but the machine no longer has to perform them.</p>
+<p>The bound of an upcast range must be a literal from 1 to 32, because the body is copied that many times.</p>
+</div>
+
+<div class="quiz" data-fill="40">
+<p class="q">A loop has <code>range 8 axis=upcast</code> and its body renders as 5 lines of C. How many lines does the unrolled loop print?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">One full copy of the body for each value of the counter.</p>
+<div class="why"><p>8 copies of 5 lines is 40 lines. Unrolled code is long. That is why render tests with upcast loops raise the C size limit with <code># max_bytes:</code>.</p></div>
+</div>
+
+<details class="toggle"><summary>The whole .uir program for this example, for when you want to render it yourself</summary><div class="prose">
+<p>Save it to a file and run <code>python _reference/uirc.py render FILE</code>. The output starts with a block of helper functions, and the kernel comes last. Add <code>axis=upcast</code> to the <code>%i</code> line to get the unrolled version.</p>
+<pre><code>%x = buffer 12 dtype=f32 slot=0
+%o = buffer 4 dtype=f32 slot=1
+%acc = alloc 4 dtype=f32
+%k = range 3
+%i = range 4
+%k4 = mul %k 4
+%off = add %k4 %i
+%xv = shrink %x %off []
+%xe = load %xv
+%a = shrink %acc %i []
+%cur = load %a
+%sum = add %cur %xe
+%st = store %a %sum
+%ei = end %st %i
+%ek = end %ei %k
+%acc1 = after %acc %ek
+%w = range 4
+%r = shrink %acc1 %w []
+%v = load %r
+%ov = shrink %o %w []
+%so = store %ov %v
+%ew = end %so %w
+%o1 = after %o %ew</code></pre>
+</div></details>
+
+<details class="toggle"><summary>Every rule for <code>axis=</code>, for when you write the parser and checker</summary><div class="prose">
+<ul>
+<li><code>range</code> takes an optional <code>axis=</code> attribute: <code>loop</code> (the default, an ordinary loop as in week 3), <code>upcast</code> or <code>thread</code> (lesson 7.4). Any other name is rejected (<code>rejected_axis_unknown</code>).</li>
+<li>An upcast bound is a literal from 1 to 32. The rule is about the program as written, not about what a simplifier could fold. The tests are <code>rejected_upcast_not_literal</code>, <code>rejected_upcast_too_big</code> and <code>rejected_upcast_zero</code>.</li>
+<li><code>./compile</code> executes an upcast loop exactly like an ordinary loop, in order.</li>
+<li>In <code>render</code>, emit the body once per value of the range, with the range a literal in each copy. Nested upcast loops multiply: a 4 loop around an 8 loop prints 32 copies.</li>
+<li>Buffers never alias, so a kernel may declare its parameters <code>restrict</code>.</li>
+</ul>
+</div></details>
+
+<h2>An axis never changes the result</h2>
+<div class="prose">
+<p>This is the rule that makes axes safe to use: <strong>an axis changes how a loop runs, never what it computes.</strong> <code>./compile</code> treats an upcast loop exactly like a plain loop. The rendered copies come in the same order the loop would have run, so every sum does the same adds in the same order and gets the same bits.</p>
+<p>Check it on the example. With <code>x</code> holding the numbers 1 to 12 and plain loops, the four sums come out as <code>[15 18 21 24]</code>.</p>
+</div>
+
+<div class="quiz" data-fill="15">
+<p class="q">Now the inner range is <code>range 4 axis=upcast</code>, and <code>x</code> is still 1 to 12. What is the first sum, <code>x[0] + x[4] + x[8]</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Does the axis change which numbers are added, or in what order?</p>
+<div class="why"><p>Still 1 + 5 + 9 = 15. The reference compiler gives <code>[15 18 21 24]</code> both ways. If an axis ever changes an answer, the compiler has a bug.</p></div>
+</div>
+
+<div class="prose">
+<p>Now try it on a real program. The order of adds matters for floats, and the second test below is built to show it: <code>1e8 + 1 - 1e8</code> loses the 1 when added in that order. If upcast reordered anything, that test would catch it.</p>
+</div>
+
+<div class="exercise" data-ex="w7-02-upcast-dot">
+<h3>Unroll a dot product</h3>
+<p>Make the <code>k</code> loop of this 8-element dot product an upcast loop. The result, including its bits, must not change.</p>
+</div>
+
+<h2>Write the unroller</h2>
+<div class="prose">
+<p>In your compiler, unrolling belongs in the renderer, at the moment a loop is printed. The graph and the linearizer still see an ordinary loop, so every rule from earlier weeks keeps working untouched.</p>
+<p>The printing itself is two loops: one over the counter's values, and inside it one over the lines of the body. Practice that on plain strings first.</p>
+</div>
+
+<div class="exercise" data-ex="w7-03n-unroll" data-ex-py="w7-03n-unroll-py">
+<h3>Unroll a loop body</h3>
+<p>Write <code>unroll n body</code>. <code>body</code> is a list of C lines, where <code>@</code> stands for the loop counter. Return the list of lines for the unrolled loop: the whole body with <code>@</code> replaced by 0, then the whole body with 1, up to <code>n - 1</code>. Keep the lines of each copy in their original order.</p>
+</div>
+
+<details class="toggle"><summary>Why unrolling does not disturb the accumulator rule, for when you build the lab</summary><div class="prose">
+<p>Week 3's rule for loads still decides where things run. In the tiled GEMM, the load of <code>acc[ki*8 + kj]</code> sits inside the <code>k</code> loop, because the <code>k</code> loop stores into the version it reads. Unrolling doesn't change that: it happens after linearizing, when you print C. Unroll in the renderer, not in the graph, and the rules from earlier weeks keep working untouched.</p>
+</div></details>
+
+<h2>What it is worth, and when to stop</h2>
+<div class="prose">
+<p>Measured on the 768×768 GEMM, on one thread, against the same loops without axes:</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>C compiler</th><th>plain loops</th><th>upcast tile</th><th>speedup</th></tr></thead>
+<tbody>
+<tr><td>clang 19</td><td>98 ms</td><td>23 ms</td><td>4.2×</td></tr>
+<tr><td>gcc 14</td><td>148 ms</td><td>82 ms</td><td>1.8×</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<p>The two compilers differ a lot. Both get faster, and neither changes a bit of the result. The speed test for upcast alone, <code>s_gemm_768_upcast</code>, asks for at least 0.65 of the reference's speed. A renderer that prints upcast loops as plain <code>for</code> loops lands around 0.25 with clang and 0.55 with gcc, and fails.</p>
+<p>Part of the gain is <strong>SIMD</strong>: one instruction that does 4 or 8 multiplies (or adds) on floats that sit next to each other. The eight B values for one row of a tile are neighbors in memory, so once the code is straight-line the compiler can use it. Each of those floats belongs to a different output with its own sum, so no sum's order changes.</p>
+</div>
+
+<div class="trap">
+<span class="label">Unrolling everything is not faster</span>
+<p>Registers run out. An x86-64 processor has 16 vector registers, and at the grader's plain <code>-O2</code> each holds 4 floats. Sums that do not fit spill back to memory. Code size grows too: the C for the full schedule is about 30 KB.</p>
+</div>
+
+<div class="quiz" data-fill="64">
+<p class="q">With 16 vector registers that hold 4 floats each, how many running sums can stay in registers at once, at most?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Registers times floats per register.</p>
+<div class="why"><p>16 × 4 = 64. A 4×8 tile needs 32 sums, which take 8 registers and leave room for the loaded values. A 16×16 tile needs 256 sums, 64 registers' worth, so it spills and runs slower than a smaller tile.</p></div>
+</div>
+
+<details class="toggle"><summary>The tiled GEMM's innermost loop before and after, for when you read your own rendered C</summary><div class="prose">
 <p>Here is the innermost loop of the tiled GEMM before and after, in the C your compiler emits (simplified):</p>
-</div>
-
 <pre><code>/* plain loops: acc[] is indexed by variables, so it stays in memory */
 for (int32_t ki = 0; ki &lt; 4; ki++)
   for (int32_t kj = 0; kj &lt; 8; kj++)
@@ -50,36 +270,18 @@ acc[0] = acc[0] + a0 * B[k * N + 8*jb + 0];
 acc[1] = acc[1] + a0 * B[k * N + 8*jb + 1];
 ...
 acc[31] = acc[31] + a3 * B[k * N + 8*jb + 7];</code></pre>
+<p>With constant indices and an array that never escapes, the C compiler replaces <code>acc[0]</code> to <code>acc[31]</code> with 32 variables, and those go in registers.</p>
+</div></details>
 
+<h2>What you can do now</h2>
 <div class="prose">
-<p>With constant indices and an array that never escapes, the C compiler replaces <code>acc[0]</code> to <code>acc[31]</code> with 32 variables, and those go in registers. The eight B values for one row of the tile sit next to each other in memory, so the compiler can also use <b>SIMD</b> instructions: one instruction that does 4 or 8 multiplies (or adds) on adjacent floats. SIMD works on separate outputs side by side, so every sum still adds in its own order, and the bits don't change.</p>
-
-<h2>What it's worth</h2>
-<p>Measured on the 768×768 GEMM, single-threaded, against the same loops without axes:</p>
-</div>
-
-<div class="tablewrap"><table>
-<thead><tr><th>C compiler</th><th>plain loops</th><th>upcast tile</th><th>speedup</th></tr></thead>
-<tbody>
-<tr><td>clang 19</td><td>98 ms</td><td>24 ms</td><td>4.1×</td></tr>
-<tr><td>gcc 14</td><td>148 ms</td><td>82 ms</td><td>1.8×</td></tr>
-</tbody></table></div>
-
-<div class="prose">
-<p>The two compilers differ a lot. Both get faster, and neither changes a bit of the result. The speed test for upcast alone, <code>s_gemm_768_upcast</code>, asks for at least 0.65 of the reference's speed. A renderer that turns upcast loops into plain <code>for</code> loops lands around 0.25 with clang and 0.55 with gcc, and fails.</p>
-
-<h2>Upcast and the accumulator rule</h2>
-<p>Week 3's rule for loads still decides where things run. In the tiled GEMM, the load of <code>acc[ki*8 + kj]</code> sits inside the <code>k</code> loop, because the <code>k</code> loop stores into the version it reads. Unrolling doesn't change that: it happens after linearizing, when you print C. Unroll in the renderer, not in the graph, and the rules from earlier weeks keep working untouched.</p>
-</div>
-
-<div class="exercise" data-ex="w7-02-upcast-dot">
-<h3>Unroll a dot product</h3>
-<p>Make the <code>k</code> loop of this 8-element dot product an upcast loop. The result, including its bits, must not change.</p>
-</div>
-
-<div class="trap">
-<span class="label">Unrolling everything is not faster</span>
-<p>Registers run out. A 4×8 tile needs 32 accumulators plus a few loaded values, which fits: an x86-64 CPU has 16 vector registers, and at the grader's plain <code>-O2</code> each holds 4 floats, so 32 sums take 8 of them. A 16×16 tile needs 256 sums, 64 registers' worth, which spills back to memory and is slower than a smaller tile. Code size grows too: the C for the full schedule is about 30 KB, which is why upcast tests raise the size limit with <code># max_bytes:</code>.</p>
+<ul>
+<li>Say what a register is, and why an array indexed by a loop counter cannot live in one.</li>
+<li>Write <code>axis=upcast</code> on a range and predict the C it renders to.</li>
+<li>Explain why no axis changes a result, and check it on a program.</li>
+<li>Say why a tile has to stay small enough for its sums to fit in registers.</li>
+</ul>
+<p>Next, <a href="04-threads.html">lesson 7.4</a> adds the third axis: running a loop's iterations on several cores at once.</p>
 </div>
 
 <h2>Check yourself</h2>

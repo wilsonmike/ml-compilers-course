@@ -1,0 +1,181 @@
+{
+ "id": "w6-05n-update",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "Finish one training step",
+ "starter": "%xb   = buffer 6 dtype=f32 slot=0\n%ohb  = buffer 4 dtype=f32 slot=1\n%w    = buffer 6 dtype=f32 slot=2\n%xl   = load %xb\n%x    = reshape %xl [2 3]\n%ol   = load %ohb\n%oh   = reshape %ol [2 2]\n%wl   = load %w\n%W    = reshape %wl [3 2]\n%z    = matmul %x %W\n%e    = exp %z\n%et   = permute %e [1 0]\n%se   = reduce %et op=add\n%ls   = log %se\n%lr   = reshape %ls [2 1]\n%le   = expand %lr [2 2]\n%lp   = sub %z %le\n%pick = mul %lp %oh\n%pf   = reshape %pick [4]\n%tot  = reduce %pf op=add\n%loss = mul %tot -0.5\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    "1": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "2": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "sample": true,
+   "expect": "[0.125 -0.125 -0.125 0.125 0.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     0.0,
+     0.0,
+     1.0,
+     3.0
+    ],
+    "1": [
+     0.0,
+     1.0,
+     1.0,
+     0.0
+    ],
+    "2": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "sample": true,
+   "expect": "[-0.125 0.125 -0.125 0.125 0.375 -0.375]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     0.0,
+     0.0,
+     1.0,
+     3.0
+    ],
+    "1": [
+     1.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    "2": [
+     0.5,
+     -0.5,
+     0.25,
+     0.0,
+     -1.0,
+     1.0
+    ]
+   },
+   "expect": "[0.5456063747406006 -0.5456063747406006 0.590419590473175 -0.34041956067085266 -0.25237953662872314 0.2523795962333679]"
+  },
+  {
+   "data": {
+    "0": [
+     0.5,
+     0.5,
+     0.5,
+     1.0,
+     0.0,
+     1.0
+    ],
+    "1": [
+     0.0,
+     1.0,
+     0.0,
+     1.0
+    ],
+    "2": [
+     0.0,
+     1.0,
+     0.0,
+     1.0,
+     0.0,
+     1.0
+    ]
+   },
+   "expect": "[-0.05260392278432846 1.0526039600372314 -0.022803189232945442 1.0228031873703003 -0.05260392278432846 1.0526039600372314]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "1": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "2": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0
+    ]
+   },
+   "expect": "[1.0 2.0 3.0 4.0 5.0 6.0]"
+  },
+  {
+   "data": {
+    "0": [
+     2.0,
+     0.0,
+     1.0,
+     0.0,
+     2.0,
+     1.0
+    ],
+    "1": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "2": [
+     0.25,
+     -0.25,
+     -0.25,
+     0.25,
+     0.0,
+     0.0
+    ]
+   },
+   "expect": "[0.38447070121765137 -0.38447070121765137 -0.38447070121765137 0.38447070121765137 -7.450580596923828e-09 -7.450580596923828e-09]"
+  }
+ ],
+ "hints": [
+  "Four moves: get the gradient of `%loss` with respect to `%W`, scale it by the learning rate, subtract it from `%W`, and store the result back into the buffer `%w`.",
+  "`gradient %loss %W` has the shape of `%W`, which is `[3 2]`. To multiply it by 0.5, first make 0.5 that shape: `expand 0.5 [3 2]`. Then `sub %W` minus the scaled gradient.",
+  "The buffer holds 6 numbers in a line, so `reshape` the new weights to `[6]` before `store %w ...`, and finish with an `after %w` line so the store counts.",
+  "`%g = gradient %loss %W`, `%rate = expand 0.5 [3 2]`, `%d = mul %g %rate`, `%W1 = sub %W %d`, `%wf = reshape %W1 [6]`, `%st = store %w %wf`, `%w1 = after %w %st`."
+ ],
+ "explain": "The gradient says, for each of the six weights, how the loss changes when that weight goes up. Subtracting half of it moves every weight the way that lowers the loss. The store reads the old weights and writes the new ones into the same buffer, which is allowed because a store's value is computed from the contents before the store. In the first sample image 0 is class 0 and only its pixel 0 is on, so the weight from pixel 0 to class 0 goes up and the one to class 1 goes down. The fifth test has all-zero images, so the gradient is zero and the weights come back unchanged."
+}

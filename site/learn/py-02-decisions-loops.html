@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Decisions, Loops and Functions</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="So far your programs run every line once, top to bottom. This lesson adds the three things that make programs useful: choosing which lines run, running lines...">
+<meta name="description" content="So far your programs run every line once, top to bottom. In P.1 you filled in functions that were already started. This lesson adds three things: functions you...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/py-02-decisions-loops">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Decisions, Loops and Functions">
-<meta property="og:description" content="So far your programs run every line once, top to bottom. This lesson adds the three things that make programs useful: choosing which lines run, running lines again, and wrapping lines up under a name...">
+<meta property="og:description" content="So far your programs run every line once, top to bottom. In P.1 you filled in functions that were already started. This lesson adds three things: functions you write from the first line, if, which...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/py-02-decisions-loops">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,64 +20,272 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Learn Python|Decisions, loops and functions" data-root="../">
 <main>
   <p class="eyebrow">Learn Python · Lesson 2</p>
   <h1>Decisions, loops and functions</h1>
-  <p class="lede">So far your programs run every line once, top to bottom. This lesson adds the three things that make programs useful: choosing which lines run, running lines again, and wrapping lines up under a name so you can use them anywhere.</p>
+  <p class="lede">So far your programs run every line once, top to bottom. In P.1 you filled in functions that were already started. This lesson adds three things: functions you write from the first line, <code>if</code>, which chooses which lines run, and a loop, which runs lines again. With those three you can write the first piece of your compiler.</p>
+
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Read and write a function that picks a calculation by name, and a loop that visits every item.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Values, names, arithmetic and strings from <a href="py-01-first-steps.html">P.1</a>.</p>
+  </div>
 
   <div class="prose">
-    <h2>Comparisons and booleans</h2>
-    <p>A <b>comparison</b> asks a yes or no question about two values. The answer is a boolean: <code>True</code> or <code>False</code>.</p>
+    <p>Here is where this page is going. When you return to <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a>, its first exercise starts from these three lines:</p>
+<pre><code>def apply(op, a, b):
+    if op == "add":
+        return a + b</code></pre>
+    <p>By the end of this page you will read every word of it and write your own.</p>
   </div>
-<pre><code>&gt;&gt;&gt; 3 &lt; 5
-True
-&gt;&gt;&gt; 3 == 3.0
-True
-&gt;&gt;&gt; "cat" == "Cat"
-False
-&gt;&gt;&gt; 2 != 3
-True
-&gt;&gt;&gt; 5 &gt;= 5
-True
-&gt;&gt;&gt; type(3 &lt; 5)
-&lt;class 'bool'&gt;</code></pre>
-  <div class="prose">
-    <p>The operators are <code>==</code> (equal), <code>!=</code> (not equal), <code>&lt;</code>, <code>&gt;</code>, <code>&lt;=</code> and <code>&gt;=</code>. Notice <code>==</code> has two equals signs. One <code>=</code> points a name at a value. Two <code>==</code> ask whether two values are equal. Strings compare letter by letter, and capitals are different letters, so <code>"cat" == "Cat"</code> is <code>False</code>.</p>
-    <p>You combine booleans with three words. <code>and</code> is true when both sides are. <code>or</code> is true when at least one side is. <code>not</code> flips true and false.</p>
-  </div>
-<pre><code>&gt;&gt;&gt; x = 7
-&gt;&gt;&gt; x &gt; 0 and x &lt; 10
-True
-&gt;&gt;&gt; x &lt; 0 or x &gt; 5
-True
-&gt;&gt;&gt; not x &gt; 5
-False
-&gt;&gt;&gt; 0 &lt; x &lt; 10
-True</code></pre>
-  <div class="prose">
-    <p>The last line is a Python shortcut: <code>0 &lt; x &lt; 10</code> means <code>0 &lt; x and x &lt; 10</code>, the way you'd write it in math.</p>
-    <p>Python also lets any value stand in for a boolean. This is called <b>truthiness</b>. Zero, the empty string <code>""</code> and <code>None</code> count as false, and almost everything else counts as true. <code>bool()</code> shows you which:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; bool(0)
-False
-&gt;&gt;&gt; bool(42)
-True
-&gt;&gt;&gt; bool("")
-False
-&gt;&gt;&gt; bool("0")
-True
-&gt;&gt;&gt; bool(None)
-False</code></pre>
-  <div class="prose">
-    <p><code>"0"</code> is a string with one character in it, so it counts as true. When you mean "is this zero" or "is this None", it's clearer to say so with <code>==</code> or <code>is None</code> than to lean on truthiness.</p>
 
-    <h2>if, elif and else</h2>
-    <p>An <code>if</code> statement runs some lines only when a condition is true:</p>
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from P.1, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="11">
+    <p class="q">What is <code>score</code> after these two lines?</p>
+<pre><code>score = 10
+score = score + 1</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The right side of <code>=</code> is worked out first, using the old value.</p>
+    <div class="why"><p><code>score + 1</code> is 10 + 1, and then <code>score</code> points at 11.</p></div>
   </div>
+
+  <div class="quiz" data-fill="1">
+    <p class="q">What is <code>10 % 3</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>%</code> gives what is left over after dividing.</p>
+    <div class="why"><p>3 fits into 10 three times, which makes 9, and 1 is left over. When <code>n % 3</code> is 0, nothing is left over, so 3 divides <code>n</code> exactly. You'll need that below.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Name a calculation</h2>
+    <p>A shop charges the price times the count, plus 5 for shipping. Here are three orders:</p>
+<pre><code>print(3 * 4 + 5)
+print(2 * 10 + 5)
+print(6 * 1 + 5)</code></pre>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">Shipping goes up from 5 to 7. How many lines of that program do you have to edit?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Count the lines that contain <code>+ 5</code>.</p>
+    <div class="why"><p>All 3. With 300 orders it would be 300 edits, and missing one gives a wrong bill.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The fix is to write the calculation once and give it a name. As in P.1, a <b>function</b> is a named piece of code that takes values in and hands one back.</p>
+<pre><code>def total(price, count):
+    return price * count + 5
+
+print(total(3, 4))
+print(total(2, 10))
+print(total(6, 1))</code></pre>
+    <p>This prints 17, 25 and 11. Now shipping lives in one place.</p>
+    <p>The <code>def</code> line starts the function. It gives the name, <code>total</code>, and in parentheses the <b>parameters</b>: names for the values that will come in. The line ends with a colon. The lines under it are the <b>body</b>. They are <b>indented</b>, pushed right by 4 spaces, and that is how Python knows they belong to the function. <code>return</code> hands a value back.</p>
+    <p>Writing <code>total(3, 4)</code> is a <b>call</b>, and 3 and 4 are its <b>arguments</b>. It runs the body. You have been calling a function all along: <code>print</code>. Here is what one call does:</p>
+    <ol>
+      <li><strong>Match the names.</strong> <code>price</code> points at 3 and <code>count</code> points at 4.</li>
+      <li><strong>Run the body.</strong> 3 × 4 + 5 is 17.</li>
+      <li><strong>Hand the value back.</strong> The call <code>total(3, 4)</code> becomes 17, so the line is now <code>print(17)</code>.</li>
+    </ol>
+    <p>The <code>def</code> alone runs nothing. It only stores the body under the name. The body runs each time you call.</p>
+  </div>
+
+  <div class="quiz" data-fill="12">
+    <p class="q">With the <code>total</code> above, what is <code>total(2, 3) + 1</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Work out the call first. It becomes one number.</p>
+    <div class="why"><p><code>total(2, 3)</code> is 2 × 3 + 5, which is 11. The call stands for 11, and 11 + 1 is 12.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Trace a call by hand</h2>
+    <p>To <b>trace</b> a program is to play the computer: go one line at a time and write down what each name points at. It is slow, and it is how you find most bugs. Here <code>total</code> has a two-line body:</p>
+<pre><code>def total(price, count):
+    subtotal = price * count
+    return subtotal + 5
+
+t = total(3, 4)
+print(t)</code></pre>
+    <p>Fill in the two question marks before you check them.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>what runs</th><th>names afterward</th></tr></thead>
+    <tbody>
+      <tr><td>the call <code>total(3, 4)</code> starts</td><td><code>price</code> is 3, <code>count</code> is 4</td></tr>
+      <tr><td><code>subtotal = price * count</code></td><td><code>price</code> is 3, <code>count</code> is 4, <code>subtotal</code> is <b>?</b></td></tr>
+      <tr><td><code>return subtotal + 5</code></td><td>the call is over and has become a number</td></tr>
+      <tr><td><code>t = total(3, 4)</code> finishes</td><td><code>t</code> is <b>?</b></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="quiz" data-fill="12">
+    <p class="q">What is <code>subtotal</code> in row 2?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Put 3 and 4 where the two names are.</p>
+    <div class="why"><p>3 × 4 is 12.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="17">
+    <p class="q">What is <code>t</code> in the last row?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The call becomes whatever the <code>return</code> line worked out.</p>
+    <div class="why"><p><code>subtotal + 5</code> is 17, the call becomes 17, and <code>t</code> points at it.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Look at the last row again. Only <code>t</code> is left. <code>price</code>, <code>count</code> and <code>subtotal</code> belong to the call and are gone when it ends. The one thing that gets out of a function is the value it returns.</p>
+    <p>In the exercises on this page, the <code>def</code> line carries <b>type hints</b>, like <code>price: int</code> and <code>-&gt; int</code>. They say what type goes in and what type comes back. Python ignores them when it runs, so read past them for now.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Names inside a function, for when a NameError surprises you</summary>
+    <div class="prose">
+      <p>A name made inside a function is a <b>local variable</b>. It exists only while that call runs. The part of the code where a name can be seen is its <b>scope</b>. Parameters are local too.</p>
+<pre><code>def total_cost(price, count):
+    subtotal = price * count
+    return subtotal + 5
+
+print(total_cost(3, 4))
+print(subtotal)</code></pre>
+      <p>This prints 17, then stops with <code>NameError: name 'subtotal' is not defined</code>. That is a good thing. Two functions can both use a name like <code>count</code> without stepping on each other.</p>
+      <p>A function can <em>read</em> a name made at the top level of the file, called a <b>global</b>. But if the function assigns to a name anywhere in its body, Python treats that name as local for the whole function, and this fails:</p>
+<pre><code>count = 0
+
+def bump():
+    count = count + 1
+
+bump()</code></pre>
+<pre><code>UnboundLocalError: cannot access local variable 'count' where it is not associated with a value</code></pre>
+      <p>Python 3.10 words it <code>local variable 'count' referenced before assignment</code>. The fix is to pass the value in as a parameter and return the new one: <code>count = bump(count)</code>.</p>
+      <p>Call a function with too few values and Python names the missing one: <code>total_cost(3)</code> gives <code>TypeError: total_cost() missing 1 required positional argument: 'count'</code>.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Type hints, the notes on a def line</summary>
+    <div class="prose">
+<pre><code>def area(width: int, height: int) -&gt; int:
+    return width * height</code></pre>
+      <p>Read <code>width: int</code> as "width is an int" and <code>-&gt; int</code> as "returns an int". A function that returns nothing is marked <code>-&gt; None</code>. Python ignores them when it runs, so <code>area("ab", 3)</code> happily gives <code>'ababab'</code>.</p>
+      <p>They are for you and your editor. They say what a function expects in a form you can read at a glance. VS Code uses them to show types when you hover over a name, and it can underline a call that passes the wrong kind of value once you set Python › Analysis: Type Checking Mode to <code>basic</code> in Settings.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>One function calling another, step by step</summary>
+    <div class="prose">
+      <p>When one function calls another, Python remembers where it was in the first, runs the second to its <code>return</code>, and comes back with the value. Each running call has its own set of local variables, called a <b>frame</b>.</p>
+<pre><code>def square(n):
+    return n * n
+
+def sum_squares(a, b):
+    return square(a) + square(b)
+
+print(sum_squares(2, 3))</code></pre>
+    </div>
+    <div class="fig" id="calls" data-title="sum_squares(2, 3), one step at a time"></div>
+    <div class="prose">
+      <p>To trace this on paper, write the call, then under it the parameters with their values. When the body calls another function, start a new entry below, indented. When that one returns, cross it out and write its value where the call was. The traceback from P.1 lists exactly these frames, outermost first, which is why it says "most recent call last".</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>return is not print</h2>
+    <p>This function has no <code>return</code>. It prints instead. Predict before you read on.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What does this program print?</p>
+<pre><code>def double(x):
+    print(x * 2)
+
+y = double(5)
+print(y)</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>10</code>, then <code>10</code></button>
+      <button data-k="b"><code>10</code>, then <code>None</code></button>
+      <button data-k="c">only <code>10</code></button>
+    </div>
+    <p class="hint">The first 10 comes from the <code>print</code> inside the function. What did the call hand back for <code>y</code> to point at?</p>
+    <div class="why"><p>The body prints 10. Then it ends without a <code>return</code>, so the call hands back <code>None</code>, the value that means "nothing". <code>y</code> points at <code>None</code>, and the last line prints that.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>This is the most common beginner mix-up, because on the screen both look the same. They are not:</p>
+    <ul>
+      <li><code>print</code> writes text on the screen for a person to read. The program gets nothing back.</li>
+      <li><code>return</code> hands a value to the code that made the call. Nothing shows on the screen.</li>
+    </ul>
+    <p>A function that reaches the end of its body without a <code>return</code> hands back <code>None</code>. So <code>double(5) + 1</code> stops with <code>TypeError: unsupported operand type(s) for +: 'NoneType' and 'int'</code>. Python tried to add <code>None</code> and 1.</p>
+    <p>The rule: <code>print</code> is for people, <code>return</code> is for code. A function that computes something should return it. The caller decides whether to print it.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-02n-fix-return">
+    <h3>Give the answer back</h3>
+    <p><code>perimeter(width, height)</code> should return the distance around a rectangle: twice the sum of the width and the height. The math is right, but every test fails. Run it, read what the tests got, and fix one word.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-02n-seconds">
+    <h3>Minutes and seconds</h3>
+    <p>Now write a body yourself. <code>to_seconds(minutes, seconds)</code> returns the total number of seconds. <code>to_seconds(2, 5)</code> is 125. The starter returns 0.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Ask a yes or no question</h2>
+    <p><code>total</code> does the same math on every call. But <code>apply</code> has to add for <code>"add"</code> and do something else for another op. Before a function can choose, it has to ask a question.</p>
+    <p>A <b>comparison</b> asks a yes or no question about two values. Its answer is one of the two booleans from P.1: <code>True</code> or <code>False</code>.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>comparison</th><th>asks</th><th>example</th></tr></thead>
+    <tbody>
+      <tr><td><code>==</code></td><td>are they equal?</td><td><code>2 + 2 == 4</code> is <code>True</code></td></tr>
+      <tr><td><code>!=</code></td><td>are they different?</td><td><code>2 != 3</code> is <code>True</code></td></tr>
+      <tr><td><code>&lt;</code> and <code>&gt;</code></td><td>less than? greater than?</td><td><code>3 &gt; 5</code> is <code>False</code></td></tr>
+      <tr><td><code>&lt;=</code> and <code>&gt;=</code></td><td>less or equal? greater or equal?</td><td><code>5 &gt;= 5</code> is <code>True</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>Mind the two equals signs. One <code>=</code> points a name at a value. Two <code>==</code> ask whether two values are equal.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What is <code>"add" == "Add"</code>?</p>
+    <div class="opts"><button data-k="a"><code>True</code></button><button data-k="b"><code>False</code></button><button data-k="c">an error</button></div>
+    <p class="hint">Strings are compared one character at a time. Is <code>a</code> the same character as <code>A</code>?</p>
+    <div class="why"><p><code>False</code>. A capital letter is a different character, so the strings differ. An op name has to match exactly.</p></div>
+  </div>
+
+  <details class="toggle">
+    <summary>Joining questions with and, or and not, and what counts as true</summary>
+    <div class="prose">
+      <p><code>and</code> is true when both sides are. <code>or</code> is true when at least one side is. <code>not</code> flips true and false. With <code>x = 7</code>:</p>
+      <ul>
+        <li><code>x &gt; 0 and x &lt; 10</code> is <code>True</code></li>
+        <li><code>x &lt; 0 or x &gt; 5</code> is <code>True</code></li>
+        <li><code>not x &gt; 5</code> is <code>False</code></li>
+        <li><code>0 &lt; x &lt; 10</code> is <code>True</code>. This shortcut means <code>0 &lt; x and x &lt; 10</code>.</li>
+      </ul>
+      <p>Python also lets any value stand in for a boolean. This is called <b>truthiness</b>. Zero, the empty string <code>""</code> and <code>None</code> count as false, and almost everything else counts as true. <code>bool()</code> shows which: <code>bool(0)</code>, <code>bool("")</code> and <code>bool(None)</code> are <code>False</code>, and <code>bool(42)</code> and <code>bool("0")</code> are <code>True</code>. <code>"0"</code> is a string with one character in it, so it counts as true. When you mean "is this zero" or "is this None", say so with <code>== 0</code> or <code>is None</code>.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>Choose which lines run</h2>
+    <p>Make a guess.</p>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">What does this print?</p>
 <pre><code>temp = 31
 if temp &gt; 30:
     print("hot")
@@ -85,120 +293,161 @@ elif temp &gt; 15:
     print("mild")
 else:
     print("cold")</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>hot</code></button>
+      <button data-k="b"><code>hot</code>, then <code>mild</code></button>
+      <button data-k="c"><code>hot</code>, then <code>mild</code>, then <code>cold</code></button>
+    </div>
+    <p class="hint">31 is above 30 and also above 15. Does Python keep asking after it finds a yes?</p>
+    <div class="why"><p>Only <code>hot</code>. Python asks the questions from the top, runs the lines under the first one that is true, and skips the rest.</p></div>
+  </div>
+
   <div class="prose">
-    <p>This prints <code>hot</code>. Python checks the conditions from the top and runs the block under the <em>first</em> one that is true, then skips the rest. <code>elif</code> means "else if": it's only checked when everything above it was false. <code>else</code> has no condition and catches whatever is left. You can have any number of <code>elif</code> lines, and <code>elif</code> and <code>else</code> are both optional.</p>
-    <p>The order matters. With <code>temp = 31</code>, both <code>temp &gt; 30</code> and <code>temp &gt; 15</code> are true, but only <code>hot</code> is printed, because the first match wins.</p>
-    <p>Look at the shape. Each condition ends with a colon, and the lines that belong to it are <b>indented</b>, pushed right by 4 spaces. In Python the indentation is not decoration. It <em>is</em> the structure: it's how Python knows which lines are inside the <code>if</code>. VS Code inserts the 4 spaces for you after a colon.</p>
-  </div>
-<pre><code>temp = 31
-if temp &gt; 30:
-print("hot")</code></pre>
-<pre><code>  File "C:\Users\you\ind.py", line 3
-    print("hot")
-    ^
-IndentationError: expected an indented block after 'if' statement on line 2</code></pre>
-  <div class="prose">
-    <p>An <code>IndentationError</code> is a kind of SyntaxError, so nothing in the file runs. The opposite mistake, indenting a line that has no colon above it, gives <code>IndentationError: unexpected indent</code>.</p>
-  </div>
-  <div class="trap">
-    <span class="label">The indent Python can't catch</span>
-    <p>The worst indentation mistake is not an error at all. If a line that should be inside the <code>if</code> is not indented, it is outside the <code>if</code>, and it runs every time. Python can't know what you meant. When a program does something "always" that it should do "sometimes", check the indentation first.</p>
-  </div>
-  <div class="trap">
-    <span class="label">One equals sign</span>
-    <p><code>if x = 5:</code> is a SyntaxError, and Python says so helpfully: <code>invalid syntax. Maybe you meant '==' or ':=' instead of '='?</code>. You meant <code>==</code>.</p>
+    <p>An <code>if</code> statement runs some lines only when a comparison is true. It has up to three kinds of part:</p>
+    <ul>
+      <li><code>if</code> asks the first question.</li>
+      <li><code>elif</code>, short for "else if", asks another. Python only gets to it when everything above was false. You can have many, or none.</li>
+      <li><code>else</code> asks nothing. It catches whatever is left. You can leave it out.</li>
+    </ul>
+    <p>Each of these lines ends with a colon, and the lines that belong to it are indented, just like a function body. A line that is not indented is outside the <code>if</code> and runs every time.</p>
+    <p>Trace it with <code>temp = 20</code>:</p>
+    <ol>
+      <li><strong>Ask the first question.</strong> <code>20 &gt; 30</code> is <code>False</code>. Skip its lines.</li>
+      <li><strong>Ask the next.</strong> <code>20 &gt; 15</code> is <code>True</code>. Print <code>mild</code>.</li>
+      <li><strong>Skip the rest.</strong> <code>else</code> is never looked at.</li>
+    </ol>
+    <p>Because the first true question wins, the order of the questions matters. The next exercise has them in the wrong order.</p>
   </div>
 
   <div class="exercise small" data-ex="lp-02-fizzbuzz">
     <h3>Fizz, Buzz or the number</h3>
-    <p>Write <code>fizzbuzz(n)</code>. It returns <code>"FizzBuzz"</code> when <code>n</code> is divisible by both 3 and 5, <code>"Fizz"</code> when only by 3, <code>"Buzz"</code> when only by 5, and otherwise the number as a string, like <code>"7"</code>. The starter is nearly right, but it gets 15 wrong.</p>
-    <p class="muted">"Divisible by 3" is <code>n % 3 == 0</code>. Then think about which condition should be checked first.</p>
+    <p><code>fizzbuzz(n)</code> returns <code>"FizzBuzz"</code> when <code>n</code> is divisible by both 3 and 5, <code>"Fizz"</code> when only by 3, <code>"Buzz"</code> when only by 5, and otherwise the number as a string, like <code>"7"</code>. The starter is nearly right, but it gets 15 wrong.</p>
+    <p class="muted">"Divisible by 3" is <code>n % 3 == 0</code>. Trace the starter with 15, then think about which question should be asked first.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Two errors and one silent mistake with if</summary>
+    <div class="prose">
+      <p><b>A missing indent.</b> If the line after <code>if temp &gt; 30:</code> is not indented, Python stops before running anything with <code>IndentationError: expected an indented block after 'if' statement on line 2</code>. Indenting a line that has no colon above it gives <code>IndentationError: unexpected indent</code>.</p>
+      <p><b>One equals sign.</b> <code>if x = 5:</code> is a <code>SyntaxError</code>, and Python says <code>invalid syntax. Maybe you meant '==' or ':=' instead of '='?</code>. You meant <code>==</code>.</p>
+      <p><b>The indent Python can't catch.</b> If a line that should be inside the <code>if</code> is not indented, it is outside, and it runs every time. That is not an error, so Python says nothing. When a program does something "always" that it should do "sometimes", check the indentation first.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>Build a small apply</h2>
+    <p>Put a function and an <code>if</code> together and you have the three lines from the top of this page:</p>
+<pre><code>def apply(op, a, b):
+    if op == "add":
+        return a + b</code></pre>
+    <p>Now you can read it. <code>apply</code> takes an op's name and two numbers. Follow the call <code>apply("add", 2, 3)</code>:</p>
+    <ol>
+      <li><strong>Match the names.</strong> <code>op</code> is <code>"add"</code>, <code>a</code> is 2, <code>b</code> is 3.</li>
+      <li><strong>Pick the op.</strong> <code>op == "add"</code> is <code>True</code>, so the indented line runs.</li>
+      <li><strong>Do the math.</strong> <code>return a + b</code> hands back 5.</li>
+    </ol>
+    <p>A <code>return</code> ends the call at once. So a second op needs no <code>elif</code>. Put another <code>if</code> under the first, at the same indent. Python only reaches it when the first one did not return.</p>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">With only those three lines, what does <code>apply("mul", 2, 3)</code> hand back?</p>
+    <div class="opts"><button data-k="a"><code>6</code></button><button data-k="b"><code>5</code></button><button data-k="c"><code>None</code></button></div>
+    <p class="hint"><code>"mul" == "add"</code> is <code>False</code>, so the <code>return</code> line is skipped. What does a function hand back when it runs out of lines?</p>
+    <div class="why"><p>No question matched, the body ended without a <code>return</code>, and the call handed back <code>None</code>. When you see a <code>None</code> you did not expect, look for the path through the function that has no <code>return</code>.</p></div>
+  </div>
+
+  <div class="exercise" data-ex="lp-02n-apply">
+    <h3>A small apply</h3>
+    <p>Write <code>apply(op, a, b)</code> with three ops: <code>"add"</code> returns <code>a + b</code>, <code>"sub"</code> returns <code>a - b</code>, and <code>"min"</code> returns the smaller of the two. The starter returns 0 for everything.</p>
+    <p class="muted">For <code>"min"</code> you need a second question inside the branch. An <code>if</code> can sit inside another <code>if</code>: indent it 4 more spaces.</p>
   </div>
 
   <div class="prose">
-    <h2>while loops</h2>
-    <p>A <b>loop</b> runs the same lines again and again. A <code>while</code> loop keeps going as long as its condition is true. This one adds up 1 + 2 + 3 + 4:</p>
-  </div>
-<pre><code>n = 1
-total = 0
-while n &lt;= 4:
-    total = total + n
-    n = n + 1
-print(total)</code></pre>
-  <div class="prose">
-    <p>It prints <code>10</code>. Each time through the loop is called an <b>iteration</b>. Before each iteration, Python checks the condition. If it's true, it runs the indented block and comes back to check again. If it's false, it skips to the first line after the block.</p>
-    <p>The best way to understand a loop is a <b>trace table</b>: one row per check of the condition, with the value of every variable at that moment. Writing one by hand is slow, but it is how you find nearly every loop bug.</p>
-  </div>
-  <div class="tablewrap"><table>
-    <thead><tr><th>check</th><th><code>n</code></th><th><code>total</code></th><th><code>n &lt;= 4</code>?</th><th>then</th></tr></thead>
-    <tbody>
-      <tr><td>1</td><td>1</td><td>0</td><td>True</td><td><code>total</code> becomes 1, <code>n</code> becomes 2</td></tr>
-      <tr><td>2</td><td>2</td><td>1</td><td>True</td><td><code>total</code> becomes 3, <code>n</code> becomes 3</td></tr>
-      <tr><td>3</td><td>3</td><td>3</td><td>True</td><td><code>total</code> becomes 6, <code>n</code> becomes 4</td></tr>
-      <tr><td>4</td><td>4</td><td>6</td><td>True</td><td><code>total</code> becomes 10, <code>n</code> becomes 5</td></tr>
-      <tr><td>5</td><td>5</td><td>10</td><td>False</td><td>leave the loop, print 10</td></tr>
-    </tbody>
-  </table></div>
-  <div class="prose">
-    <p>The condition is checked 5 times, and the block runs 4 times. The last check is the one that fails. That one extra check is normal for every <code>while</code> loop.</p>
-  </div>
-  <div class="trap">
-    <span class="label">A loop that never ends</span>
-    <p>Delete the line <code>n = n + 1</code> and <code>n</code> stays 1 forever, so <code>n &lt;= 4</code> is always true. The program hangs. Press Ctrl+C in the terminal to stop it. Every <code>while</code> loop needs something inside it that eventually makes its condition false.</p>
-  </div>
-
-  <div class="prose">
-    <h2>for loops and range</h2>
-    <p>Most loops count through something, and a <code>for</code> loop does the counting for you. It takes each item of a sequence in turn and points a name at it. A string is a sequence of characters:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; for ch in "abc":
-...     print(ch)
-...
-a
-b
-c</code></pre>
-  <div class="prose">
-    <p>The <code>...</code> is the REPL's prompt for "the block is still going". Press Enter on an empty line to finish it.</p>
-    <p>To count, loop over a <code>range</code>. <code>range(5)</code> gives 0, 1, 2, 3, 4. <code>range(start, stop)</code> starts somewhere else, and a third number is the <b>step</b>. To see all the numbers of a range at once, wrap it in <code>list()</code>. (Lists are lesson 3. For now, read <code>[0, 1, 2]</code> as "these numbers in this order".)</p>
-  </div>
-<pre><code>&gt;&gt;&gt; list(range(5))
-[0, 1, 2, 3, 4]
-&gt;&gt;&gt; list(range(1, 5))
-[1, 2, 3, 4]
-&gt;&gt;&gt; list(range(2, 10, 3))
-[2, 5, 8]
-&gt;&gt;&gt; list(range(5, 0, -1))
-[5, 4, 3, 2, 1]
-&gt;&gt;&gt; list(range(0))
-[]</code></pre>
-  <div class="prose">
-    <p>The stop number is never included. <code>range(1, 5)</code> stops <em>before</em> 5. This is the same rule as string indexes: <code>range(len(word))</code> gives exactly the valid indexes of <code>word</code>. It also means <code>range(a, b)</code> has <code>b - a</code> numbers in it, which is easy to check.</p>
-    <p>The <code>for</code> version of the sum from above is shorter, and it can't forget to move <code>n</code> along:</p>
-  </div>
+    <h2>Do it for every item</h2>
+    <p>Adding up 1 to 4 is easy to type: <code>1 + 2 + 3 + 4</code>. Adding up 1 to 1000 that way is not. You want to say "do this line for every number" once. A <b>loop</b> runs the same lines again and again, and a <code>for</code> loop runs them once for each item of a sequence.</p>
 <pre><code>total = 0
 for n in range(1, 5):
     total = total + n
 print(total)</code></pre>
-  <div class="trap">
-    <span class="label">Off by one</span>
-    <p>To add up 1 to 10, you need <code>range(1, 11)</code>, not <code>range(1, 10)</code>. Being one step short or one step long is so common that it has a name: an <b>off-by-one error</b>. When a loop's answer is a little wrong, check the first and the last value the loop sees.</p>
+    <p><code>range(1, 5)</code> gives the numbers 1, 2, 3, 4. It starts at the first number and stops <em>before</em> the second. With one number, <code>range(5)</code>, it starts at 0 and gives 0, 1, 2, 3, 4.</p>
+    <p>Each pass of the loop does two things:</p>
+    <ol>
+      <li><strong>Take the next item.</strong> <code>n</code> points at it.</li>
+      <li><strong>Run the body.</strong> That is the indented line. Then go back for the next item.</li>
+    </ol>
+    <p>When the items run out, Python goes on to the first line after the body. Trace it, one row per pass:</p>
   </div>
-  <div class="prose">
-    <p>Two words change a loop's flow from inside. <code>break</code> leaves the loop at once. <code>continue</code> skips the rest of this iteration and goes on to the next one.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>pass</th><th><code>n</code></th><th><code>total</code> before</th><th><code>total</code> after</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>1</td><td>0</td><td>1</td></tr>
+      <tr><td>2</td><td>2</td><td>1</td><td>3</td></tr>
+      <tr><td>3</td><td>3</td><td>3</td><td><b>?</b></td></tr>
+      <tr><td>4</td><td>4</td><td><b>?</b></td><td><b>?</b></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="quiz" data-fill="10">
+    <p class="q">Fill in the question marks. What does the program print?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Pass 3 turns 3 into 3 + 3. That is where pass 4 starts.</p>
+    <div class="why"><p>Pass 3 makes <code>total</code> 6. Pass 4 starts at 6 and makes it 10. There is no item 5, so the loop ends and <code>print(total)</code> shows 10.</p></div>
   </div>
-<pre><code>&gt;&gt;&gt; for n in range(1, 10):
-...     if n % 2 == 0:
-...         continue
-...     if n &gt; 7:
-...         break
-...     print(n)
-...
-1
-3
-5
-7</code></pre>
+
   <div class="prose">
-    <p>Even numbers hit <code>continue</code>, so they're skipped. At <code>n = 9</code>, the second test is true and <code>break</code> ends the loop, so 9 is never printed. Use <code>while</code> when you don't know in advance how many iterations you need, and <code>for</code> when you are going through something.</p>
+    <p>A string is a sequence too. <code>for ch in "abc":</code> runs its body three times, with <code>ch</code> as <code>"a"</code>, then <code>"b"</code>, then <code>"c"</code>.</p>
+    <p>Because the stop number is left out, it is easy to be one step short. That mistake is common enough to have a name: an <b>off-by-one error</b>. The next exercise has one.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lp-02n-sum-to">
+    <h3>Add up 1 to n</h3>
+    <p><code>sum_to(n)</code> should add up the whole numbers from 1 to <code>n</code>, so <code>sum_to(4)</code> is 10. The starter is one number short. Run it, compare what it gives with what you traced above, and fix the loop line.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>More about range, plus break and continue</summary>
+    <div class="prose">
+      <p>A third number in <code>range</code> is the <b>step</b>. Wrap a range in <code>list()</code> to see all its numbers at once. (Lists are P.3. For now, read <code>[0, 1, 2]</code> as "these numbers in this order".)</p>
+      <ul>
+        <li><code>list(range(5))</code> is <code>[0, 1, 2, 3, 4]</code></li>
+        <li><code>list(range(1, 5))</code> is <code>[1, 2, 3, 4]</code></li>
+        <li><code>list(range(2, 10, 3))</code> is <code>[2, 5, 8]</code></li>
+        <li><code>list(range(5, 0, -1))</code> is <code>[5, 4, 3, 2, 1]</code></li>
+        <li><code>list(range(0))</code> is <code>[]</code></li>
+      </ul>
+      <p><code>range(a, b)</code> has <code>b - a</code> numbers in it. And <code>range(len(word))</code> gives exactly the valid indexes of the string <code>word</code>.</p>
+      <p>Two words change a loop from inside. <code>break</code> leaves the loop at once. <code>continue</code> skips the rest of this pass and goes on to the next item.</p>
+<pre><code>for n in range(1, 10):
+    if n % 2 == 0:
+        continue
+    if n &gt; 7:
+        break
+    print(n)</code></pre>
+      <p>This prints 1, 3, 5 and 7. Even numbers hit <code>continue</code>. At <code>n = 9</code> the second question is true and <code>break</code> ends the loop, so 9 is never printed.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>A loop with a decision inside</h2>
+    <p>The three ideas fit inside each other. This function counts the even numbers from 1 to <code>n</code>. It is a function, with a loop in it, with an <code>if</code> in the loop. Each level is indented 4 more spaces.</p>
+<pre><code>def count_evens(n):
+    count = 0
+    for i in range(1, n + 1):
+        if i % 2 == 0:
+            count = count + 1
+    return count</code></pre>
+    <p>Read the indentation to see what belongs where. The <code>if</code> runs on every pass. The line under it runs only on passes where <code>i</code> is even. The <code>return</code> lines up with <code>for</code>, so it is after the loop and runs once, when every item has been seen.</p>
+  </div>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">What is <code>count_evens(5)</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>i</code> goes 1, 2, 3, 4, 5. On which passes is <code>i % 2 == 0</code> true?</p>
+    <div class="why"><p>Only 2 and 4 are even, so <code>count</code> goes up twice.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>A <code>return</code> can also sit <em>inside</em> a loop. It ends the whole call at once, loop included. Use that when one item is enough to know the answer.</p>
   </div>
 
   <div class="exercise small" data-ex="lp-02-is-prime">
@@ -208,146 +457,56 @@ print(total)</code></pre>
   </div>
 
   <div class="prose">
-    <h2>Functions</h2>
-    <p>A <b>function</b> is a block of code with a name. You write it once with <code>def</code>, and then <b>call</b> it, by its name and brackets, as often as you like.</p>
+    <h2>Repeat until something changes</h2>
+    <p>A <code>for</code> loop needs to know its items before it starts. Sometimes you don't know how many passes you need, only when to stop. A <code>while</code> loop keeps going as long as a comparison is true. This one counts how many times 10 can be halved before it reaches 1:</p>
+<pre><code>n = 10
+steps = 0
+while n &gt; 1:
+    n = n // 2
+    steps = steps + 1
+print(steps)</code></pre>
+    <p>Before each pass, Python asks the question. If it is true, the body runs and Python comes back to ask again. If it is false, Python goes on to the line after the body.</p>
   </div>
-<pre><code>&gt;&gt;&gt; def area(width, height):
-...     return width * height
-...
-&gt;&gt;&gt; area(3, 4)
-12
-&gt;&gt;&gt; area(10, 2) + 1
-21</code></pre>
-  <div class="prose">
-    <p>The names in the <code>def</code> line, <code>width</code> and <code>height</code>, are the function's <b>parameters</b>. The values you pass in a call, <code>3</code> and <code>4</code>, are the <b>arguments</b>. When you call <code>area(3, 4)</code>, Python points <code>width</code> at 3 and <code>height</code> at 4, then runs the body. <code>return</code> ends the function and hands a value back to whoever called it. The call <code>area(3, 4)</code> then stands for that value, which is why <code>area(10, 2) + 1</code> works.</p>
-    <p>Call it with the wrong number of arguments and Python tells you which one is missing:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; area(3)
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-TypeError: area() missing 1 required positional argument: 'height'</code></pre>
-  <div class="prose">
-    <p>Defining a function doesn't run its body. The <code>def</code> only stores it under the name. The body runs each time the function is called. Keep functions small: one function, one job. A function you can describe in one short sentence is about the right size.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>check</th><th><code>n</code></th><th><code>steps</code></th><th><code>n &gt; 1</code>?</th><th>then</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>10</td><td>0</td><td>True</td><td><code>n</code> becomes 5, <code>steps</code> becomes 1</td></tr>
+      <tr><td>2</td><td>5</td><td>1</td><td>True</td><td><code>n</code> becomes 2, <code>steps</code> becomes 2</td></tr>
+      <tr><td>3</td><td>2</td><td>2</td><td>True</td><td><code>n</code> becomes <b>?</b>, <code>steps</code> becomes 3</td></tr>
+      <tr><td>4</td><td><b>?</b></td><td>3</td><td>False</td><td>leave the loop, print 3</td></tr>
+    </tbody>
+  </table></div>
 
-    <h2>return is not print</h2>
-    <p>This is the most common beginner bug in Python, and it's worth slowing down for. Here are two functions that look like they do the same thing:</p>
+  <div class="quiz" data-fill="1">
+    <p class="q">What is <code>n</code> at check 4?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>//</code> is whole-number division. How many whole times does 2 fit in 2?</p>
+    <div class="why"><p><code>2 // 2</code> is 1, and <code>1 &gt; 1</code> is <code>False</code>, so the loop ends. The question was asked 4 times and the body ran 3 times. The last check is always the one that fails.</p></div>
   </div>
-<pre><code>&gt;&gt;&gt; def double_print(x):
-...     print(x * 2)
-...
-&gt;&gt;&gt; def double(x):
-...     return x * 2
-...
-&gt;&gt;&gt; double_print(5)
-10
-&gt;&gt;&gt; double(5)
-10</code></pre>
-  <div class="prose">
-    <p>In the REPL they look identical. But one <em>prints</em> 10 on the screen and the other <em>returns</em> 10 to the caller, and that's a big difference. Watch what each one gives back:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; y = double_print(5)
-10
-&gt;&gt;&gt; y
-&gt;&gt;&gt; print(y)
-None
-&gt;&gt;&gt; double_print(5) + 1
-10
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-TypeError: unsupported operand type(s) for +: 'NoneType' and 'int'
-&gt;&gt;&gt; double(5) + 1
-11</code></pre>
-  <div class="prose">
-    <p>A function that reaches the end of its body without a <code>return</code> returns <code>None</code>. So <code>double_print(5)</code> writes 10 on the screen for <em>you</em> to read, and gives <code>None</code> to the program. The line <code>y</code> shows nothing because the REPL doesn't echo <code>None</code>. The <code>TypeError</code> says the program tried to add <code>None</code> and 1.</p>
-    <p>The rule: <code>print</code> is for people, <code>return</code> is for code. A function that computes something should return it, and the caller decides whether to print it.</p>
-  </div>
+
   <div class="trap">
-    <span class="label">A path with no return</span>
-    <p>A function can return on some paths and fall off the end on others. <code>sign</code> below returns a string for 5, but for 0 neither <code>if</code> matches, the body ends, and the result is <code>None</code>. When you see an unexpected <code>None</code>, look for the path that has no <code>return</code>.</p>
+    <span class="label">A loop that never ends</span>
+    <p>Take out the line <code>n = n // 2</code> and <code>n</code> stays 10 forever, so <code>n &gt; 1</code> is always true and the program hangs. Every <code>while</code> loop needs a line in its body that will make its question false in the end. Use <code>for</code> when you are going through something, and <code>while</code> when you can't say in advance how many passes it takes.</p>
   </div>
-<pre><code>&gt;&gt;&gt; def sign(n):
-...     if n &gt; 0:
-...         return "positive"
-...     if n &lt; 0:
-...         return "negative"
-...
-&gt;&gt;&gt; sign(5)
-'positive'
-&gt;&gt;&gt; print(sign(0))
-None</code></pre>
 
   <div class="exercise small" data-ex="lp-02-count-digits">
     <h3>Count the digits</h3>
-    <p>Write <code>count_digits(n)</code> for a whole number <code>n</code> that is 0 or more, using a <code>while</code> loop. <code>count_digits(345)</code> is 3 and <code>count_digits(7)</code> is 1. Dividing by 10 with <code>//</code> removes the last digit: 345, then 34, then 3. The starter has two bugs. Run it first and read what the tests got.</p>
+    <p><code>count_digits(n)</code> counts the digits of a whole number <code>n</code> that is 0 or more, using a <code>while</code> loop. <code>count_digits(345)</code> is 3 and <code>count_digits(7)</code> is 1. Dividing by 10 with <code>//</code> removes the last digit: 345, then 34, then 3. The starter has two bugs. Run it first and read what the tests got.</p>
     <p class="muted">What does the starter give back? And how many digits does it think 0 has? A trace table for 345 and for 0 will show you.</p>
-  </div>
-
-  <div class="prose">
-    <h2>Local variables and type hints</h2>
-    <p>A variable made inside a function is a <b>local variable</b>. It exists only while that call is running, and the code outside can't see it. The region of code where a name can be seen is called its <b>scope</b>.</p>
-  </div>
-<pre><code>&gt;&gt;&gt; def total_cost(price, count):
-...     subtotal = price * count
-...     return subtotal + 5
-...
-&gt;&gt;&gt; total_cost(3, 4)
-17
-&gt;&gt;&gt; subtotal
-Traceback (most recent call last):
-  File "&lt;stdin&gt;", line 1, in &lt;module&gt;
-NameError: name 'subtotal' is not defined</code></pre>
-  <div class="prose">
-    <p>Parameters are local too. This is a good thing. It means two functions can both use a name like <code>count</code> without stepping on each other, and you can understand a function by reading only the function. To get a value out, return it.</p>
-    <p>A function can <em>read</em> a variable made at the top level of the file, outside any function. That kind of variable is called a <b>global</b>. But if the function assigns to a name anywhere in its body, Python treats that name as local for the whole function, and this fails:</p>
-  </div>
-<pre><code>count = 0
-
-def bump():
-    count = count + 1
-
-bump()</code></pre>
-<pre><code>UnboundLocalError: cannot access local variable 'count' where it is not associated with a value</code></pre>
-  <div class="prose">
-    <p>That's the last line of the traceback (Python 3.10 words it <code>local variable 'count' referenced before assignment</code>). The fix is the same as before: pass the value in as a parameter, and return the new value. <code>count = bump(count)</code> is clearer than a function that quietly changes the world outside it.</p>
-    <p>You can add <b>type hints</b> to a function: notes saying what type each parameter should be and what it returns.</p>
-  </div>
-<pre><code>def area(width: int, height: int) -&gt; int:
-    return width * height</code></pre>
-  <div class="prose">
-    <p>Read <code>width: int</code> as "width is an int" and <code>-&gt; int</code> as "returns an int". A function that returns nothing is marked <code>-&gt; None</code>. Python itself ignores hints when it runs:</p>
-  </div>
-<pre><code>&gt;&gt;&gt; area("ab", 3)
-'ababab'</code></pre>
-  <div class="prose">
-    <p>So why write them? For you and your editor. They say what a function expects in a form you can read at a glance, and VS Code uses them to show types when you hover over a name. It can also underline a call that passes the wrong kind of value, once you open Settings, search for "type checking mode" and set Python › Analysis: Type Checking Mode to <code>basic</code>. The exercises in this course have hints in their starters for that reason.</p>
-
-    <h2>Tracing a call by hand</h2>
-    <p>When one function calls another, Python remembers where it was in the first, runs the second to its <code>return</code>, and comes back with the value. Each running call has its own set of local variables, called a <b>frame</b>. Step through this program to see the frames come and go:</p>
-  </div>
-<pre><code>def square(n):
-    return n * n
-
-def sum_squares(a, b):
-    return square(a) + square(b)
-
-print(sum_squares(2, 3))</code></pre>
-  <div class="fig" id="calls" data-title="sum_squares(2, 3), one step at a time"></div>
-  <div class="prose">
-    <p>To trace a call on paper, write the call, then under it the parameters with their values. When the body calls another function, start a new entry below, indented. When that one returns, cross it out and write its value where the call was. The traceback from lesson 1 lists exactly these frames, outermost first, which is why it says "most recent call last".</p>
   </div>
 
   <div class="prose">
     <h2>What you can do now</h2>
     <ul>
-      <li>Write comparisons and combine them with <code>and</code>, <code>or</code> and <code>not</code>.</li>
-      <li>Choose between paths with <code>if</code>, <code>elif</code> and <code>else</code>, and indent the blocks correctly.</li>
+      <li>Define a function with parameters, call it, and return its result instead of printing it.</li>
+      <li>Trace a call by hand, and say why a name made inside a function is gone afterward.</li>
+      <li>Ask a question with <code>==</code>, <code>!=</code>, <code>&lt;</code> and <code>&gt;</code>.</li>
+      <li>Choose between paths with <code>if</code>, <code>elif</code> and <code>else</code>, and put the questions in the right order.</li>
+      <li>Read and write <code>apply(op, a, b)</code>: one branch per op.</li>
+      <li>Go through every item with <code>for</code> and <code>range</code>, and spot an off-by-one error.</li>
       <li>Write a <code>while</code> loop that ends, and check it with a trace table.</li>
-      <li>Count with <code>for</code> and <code>range</code>, and spot an off-by-one error.</li>
-      <li>Define a function with parameters, call it with arguments, and return its result instead of printing it.</li>
-      <li>Explain why a variable inside a function isn't visible outside it.</li>
-      <li>Trace one function calling another, frame by frame.</li>
     </ul>
-    <p>Next, <a href="py-03-collections.html">lesson 3</a> gives you lists, dicts and sets, so one name can hold many values.</p>
+    <p>Next, <a href="py-03-collections.html">P.3</a> gives you lists, dicts and sets, so one name can hold many values. Those are the last pieces you need for the calculator.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -362,7 +521,7 @@ print(sum_squares(2, 3))</code></pre>
   </div>
 
   <div class="quiz" data-fill="[2, 6, 10]">
-    <p class="q">What does <code>list(range(2, 11, 4))</code> give? Write it like the REPL would.</p>
+    <p class="q">A third number in <code>range</code> is the step: <code>range(2, 11, 4)</code> starts at 2 and adds 4 each time. Which numbers does it give? Write them as a list, like <code>[1, 2, 3]</code>.</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">Start at 2, add 4 each time, and stop before you reach 11.</p>
     <p class="hint">2, then 6, then 10. Is 14 below 11?</p>
@@ -377,12 +536,12 @@ print(sum_squares(2, 3))</code></pre>
     <div class="why"><p>9 times, for <code>i</code> from 1 to 9. <code>range(a, b)</code> has <code>b - a</code> numbers in it.</p></div>
   </div>
 
-  <div class="quiz" data-fill="3">
-    <p class="q">Trace this by hand. What is <code>steps</code> at the end? <code>n = 10</code>, <code>steps = 0</code>, then <code>while n &gt; 1:</code> with the body <code>n = n // 2</code> and <code>steps = steps + 1</code>.</p>
+  <div class="quiz" data-fill="4">
+    <p class="q">Trace this by hand. What is <code>steps</code> at the end? <code>n = 20</code>, <code>steps = 0</code>, then <code>while n &gt; 1:</code> with the body <code>n = n // 2</code> and <code>steps = steps + 1</code>.</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">Make a trace table with columns <code>n</code> and <code>steps</code>, and a row for each check of <code>n &gt; 1</code>.</p>
-    <p class="hint"><code>n</code> goes 10, 5, 2, 1. How many times did the body run?</p>
-    <div class="why"><p>10 // 2 is 5, 5 // 2 is 2, 2 // 2 is 1, and then <code>1 &gt; 1</code> is false. The body ran 3 times, so <code>steps</code> is <code>3</code>.</p></div>
+    <p class="hint"><code>n</code> goes 20, 10, 5, 2, 1. How many times did the body run?</p>
+    <div class="why"><p>20 // 2 is 10, 10 // 2 is 5, 5 // 2 is 2, 2 // 2 is 1, and then <code>1 &gt; 1</code> is false. The body ran 4 times, so <code>steps</code> is <code>4</code>.</p></div>
   </div>
 
   <div class="quiz" data-answer="c">

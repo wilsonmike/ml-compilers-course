@@ -1,0 +1,49 @@
+{
+ "id": "w0-05n-matmul",
+ "lang": "ocaml",
+ "title": "Repair: the triple loop",
+ "show": "(fun l -> String.concat \" \" (List.map string_of_int (Array.to_list l)))",
+ "starter": "let matmul (a : int array) (b : int array) (rows : int) (mid : int) (cols : int) : int array =\n  let c = Array.make (rows * cols) 0 in\n  let total = ref 0 in\n  for i = 0 to rows - 1 do\n    for j = 0 to cols - 1 do\n      for k = 0 to mid - 1 do\n        total := !total + a.(i * mid + k) * b.(k * cols + j)\n      done;\n      c.(i * cols + j) <- !total\n    done\n  done;\n  c\n",
+ "tests": [
+  {
+   "expr": "matmul [|1; 2; 3; 4; 5; 6|] [|7; 8; 9; 10; 11; 12|] 2 3 2",
+   "expect": "58 64 139 154",
+   "sample": true
+  },
+  {
+   "expr": "matmul [|8; 6; 5; 9; 10; 7|] [|2; 4; 3; 1|] 3 2 2",
+   "expect": "34 38 37 29 41 47",
+   "sample": true
+  },
+  {
+   "expr": "matmul [|1; 2; 3; 4|] [|5; 6; 7; 8|] 2 2 2",
+   "expect": "19 22 43 50"
+  },
+  {
+   "expr": "matmul [|1; 0; 0; 1|] [|5; 6; 7; 8|] 2 2 2",
+   "expect": "5 6 7 8"
+  },
+  {
+   "expr": "matmul [|1; 2; 3; 4|] [|1; 2; 3; 4|] 4 1 4",
+   "expect": "1 2 3 4 2 4 6 8 3 6 9 12 4 8 12 16"
+  },
+  {
+   "expr": "matmul [|2; (-1)|] [|3; 4; 5; 6|] 1 2 2",
+   "expect": "1 2"
+  },
+  {
+   "expr": "matmul [|1; 2; 3|] [|4; 5; 6|] 1 3 1",
+   "expect": "32"
+  },
+  {
+   "expr": "matmul [|3|] [|4|] 1 1 1",
+   "expect": "12"
+  }
+ ],
+ "hints": [
+  "Run the first sample. The first cell is right, and every later cell is too big. What is each later cell carrying that it should not?",
+  "Every cell of `c` is its own dot product, so its total has to start at 0. The starter sets the total to 0 only once, before all the loops.",
+  "Move `let total = ref 0 in` from above the `i` loop to just above the `k` loop, inside the `j` loop."
+ ],
+ "explain": "Each cell of the result is one dot product, so its running total must start at 0. The starter set the total to 0 once, so each cell also held the sum of every cell before it. The reference sets it to 0 inside the `j` loop, once per cell. Week 3 calls this the reset."
+}

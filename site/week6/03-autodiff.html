@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Automatic Differentiation</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Training means nudging every weight in the direction that lowers the loss, and that direction is the gradient. %g = gradient %loss %w asks your compiler for...">
+<meta name="description" content="By the end of this lesson you can say how far a program&#x27;s output moves when one input moves a little, and work that number out for every input in one pass. The...">
 <link rel="canonical" href="https://sharpterminal.com/site/week6/03-autodiff">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Automatic Differentiation">
-<meta property="og:description" content="Training means nudging every weight in the direction that lowers the loss, and that direction is the gradient. %g = gradient %loss %w asks your compiler for it. Your compiler answers by building more...">
+<meta property="og:description" content="By the end of this lesson you can say how far a program&#x27;s output moves when one input moves a little, and work that number out for every input in one pass. The number is called the gradient. Training...">
 <meta property="og:url" content="https://sharpterminal.com/site/week6/03-autodiff">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .ad { width: 100%; border-collapse: collapse; font: 0.875rem/1.6 var(--mono); }
   .ad th, .ad td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -34,27 +34,254 @@
 <main>
 <p class="eyebrow">Week 6 · Lesson 3</p>
 <h1>Automatic differentiation</h1>
-<p class="lede">Training means nudging every weight in the direction that lowers the loss, and that direction is the gradient. <code>%g = gradient %loss %w</code> asks your compiler for it. Your compiler answers by building more graph: it walks backward from the loss and applies the chain rule, one op at a time.</p>
+<p class="lede">By the end of this lesson you can say how far a program's output moves when one input moves a little, and work that number out for every input in one pass. The number is called the gradient. Training a model means asking for gradients over and over, so your compiler has to produce them.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Find every gradient of a small graph by walking it backward once, then ask your compiler for the same numbers with <code>gradient</code>.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p class="only-python">A list you fill in with a loop (<a href="../learn/py-03-collections.html">P.3</a>) and sugar from <a href="02-sugar.html">lesson 6.2</a>. You need no calculus.</p>
+<p class="only-ocaml">An array you change in place (<a href="../learn/ml-05-mutation.html">O.5</a>) and sugar from <a href="02-sugar.html">lesson 6.2</a>. You need no calculus.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="18">
+<p class="q"><code>%x</code> is 3 and <code>%w</code> is 5. What is <code>%l</code>?</p>
+<pre><code>%t = mul %x %w
+%l = add %t %x</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Work out <code>%t</code> first.</p>
+<div class="why"><p><code>%t</code> is 15, and 15 + 3 is 18. This program comes back later in the lesson.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">In lesson 6.2 the parser expanded <code>sub a b</code>. Which ops does the rest of your compiler see in its place?</p>
+<div class="opts">
+<button data-k="a"><code>sub</code>, unchanged</button>
+<button data-k="b"><code>add</code> and <code>mul</code></button>
+<button data-k="c"><code>recip</code></button>
+</div>
+<p class="hint">Subtracting is adding the negative.</p>
+<div class="why"><p><code>sub a b</code> becomes <code>add a (mul b -1.0)</code>. Whatever works for <code>add</code> and <code>mul</code> already works for <code>sub</code>.</p></div>
+</div>
+
+<h2>Nudge the input, watch the output</h2>
+<div class="prose">
+<p>This lesson asks one question: if I nudge an input up a little, how far does the output move? Start with <code>y = 3 × x</code>. At <code>x = 2</code>, y is 6.</p>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">Nudge x up from 2 to 3. By how much does y go up?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Work out y for x = 3, then take away the old y.</p>
+<div class="why"><p>y goes from 6 to 9, so it moves 3. Each 1 you add to x adds 3 to y, wherever x starts.</p></div>
+</div>
 
 <div class="prose">
-<h2>What gradient means</h2>
+<p>Now <code>y = x × x</code> at <code>x = 3</code>, where y is 9. This time the size of the nudge matters:</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>nudge</th><th>new x</th><th>new y</th><th>y moved</th><th>moved ÷ nudge</th></tr>
+<tr><td>1</td><td>4</td><td>16</td><td>7</td><td>7</td></tr>
+<tr><td>0.1</td><td>3.1</td><td>9.61</td><td>0.61</td><td>6.1</td></tr>
+<tr><td>0.01</td><td>3.01</td><td>9.0601</td><td>0.0601</td><td>6.01</td></tr>
+</table></div>
+<div class="prose">
+<p>The last column settles on 6. That number is the <strong>gradient</strong> of y with respect to x at <code>x = 3</code>: how many times farther the output moves than the input, when the nudge is very small. Math class calls it the <strong>derivative</strong>.</p>
+<p>For <code>3 × x</code> the gradient is 3 everywhere. For <code>x × x</code> it depends on x: at x = 5 it is 10. A negative gradient means the output goes down when the input goes up.</p>
+</div>
+
+<h2>Why a model needs gradients</h2>
+<div class="prose">
+<p>A model is a program with many adjustable numbers in it, called <strong>weights</strong>. One more number, the <strong>loss</strong>, says how wrong the model's answers are. Training means changing the weights so the loss goes down.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A model has one weight, <code>w = 3</code>, and its loss is <code>w × w</code>. The gradient of the loss with respect to w is 6. Which change makes the loss smaller?</p>
+<div class="opts">
+<button data-k="a">Raise w a little</button>
+<button data-k="b">Lower w a little</button>
+<button data-k="c">You can't tell without trying both</button>
+</div>
+<p class="hint">A gradient of 6 says: when w goes up a little, the loss goes up about 6 times as far.</p>
+<div class="why"><p>The gradient is positive, so raising w raises the loss. Step the other way. At w = 2.9 the loss is 8.41, down from 9.</p></div>
+</div>
+
+<div class="prose">
+<p>So the sign of a gradient tells you which way to step a weight. Training is one move, repeated: step every weight a little against its gradient.</p>
+<p>You could find each gradient by nudging. That costs one more run of the program per weight, and this week's lab model has 7,840 weights. Nudging also only gets close (6.01, not 6). The rest of this lesson gets every gradient exactly, for about the work of two runs.</p>
+</div>
+
+<h2>One rule for add, one for mul</h2>
+<div class="prose">
+<p>A program is a graph of small ops. For one op you can find the gradient once and keep it as a rule. Find two rules by nudging.</p>
+<p><strong>add.</strong> <code>u = a + b</code> with a = 3 and b = 5 is 8. Nudge a to 4 and u is 9. It moved 1, the same as the nudge. So does nudging b.</p>
+</div>
+
+<div class="quiz" data-fill="5">
+<p class="q"><strong>mul.</strong> <code>u = a × b</code> with a = 3 and b = 5 is 15. Nudge a up to 4. By how much does u go up?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The new u is 4 × 5.</p>
+<div class="why"><p>u goes from 15 to 20, so it moves 5. That is b: one more a means one more copy of b. In the same way, nudging b by 1 moves u by 3, which is a.</p></div>
+</div>
+
+<div class="tablewrap"><table>
+<tr><th>op</th><th>gradient with respect to a</th><th>gradient with respect to b</th></tr>
+<tr><td><code>add a b</code></td><td>1</td><td>1</td></tr>
+<tr><td><code>mul a b</code></td><td>the value of b</td><td>the value of a</td></tr>
+</table></div>
+<div class="prose">
+<p>An <strong>operand</strong> is one of an op's inputs. Read the mul row as: each operand's gradient is the <em>other</em> operand's value. So <code>mul %a 7.0</code> has gradient 7 with respect to <code>%a</code>. Both rules are exact, so small nudges are no longer needed.</p>
+</div>
+
+<h2>Follow a nudge through two ops</h2>
+<div class="prose">
+<p>Real programs chain ops. Here the input x is the 3. Step through the program first.</p>
+</div>
+<div class="fig" id="chain"></div>
+
+<div class="quiz" data-fill="4">
+<p class="q">Nudge x from 3 to 4. By how much does <code>%y</code> move? Predict, then press Edit in the figure, change the 3 to a 4 and look.</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">First find how far <code>%a</code> moves. Then use the mul rule on that move.</p>
+<div class="why"><p><code>%a</code> moves 1, by the add rule. The mul turns each 1 of <code>%a</code> into 4 of <code>%y</code>, because its other operand is 4. So <code>%y</code> moves 1 × 4 = 4, from 16 to 20.</p></div>
+</div>
+
+<div class="prose">
+<p>A nudge travels from the input to the output, and each op on the way multiplies it by its rule:</p>
+<ol>
+<li><strong>Find the path.</strong> x, then <code>%a</code>, then <code>%y</code>.</li>
+<li><strong>Write each op's rule.</strong> The add gives 1. The mul gives its other operand, 4.</li>
+<li><strong>Multiply along the path.</strong> 1 × 4 = 4.</li>
+</ol>
+<p>This is called the <strong>chain rule</strong>: the gradient of a chain is the rules of its ops multiplied together.</p>
+</div>
+
+<h2>Walk backward once</h2>
+<div class="prose">
+<p>The chain rule follows one input forward. A model has thousands of inputs, and doing that for each one repeats the same work. Turn it around: start at the output and walk backward.</p>
+<p>Each node holds a gradient: how far the output moves when that node is nudged. It passes a <strong>share</strong> to each operand, which is its own gradient times the rule for that operand. A node that is used in two places gets two shares and adds them up.</p>
+<p>Here is the warm up program with x = 3 and w = 5. Predict each number.</p>
+</div>
+<div class="fig" id="back" data-title="Walk backward from %l"></div>
+<div class="prose">
+<p>One walk gave both gradients. Check x by nudging: x = 4 gives 4 × 5 + 4 = 24, up 6 from 18. Walking backward like this is called <strong>reverse mode</strong>, or backpropagation. It costs about as much as one more run of the program, whether there are two inputs or 7,840.</p>
+<p>It also explains the first table. In <code>x × x</code> both operands are x. Each gets the other's value, 3, and x adds its two shares: 3 + 3 = 6.</p>
+</div>
+
+<h2>Do the walk in code</h2>
+<div class="prose">
+<p>In the next two exercises a program is a list called a <strong>tape</strong>. Each entry is an input, a constant, or an add or mul of two earlier entries, named by position. Here is the warm up program:</p>
+<pre class="only-python"><code>[('x', 3.0), ('x', 5.0), ('mul', 0, 1), ('add', 2, 0)]</code></pre>
+<pre class="only-ocaml"><code>[X 3.0; X 5.0; Mul (0, 1); Add (2, 0)]</code></pre>
+<p>The walk takes three moves:</p>
+<ol>
+<li><strong>Run forward.</strong> Work out the value of every entry, first to last.</li>
+<li><strong>Seed the end.</strong> The last entry's gradient is 1.</li>
+<li><strong>Walk backward.</strong> From the last entry to the first, send each entry's shares to its operands, adding each one to what is already there.</li>
+</ol>
+<p>Last to first works because an entry is only used by later entries. When the walk reaches it, all of its shares have arrived.</p>
+</div>
+
+<div class="exercise" data-ex="w6-03n-walk" data-ex-py="w6-03n-walk-py">
+<h3>Repair the backward walk</h3>
+<p><code>backward</code> gets a tape and every entry's value, so move 1 is done. It returns the last entry's gradient with respect to every entry. Moves 2 and 3 have two mistakes.</p>
+<p><strong>The mul rule.</strong> A mul sends each operand the gradient times the <em>other</em> operand's value. This one uses the operand's own value.</p>
+<p><strong>Adding up.</strong> A share is added to what the entry already holds. This code overwrites it.</p>
+</div>
+
+<div class="exercise small" data-ex="w6-03-backprop" data-ex-py="w6-03-backprop-py">
+<h3>Backpropagation on a tape</h3>
+<p>Now all three moves, from a nearly empty function. Write <code>grads tape</code>: the gradient of the last entry with respect to every entry. Forward for values, backward for gradients.</p>
+</div>
+
+<h2>Ask the compiler: gradient</h2>
+<div class="prose">
+<p>In .uir you ask for the walk, output first and input second:</p>
+<pre><code>%t = mul %x %w
+%l = add %t %x
+%g = gradient %l %x</code></pre>
+<p><code>%l</code> must be a single f32 number. Whole numbers have no small nudges, so only f32 values carry gradients.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your compiler handles <code>gradient</code> while it builds the program, before anything runs. It does not know x or w yet. What can <code>%g</code> be?</p>
+<div class="opts">
+<button data-k="a">The number 6</button>
+<button data-k="b">More graph: ops that work out the gradient when the program runs</button>
+<button data-k="c">An error, until the values are known</button>
+</div>
+<p class="hint">6 was the answer for x = 3 and w = 5 only.</p>
+<div class="why"><p>The compiler writes each share as an op instead of working it out.</p></div>
+</div>
+
+<div class="prose">
+<p>For the program above, the walk builds this:</p>
+<pre><code>%s = mul 1.0 %w
+%g = add 1.0 %s</code></pre>
+<p><code>%s</code> is the share from <code>%t</code>, and the other <code>1.0</code> is the share the add sent to x. With w = 5 this is 1 + 5 = 6. Because <code>%g</code> is ordinary adds and muls, everything your compiler already does with a graph works on it.</p>
+</div>
+
+<div class="exercise small" data-ex="w6-03n-grad">
+<h3>Ask for a gradient</h3>
+<p>The starter returns <code>t = x × w</code>. Add the loss <code>%l = mul %t %t</code>, then make <code>%out</code> the gradient of <code>%l</code> with respect to <code>%w</code>. Predict the first test before you run it: x = 3 and w = 5.</p>
+</div>
+
+<div class="exercise" data-ex="w6-03-deriv">
+<h3>f'(x) for five x at once</h3>
+<p>Slot 0 holds five values of x. For <code>f(x) = x³ - 2x</code>, store the gradient of f for each x into slot 1, using <code>gradient</code>. The starter stores f(x).</p>
+<p class="muted"><code>gradient</code> starts from one number, so add the five f values up first with <code>reduce op=add</code>. Each x only moves its own term of the sum.</p>
+</div>
+
+<h2>detach: send nothing back</h2>
+<div class="prose">
+<p>Sometimes the walk should treat a value as a plain number. <code>detach x</code> has the same value as x and passes no share back to it.</p>
+</div>
+
+<div class="quiz" data-fill="1">
+<p class="q">x is 3. Without the detach this is <code>x + x</code>, and the gradient is 2. What is <code>%g</code> here?</p>
+<pre><code>%d = detach %x
+%y = add %x %d
+%g = gradient %y %x</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The add sends 1 to each operand. Which operand passes it on to x?</p>
+<div class="why"><p>1. One share goes straight to x. The other goes to the detach, which drops it. The value of <code>%y</code> is still 6.</p></div>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say what a gradient is: how far the output moves per unit of a small nudge to one input.</li>
+<li>Tell from a gradient's sign which way to step a weight.</li>
+<li>Use the two rules: add passes a gradient on unchanged, and mul multiplies it by the other operand's value.</li>
+<li>Walk a graph backward once, adding up shares, to get every input's gradient.</li>
+<li>Write <code>gradient</code> and <code>detach</code> in .uir.</li>
+</ul>
+<p>Next, lesson 6.4 takes the same walk through <code>reshape</code>, <code>expand</code> and <code>reduce</code>.</p>
+</div>
+
+<h2 id="reference">Reference for the lab</h2>
+<p class="prose">Open these when you write <code>gradient</code> in your own compiler. Each question is answered in a toggle above it.</p>
+
+<details class="toggle">
+<summary>The exact definition, for readers who know calculus</summary>
+<div class="prose">
 <p>For a scalar <code>y</code> and a value <code>x</code> of any shape, <code>gradient y x</code> has <code>x</code>'s shape, and element <code>i</code> is <code>∂y/∂x[i]</code>: how fast y changes when you wiggle <code>x[i]</code> alone. If <code>y = x · x</code> and x is 3, the gradient is 6.</p>
 <p>Your compiler computes this <em>while building the program</em>, not while running it. The result is an ordinary graph of <code>mul</code>s and <code>add</code>s, so everything else (run, render, hash consing, staging) works on it unchanged. You can even take the gradient of a gradient.</p>
-
-<h2>The chain rule, backward</h2>
 <p>Every op knows its local derivatives. For <code>u = mul a b</code>, <code>∂u/∂a = b</code> and <code>∂u/∂b = a</code>. The chain rule says that if you already know <code>g = ∂y/∂u</code>, then u sends <code>g · b</code> to a and <code>g · a</code> to b. Those are a and b's <b>shares</b> of the gradient.</p>
-<p>So start at y with <code>g = 1.0</code> (<code>∂y/∂y</code>), and walk the graph from y back toward x. At each node, add up the shares it has received, then pass on its own shares to its operands. When the walk reaches x, the sum there is the answer. This is <b>reverse mode</b>. One backward walk gives the gradient with respect to every weight at once, which is why it's what trains networks: one loss, millions of weights.</p>
-<p>The other direction is <b>forward mode</b>: give one input a wiggle and push its derivative forward through the program, alongside the values. One forward pass gives the derivative of every output with respect to that one input, so a gradient over a million weights would take a million passes.</p>
-<p>A node has to receive all of its shares before it passes anything on. The spec orders the walk to guarantee that: take the <b>post-order</b> of y's graph (depth first, operands left to right, each node once) and visit it in reverse. Every node comes before the nodes it uses.</p>
 </div>
+</details>
 
-<div class="fig" id="walk" data-title="gradient of y = (x · x) · x, at x = 2"></div>
-
+<details class="toggle">
+<summary>The rule for every elementwise op, for when you write the gradient pass</summary>
 <div class="prose">
-<h2>The rules for elementwise ops</h2>
 <p>The spec lists a share for every op. These are the ones from calculus, written as ops (<code>u</code> is the op's own result):</p>
 </div>
-
 <div class="tablewrap"><table>
 <thead><tr><th>op</th><th>shares, given <code>g</code></th></tr></thead>
 <tbody>
@@ -68,80 +295,36 @@
 <tr><td><code>sqrt a</code></td><td><code>g / (2u)</code></td></tr>
 <tr><td><code>sin a</code></td><td><code>g · sin(a + π/2)</code>: cos, written with sin</td></tr>
 <tr><td><code>cast</code>, <code>bitcast</code></td><td><code>g</code>, but only from f32 to f32</td></tr>
+<tr><td><code>detach a</code></td><td>nothing</td></tr>
 </tbody></table></div>
-
 <div class="prose">
+<p><code>detach x</code> is how you stop a gradient on purpose. Lesson 6.5 uses it on the max subtracted for a stable softmax, whose gradient cancels out in exact math. In f32 the canceling terms round, so the bits can differ without the detach.</p>
 <p>Comparisons and integer ops have no rule because they don't need one: their results aren't f32, and only f32 nodes carry gradients. A path that leaves f32 is a dead end. That's why <code>floor</code> (a cast to i32 and back) has gradient 0 for <code>|x| &lt; 2^23</code>, which is also the true derivative almost everywhere.</p>
-
-<h2>Adding shares up, in order</h2>
-<p>In <code>(x · x) · x</code>, x receives three shares. In exact arithmetic the order doesn't matter, but in f32 it does: <code>(a + b) + c</code> and <code>a + (b + c)</code> can round differently. So the spec fixes it. Shares are added in the order they arrive during the reverse walk, as a left fold: <code>add c1 c2</code>, then <code>add</code> that and <code>c3</code>. Because the walk runs backward, arrival order is often the reverse of the order the statements appear in the file. The test <code>grad_accumulation_order</code> has three shares whose sum depends on the order, and <code>mismatch_grad_accumulation_other_order</code> checks that the program-order sum is <em>not</em> what you get.</p>
-
-<h2>The graph gradient builds</h2>
-<p>Here is the program from the figure:</p>
 </div>
-<pre><code>%t = mul %x %x
-%y = mul %t %x
-%g = gradient %y %x</code></pre>
-<div class="prose">
-<p>The post-order of y's graph is x, t, y (t's operands come first, then t, then y), so the walk visits y, then t, and stops at x. y sends <code>mul 1.0 %x</code> to t and <code>mul 1.0 %t</code> to x. Call t's share <code>%gt</code>. t sends <code>mul %gt %x</code> to each operand, and both of them are x. So <code>%g</code> is this graph:</p>
-</div>
-<pre><code>%gt = mul 1.0 %x
-%c1 = mul 1.0 %t
-%c2 = mul %gt %x
-%s  = add %c1 %c2
-%g  = add %s %c2</code></pre>
-<div class="prose">
-<p>t's two shares are one node, <code>%c2</code>, because hash consing merges equal nodes, but x still adds it twice, once per share. Nothing is simplified: <code>mul 1.0 %x</code> stays in the graph. Here x is a scalar, so every literal is too. When an op's result has a shape, each literal in its rule (the <code>-1.0</code> in recip's share, say) is first expanded to that shape, because ALU ops don't broadcast. The seed <code>1.0</code> is always a scalar, like y.</p>
+</details>
 
-<h2>Which nodes take part</h2>
-<p>Only nodes on a path from x to y. A node that doesn't depend on x can't pass anything back to x, so the walk skips it. Skipping isn't just faster. A node off the path may be an op with no rule (a <code>reduce op=mul</code> of some unrelated data, say), and that's fine as long as x doesn't reach it. The walk also stops at x: x's own operands don't matter, because x is what you're differentiating with respect to.</p>
-<p>What can be on the path is limited. Gradients don't go through <code>call</code>, <code>load</code>, <code>store</code> or loops, so a gradient whose path contains one is invalid. That's the syllabus's rule: autodiff works on pure graphs. x itself may be a <code>load</code>, though. The weights of a model are.</p>
-</div>
-
-<div class="exercise small" data-ex="w6-03-backprop" data-ex-py="w6-03-backprop-py">
-<h3>Backpropagation on a tape</h3>
-<p>A tape is a program as a list: inputs, constants, and <code>add</code> or <code>mul</code> of earlier entries. Return the derivative of the last entry with respect to every entry. Forward for values, backward for gradients.</p>
-</div>
-
-<div class="prose">
-<h2>detach: "treat this as a constant"</h2>
-<p><code>detach x</code> has the value of x and passes no gradient. <code>gradient (mul x (detach x)) x</code> is x, not 2x: the detached copy counts as a constant. It's how you stop a gradient on purpose. Lesson 6.5 uses it on the max subtracted for a stable softmax, whose gradient cancels out in exact math. In f32 the canceling terms round, so the bits can differ without the detach.</p>
-
-<h2>When gradient is invalid</h2>
-<ul>
-<li>The loss isn't an f32 scalar, or x isn't an f32 value (a buffer, an i32).</li>
-<li>x is a literal. <code>gradient %y 2.0</code> would mean every <code>2.0</code> in the program, because equal literals are one hash-consed node.</li>
-<li>The loss or x depends on an open range: no gradients inside hand-written loops.</li>
-<li>A <code>call</code>, <code>load</code> or <code>store</code> lies on a path from x to y, or an op with no rule does (<code>reduce op=mul</code>).</li>
-</ul>
-<p>If y doesn't depend on x at all, that's not an error. The gradient is zeros of x's shape.</p>
-</div>
-
-<div class="exercise" data-ex="w6-03-deriv">
-<h3>f'(x) for five x at once</h3>
-<p>Slot 0 holds five values of x. For <code>f(x) = x³ - 2x</code>, store <code>f'(x)</code> for each into slot 1, using <code>gradient</code>. The starter stores f(x).</p>
-</div>
-
-<h2>Check yourself</h2>
-<p class="score"></p>
-
-<div class="quiz" data-fill="12">
-<p class="q">What is <code>gradient</code> of <code>y = (x · x) · x</code> at <code>x = 2</code>?</p>
-<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
-<p class="hint"><code>d/dx x³ = 3x²</code>, or follow the figure.</p>
-<div class="why"><p>x receives three shares: 4 from the outer mul (<code>g · c</code> with <code>c = 4</code>), then 4 and 4 from the inner mul (<code>2 · x</code> each). <code>4 + 4 + 4 = 12 = 3 · 2²</code>.</p></div>
-</div>
-
-<div class="quiz" data-answer="b">
-<p class="q">Why reverse mode and not forward mode for training?</p>
+<div class="quiz" data-answer="a">
+<p class="q"><code>y = cast (cast x dtype=i32) dtype=f32</code>. What is <code>gradient y x</code>?</p>
 <div class="opts">
-<button data-k="a">Reverse mode is more accurate</button>
-<button data-k="b">One backward walk gives the gradient with respect to every input at once, and training has one loss and many weights</button>
-<button data-k="c">Forward mode can't handle matmul</button>
+<button data-k="a">0: the path goes through an i32, and only f32 nodes carry gradients</button>
+<button data-k="b">1: casts pass the gradient through</button>
+<button data-k="c">Invalid: you can't differentiate a cast</button>
 </div>
-<p class="hint">Forward mode pushes one input's wiggle forward through the program.</p>
-<div class="why"><p>Forward mode needs one pass per input. With a million weights that's a million passes. Reverse mode needs one pass per output, and a loss is one number.</p></div>
+<p class="hint">Which dtype is the middle node?</p>
+<div class="why"><p>The i32 node never receives a share, so nothing reaches x and the gradient is 0. That matches the math: rounding to an integer is flat almost everywhere.</p></div>
 </div>
+
+<details class="toggle">
+<summary>The exact order of the walk and of adding shares, for when your bits differ from the tests</summary>
+<div class="prose">
+<p>Start at y with <code>g = 1.0</code> (<code>∂y/∂y</code>), and walk the graph from y back toward x. At each node, add up the shares it has received, then pass on its own shares to its operands. When the walk reaches x, the sum there is the answer.</p>
+<p>A node has to receive all of its shares before it passes anything on. The spec orders the walk to guarantee that: take the <b>post-order</b> of y's graph (depth first, operands left to right, each node once) and visit it in reverse. Every node comes before the nodes it uses. <a href="../learn/hard-02-walking-graphs.html">H.2</a> walks through post-order slowly.</p>
+</div>
+<div class="fig" id="walk" data-title="gradient of y = (x · x) · x, at x = 2"></div>
+<div class="prose">
+<p>In <code>(x · x) · x</code>, x receives three shares. In exact arithmetic the order doesn't matter, but in f32 it does: <code>(a + b) + c</code> and <code>a + (b + c)</code> can round differently. So the spec fixes it. Shares are added in the order they arrive during the reverse walk, as a left fold: <code>add c1 c2</code>, then <code>add</code> that and <code>c3</code>. Because the walk runs backward, arrival order is often the reverse of the order the statements appear in the file. The test <code>grad_accumulation_order</code> has three shares whose sum depends on the order, and <code>mismatch_grad_accumulation_other_order</code> checks that the program-order sum is <em>not</em> what you get.</p>
+</div>
+</details>
 
 <div class="quiz" data-answer="c">
 <p class="q">The walk visits nodes in reverse post-order. Why that order?</p>
@@ -154,23 +337,38 @@
 <div class="why"><p>Its operands would get a partial gradient. Reverse post-order is a reverse topological order, so users always come first. And because f32 addition isn't associative, a fixed walk also fixes the bits.</p></div>
 </div>
 
-<div class="quiz" data-fill="3">
-<p class="q">What is <code>gradient (mul x (detach x)) x</code> at <code>x = 3</code>?</p>
-<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
-<p class="hint">The detached x is a constant with value 3.</p>
-<div class="why"><p><code>d/dx (x · c) = c = 3</code>. Without the detach it would be <code>2x = 6</code>.</p></div>
+<details class="toggle">
+<summary>The graph gradient builds, node by node, for when you debug your output</summary>
+<div class="prose">
+<p>Here is the program from the figure in the toggle above:</p>
+<pre><code>%t = mul %x %x
+%y = mul %t %x
+%g = gradient %y %x</code></pre>
+<p>The post-order of y's graph is x, t, y (t's operands come first, then t, then y), so the walk visits y, then t, and stops at x. y sends <code>mul 1.0 %x</code> to t and <code>mul 1.0 %t</code> to x. Call t's share <code>%gt</code>. t sends <code>mul %gt %x</code> to each operand, and both of them are x. So <code>%g</code> is this graph:</p>
+<pre><code>%gt = mul 1.0 %x
+%c1 = mul 1.0 %t
+%c2 = mul %gt %x
+%s  = add %c1 %c2
+%g  = add %s %c2</code></pre>
+<p>t's two shares are one node, <code>%c2</code>, because hash consing merges equal nodes, but x still adds it twice, once per share. Nothing is simplified: <code>mul 1.0 %x</code> stays in the graph. Here x is a scalar, so every literal is too. When an op's result has a shape, each literal in its rule (the <code>-1.0</code> in recip's share, say) is first expanded to that shape, because ALU ops don't broadcast. The seed <code>1.0</code> is always a scalar, like y.</p>
 </div>
+</details>
 
-<div class="quiz" data-answer="a">
-<p class="q"><code>y = cast (cast x dtype=i32) dtype=f32</code>. What is <code>gradient y x</code>?</p>
-<div class="opts">
-<button data-k="a">0: the path goes through an i32, and only f32 nodes carry gradients</button>
-<button data-k="b">1: casts pass the gradient through</button>
-<button data-k="c">Invalid: you can't differentiate a cast</button>
+<details class="toggle">
+<summary>Which nodes take part and when gradient is invalid, for when a test is rejected</summary>
+<div class="prose">
+<p>Only nodes on a path from x to y take part. A node that doesn't depend on x can't pass anything back to x, so the walk skips it. Skipping isn't just faster. A node off the path may be an op with no rule (a <code>reduce op=mul</code> of some unrelated data, say), and that's fine as long as x doesn't reach it. The walk also stops at x: x's own operands don't matter, because x is what you're differentiating with respect to.</p>
+<p>What can be on the path is limited. Gradients don't go through <code>call</code>, <code>load</code>, <code>store</code> or loops, so a gradient whose path contains one is invalid. That's the syllabus's rule: autodiff works on pure graphs. x itself may be a <code>load</code>, though. The weights of a model are.</p>
+<p><code>gradient</code> is invalid when:</p>
+<ul>
+<li>The loss isn't an f32 scalar, or x isn't an f32 value (a buffer, an i32).</li>
+<li>x is a literal. <code>gradient %y 2.0</code> would mean every <code>2.0</code> in the program, because equal literals are one hash-consed node.</li>
+<li>The loss or x depends on an open range: no gradients inside hand-written loops.</li>
+<li>A <code>call</code>, <code>load</code> or <code>store</code> lies on a path from x to y, or an op with no rule does (<code>reduce op=mul</code>).</li>
+</ul>
+<p>If y doesn't depend on x at all, that's not an error. The gradient is zeros of x's shape.</p>
 </div>
-<p class="hint">Which dtype is the middle node?</p>
-<div class="why"><p>The i32 node never receives a share, so nothing reaches x and the gradient is 0. That matches the math: rounding to an integer is flat almost everywhere.</p></div>
-</div>
+</details>
 
 <div class="quiz" data-answer="b">
 <p class="q"><code>gradient %y 2.0</code>: why is it invalid?</p>
@@ -192,6 +390,42 @@
 </div>
 <p class="hint">Which nodes receive shares?</p>
 <div class="why"><p>Only nodes that depend on x. The reduce's value is used, but it never needs a rule. The test <code>grad_reduce_mul_off_path</code> checks exactly this.</p></div>
+</div>
+
+<details class="toggle">
+<summary>Forward mode and reverse mode, for the curious</summary>
+<div class="prose">
+<p>Walking backward from the loss is <b>reverse mode</b>. One backward walk gives the gradient with respect to every weight at once, which is why it's what trains networks: one loss, millions of weights.</p>
+<p>The other direction is <b>forward mode</b>: give one input a wiggle and push its derivative forward through the program, alongside the values. One forward pass gives the derivative of every output with respect to that one input, so a gradient over a million weights would take a million passes.</p>
+</div>
+</details>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="12">
+<p class="q">What is <code>gradient</code> of <code>y = (x · x) · x</code> at <code>x = 2</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">Call the inner mul c, so c is 4. The outer mul sends a share to c and one to x. Then c sends two more to x.</p>
+<div class="why"><p>x receives three shares: 4 from the outer mul (<code>g · c</code> with <code>c = 4</code>), then 4 and 4 from the inner mul (<code>2 · x</code> each). <code>4 + 4 + 4 = 12 = 3 · 2²</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why reverse mode and not forward mode for training?</p>
+<div class="opts">
+<button data-k="a">Reverse mode is more accurate</button>
+<button data-k="b">One backward walk gives the gradient with respect to every input at once, and training has one loss and many weights</button>
+<button data-k="c">Forward mode can't handle matmul</button>
+</div>
+<p class="hint">Forward mode follows one input's nudge forward through the program, like the chain rule.</p>
+<div class="why"><p>Forward mode needs one pass per input. With a million weights that's a million passes. Reverse mode needs one pass per output, and a loss is one number.</p></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">What is <code>gradient (mul x (detach x)) x</code> at <code>x = 3</code>?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">The detached x is a constant with value 3.</p>
+<div class="why"><p>The mul sends x the other operand's value, 3. The detach drops the second share, which would make 6.</p></div>
 </div>
 
 <nav class="pager">
@@ -217,6 +451,33 @@ document.addEventListener('DOMContentLoaded', () => {
       h('thead', {}, h('tr', {}, ['node', 'op', 'value', 'shares received'].map(t => h('th', { text: t })))),
       h('tbody', {}, [2, 1, 0].map(i => { const [n, v, op] = rows[i]; return h('tr', { class: i === s.on ? 'on' : '' }, [h('td', { text: n }), h('td', { text: op }), h('td', { text: v }), h('td', { class: s.g[n] ? '' : 'dim', text: s.g[n] || '(none yet)' })]); })),
     ]));
+  });
+
+  CC.trace(document.getElementById('chain'), '%a = add 3 1\n%y = mul %a 4', { title: 'x is the 3', edit: true });
+
+  const back = document.getElementById('back');
+  const names = [['l', '%l = add %t x', '18'], ['t', '%t = mul x w', '15'], ['x', 'x', '3'], ['w', 'w', '5']];
+  const walk = [
+    { on: '', g: {}, caption: 'Forward first: <code>%t</code> is 15 and <code>%l</code> is 18. Press Next to start the walk back from <code>%l</code>.' },
+    { on: 'l', g: { l: '1' }, caption: 'Seed the output with 1: nudge <code>%l</code> by 1 and <code>%l</code> moves by 1.', ask: 'The add sends a share to each operand. What does it send to %t?', a: '1' },
+    { on: 'l', g: { l: '1', t: '1', x: '1' }, caption: 'The add rule is 1, so each operand gets 1 × 1 = 1. One share goes to <code>%t</code> and one to x.', ask: '%t is a mul and holds 1. What share does it send to x?', a: '5' },
+    { on: 't', g: { l: '1', t: '1', x: '1, 5' }, caption: '1 × w = 5: the gradient times the other operand\'s value.', ask: 'And what share does %t send to w?', a: '3' },
+    { on: 't', g: { l: '1', t: '1', x: '1, 5', w: '3' }, caption: '1 × x = 3. Every share has arrived, and x has two.', ask: 'What is the gradient at x?', a: '6' },
+    { on: 'x', g: { l: '1', t: '1', x: '1, 5 → 6', w: '3' }, caption: '1 + 5 = 6. The gradient of <code>%l</code> is 6 with respect to x and 3 with respect to w.' },
+  ];
+  const ctl = CC.stepper(back, walk, (s, body, i) => {
+    const box = (id, op, sub, src) => ({ id, op, sub, src, cls: id === s.on ? 'hit' : '' });
+    body.append(CC.graph([box('x', 'x', '3', []), box('w', 'w', '5', []), box('t', 'mul', '%t = 15', ['x', 'w']), box('l', 'add', '%l = 18', ['t', 'x'])]));
+    body.append(h('table', { class: 'ad' }, [
+      h('thead', {}, h('tr', {}, ['node', 'value', 'shares received'].map(t => h('th', { text: t })))),
+      h('tbody', {}, names.map(([id, label, v]) => h('tr', { class: id === s.on ? 'on' : '' }, [h('td', { text: label }), h('td', { text: v }), h('td', { class: s.g[id] ? '' : 'dim', text: s.g[id] || '(none yet)' })]))),
+    ]));
+    if (!s.ask) return;
+    const inp = h('input', { 'aria-label': 'your guess', inputmode: 'numeric', autocomplete: 'off' }), note = h('span', { class: 'muted' });
+    const go = () => { if (inp.value.trim() === s.a) { ctl.go(i + 1); back.querySelector('.cap').prepend(h('strong', { text: 'Yes. ' })); } else note.textContent = 'Not quite. Try again, or press Show me.'; };
+    inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+    body.append(h('div', { class: 'tr-ask' }, h('span', { text: s.ask }), inp, h('button', { class: 'btn', type: 'button', text: 'Check', onclick: go }),
+      h('button', { class: 'btn quiet', type: 'button', text: 'Show me', onclick: () => ctl.go(i + 1) }), note));
   });
 });
 </script>

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>C and Pointers</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Every compiler in this course ends by printing C. To read that C, you need one picture in your head: memory is a long row of numbered bytes, and a pointer is...">
+<meta name="description" content="From week 2 on, your compiler prints C, and a C compiler turns that C into a program that runs. You&#x27;ll read that C to check your compiler did the right thing...">
 <link rel="canonical" href="https://sharpterminal.com/site/week0/01-c-and-pointers">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="C and Pointers">
-<meta property="og:description" content="Every compiler in this course ends by printing C. To read that C, you need one picture in your head: memory is a long row of numbered bytes, and a pointer is just one of those numbers.">
+<meta property="og:description" content="From week 2 on, your compiler prints C, and a C compiler turns that C into a program that runs. You&#x27;ll read that C to check your compiler did the right thing. This lesson teaches the C you need for...">
 <meta property="og:url" content="https://sharpterminal.com/site/week0/01-c-and-pointers">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .ptrs { display: flex; flex-wrap: wrap; gap: var(--s4); margin-top: var(--s4); font: 0.875rem var(--mono); color: var(--ink-2); }
   .ptrs b { color: var(--accent); font-weight: 600; }
@@ -33,7 +33,7 @@
   .bits { font: 0.875rem var(--mono); display: flex; flex-wrap: wrap; gap: 2px; }
   .bits span { width: 1.375rem; text-align: center; padding: 2px 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px; }
   .bits span.one { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  .bits span.sign { border-bottom: 3px solid var(--warn); }
+  .bits span.sign { outline: 2px solid var(--ink); outline-offset: -2px; }
   .bitrow { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-bottom: var(--s3); }
   .bitrow .label { margin: 0; }
   .bitrow input { font: 1rem var(--mono); padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--bg); color: var(--ink); width: 14rem; max-width: 100%; }
@@ -44,42 +44,96 @@
 <main>
   <p class="eyebrow">Week 0 · Lesson 1</p>
   <h1>C and pointers</h1>
-  <p class="lede">Every compiler in this course ends by printing C. To read that C, you need one picture in your head: memory is a long row of numbered bytes, and a pointer is just one of those numbers.</p>
+  <p class="lede">From week 2 on, your compiler prints C, and a C compiler turns that C into a program that runs. You'll read that C to check your compiler did the right thing. This lesson teaches the C you need for that and no more.</p>
 
   <div class="note">
-    <span class="label">What you need installed</span>
-    <p>The course tools are written in Python 3, so install Python 3 first. The C exercises need a C compiler on your PATH: <code>clang</code> or <code>gcc</code>. On Windows the easiest route is a MinGW-w64 build (from WinLibs, or through MSYS2). The LLVM installer gives you <code>clang</code> but not the Windows libraries a program links against, so it can't build programs until Visual Studio's build tools or a MinGW-w64 toolchain is installed too. Check with <code>gcc --version</code> or <code>clang --version</code> in a new terminal.</p>
+    <span class="label">Goal</span>
+    <p>Read a short C function that uses pointers, arrays, <code>int32_t</code> math and a struct, and say what it does.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Numbers that wrap at 32 bits and division that rounds down, both from <a href="../week1/02-uir-and-interpreting.html">lesson 1.2</a>. The slow version is <a href="../learn/hard-04-numbers-like-c.html">H.4 Numbers that behave like C</a>.</p>
   </div>
 
   <div class="prose">
-    <h2>Memory is a row of bytes</h2>
-    <p>Your program's memory is one huge array of bytes. Each byte has an <b>address</b>, which is just its position in the row. A variable is a name for a few consecutive bytes. An <code>int</code> is usually 4 bytes, a <code>char</code> is 1, a <code>double</code> is 8, and on a 64-bit machine a pointer is 8.</p>
-    <p>A <b>pointer</b> is a variable that holds an address. <code>&amp;x</code> means "the address of x". <code>*p</code> means "the value at the address stored in p". That's it. Everything else is bookkeeping about how many bytes each thing takes.</p>
-
-    <h2>Arrays are a base address plus an offset</h2>
-    <p>An array <code>int a[4]</code> is 4 ints laid out back to back, 16 bytes in total. If <code>a[0]</code> lives at address <code>0x1000</code>, then <code>a[1]</code> is at <code>0x1004</code>, <code>a[2]</code> at <code>0x1008</code>, and so on. (<code>0x</code> means the number is written in <b>hexadecimal</b>: base 16, with digits 0 to 9 then a to f. So <code>0x1004</code> is 4 more than <code>0x1000</code>, and <code>0x100c</code> is 12 more.) In general:</p>
+    <p>Your week 1 compiler works on whole numbers alone. In week 2 it gets memory, and it ends the week by printing a C function like this one:</p>
+<pre><code>void kernel(int32_t *restrict b0) {
+  int32_t v3 = b0[0];
+  int32_t v4 = (int32_t)((uint32_t)v3 + (uint32_t)v3);
+  b0[0] = v4;
+}</code></pre>
+    <p>By the end of this page you can read it. You won't write much C in this course: your compiler writes it, and you check it.</p>
   </div>
-  <pre><code>address of a[i]  =  base  +  i * sizeof(element)</code></pre>
+
+  <details class="toggle">
+    <summary>What you need installed, for when you run C on your own machine</summary>
+    <div class="prose">
+      <p>The course tools are written in Python 3, so install Python 3 first. The C exercises need a C compiler on your PATH: <code>clang</code> or <code>gcc</code>. On Windows the easiest route is a MinGW-w64 build (from WinLibs, or through MSYS2). The LLVM installer gives you <code>clang</code> but not the Windows libraries a program links against, so it can't build programs until Visual Studio's build tools or a MinGW-w64 toolchain is installed too. Check with <code>gcc --version</code> or <code>clang --version</code> in a new terminal.</p>
+      <p>To run a program from this page, save it as <code>first.c</code>, build it with <code>gcc first.c -o first</code> and start it with <code>./first</code>.</p>
+    </div>
+  </details>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from lesson 1.2. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="-2147483648">
+    <p class="q">The largest i32 is 2147483647. What is <code>add 2147483647 1</code> in .uir?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">An i32 has no room for a bigger number, so it rolls over to the other end.</p>
+    <div class="why"><p>It wraps to the smallest i32, <code>-2147483648</code>. C does not agree.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="-4">
+    <p class="q">What is <code>div -7 2</code> in .uir?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">The exact answer is -3.5. .uir rounds down, toward the more negative number.</p>
+    <div class="why"><p><code>-4</code>. .uir floors. C rounds the other way here.</p></div>
+  </div>
+
+  <h2>Read a C program</h2>
   <div class="prose">
-    <p>This formula is the most important line in the whole course. By week 5 you'll be generating code that turns a 4D tensor index into exactly this: one base address plus one computed offset.</p>
-    <p>Step through the snippet below. Watch what <code>p + 1</code> does: it moves 4 bytes, not 1, because C scales pointer arithmetic by the size of what <code>p</code> points to.</p>
+    <p>Here is a whole C program.</p>
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+
+int32_t total(int32_t n) {
+  int32_t t = 0;
+  for (int32_t i = 0; i &lt; n; i++) {
+    t = t + i;
+  }
+  return t;
+}
+
+int main(void) {
+  printf("%d\n", total(4));
+  return 0;
+}</code></pre>
   </div>
 
-  <div class="fig" id="ptrfig" data-title="pointer walk"></div>
+  <div class="quiz" data-fill="6">
+    <p class="q">Guess first. What does the program print?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The loop runs with <code>i</code> as 0, 1, 2 and 3. Each pass adds <code>i</code> to <code>t</code>.</p>
+    <div class="why"><p>6, which is 0 + 1 + 2 + 3. At <code>i</code> = 4 the test <code>i &lt; n</code> is false and the loop stops.</p></div>
+  </div>
 
   <div class="prose">
-    <h3>p[i] is *(p + i)</h3>
-    <p>Indexing is defined as pointer arithmetic. <code>p[2]</code> is <em>exactly</em> <code>*(p + 2)</code>: add 2 elements to the address, then read. That's why C has no bounds checking. It computes an address and reads whatever is there. In week 2 your compiler will prove, before anything runs, that every load and store is in bounds, because C won't check.</p>
-
-    <h3>sizeof</h3>
-    <p><code>sizeof</code> gives a size in bytes, computed at compile time. <code>sizeof(int)</code> is 4 on every machine you'll use. For <code>int a[4]</code>, <code>sizeof(a)</code> is 16. But pass <code>a</code> to a function and it "decays" into a plain <code>int *</code>, and inside that function <code>sizeof</code> gives 8, the size of a pointer. The array's length is gone. That's why every function your compiler generates (we'll call those generated functions <b>kernels</b>) will take sizes as separate parameters, or bake them in as constants.</p>
-
+    <ol>
+      <li><strong>Every value has a type.</strong> <code>int32_t t = 0;</code> makes a variable <code>t</code> that holds a 32-bit whole number, like .uir's i32. Plain <code>int</code> is 32 bits too on the machines in this course.</li>
+      <li><strong>A function.</strong> <code>int32_t total(int32_t n) { ... }</code> takes one <code>int32_t</code> and gives one back with <code>return</code>. A function that gives nothing back starts with <code>void</code>.</li>
+      <li><strong>A loop.</strong> <code>for (start; test; step)</code> runs <code>start</code> once, then repeats the body while <code>test</code> is true, with <code>step</code> after each pass. <code>i++</code> adds 1 to <code>i</code>.</li>
+      <li><strong>The start and the output.</strong> A program starts at <code>main</code>. <code>printf("%d\n", v)</code> prints the whole number <code>v</code> and ends the line.</li>
+      <li><strong>The includes.</strong> The <code>#include</code> lines bring in <code>printf</code> and <code>int32_t</code> from C's library.</li>
+    </ol>
   </div>
 
-  <div class="key">
-    <span class="label">C in 30 seconds</span>
-    <p>Enough C for the exercises on this page:</p>
-    <pre><code>int f(int a) {                 // a function: return type, name, parameters
+  <details class="toggle">
+    <summary>C in 30 seconds, for when you need a reminder</summary>
+    <div class="key">
+      <span class="label">C in 30 seconds</span>
+      <p>Enough C for the exercises on this page:</p>
+      <pre><code>int f(int a) {                 // a function: return type, name, parameters
   int t = 0;                   // a local variable
   for (int i = 0; i &lt; a; i++)  // a loop: start; keep going while true; step
     t += i;                    // t = t + i
@@ -87,76 +141,294 @@
 }
 printf("%d\n", x);             // prints the int x and a newline
 (uint32_t)a                    // a cast: converts a to an unsigned 32-bit int</code></pre>
+    </div>
+  </details>
+
+  <h2>A variable lives at an address</h2>
+  <div class="prose">
+    <p>Your program's memory is one long row of small boxes called <strong>bytes</strong>. Each byte has a number, its <strong>address</strong>: its position in the row. A variable is a name for a few bytes side by side. An <code>int32_t</code> takes 4.</p>
+<pre><code>int32_t x = 5;
+int32_t *p = &amp;x;
+*p = 9;
+printf("%d\n", x);</code></pre>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">No line says <code>x = 9</code>. What do you think this prints?</p>
+    <div class="opts"><button data-k="a">5</button><button data-k="b">9</button><button data-k="c">The address of <code>x</code></button></div>
+    <p class="hint"><code>p</code> holds the place where <code>x</code> lives. The third line puts 9 into that place.</p>
+    <div class="why"><p>9. <code>*p = 9</code> wrote into the bytes at the address in <code>p</code>, and those bytes are <code>x</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <ol>
+      <li><strong>Take the address.</strong> <code>&amp;x</code> means "the address of <code>x</code>".</li>
+      <li><strong>Keep it in a pointer.</strong> A <strong>pointer</strong> is a variable that holds an address. <code>int32_t *p</code> says <code>p</code> holds the address of an <code>int32_t</code>. A pointer is 8 bytes on a 64-bit machine.</li>
+      <li><strong>Follow it.</strong> <code>*p</code> means "the box at the address in <code>p</code>". You can read it or assign to it.</li>
+    </ol>
+    <p>Print <code>p</code> itself and you get a large number such as <code>000000B7495FF924</code> that changes from run to run. You only need what it leads to.</p>
+    <p>This is how the C your compiler prints hands back results: it gets a pointer to the caller's memory and writes through it.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-01n-add-one">
+    <h3>Change the box, not the address</h3>
+    <p><code>add_one(&amp;x)</code> should make <code>x</code> one larger. The starter changes <code>p</code>, the function's own copy of the address, so <code>x</code> stays the same. Repair the one line.</p>
+  </div>
+
+  <h2>An array is a row of boxes</h2>
+  <div class="prose">
+    <p>An <strong>array</strong> is several values of one type laid side by side. <code>int32_t a[4]</code> is four <code>int32_t</code> boxes, 16 bytes in all. Used by itself, the name <code>a</code> gives the address of the first box.</p>
+<pre><code>int32_t a[4] = {10, 20, 30, 40};
+int32_t *p = a;
+printf("%d\n", *(p + 2));</code></pre>
+  </div>
+
+  <div class="quiz" data-fill="30">
+    <p class="q">What does it print?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>p + 2</code> does not mean "2 bytes on". It means "2 boxes on".</p>
+    <div class="why"><p>30. <code>p</code> is the address of <code>a[0]</code>, and two boxes on is <code>a[2]</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>C counts in boxes, not bytes: <code>p + 2</code> moves 8 bytes, because each box is 4. And <code>a[i]</code> means <code>*(a + i)</code>: start at <code>a</code>, step <code>i</code> boxes on, read. <code>sizeof(int32_t)</code> is C for the size of one box, 4.</p>
+  </div>
+  <pre><code>address of a[i]  =  start  +  i * sizeof(element)</code></pre>
+  <div class="prose">
+    <p>This formula is the most important line in the course. By week 5 your compiler turns a 4D tensor index into exactly this: one start address plus one offset.</p>
+    <p>Addresses are written in <strong>hexadecimal</strong>: base 16, digits 0 to 9 then a to f, marked by <code>0x</code>. So <code>0x1004</code> is 4 more than <code>0x1000</code>, and <code>0x100c</code> is 12 more. Step through the snippet and watch the address in <code>p</code>.</p>
+  </div>
+
+  <div class="fig" id="ptrfig" data-title="pointer walk"></div>
+
+  <h2>C does not check the index</h2>
+  <div class="quiz" data-answer="c">
+    <p class="q">Guess first. <code>int32_t a[4]</code> has the boxes <code>a[0]</code> to <code>a[3]</code>. What does C do with <code>a[4]</code>?</p>
+    <div class="opts">
+      <button data-k="a">It stops with an error that names the line</button>
+      <button data-k="b">It gives 0</button>
+      <button data-k="c">It works out start + 4 boxes and reads whatever bytes are there</button>
+    </div>
+    <p class="hint"><code>a[4]</code> is <code>*(a + 4)</code>. Nothing in that formula mentions the length.</p>
+    <div class="why"><p>C does the address math and reads. You may get another variable's bytes, or a crash. The rules of C promise nothing.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>So in week 2 your compiler proves that every read and write is inside its array before it prints any C.</p>
+    <p>A function can't check either. An array handed to a function arrives as a plain pointer to its first box, without its length. Inside the function, <code>sizeof</code> of it gives 8, the size of a pointer. The functions your compiler prints are called <strong>kernels</strong>. Now you can read the first line of the one at the top of the page:</p>
+<pre><code>void kernel(int32_t *restrict b0)</code></pre>
+    <p>It returns nothing and takes <code>b0</code>, the address of the first box in a row of <code>int32_t</code>. <code>restrict</code> promises that no other pointer in the function reaches the same boxes. <code>const</code>, as in <code>const int *p</code>, promises not to write through <code>p</code>.</p>
   </div>
 
   <div class="exercise" data-ex="w0-c-sum-array">
     <h3>Sum an array with a pointer</h3>
     <p>Write <code>int sum(const int *p, int n)</code>: add up the <code>n</code> ints starting at address <code>p</code> and return the total. Use <code>p[i]</code>, or move <code>p</code> itself with <code>p++</code>. Both are the same address math.</p>
-    <p class="muted">When <code>n</code> is 0, <code>p</code> may be <code>NULL</code>. Don't read through it.</p>
+    <p class="muted">When <code>n</code> is 0, <code>p</code> may be <code>NULL</code>, the pointer that points at nothing. Don't read through it.</p>
   </div>
 
   <details class="toggle">
-    <summary>Why does <code>const int *p</code> say const?</summary>
-    <p><code>const int *p</code> is a pointer to ints you promise not to write through. The pointer itself can still move, so <code>p++</code> is fine. Generated kernels mark their input buffers this way so the C compiler knows they aren't modified.</p>
+    <summary>More on <code>sizeof</code>, <code>const</code> and arrays that turn into pointers</summary>
+    <div class="prose">
+      <p><code>sizeof</code> gives a size in bytes, computed at compile time. <code>sizeof(int)</code> is 4 on every machine you'll use. For <code>int a[4]</code>, <code>sizeof(a)</code> is 16. But pass <code>a</code> to a function and it "decays" into a plain <code>int *</code>, and inside that function <code>sizeof</code> gives 8, the size of a pointer. The array's length is gone. That's why your week 2 kernels never ask for a length: your compiler knows every size and writes it into the C as a constant.</p>
+      <p><code>const int *p</code> is a pointer to ints you promise not to write through. The pointer itself can still move, so <code>p++</code> is fine. The week 2 kernels don't use it, because any buffer may be written.</p>
+      <p>Indexing has no bounds check because <code>p[2]</code> is <em>exactly</em> <code>*(p + 2)</code>: add 2 elements to the address, then read.</p>
+    </div>
   </details>
 
+  <h2>What happens at 2,147,483,647 + 1</h2>
   <div class="prose">
-    <h2>Integers are 32 bits of two's complement</h2>
-    <p>An <code>int32</code> has 32 bits. Read as an unsigned number, it ranges from 0 to 2<sup>32</sup>−1. <b>Two's complement</b> reads the top bit as worth −2<sup>31</sup> instead of +2<sup>31</sup>. So the range is −2,147,483,648 (<code>INT_MIN</code>) to 2,147,483,647 (<code>INT_MAX</code>), and <code>-1</code> is all ones, <code>0xffffffff</code>.</p>
-    <p>Check that last one: with all 32 bits set, the top bit is worth −2,147,483,648 and the other 31 ones add up to +2,147,483,647. Together that's −1.</p>
-    <p>Type a number to see its bits. The top bit (the sign bit) is underlined.</p>
+    <p>The largest <code>int32_t</code> is 2,147,483,647. In .uir, adding 1 to it wraps to the smallest value, so "is <code>x + 1</code> greater than <code>x</code>?" is false there. This C program asks the same question. A C comparison gives 1 for true and 0 for false.</p>
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+
+int bigger(int32_t x) {
+  int32_t y = x + 1;
+  return y &gt; x;
+}
+
+int main(void) {
+  printf("%d\n", bigger(2147483647));
+  return 0;
+}</code></pre>
   </div>
 
-  <div class="panel">
-    <div class="bitrow">
-      <label for="bitin" class="label">int32</label>
-      <input id="bitin" value="-1">
-      <button class="btn" type="button" data-v="2147483647">INT_MAX</button>
-      <button class="btn" type="button" data-v="-2147483648">INT_MIN</button>
-      <button class="btn" type="button" data-v="2147483648">INT_MAX + 1</button>
+  <div class="quiz" data-answer="c">
+    <p class="q">What does it print?</p>
+    <div class="opts">
+      <button data-k="a">Always 0, like .uir</button>
+      <button data-k="b">Always 1</button>
+      <button data-k="c">It depends on how you build it</button>
     </div>
-    <div class="bits" id="bits"></div>
-    <p class="muted" id="bitsnote"></p>
+    <p class="hint">C makes no promise about a signed add that does not fit. What could a C compiler that wants fast code do with that freedom?</p>
+    <div class="why"><p>Built with <code>gcc -O0</code> (no optimizing) it prints 0. Built with <code>gcc -O2</code> (optimizing) the same file prints 1. <code>clang</code> does the same.</p></div>
   </div>
 
   <div class="prose">
-    <p>If you add 1 to <code>INT_MAX</code> and keep only the low 32 bits, you get <code>INT_MIN</code>. That's called <b>wrapping</b>. The hardware does it, and the language you'll compile in this course defines <code>add</code> and <code>mul</code> to wrap exactly like that.</p>
-  </div>
-  <div class="trap">
-    <span class="label">C does not promise wrapping</span>
-    <p>In C, signed overflow (<code>INT_MAX + 1</code> on an <code>int</code>) is <b>undefined behavior</b>. The compiler is allowed to assume it never happens, and optimizers really do use that. Unsigned arithmetic (<code>uint32_t</code>) <em>is</em> defined to wrap. When your compiler prints C for a wrapping <code>i32</code> add (<code>i32</code> is the course's 32-bit integer type), it'll need to cast to unsigned, add, and cast back, or pass a flag like <code>-fwrapv</code>. That last cast back is "implementation-defined": the C standard lets each compiler choose what happens, and every compiler you'll use wraps. Keep this in your back pocket for week 2.</p>
+    <p>C calls a signed add that does not fit <strong>undefined behavior</strong>: the rules of C say nothing about the result, so a C compiler may assume it never happens. Without optimizing, the machine's add wraps and you get 0. The optimizer reasons that <code>x + 1</code> is always greater than <code>x</code> and answers 1 without comparing.</p>
+    <p><code>uint32_t</code> is safe. It is an unsigned 32-bit number, 0 to 4,294,967,295, and C defines its math to wrap. A <strong>cast</strong>, written <code>(uint32_t)x</code>, converts a value to another type. So your compiler will print a wrapping add like this:</p>
+<pre><code>int32_t y = (int32_t)((uint32_t)x + (uint32_t)1);</code></pre>
+    <ol>
+      <li><strong>Convert to unsigned.</strong> 2147483647 and 1 keep their bits.</li>
+      <li><strong>Add.</strong> The sum, 2147483648, fits in a <code>uint32_t</code>.</li>
+      <li><strong>Convert back.</strong> The same 32 bits read as an <code>int32_t</code> are -2147483648, which is .uir's answer.</li>
+    </ol>
+    <p>With that line the program prints 0 however you build it.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-01-wrap-add">
     <h3>Code quiz: add with wraparound, no UB</h3>
-    <p>Write <code>int32_t wrap_add(int32_t a, int32_t b)</code> returning <code>a + b</code> wrapped to 32 bits, so <code>wrap_add(INT_MAX, 1) == INT_MIN</code>. Don't add two signed ints directly: do the add in <code>uint32_t</code>, where wrapping is defined, then convert back. A cast is written <code>(uint32_t)a</code>, and <code>int32_t</code> and <code>uint32_t</code> come from <code>&lt;stdint.h&gt;</code>, which the exercise already includes for you.</p>
+    <p>Write <code>int32_t wrap_add(int32_t a, int32_t b)</code> returning <code>a + b</code> wrapped to 32 bits, so <code>wrap_add(2147483647, 1)</code> is -2147483648. Don't add two signed ints directly: do the add in <code>uint32_t</code>, where wrapping is defined, then convert back.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The 32 bits themselves: two's complement, with a bit viewer</summary>
+    <div class="prose">
+      <p>An <code>int32</code> has 32 bits. Read as an unsigned number, it ranges from 0 to 2<sup>32</sup>−1. <b>Two's complement</b> reads the top bit as worth −2<sup>31</sup> instead of +2<sup>31</sup>. So the range is −2,147,483,648 (<code>INT_MIN</code>) to 2,147,483,647 (<code>INT_MAX</code>), and <code>-1</code> is all ones, <code>0xffffffff</code>.</p>
+      <p>Check that last one: with all 32 bits set, the top bit is worth −2,147,483,648 and the other 31 ones add up to +2,147,483,647. Together that's −1.</p>
+      <p>Type a number to see its bits. The top bit (the sign bit) is underlined.</p>
+    </div>
+    <div class="panel">
+      <div class="bitrow">
+        <label for="bitin" class="label">int32</label>
+        <input id="bitin" value="-1">
+        <button class="btn" type="button" data-v="2147483647">INT_MAX</button>
+        <button class="btn" type="button" data-v="-2147483648">INT_MIN</button>
+        <button class="btn" type="button" data-v="2147483648">INT_MAX + 1</button>
+      </div>
+      <div class="bits" id="bits"></div>
+      <p class="muted" id="bitsnote"></p>
+    </div>
+    <div class="prose">
+      <p>If you add 1 to <code>INT_MAX</code> and keep only the low 32 bits, you get <code>INT_MIN</code>. That's called <b>wrapping</b>. The hardware does it, and the language you'll compile in this course defines <code>add</code> and <code>mul</code> to wrap exactly like that.</p>
+    </div>
+    <div class="trap">
+      <span class="label">C does not promise wrapping</span>
+      <p>In C, signed overflow (<code>INT_MAX + 1</code> on an <code>int</code>) is <b>undefined behavior</b>. The compiler is allowed to assume it never happens, and optimizers really do use that. Unsigned arithmetic (<code>uint32_t</code>) <em>is</em> defined to wrap. When your compiler prints C for a wrapping <code>i32</code> add (<code>i32</code> is the course's 32-bit integer type), it'll need to cast to unsigned, add, and cast back, or pass a flag like <code>-fwrapv</code>. That last cast back is "implementation-defined": the C standard lets each compiler choose what happens, and every compiler you'll use wraps. Keep this in your back pocket for week 2.</p>
+    </div>
+  </details>
+
+  <h2>C division rounds toward zero</h2>
+  <div class="prose">
+    <p>In the warm up, .uir's <code>div -7 2</code> was -4. Your compiler has to get that answer out of C's <code>/</code>.</p>
+  </div>
+
+  <div class="quiz" data-fill="-3">
+    <p class="q">Predict the output of <code>printf("%d", -7 / 2);</code> in C.</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">The exact answer is -3.5. Which way does C round: down, or toward zero?</p>
+    <div class="why"><p>C truncates toward zero. −3.5 becomes −3.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Integer division truncates toward zero</h2>
-    <p>Since C99, <code>/</code> on integers rounds toward zero, and <code>%</code> is defined so that <code>(a / b) * b + a % b == a</code>. That means the remainder takes the sign of the left operand:</p>
+    <p>C's <code>/</code> on whole numbers drops the part after the decimal point. That is called <strong>truncating</strong>. The remainder <code>%</code> is whatever makes <code>(a / b) * b + a % b == a</code> true.</p>
   </div>
   <div class="tablewrap"><table>
-    <tr><th>expression</th><th>C result</th><th>why</th></tr>
-    <tr><td><code>7 / 2</code></td><td><code>3</code></td><td>3.5 rounds toward zero</td></tr>
-    <tr><td><code>-7 / 2</code></td><td><code>-3</code></td><td>−3.5 rounds toward zero, <em>not</em> down to −4</td></tr>
-    <tr><td><code>-7 % 2</code></td><td><code>-1</code></td><td>−3 × 2 + (−1) = −7</td></tr>
-    <tr><td><code>7 % -2</code></td><td><code>1</code></td><td>−3 × −2 + 1 = 7</td></tr>
-    <tr><td><code>INT_MIN / -1</code></td><td>undefined</td><td>the true quotient, 2147483648, doesn't fit in an <code>int</code></td></tr>
-    <tr><td><code>x / 0</code></td><td>undefined</td><td>traps on x86, and ARM64 quietly returns 0</td></tr>
+    <tr><th>expression</th><th>C result</th><th>.uir <code>div</code> or <code>mod</code></th></tr>
+    <tr><td><code>7 / 2</code></td><td><code>3</code></td><td><code>3</code></td></tr>
+    <tr><td><code>-7 / 2</code></td><td><code>-3</code></td><td><code>-4</code></td></tr>
+    <tr><td><code>-7 % 2</code></td><td><code>-1</code></td><td><code>1</code></td></tr>
+    <tr><td><code>7 % -2</code></td><td><code>1</code></td><td><code>-1</code></td></tr>
   </table></div>
-  <div class="trap">
-    <span class="label">Python and the course disagree with C</span>
-    <p>Python's <code>//</code> rounds <em>down</em> (<code>-7 // 2 == -4</code>) and its <code>%</code> follows the right operand's sign (<code>-7 % 2 == 1</code>). The course's <code>div</code> and <code>mod</code> round down too, like Python, and they define a zero divisor instead of leaving it undefined: <code>div x 0</code> is −1 and <code>mod x 0</code> is <code>x</code>. From week 2 your compiler prints C, so it has to get that answer out of C's truncating <code>/</code>.</p>
+  <div class="prose">
+    <p>The two disagree only when the exact answer is not whole and the signs of <code>a</code> and <code>b</code> differ. Then the floor is one less than C's answer.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-01-floor-div">
     <h3>Code quiz: Python's // from C's /</h3>
-    <p>Write <code>int floor_div(int a, int b)</code> that rounds <em>down</em> like Python: <code>floor_div(-7, 2) == -4</code>. Start from C's truncating <code>a / b</code> and fix it up. When does truncation differ from flooring? Only when there's a remainder and the signs of <code>a</code> and <code>b</code> differ. <code>b</code> is never 0. In week 2 your compiler's C computes the course's <code>div</code> this way.</p>
+    <p>Write <code>int floor_div(int a, int b)</code> that rounds <em>down</em> like Python: <code>floor_div(-7, 2) == -4</code>. Start from C's truncating <code>a / b</code> and fix it up. <code>b</code> is never 0. In week 2 your compiler's C computes the course's <code>div</code> this way.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The two divisions C leaves undefined, and how Python compares</summary>
+    <div class="tablewrap"><table>
+      <tr><th>expression</th><th>C result</th><th>why</th></tr>
+      <tr><td><code>INT_MIN / -1</code></td><td>undefined</td><td>the true quotient, 2147483648, doesn't fit in an <code>int</code></td></tr>
+      <tr><td><code>x / 0</code></td><td>undefined</td><td>traps on x86, and ARM64 quietly returns 0</td></tr>
+    </table></div>
+    <div class="prose">
+      <p>In the main table, <code>-7 / 2</code> is −3 because −3.5 rounds toward zero, <em>not</em> down to −4. The remainders follow from that: −3 × 2 + (−1) = −7 and −3 × −2 + 1 = 7. So C's remainder takes the sign of the left operand.</p>
+      <p>The C standard gives <code>INT_MAX + 1</code> no value at all for a plain <code>int</code>. It does not wrap to <code>INT_MIN</code> and it does not stick at <code>INT_MAX</code>.</p>
+    </div>
+    <div class="trap">
+      <span class="label">Python and the course disagree with C</span>
+      <p>Python's <code>//</code> rounds <em>down</em> (<code>-7 // 2 == -4</code>) and its <code>%</code> follows the right operand's sign (<code>-7 % 2 == 1</code>). The course's <code>div</code> and <code>mod</code> round down too, like Python, and they define a zero divisor instead of leaving it undefined: <code>div x 0</code> is −1 and <code>mod x 0</code> is <code>x</code>. From week 2 your compiler prints C, so it has to get that answer out of C's truncating <code>/</code>.</p>
+    </div>
+  </details>
+
+  <h2>A struct, and a function handed to a function</h2>
+  <div class="prose">
+    <p>In week 7 your compiler prints C that runs one loop body on many threads. That C needs three more pieces. The first is a <strong>struct</strong>: a type that groups several named values, called <strong>fields</strong>, into one block of memory.</p>
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;stdint.h&gt;
+
+typedef struct { int32_t *b0; int32_t r3; } ctx_t;
+
+void body(int32_t r, void *ctx) {
+  ctx_t *k = ctx;
+  k-&gt;b0[r] = k-&gt;r3 + r;
+}
+
+void run(int32_t n, void (*f)(int32_t, void *), void *ctx) {
+  for (int32_t r = 0; r &lt; n; r++) {
+    f(r, ctx);
+  }
+}
+
+int main(void) {
+  int32_t a[3] = {0, 0, 0};
+  ctx_t k = { a, 10 };
+  run(3, body, &amp;k);
+  printf("%d %d %d\n", a[0], a[1], a[2]);
+  return 0;
+}</code></pre>
+  </div>
+
+  <div class="quiz" data-fill="10 11 12 | 10, 11, 12 | 10,11,12">
+    <p class="q">Guess first. What three numbers does it print?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint"><code>run</code> calls <code>body</code> with <code>r</code> as 0, 1 and 2.</p>
+    <div class="why"><p><code>10 11 12</code>. The field <code>r3</code> is 10, and each call stores 10 plus its own <code>r</code> into box <code>r</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <ol>
+      <li><strong>Make the struct.</strong> The <code>typedef</code> line names a struct type <code>ctx_t</code> with two fields. <code>ctx_t k = { a, 10 };</code> fills them in order: <code>b0</code> is <code>a</code> and <code>r3</code> is 10.</li>
+      <li><strong>Hand over a function.</strong> In <code>run(3, body, &amp;k)</code>, <code>body</code> without parentheses is the function itself, not a call. The parameter <code>void (*f)(int32_t, void *)</code> reads "<code>f</code> is a function that takes an <code>int32_t</code> and a <code>void *</code> and returns nothing".</li>
+      <li><strong>Carry anything.</strong> <code>void *</code> is a pointer to "something". <code>run</code> passes <code>&amp;k</code> along without knowing what is in it, and the first line of <code>body</code> turns it back into a <code>ctx_t *</code>.</li>
+      <li><strong>Read a field through a pointer.</strong> <code>k-&gt;r3</code> means "the field <code>r3</code> of the struct <code>k</code> points to". On a struct that is not behind a pointer you write a dot: <code>k.r3</code>.</li>
+    </ol>
+  </div>
+
+  <div class="exercise" data-ex="w0-01n-ctx">
+    <h3>Run a function over a struct</h3>
+    <p>This is the program above with two things broken. <code>body</code> ignores <code>r3</code>, and <code>run</code> calls <code>f</code> once when it should call <code>f(r, ctx)</code> for every <code>r</code> from 0 to <code>n - 1</code>. Repair both.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Read a C function: its types, its loop and what it returns.</li>
+      <li>Say what <code>&amp;x</code>, <code>*p</code> and <code>a[i]</code> do, as addresses and boxes.</li>
+      <li>Explain why C needs a cast to unsigned to add like .uir, and a fix up to divide like .uir.</li>
+      <li>Read a struct, <code>-&gt;</code> and a function passed to another function.</li>
+    </ul>
+    <p>Next is week 2, where your compiler gets buffers of memory and prints C for them.</p>
   </div>
 
   <h2>Check yourself</h2>
   <p class="score"></p>
+
+  <div class="quiz" data-fill="42">
+    <p class="q">Back to the kernel from the top of the page. <code>b0</code> points at one box that holds 21. What does the box hold after <code>kernel(b0)</code> runs?</p>
+<pre><code>void kernel(int32_t *restrict b0) {
+  int32_t v3 = b0[0];
+  int32_t v4 = (int32_t)((uint32_t)v3 + (uint32_t)v3);
+  b0[0] = v4;
+}</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The first line reads the box. The second is a wrapping add of <code>v3</code> to itself. The third writes the box.</p>
+    <div class="why"><p>42. It reads 21, adds it to itself the safe way and stores the sum back through the pointer.</p></div>
+  </div>
 
   <div class="quiz" data-answer="b">
     <p class="q">On the 64-bit machines this course targets, what is <code>sizeof(int)</code>?</p>
@@ -183,37 +455,11 @@ printf("%d\n", p[1]);</code></pre>
     <div class="why"><p><code>p</code> points at <code>a[1]</code>, so <code>p[1]</code> is <code>*(a + 1 + 1)</code>, which is <code>a[2]</code> = 30.</p></div>
   </div>
 
-  <div class="quiz" data-fill="-3">
-    <p class="q">Predict the output of <code>printf("%d", -7 / 2);</code> in C.</p>
-    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
-    <p class="hint">The exact answer is -3.5. Which way does C round: down, or toward zero?</p>
-    <div class="why"><p>C truncates toward zero. −3.5 becomes −3.</p></div>
-  </div>
-
   <div class="quiz" data-fill="-1">
     <p class="q">Predict the output of <code>printf("%d", -7 % 2);</code> in C.</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
-    <p class="hint">C guarantees <code>(a / b) * b + a % b == a</code>. You know <code>-7 / 2</code> from the previous quiz.</p>
+    <p class="hint">C guarantees <code>(a / b) * b + a % b == a</code>. You know <code>-7 / 2</code> from the quiz above.</p>
     <div class="why"><p>Since <code>-7 / 2 == -3</code>, the remainder must satisfy −3 × 2 + r = −7, so r = −1.</p></div>
-  </div>
-
-  <div class="quiz" data-answer="c">
-    <p class="q">What does the C standard say <code>INT_MAX + 1</code> evaluates to, for a plain <code>int</code>?</p>
-    <div class="opts">
-      <button data-k="a"><code>INT_MIN</code>, by two's complement wraparound</button>
-      <button data-k="b"><code>INT_MAX</code>, it saturates</button>
-      <button data-k="c">Nothing. Signed overflow is undefined behavior.</button>
-    </div>
-    <p class="hint">The section above has a trap box about this. Think about what the C standard promises, not what the hardware does.</p>
-    <div class="why"><p>Your hardware would wrap to <code>INT_MIN</code>, but C promises nothing, and optimizers rely on that. Unsigned types are the ones defined to wrap.</p></div>
-  </div>
-
-  <div class="quiz" data-fill="0xffffffff | ffffffff | 0xFFFFFFFF">
-    <p class="q">What is <code>-1</code> as a 32-bit two's complement number, in hex?</p>
-    <div class="fill"><input placeholder="0x..." aria-label="answer"><button class="btn">check</button></div>
-    <p class="hint">In two's complement, -1 is the number that becomes 0 when you add 1.</p>
-    <p class="hint">Adding 1 to 0xffffffff carries out of all 32 bits.</p>
-    <div class="why"><p>All 32 bits set. Adding 1 to it wraps to 0, which is exactly what −1 + 1 should give.</p></div>
   </div>
 
   <div class="quiz" data-answer="a">

@@ -1,0 +1,55 @@
+{
+  "id": "w9-04n-patch-addr-py",
+  "lang": "python",
+  "title": "Where does a patch element live?",
+  "prompt": "<p>A one-channel image has outputs <code>w</code> pixels wide, so its padded input is <code>w + 2</code> wide and stored row-major. Write <code>patch_addr(row, col, w)</code>: the offset in the padded input of element <code>(row, col)</code> of the patch matrix. Row <code>y*w + x</code> is output pixel <code>(y, x)</code>, and column <code>dy*3 + dx</code> is tap <code>(dy, dx)</code> of the 3×3 window.</p>",
+  "show": "str",
+  "starter": "def patch_addr(row: int, col: int, w: int) -> int:\n    return 0\n",
+  "tests": [
+    {
+      "expr": "patch_addr(0, 0, 3)",
+      "expect": "0",
+      "sample": true
+    },
+    {
+      "expr": "patch_addr(4, 4, 3)",
+      "expect": "12",
+      "sample": true
+    },
+    {
+      "expr": "patch_addr(7, 2, 3)",
+      "expect": "13",
+      "sample": true
+    },
+    {
+      "expr": "patch_addr(1, 2, 3)",
+      "expect": "3"
+    },
+    {
+      "expr": "patch_addr(0, 3, 3)",
+      "expect": "5"
+    },
+    {
+      "expr": "patch_addr(8, 8, 3)",
+      "expect": "24"
+    },
+    {
+      "expr": "patch_addr(5, 0, 4)",
+      "expect": "7"
+    },
+    {
+      "expr": "patch_addr(64, 7, 64)",
+      "expect": "199"
+    },
+    {
+      "expr": "patch_addr(16383, 8, 64)",
+      "expect": "17027"
+    }
+  ],
+  "hints": [
+    "Split <code>row</code> into the pixel: <code>y = row // w</code> and <code>x = row % w</code>.",
+    "Split <code>col</code> into the tap: <code>dy = col // 3</code> and <code>dx = col % 3</code>.",
+    "The window reads padded row <code>y + dy</code> and padded column <code>x + dx</code>, and a padded row is <code>w + 2</code> long: <code>(y + dy) * (w + 2) + x + dx</code>."
+  ],
+  "explain": "The row names an output pixel and the column names a tap, so two divisions and two remainders recover <code>y</code>, <code>x</code>, <code>dy</code> and <code>dx</code>. The element is input <code>(y + dy, x + dx)</code>, at offset <code>(y + dy)·(w + 2) + x + dx</code>. An implicit GEMM runs this arithmetic while it copies a tile, so the patch matrix is never stored."
+}

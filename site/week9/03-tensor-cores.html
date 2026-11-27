@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tensor Cores</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Since 2017, NVIDIA GPUs have had a second kind of arithmetic unit, built for one job: multiply two small matrices and add the result to a third. A warp asks...">
+<meta name="description" content="A tensor core is a part of the GPU that multiplies two small 16×16 matrices in a single step. It was built because machine learning is mostly matrix multiply...">
 <link rel="canonical" href="https://sharpterminal.com/site/week9/03-tensor-cores">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Tensor Cores">
-<meta property="og:description" content="Since 2017, NVIDIA GPUs have had a second kind of arithmetic unit, built for one job: multiply two small matrices and add the result to a third. A warp asks for a whole 16×16 tile product at once...">
+<meta property="og:description" content="A tensor core is a part of the GPU that multiplies two small 16×16 matrices in a single step. It was built because machine learning is mostly matrix multiply. By the end of this lesson you can write...">
 <meta property="og:url" content="https://sharpterminal.com/site/week9/03-tensor-cores">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,36 +20,321 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .tm { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; max-width: 30rem; }
   .tm .s { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 1.9rem; }
   .tm .s.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .tm .s.t1 { border-color: var(--ink-3); }
+  .tm.w4 { grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 16rem; }
+  .tm.w4 .s { padding: 2px 0; min-height: 0; }
 </style>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 9 · Lesson 3</p>
 <h1>Tensor cores</h1>
-<p class="lede">Since 2017, NVIDIA GPUs have had a second kind of arithmetic unit, built for one job: multiply two small matrices and add the result to a third. A warp asks for a whole 16×16 tile product at once, thousands of multiply-adds, where an ordinary instruction does 32. This lesson adds them to .uir, with an int8 type so the bits still match exactly.</p>
+<p class="lede">A tensor core is a part of the GPU that multiplies two small 16×16 matrices in a single step. It was built because machine learning is mostly matrix multiply. By the end of this lesson you can write .uir that uses one, with the three things the language needs for it: a small integer type, an op for a whole tile and a loop run by warps.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Write a .uir program that multiplies 16×16 tiles with <code>mma</code>, and read the CUDA and the C it turns into.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Warps of 32 threads from <a href="../week8/01-gpus.html">lesson 8.1</a>, the place-value rule from <a href="../week8/02-global-and-local.html">lesson 8.2</a>, phases from <a href="../week8/03-shared-memory.html">lesson 8.3</a> and the GEMM (matrix multiply) of <a href="02-fast-gemm.html">lesson 9.2</a>.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from week 8, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="3">
+<p class="q">A block has 96 threads. How many warps is that?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">How many threads are in one warp?</p>
+<div class="why"><p>A warp is 32 threads that take every step together, and 96 / 32 is 3.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Thread <code>t</code> of block <code>b</code> writes element <code>c·b + t</code>, and <code>t</code> runs from 0 to 15. Which <code>c</code> keeps the blocks from writing the same element?</p>
+<div class="opts">
+<button data-k="a">8</button>
+<button data-k="b">15</button>
+<button data-k="c">16</button>
+</div>
+<p class="hint">Place value: the block digit must be worth more than the most <code>t</code> can add.</p>
+<div class="why"><p>16 is more than 15, the most <code>t</code> reaches. With 15, block 1 thread 0 and block 0 thread 15 collide.</p></div>
+</div>
+
+<h2>One step, thousands of multiply-adds</h2>
+<div class="prose">
+<p>So far, every multiply-add in your kernels was done by one thread, one at a time. A warp of 32 threads gets 32 of them done per step.</p>
+<p>A <b>tensor core</b> is a second kind of arithmetic unit, on NVIDIA GPUs since 2017. It takes two 16×16 matrices A and B and a third one C, and computes <code>C = C + A·B</code> in one step. As in week 7, a small piece of a matrix is a <b>tile</b>. In the product, each element of C gets one row of A times one column of B: 16 pairs of numbers, multiplied and added up.</p>
+</div>
+
+<div class="quiz" data-fill="4096 | 4,096">
+<p class="q">Guess first. C has 16×16 elements, and each one takes 16 multiply-adds. How many multiply-adds is one tile product?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">16 · 16 elements, 16 multiply-adds each.</p>
+<div class="why"><p><code>16·16·16 = 4,096</code>, from one instruction.</p></div>
+</div>
 
 <div class="prose">
-<h2>What a tensor core does</h2>
-<p>Every SM of the 4060 Ti has four tensor cores next to its ordinary float units. The instruction they run is a <b>matrix multiply-accumulate</b>, <b>mma</b>: <code>C = C + A·B</code>, with A, B and C small tiles. It's a warp instruction. Each tile is spread across the registers of the warp's 32 threads as a <b>fragment</b>, and all 32 threads issue the instruction together. In CUDA's <code>wmma</code> interface the tiles we use are 16×16×16, and one <code>mma_sync</code> is 16·16·16 = 4,096 multiply-adds.</p>
-<p>The inputs are narrow: 16-bit floats, 8-bit floats, 8-bit integers. Narrow inputs are what make the units small enough to put four per SM, and they're why ML models are so often run in 16 or 8 bits.</p>
+<p>The instruction is called a <b>matrix multiply-accumulate</b>, or <b>mma</b>. Every SM of the 4060 Ti has four tensor cores. They fit because their inputs are narrow: 16-bit floats, 8-bit floats or 8-bit integers.</p>
+<p>To use them, .uir needs three new things.</p>
+</div>
 
-<h2>Why int8</h2>
-<p>A float tensor core doesn't round like the interpreter. It multiplies the inputs exactly, but it doesn't add the sixteen products together in IEEE arithmetic step by step. How many bits it keeps along the way and how it rounds differ from one GPU generation to the next. A grader that compares bits can't use it.</p>
-<p>Integers have no rounding. The product of two 8-bit integers fits in 16 bits, and a sum of them in 32-bit integers is exact in any order, as long as it doesn't overflow. So the tensor cores give exactly the interpreter's answer. That's why .uir's tensor-core op takes <code>i8</code> inputs and an <code>i32</code> accumulator. It's also real: int8 matrix multiplies are how many models are served after quantization.</p>
+<h2>A small integer type: i8</h2>
+<div class="prose">
+<p>The tensor cores in this course work on 8-bit integers, so .uir needs a type for them. An <b><code>i8</code></b> is an integer stored in 8 bits. Eight bits make 256 patterns, and an i8 uses them for the numbers -128 to 127.</p>
+</div>
 
-<h2>In .uir</h2>
-<p>Three additions, all in <a href="../../spec/uir-week9.md">the week 9 spec</a>:</p>
+<div class="quiz" data-answer="b">
+<p class="q">An <code>i32</code> holds 200. <code>cast</code> turns it into an <code>i8</code> by keeping only its low 8 bits. What is the i8?</p>
+<div class="opts">
+<button data-k="a">127, the largest i8</button>
+<button data-k="b">-56</button>
+<button data-k="c">The program is rejected</button>
+</div>
+<p class="hint">It wraps around like i32 does, only sooner. One step past 127 is -128.</p>
+<div class="why"><p>200 does not fit, so it wraps: <code>200 - 256 = -56</code>.</p></div>
+</div>
+
+<div class="prose">
+<p><code>i8</code> is a type for memory. A <code>buffer</code> or <code>alloc</code> can hold it with <code>dtype=i8</code>, <code>load</code> and <code>store</code> move it, and <code>cast</code> converts it. There is no i8 arithmetic: to compute with one, cast it to <code>i32</code> first. Your compiler's <code>cast</code> needs the wrap from the quiz, so write it now.</p>
+</div>
+
+<div class="exercise small" data-ex="w9-03n-to-i8" data-ex-py="w9-03n-to-i8-py">
+<h3>Keep the low 8 bits</h3>
+<p><span class="only-python"><code>to_i8(x)</code></span><span class="only-ocaml"><code>to_i8 x</code></span> should return what an i8 holds after <code>x</code> is cast to it. The starter keeps the low 8 bits with <span class="only-python"><code>&amp; 255</code></span><span class="only-ocaml"><code>land 255</code></span>, which gives a number from 0 to 255. Repair it so the answer is always from -128 to 127: 200 becomes -56 and 128 becomes -128.</p>
+</div>
+
+<h2>Why integers: the bits still match</h2>
+<div class="prose">
+<p>Every test since week 1 compares bits with the interpreter. A float tensor core cannot pass that: how it rounds while adding its 16 products differs from one GPU generation to the next. An integer one also adds in an order you do not control. Does that matter?</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Three i32 values are added with wraparound, once as <code>(a + b) + c</code> and once as <code>a + (b + c)</code>. Are the two results always the same?</p>
+<div class="opts">
+<button data-k="a">Yes, always</button>
+<button data-k="b">Only when nothing overflows</button>
+<button data-k="c">No, the order changes the low bits</button>
+</div>
+<p class="hint">Integers have no rounding. Wrapping only throws away bits above bit 31.</p>
+<div class="why"><p>Integer addition is exact, and wrapping drops the same high bits whatever the order. Float addition rounds at each step, so there the order matters.</p></div>
+</div>
+
+<div class="prose">
+<p>So <code>mma</code> takes <code>i8</code> inputs and adds into <code>i32</code>. The products are exact and the sum comes out the same in any order, so the tensor core gives the interpreter's answer, bit for bit. Real models are served this way too: shrinking a model's numbers to 8-bit integers is called <b>quantization</b>.</p>
+</div>
+
+<h2>mma: add a tile product into C</h2>
+<div class="prose">
+<p>The second new thing is the op itself:</p>
+<pre><code>%m = mma %C %A %B lda=16 ldb=16 ldc=16</code></pre>
+<p><code>A</code> and <code>B</code> are <code>i8</code> memory and <code>C</code> is <code>i32</code> memory. The <code>ld</code> attributes come in the next section. <code>mma</code> is an <b>effect</b>, like <code>store</code>: it changes memory. For every row <code>i</code> and column <code>j</code> from 0 to 15, it adds row <code>i</code> of A times column <code>j</code> of B into <code>C[i][j]</code>. Here is one element by hand. Row 0 of A starts <code>2 -1 3</code>, column 0 of B starts <code>4 5 -2</code>, the other 13 entries of each are 0, and <code>C[0][0]</code> holds 10.</p>
+<ol>
+<li><b>Pair them up.</b> <code>2·4</code>, <code>-1·5</code>, <code>3·-2</code>, then 13 pairs with a zero.</li>
+<li><b>Multiply.</b> 8, -5, -6, then zeros.</li>
+<li><b>Add into C.</b> <code>10 + 8 - 5 - 6 = 7</code>. The old 10 is kept and added to.</li>
+</ol>
+</div>
+
+<div class="quiz" data-fill="6">
+<p class="q">Row 3 of A starts <code>1 2 3</code> and column 5 of B starts <code>3 2 1</code>. The rest are zeros. <code>C[3][5]</code> holds -4. What does it hold after the <code>mma</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Three products, then add what C already holds.</p>
+<div class="why"><p><code>1·3 + 2·2 + 3·1 = 10</code>, and <code>-4 + 10 = 6</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>A 16×16 tile is 256 elements of memory, row after row. As with a store, <code>after %C %m</code> names the new version of C.</p>
+</div>
+
+<h2>A tile inside a wider matrix</h2>
+<div class="prose">
+<p>Real matrices are bigger than one tile. Say C has 16 rows and 32 columns, and you want the product in its right half. Step through where that tile sits in memory.</p>
+</div>
+
+<div class="fig" id="strides" data-title="A 16×32 matrix: each cell is 8 elements, labeled with the offset of the first"></div>
+
+<div class="prose">
+<p>An <code>mma</code> needs two facts for each tile. Where it starts: the operand can be a scalar view such as <code>shrink %C 16 []</code>, and its offset is the tile's first element. And its <b>row stride</b>: how many elements lie between the start of one row of the tile and the start of the next. That is the width of the matrix the tile sits in. <code>lda</code>, <code>ldb</code> and <code>ldc</code> are the row strides of the three tiles. "ld" is short for leading dimension.</p>
+</div>
+
+<div class="quiz" data-fill="160">
+<p class="q">A is 64 columns wide. A tile starts at element 32 with <code>lda=64</code>. At which element does row 2 of the tile start?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Row <code>i</code> of the tile starts <code>i · lda</code> elements after the tile's first element.</p>
+<div class="why"><p><code>32 + 2·64 = 160</code>.</p></div>
+</div>
+
+<div class="exercise small" data-ex="w9-03n-stride">
+<h3>Aim a tile at the right half of C</h3>
+<p>C has 16 rows and 32 columns. A and B are 16×16. The program should add <code>A·B</code> into columns 16 to 31 of C and leave columns 0 to 15 alone. It starts at the right element, but one attribute is wrong. Repair it.</p>
+</div>
+
+<h2>A warp runs it together</h2>
+<div class="prose">
+<p>In a kernel, a <code>store</code> is run by one thread. An <code>mma</code> cannot be: the 32 threads of a warp hold each tile together in their registers and issue the instruction together. So .uir needs a loop whose iterations are warps, the third new thing:</p>
+<pre><code>%w = range 4 axis=warp</code></pre>
+<p>Iteration <code>w</code> is run by warp <code>w</code>: the 32 threads whose <code>threadIdx.x / 32</code> is <code>w</code>.</p>
+</div>
+
+<div class="quiz" data-fill="128">
+<p class="q">Guess first. A kernel has the warp loop above. How many threads are in each of its blocks?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Four warps, and you know the size of a warp.</p>
+<div class="why"><p><code>4 · 32 = 128</code>. A warp loop of <code>n</code> makes the block <code>32n</code> threads.</p></div>
+</div>
+
+<div class="prose">
+<p>A warp loop is a phase, like a <code>local</code> loop: it sits inside a <code>global</code> loop and ends with a barrier. Inside a kernel an <code>mma</code> must be in a warp loop, and a <code>store</code> must not be, since there all 32 threads would run it. Here two warps each make one tile of C:</p>
+<pre><code>%A  = buffer 512 dtype=i8 slot=0
+%B  = buffer 256 dtype=i8 slot=1
+%C  = buffer 512 dtype=i32 slot=2
+%g  = range 1 axis=global
+%w  = range 2 axis=warp
+%go = mul %g 512
+%wo = mul %w 256
+%co = add %go %wo
+%cv = shrink %C %co []
+%av = shrink %A %wo []
+%m  = mma %cv %av %B lda=16 ldb=16 ldc=16
+%ew = end %m %w
+%eg = end %ew %g
+%C1 = after %C %eg</code></pre>
+<p>Do the two warps ever write the same element? Use the place-value rule. An <code>mma</code> writes a whole tile, so its offset has two extra digits.</p>
+<ol>
+<li><b>List the digits.</b> <code>w</code> is worth 256 and reaches 1. The tile's row is worth <code>ldc</code>, 16, and reaches 15. Its column is worth 1 and reaches 15.</li>
+<li><b>Check each one.</b> 16 is more than 15. 256 is more than <code>15·16 + 15 = 255</code>.</li>
+<li><b>Conclude.</b> The tiles sit a whole tile apart, so the program is valid.</li>
+</ol>
+</div>
+
+<h2>What your compiler emits</h2>
+<div class="prose">
+<p>This is the kernel <code>render-cuda</code> writes for that program:</p>
+<pre><code>__global__ void k0(int8_t *__restrict__ b0, int8_t *__restrict__ b1, int32_t *__restrict__ b2) {
+  int32_t r7 = blockIdx.x;
+  int32_t v8 = (int32_t)((uint32_t)r7 * (uint32_t)512);
+  {
+    int32_t r9 = threadIdx.x / 32;
+    int32_t v10 = (int32_t)((uint32_t)r9 * (uint32_t)256);
+    int32_t v11 = (int32_t)((uint32_t)v8 + (uint32_t)v10);
+    { wmma::fragment&lt;wmma::matrix_a, 16, 16, 16, signed char, wmma::row_major&gt; fa_; wmma::load_matrix_sync(fa_, b0 + v10, 16);
+      wmma::fragment&lt;wmma::matrix_b, 16, 16, 16, signed char, wmma::row_major&gt; fb_; wmma::load_matrix_sync(fb_, b1 + 0, 16);
+      wmma::fragment&lt;wmma::accumulator, 16, 16, 16, int&gt; fc_; wmma::load_matrix_sync(fc_, b2 + v11, 16, wmma::mem_row_major);
+      wmma::mma_sync(fc_, fa_, fb_, fc_); wmma::store_matrix_sync(b2 + v11, fc_, 16, wmma::mem_row_major); __syncwarp(); }
+  }
+  __syncthreads();
+}</code></pre>
+<p>The warp loop became a block that works out its warp number, <code>r9</code>, then a barrier. The <code>mma</code> became calls to <code>wmma</code>, CUDA's interface to the tensor cores. A <b>fragment</b> is a tile held in the warp's registers: load three, multiply, store C. For the CPU, <code>render</code> writes plain loops:</p>
+<pre><code>  for (int32_t r9 = 0; r9 &lt; 2; r9++) {
+    int32_t v10 = (int32_t)((uint32_t)r9 * (uint32_t)256);
+    int32_t v11 = (int32_t)((uint32_t)v8 + (uint32_t)v10);
+    for (int32_t i_ = 0; i_ &lt; 16; i_++) for (int32_t j_ = 0; j_ &lt; 16; j_++) {
+      uint32_t s_ = (uint32_t)b2[v11 + i_ * 16 + j_];
+      for (int32_t k_ = 0; k_ &lt; 16; k_++) s_ += (uint32_t)((int32_t)b0[v10 + i_ * 16 + k_] * (int32_t)b1[0 + k_ * 16 + j_]);
+      b2[v11 + i_ * 16 + j_] = (int32_t)s_;
+    }
+  }</code></pre>
+<p>The sum is kept in a <code>uint32_t</code> so that it wraps like <code>add</code>.</p>
+</div>
+
+<div class="quiz" data-fill="8192 | 8,192">
+<p class="q">In the C above, how many times does the line with <code>s_ +=</code> run?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Multiply the four loop bounds.</p>
+<div class="why"><p><code>2 · 16 · 16 · 16 = 8,192</code>. On the GPU that is two <code>mma_sync</code> calls. On a 1024×1024 GEMM the tensor cores make the kernel three times faster.</p></div>
+</div>
+
+<div class="prose">
+<p>Now write one yourself. Outside a kernel an <code>mma</code> may sit in a plain loop, as it does here.</p>
+</div>
+
+<div class="exercise small" data-ex="w9-03-mma">
+<h3>Two tiles on the tensor cores</h3>
+<p>The starter multiplies a 32×16 matrix A by a 16×16 matrix B with three loops, one multiply-add at a time. Replace the triple loop with <code>mma</code>, one tile of C per iteration of a loop of 2.</p>
+</div>
+
+<h2>Where a tile may start</h2>
+<div class="prose">
+<p>A tensor core loads a tile from an address that is a multiple of 32 bytes. So .uir only accepts an <code>mma</code> when the compiler can prove each tile starts on such a boundary. The exact rules are in the reference section below.</p>
+<p>This rules out the obvious layout. In a row-major i8 matrix 32 wide, the tile in columns 16 to 31 starts at byte 16. The fix is to store the matrix <b>tile-major</b>: tile after tile, each tile's 256 bytes together. Step through it.</p>
+</div>
+
+<div class="fig" id="tiles" data-title="A 32×32 matrix, tile-major: offsets of the first row and column of each tile"></div>
+
+<div class="exercise small" data-ex="w9-03-tile-major" data-ex-py="w9-03-tile-major-py">
+<h3>Where does an element go, tile-major?</h3>
+<p>A matrix with <code>cols</code> columns is cut into 16×16 tiles. The tiles are stored one after another, left to right and then down, and each tile is row-major inside. Write <code>tile_major row col cols</code>: the offset of element <code>(row, col)</code>.</p>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
 <ul>
-<li><b><code>i8</code></b>, a dtype for memory. Buffers and allocs hold it, <code>load</code> and <code>store</code> move it, and <code>cast</code> converts it. To compute, cast to <code>i32</code>. Casting an <code>i32</code> to <code>i8</code> keeps the low 8 bits, so 200 becomes -56.</li>
-<li><b><code>mma C A B lda=.. ldb=.. ldc=..</code></b>, an effect like <code>store</code>. Each operand is memory or a scalar view where a 16×16 tile starts, and <code>lda</code>, <code>ldb</code> and <code>ldc</code> are the tiles' row strides ("ld" is short for leading dimension, the usual name in matrix libraries). It adds <code>A·B</code> into <code>C</code>, in <code>i32</code>, wrapping on overflow like <code>add</code>.</li>
-<li><b><code>axis=warp</code></b>, a phase run by whole warps: warp <code>w</code> runs iteration <code>w</code>, so a warp loop of 4 makes a block of 128 threads. Inside a kernel, an <code>mma</code> must be in a warp loop, and a store can't be.</li>
+<li>Say what a tensor core does and why .uir gives it <code>i8</code> inputs.</li>
+<li>Work out what an <code>mma</code> adds to one element of C.</li>
+<li>Pick the offset and row stride of a tile inside a wider matrix.</li>
+<li>Put an <code>mma</code> in a warp loop and check that the warps' tiles stay apart.</li>
+<li>Read the <code>wmma</code> calls and the plain loops an <code>mma</code> turns into.</li>
+</ul>
+<p>Next, lesson 9.4 shows that a convolution is a GEMM in disguise.</p>
+</div>
+
+<h2 id="reference">Reference for the lab</h2>
+<p class="prose">You do not need these to finish the page. Open them when you add tensor cores to your own compiler. All of it is in <a href="../../spec/uir-week9.md">the week 9 spec</a>.</p>
+
+<details class="toggle">
+<summary>Every i8 rule, for when you add the dtype</summary>
+<div class="prose">
+<ul>
+<li><code>i8</code> is 8-bit two's complement, -128 to 127. <code>buffer</code> and <code>alloc</code> take <code>dtype=i8</code>. A literal in a data list is an integer from -128 to 127, and a <code>url=</code> file has one byte per element.</li>
+<li><code>load</code> of i8 memory gives an i8 value, and <code>store</code> takes one.</li>
+<li><code>cast X dtype=i8</code> takes an <code>i32</code> (or an <code>i8</code>, unchanged) and keeps its low 8 bits, so 200 becomes -56. A cast from i8 to <code>i32</code>, <code>f32</code> or <code>bool</code> is exact. A cast to i8 from <code>f32</code> or <code>bool</code> is rejected.</li>
+<li>There are no i8 literals, and arithmetic and comparisons do not take i8: cast to <code>i32</code> to compute or to <code>assert</code>. Ops that only move values (<code>where</code>, <code>stack</code>, <code>index</code> and the shape ops) take it like any dtype.</li>
+<li>Only <code>buffer</code>, <code>alloc</code> and <code>cast</code> accept <code>dtype=i8</code>. Any other op given it is rejected, <code>param</code> and <code>bitcast</code> included.</li>
+<li>For bounds analysis, an i8 <code>load</code> or <code>cast</code> has bounds <code>[-128, 127]</code>.</li>
+</ul>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Every mma rule and the test that checks it, for when your compiler must reject a program</summary>
+<div class="prose">
+<p><code>C</code> is <code>i32</code> memory, <code>A</code> and <code>B</code> are <code>i8</code> memory. Each is a buffer or alloc version, or a scalar view (<code>shrink ... []</code>) whose offset is where the tile starts. The sums are in <code>i32</code>, wrapping on overflow like <code>add</code>. <code>end</code> repeats an <code>mma</code> as it does a store. Like a load, the <code>mma</code> reads the versions of A, B and C it names, so a later store into one of them waits for it.</p>
+<p>All of these are checked statically, and breaking one makes the program REJECTED (and makes <code>render</code> and <code>render-cuda</code> exit 2). One example each:</p>
+<ul>
+<li><b>Row strides are multiples of 16.</b> <code>lda</code>, <code>ldb</code> and <code>ldc</code> are positive literals: 16, 32, 48 and so on. <code>lda=8</code> is rejected (<code>rejected_mma_lda_not_16</code>).</li>
+<li><b>Every tile is in bounds.</b> A tile reaches <code>15·ld + 16</code> elements past its offset, so offset + <code>15·ld + 16</code> must be at most the memory's size. With <code>lda=32</code>, a tile at offset 0 reaches 496 elements, too many for a 256-element A (<code>rejected_mma_out_of_bounds</code>).</li>
+<li><b>The tile is part of the offset expression.</b> Week 8's one-offset-expression rule compares layouts, not just offsets. An mma tile and a plain load or store of the same memory differ even at the same offset, and so do two tiles with different row strides. Two mmas into the same C tile in one kernel, one with <code>ldc=16</code> and one with <code>ldc=32</code>, are rejected.</li>
+<li><b>In a week 7 thread loop, an mma follows the slice rule</b> like a store, with size the whole tile, <code>15·ld + 16</code> elements. That covers its C, and its A or B when the loop also writes that memory. With <code>%r = range 2 axis=thread</code> and C at <code>256r</code>, <code>ldc=16</code> fills each 256-element slice exactly, and <code>ldc=32</code> reaches 496 elements and is rejected.</li>
+</ul>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Alignment and provable multiples: the exact rule for where a tile may start, for when a valid-looking offset is rejected</summary>
+<div class="prose">
+<p>The tensor cores load a tile from an address that's a multiple of 32 bytes. So the spec requires every term of A's and B's offsets to be a multiple of 32 elements (an i8 element is one byte), and every term of C's a multiple of 8 (32 bytes of <code>i32</code>). In a row-major int8 matrix, the tile in columns 16 to 31 starts 16 bytes in, so it is rejected.</p>
+<p><b>Every offset term is a provable multiple.</b> Of 32 for A and B, of 8 for C. A term is a provable multiple of <code>k</code> when it's a literal divisible by <code>k</code>, an <code>add</code> of two provable multiples, or a <code>mul</code> with at least one factor a provable multiple. Nothing smarter: <code>mul (mul k 2) 16</code> is a multiple of 32 in fact, but neither factor is, so it's rejected. Write <code>mul k 32</code>. An A offset of <code>32k + j</code> fails because <code>j</code> isn't one (<code>rejected_mma_offset_not_provable</code>).</p>
+<p>Stored tile-major, every tile starts at a multiple of 256. The GEMM kernels in the tests read ordinary row-major matrices and rearrange each slice into tile-major order as they copy it into shared memory.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Every warp rule and a larger example, for when you check kernels with warp loops</summary>
+<div class="prose">
+<ul>
+<li>A warp loop's bound is a literal from 1 to 32. A warp loop of <code>n</code> makes the block <code>32n</code> threads, and every <code>local</code> and <code>warp</code> loop of one kernel must agree on the block size.</li>
+<li>A <code>warp</code> loop is inside a <code>global</code> loop. Phases don't nest: no <code>warp</code> or <code>local</code> loop inside a <code>local</code> or <code>warp</code> loop, in either order.</li>
+<li>Inside a global loop, an <code>mma</code> must be inside a <code>warp</code> loop, and a store must be inside a <code>local</code> loop, not a <code>warp</code> loop.</li>
+<li>The week 8 rules apply with <code>w</code> as the parallel index. An <code>mma</code> adds two digits to its C offset: <code>ldc</code> with largest value 15 (the row), and 1 with largest value 15 (the column). The same two digits (with <code>lda</code> or <code>ldb</code>) apply to an A or B tile when the same code also writes that memory.</li>
+<li><code>./compile</code> executes a warp loop as an ordinary loop, as always.</li>
 </ul>
 <p>Here's a 32×32 product, two blocks of two warps, each warp making one 16×16 tile of C from two tiles of <code>k</code>. The whole program is the test <code>c_mma_from_global</code>:</p>
 <pre><code>%g = range 2 axis=global            # block g: rows 16g .. 16g+15 of C
@@ -61,47 +346,22 @@
 %v14 = end %v13 %w
 %v15 = end %v14 %g
 %C1 = after %C %v15</code></pre>
-<p>The race rule of <a href="../week8/02-global-and-local.html">lesson 8.2</a> holds for warps too, with one addition: an mma writes a whole tile, so its offset gets two more digits, the tile's rows (<code>ldc</code>, up to 15) and its columns (1, up to 15). Here warp <code>w</code>'s tile starts at <code>16w</code> and its rows add up to <code>15·32</code>: digits 32, 16 and 1, and <code>32 &gt; 16 + 15</code>, so the two warps' tiles never touch.</p>
-
-<h2>Alignment and tile-major order</h2>
-<p>The tensor cores load a tile from an address that's a multiple of 32 bytes. So the spec requires every term of A's and B's offsets to be a multiple of 32 elements (an i8 element is one byte), and every term of C's a multiple of 8 (32 bytes of <code>i32</code>). That rules out the obvious layout. In a row-major int8 matrix, the tile in columns 16 to 31 starts 16 bytes in.</p>
-<p>The fix is to store the matrix <b>tile-major</b>: tile after tile, each tile's 256 bytes together. Every tile then starts at a multiple of 256. The example above reads A and B stored that way. The GEMM kernels in the tests read ordinary row-major matrices and rearrange each slice into tile-major order as they copy it into shared memory.</p>
+<p>Here warp <code>w</code>'s tile starts at <code>16w</code> and its rows add up to <code>15·32</code>: digits 32, 16 and 1, and <code>32 &gt; 16 + 15</code>, so the two warps' tiles never touch. A and B are stored tile-major.</p>
 </div>
+</details>
 
-<div class="fig" id="tiles" data-title="A 32×32 matrix, tile-major: offsets of the first row and column of each tile"></div>
-
-<div class="exercise small" data-ex="w9-03-tile-major" data-ex-py="w9-03-tile-major-py">
-<h3>Where does an element go, tile-major?</h3>
-<p>The index math of the copy phase: from a row and column to a tile-major offset.</p>
-</div>
-
+<details class="toggle">
+<summary>The CUDA details: headers, barriers and the emulator, for when you write render-cuda</summary>
 <div class="prose">
-<h2>The mma rules</h2>
-<p>All of these are checked statically, and breaking one makes the program REJECTED (and makes <code>render</code> and <code>render-cuda</code> exit 2). One example each:</p>
-<ul>
-<li><b>Row strides are multiples of 16.</b> <code>lda</code>, <code>ldb</code> and <code>ldc</code> are positive literals: 16, 32, 48 and so on. <code>lda=8</code> is rejected (<code>rejected_mma_lda_not_16</code>).</li>
-<li><b>Every tile is in bounds.</b> A tile reaches <code>15·ld + 16</code> elements past its offset, so offset + <code>15·ld + 16</code> must be at most the memory's size. With <code>lda=32</code>, a tile at offset 0 reaches 496 elements, too many for a 256-element A (<code>rejected_mma_out_of_bounds</code>).</li>
-<li><b>Every offset term is a provable multiple.</b> Of 32 for A and B, of 8 for C. A term is a provable multiple of <code>k</code> when it's a literal divisible by <code>k</code>, an <code>add</code> of two provable multiples, or a <code>mul</code> with at least one factor a provable multiple. Nothing smarter: <code>mul (mul k 2) 16</code> is a multiple of 32 in fact, but neither factor is, so it's rejected. Write <code>mul k 32</code>. An A offset of <code>32k + j</code> fails because <code>j</code> isn't one (<code>rejected_mma_offset_not_provable</code>).</li>
-<li><b>The tile is part of the offset expression.</b> Week 8's one-offset-expression rule compares layouts, not just offsets. An mma tile and a plain load or store of the same memory differ even at the same offset, and so do two tiles with different row strides. Two mmas into the same C tile in one kernel, one with <code>ldc=16</code> and one with <code>ldc=32</code>, are rejected.</li>
-<li><b>In a week 7 thread loop, an mma follows the slice rule</b> like a store, with size the whole tile, <code>15·ld + 16</code> elements. That covers its C, and its A or B when the loop also writes that memory. With <code>%r = range 2 axis=thread</code> and C at <code>256r</code>, <code>ldc=16</code> fills each 256-element slice exactly, and <code>ldc=32</code> reaches 496 elements and is rejected.</li>
-</ul>
-
-<h2>The CUDA</h2>
-<p><code>render-cuda</code> turns a warp loop into <code>{ int32_t w = threadIdx.x / 32; ... }</code> and a barrier, and an <code>mma</code> into the <code>wmma</code> calls. Here's the example's:</p>
-<pre><code>{ wmma::fragment&lt;wmma::matrix_a, 16, 16, 16, signed char, wmma::row_major&gt; fa_; wmma::load_matrix_sync(fa_, b0 + v16, 16);
-  wmma::fragment&lt;wmma::matrix_b, 16, 16, 16, signed char, wmma::row_major&gt; fb_; wmma::load_matrix_sync(fb_, b1 + v19, 16);
-  wmma::fragment&lt;wmma::accumulator, 16, 16, 16, int&gt; fc_; wmma::load_matrix_sync(fc_, b2 + v11, 32, wmma::mem_row_major);
-  wmma::mma_sync(fc_, fa_, fb_, fc_); wmma::store_matrix_sync(b2 + v11, fc_, 32, wmma::mem_row_major); __syncwarp(); }</code></pre>
-<p>Load three fragments, multiply, store C. The <code>__syncwarp()</code> makes the warp's stores visible to all its threads before a later iteration loads the same C tile again. The harness includes <code>&lt;mma.h&gt;</code>, and the build passes <code>-arch=native</code>, since int8 tensor cores need an <code>sm_72</code> or newer GPU. The emulator runs <code>wmma</code> on the CPU: every thread of the warp computes the whole tile, and lane 0 stores it. A lane is a thread's index within its warp, 0 to 31.</p>
+<p><code>render-cuda</code> turns a warp loop into <code>{ int32_t w = threadIdx.x / 32; ... }</code> followed by <code>__syncthreads()</code>, and an <code>mma</code> into the <code>wmma</code> calls. <code>matrix_a</code> and <code>matrix_b</code> fragments are <code>signed char</code>, <code>row_major</code>. The accumulator is <code>int</code>, loaded and stored with <code>mem_row_major</code>. The <code>__syncwarp()</code> makes the warp's stores visible to all its threads before a later iteration loads the same C tile again.</p>
+<p>The harness includes <code>&lt;mma.h&gt;</code> and says <code>using namespace nvcuda;</code>, so don't include it yourself. The build passes <code>-arch=native</code>, since int8 tensor cores need an <code>sm_72</code> or newer GPU. Declare shared memory <code>__shared__ __align__(32)</code>, so tiles in it are aligned.</p>
+<p>The emulator runs <code>wmma</code> on the CPU: every thread of the warp computes the whole tile, and lane 0 stores it, between two warp barriers. A lane is a thread's index within its warp, 0 to 31. For the CPU, an <code>i8</code> is an <code>int8_t</code>.</p>
 </div>
+</details>
 
-<div class="exercise small" data-ex="w9-03-mma">
-<h3>Two tiles on the tensor cores</h3>
-<p>Replace a triple loop with <code>mma</code>, one tile of C per iteration.</p>
-</div>
-
+<details class="toggle">
+<summary>How fast: measured times on the 4060 Ti, for when you tune the lab's GEMM</summary>
 <div class="prose">
-<h2>How fast?</h2>
 <p>The test <code>s_cuda_mma_gemm</code> is a 1024×1024 int8 GEMM. A block makes a 64×64 tile of C with 8 warps, and each 32-wide slice of <code>k</code> is copied into shared memory tile-major. On the 4060 Ti:</p>
 </div>
 <div class="tablewrap"><table>
@@ -113,6 +373,7 @@
 <div class="prose">
 <p>Three times faster, and still far from what the tensor cores can do. Most of the time goes to moving tiles: every mma loads C from shared memory and stores it back, and the copy phase moves one byte per thread per step. A faster kernel keeps the C fragments in registers for the whole loop over <code>k</code>, and loads 16 bytes per thread at a time. A compiler can spot the first of those: the same C tile, loaded and stored around every iteration of a loop, can be loaded once before it and stored once after. The test asks for half the reference's speed. Without tensor cores you get about a third.</p>
 </div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
@@ -179,6 +440,17 @@ document.addEventListener('DOMContentLoaded', () => {
     { caption: 'Every tile now starts at a multiple of 256: 0, 256, 512, 768. Inside a tile the order is still row-major, so an mma reads it with <code>lda=16</code>.', draw: () => draw(t => t === 2, true) },
   ];
   CC.stepper(document.getElementById('tiles'), steps, (s, body) => body.append(s.draw()));
+
+  const wide = pick => h('div', { class: 'tm w4' }, Array.from({ length: 64 }, (_, k) => {
+    const o = k * 8;
+    return h('div', { class: 's' + (pick(o) ? ' on' : ''), text: String(o) });
+  }));
+  const strideSteps = [
+    { caption: 'C is stored row after row, and each row is 32 elements. Going down one row of the matrix adds 32 to the offset.', draw: () => wide(() => false) },
+    { caption: 'The right half is the tile you want. It starts at offset 16. Its next row starts at 48, then 80: 32 apart each time. So the tile is <code>shrink %C 16 []</code> with <code>ldc=32</code>.', draw: () => wide(o => o % 32 >= 16) },
+    { caption: 'With <code>ldc=16</code> the rows would start at 16, 32, 48 and so on, only 16 apart. That covers every element from 16 to 271: both halves of C, and only the top of it.', draw: () => wide(o => o >= 16 && o < 272) },
+  ];
+  CC.stepper(document.getElementById('strides'), strideSteps, (s, body) => body.append(s.draw()));
 });
 </script>
 </body>

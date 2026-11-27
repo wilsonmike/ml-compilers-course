@@ -1,0 +1,45 @@
+{
+  "id": "w8-04n-kernel-head",
+  "lang": "ocaml",
+  "title": "Open a kernel and launch it",
+  "show": "(fun s -> s)",
+  "starter": "let kernel_open (k : int) (counter : string) (params : (string * string) list) : string list =\n  let ps = String.concat \", \" (List.map (fun (ty, b) -> Printf.sprintf \"%s *__restrict__ %s\" ty b) params) in\n  [Printf.sprintf \"static void k%d(%s) {\" k ps;\n   Printf.sprintf \"  int32_t %s = 0;\" counter]\n\nlet launch (k : int) (blocks : int) (threads : int) (bufs : string list) : string =\n  Printf.sprintf \"uir_parallel_for(%d, k%d, %s);\" blocks k (String.concat \", \" bufs)\n",
+  "hints": [
+    "Three things are still written the CPU way: the word in front of `void`, where the counter comes from, and the whole launch line.",
+    "A kernel is marked `__global__`, not `static`. Its counter is not a parameter and does not start at 0: the GPU hands each block its number in `blockIdx.x`.",
+    "The launch line is `UIR_LAUNCH(k0, 2, 4, b0, b1);`: the kernel's name, the number of blocks, the threads per block, then the buffers."
+  ],
+  "explain": "A global loop turns into two things. The function is marked `__global__`, takes its buffers as plain parameters and reads its counter from `blockIdx.x`, because the GPU starts every block and tells each one its number. The launch line names the kernel, then the number of blocks, then the threads per block, then the buffers. There is no struct as in week 7: a kernel may only use buffers, so the parameters carry everything.",
+  "tests": [
+    {
+      "expr": "String.concat \" | \" (kernel_open 0 \"r5\" [(\"int32_t\",\"b0\");(\"int32_t\",\"b1\")])",
+      "expect": "__global__ void k0(int32_t *__restrict__ b0, int32_t *__restrict__ b1) { |   int32_t r5 = blockIdx.x;",
+      "sample": true
+    },
+    {
+      "expr": "String.concat \" | \" (kernel_open 1 \"r22\" [(\"float\",\"b1\")])",
+      "expect": "__global__ void k1(float *__restrict__ b1) { |   int32_t r22 = blockIdx.x;"
+    },
+    {
+      "expr": "String.concat \" | \" (kernel_open 12 \"r4\" [(\"float\",\"b0\");(\"int32_t\",\"b1\");(\"float\",\"b2\")])",
+      "expect": "__global__ void k12(float *__restrict__ b0, int32_t *__restrict__ b1, float *__restrict__ b2) { |   int32_t r4 = blockIdx.x;"
+    },
+    {
+      "expr": "launch 0 2 4 [\"b0\";\"b1\"]",
+      "expect": "UIR_LAUNCH(k0, 2, 4, b0, b1);",
+      "sample": true
+    },
+    {
+      "expr": "launch 1 4 2 [\"b1\"]",
+      "expect": "UIR_LAUNCH(k1, 4, 2, b1);"
+    },
+    {
+      "expr": "launch 3 64 1024 [\"b0\";\"b1\";\"b2\"]",
+      "expect": "UIR_LAUNCH(k3, 64, 1024, b0, b1, b2);"
+    },
+    {
+      "expr": "launch 0 0 8 [\"b0\"]",
+      "expect": "UIR_LAUNCH(k0, 0, 8, b0);"
+    }
+  ]
+}

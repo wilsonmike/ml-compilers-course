@@ -1,0 +1,58 @@
+{
+ "id": "hi-03n-rule-py",
+ "lang": "python",
+ "title": "Teach it three more rules",
+ "show": "lambda r: 'no rule' if r is None else show(r)",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Const:\n    n: int\n\n\n@dataclass(frozen=True)\nclass Var:\n    name: str\n\n\n@dataclass(frozen=True)\nclass Add:\n    a: object\n    b: object\n\n\n@dataclass(frozen=True)\nclass Mul:\n    a: object\n    b: object\n\n\ndef show(e) -> str:\n    match e:\n        case Const(n):\n            return str(n)\n        case Var(name):\n            return name\n        case Add(a, b):\n            return f\"({show(a)} + {show(b)})\"\n        case Mul(a, b):\n            return f\"({show(a)} * {show(b)})\"\n\n\ndef rule(e):\n    match e:\n        case Add(x, Const(0)):\n            return x\n    return None\n",
+ "tests": [
+  {
+   "expr": "rule(Add(Var(\"y\"), Const(0)))",
+   "expect": "y",
+   "sample": true
+  },
+  {
+   "expr": "rule(Mul(Var(\"y\"), Const(1)))",
+   "expect": "y",
+   "sample": true
+  },
+  {
+   "expr": "rule(Add(Const(2), Const(3)))",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "rule(Mul(Const(4), Const(5)))",
+   "expect": "20"
+  },
+  {
+   "expr": "rule(Mul(Add(Var(\"a\"), Var(\"b\")), Const(1)))",
+   "expect": "(a + b)"
+  },
+  {
+   "expr": "rule(Add(Const(0), Var(\"y\")))",
+   "expect": "no rule"
+  },
+  {
+   "expr": "rule(Mul(Var(\"y\"), Const(2)))",
+   "expect": "no rule"
+  },
+  {
+   "expr": "rule(Add(Var(\"y\"), Mul(Const(2), Const(0))))",
+   "expect": "no rule"
+  },
+  {
+   "expr": "rule(Var(\"y\"))",
+   "expect": "no rule"
+  },
+  {
+   "expr": "rule(Add(Const(7), Const(0)))",
+   "expect": "7"
+  }
+ ],
+ "hints": [
+  "Each rule is one more `case` inside the `match`: the pattern after `case`, and a `return` of the replacement under it.",
+  "Times one looks like the rule that is already there: `case Mul(x, Const(1)):` and then `return x`.",
+  "For two numbers, name both in the pattern and build a new `Const`: `case Add(Const(m), Const(n)):` and then `return Const(m + n)`. Do the same for `Mul`."
+ ],
+ "explain": "Each rule is one branch: a pattern for the shape, then the replacement. `x` matches any expression, so times one works on `(a + b) * 1` too. The folding branches match only when both children are numbers. `y + (2 * 0)` gets no rule, because its right child is a multiplication and not the number 0."
+}

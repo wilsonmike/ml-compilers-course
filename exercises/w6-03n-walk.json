@@ -1,0 +1,55 @@
+{
+ "id": "w6-03n-walk",
+ "lang": "ocaml",
+ "title": "Repair the backward walk",
+ "show": "(fun l -> String.concat \" \" (List.map (Printf.sprintf \"%g\") l))",
+ "starter": "type node = X of float | Const of float | Add of int * int | Mul of int * int\n\nlet backward (tape : node list) (value : float list) : float list =\n  let t = Array.of_list tape in\n  let v = Array.of_list value in\n  let n = Array.length t in\n  let g = Array.make n 0.0 in\n  g.(n - 1) <- 1.0;\n  for i = n - 1 downto 0 do\n    match t.(i) with\n    | Add (a, b) ->\n      g.(a) <- g.(i);\n      g.(b) <- g.(i)\n    | Mul (a, b) ->\n      g.(a) <- g.(i) *. v.(a);\n      g.(b) <- g.(i) *. v.(b)\n    | X _ | Const _ -> ()\n  done;\n  Array.to_list g\n",
+ "tests": [
+  {
+   "expr": "backward [X 3.0; X 5.0; Mul (0, 1); Add (2, 0)] [3.0; 5.0; 15.0; 18.0]",
+   "expect": "6 3 1 1",
+   "sample": true
+  },
+  {
+   "expr": "backward [X 3.0; Mul (0, 0)] [3.0; 9.0]",
+   "expect": "6 1",
+   "sample": true
+  },
+  {
+   "expr": "backward [X 2.0; Mul (0, 0); Mul (1, 0)] [2.0; 4.0; 8.0]",
+   "expect": "12 2 1",
+   "sample": false
+  },
+  {
+   "expr": "backward [X 5.0; Const 7.0; Add (0, 1)] [5.0; 7.0; 12.0]",
+   "expect": "1 1 1",
+   "sample": false
+  },
+  {
+   "expr": "backward [X 2.0; Add (0, 0)] [2.0; 4.0]",
+   "expect": "2 1",
+   "sample": false
+  },
+  {
+   "expr": "backward [X 1.5; Const 2.0; Mul (0, 1); Mul (2, 2); Add (3, 0)] [1.5; 2.0; 3.0; 9.0; 10.5]",
+   "expect": "13 9 6 1 1",
+   "sample": false
+  },
+  {
+   "expr": "backward [X (-1.0); X 4.0; Add (0, 1); Mul (2, 1); Mul (3, 0)] [(-1.0); 4.0; 3.0; 12.0; (-12.0)]",
+   "expect": "8 -7 -4 -1 1",
+   "sample": false
+  },
+  {
+   "expr": "backward [X 3.0] [3.0]",
+   "expect": "1",
+   "sample": false
+  }
+ ],
+ "hints": [
+  "Look at the `Mul` branch. Each operand's share is multiplied by that operand's own value. Which value does the mul rule use?",
+  "The share for operand `a` is `g.(i) *. v.(b)`, and the share for `b` is `g.(i) *. v.(a)`.",
+  "Then add each share to what is already there, in both branches: `g.(a) <- g.(a) +. g.(i) *. v.(b)`."
+ ],
+ "explain": "The walk goes from the last entry to the first, so every entry has all of its shares before it sends its own. An add sends its gradient to both operands unchanged. A mul sends each operand the gradient times the other operand's value, which is why the values are needed. Shares are added to what is already there, because an entry used twice, like x in x times x, gets two shares and its gradient is their sum."
+}

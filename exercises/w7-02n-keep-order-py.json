@@ -1,0 +1,49 @@
+{
+ "id": "w7-02n-keep-order-py",
+ "lang": "python",
+ "title": "Blocks that keep the order",
+ "show": "lambda v: '%.17g' % v",
+ "starter": "def dot(a: list[float], b: list[float]) -> float:\n    total = 0.0\n    for k in range(len(a)):\n        total = total + a[k] * b[k]\n    return total\n\n\ndef dot_blocks(a: list[float], b: list[float], block: int) -> float:\n    total = 0.0\n    for start in range(0, len(a), block):\n        part = 0.0\n        for k in range(start, min(start + block, len(a))):\n            part = part + a[k] * b[k]\n        total = total + part\n    return total\n",
+ "tests": [
+  {
+   "expr": "dot_blocks([1e+16, 1.0, -1e+16, 1.0], [1.0, 1.0, 1.0, 1.0], 2)",
+   "expect": "1",
+   "sample": true
+  },
+  {
+   "expr": "dot_blocks([1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], 2)",
+   "expect": "70",
+   "sample": true
+  },
+  {
+   "expr": "dot_blocks([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], 3)",
+   "expect": "0.99999999999999989"
+  },
+  {
+   "expr": "dot_blocks([1.0, 1e+16, -1e+16, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0], 2)",
+   "expect": "2"
+  },
+  {
+   "expr": "dot_blocks([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], [3.0, 3.0, 3.0, 3.0, 3.0, 3.0], 4)",
+   "expect": "6.2999999999999998"
+  },
+  {
+   "expr": "dot_blocks([2.0, 3.0], [4.0, 5.0], 1)",
+   "expect": "23"
+  },
+  {
+   "expr": "dot_blocks([], [], 2)",
+   "expect": "0"
+  },
+  {
+   "expr": "dot_blocks([1e+16, 1.0, -1e+16, 1.0], [1.0, 1.0, 1.0, 1.0], 4)",
+   "expect": "1"
+  }
+ ],
+ "hints": [
+  "Each block starts a fresh `part` from zero and the parts are added together at the end. That groups the adds differently from `dot`.",
+  "The blocks are fine. What has to go is the second running sum. One running sum must carry on from block to block.",
+  "Delete `part`. Inside the inner loop, add each product straight onto `total`, and drop the line that adds `part` to `total`."
+ ],
+ "explain": "The broken version computed each block's sum on its own and then added the block sums, which regroups the adds and can round differently. The repair keeps the block loops but has one running total that every product is added to in the order `k = 0, 1, 2, ...`, exactly the adds `dot` does, so the bits match."
+}

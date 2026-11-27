@@ -1,0 +1,46 @@
+{
+ "id": "hi-04n-f32-sum-py",
+ "lang": "python",
+ "title": "Round after every add",
+ "prompt": "<p><code>sum3(a, b, c)</code> should add three f32 values the way an f32 machine does: <code>a + b</code> first, then <code>+ c</code>, rounding to f32 after each addition. <code>to_f32</code> is written. The starter rounds only once, at the end, so <code>sum3(16777216.0, 1.0, 1.0)</code> gives 16777218 where an f32 machine gives 16777216. Repair it.</p>",
+ "show": "lambda x: '%.9g' % x",
+ "starter": "import struct\n\n\ndef to_f32(x: float) -> float:\n    return struct.unpack(\"<f\", struct.pack(\"<f\", x))[0]\n\n\ndef sum3(a: float, b: float, c: float) -> float:\n    return to_f32(a + b + c)\n",
+ "tests": [
+  {
+   "expr": "sum3(16777216.0, 1.0, 1.0)",
+   "expect": "16777216",
+   "sample": true
+  },
+  {
+   "expr": "sum3(1.0, 2.0, 3.0)",
+   "expect": "6",
+   "sample": true
+  },
+  {
+   "expr": "sum3(16777216.0, 1.0, 2.0)",
+   "expect": "16777218"
+  },
+  {
+   "expr": "sum3(0.5, 0.25, 0.125)",
+   "expect": "0.875"
+  },
+  {
+   "expr": "sum3(-16777216.0, -1.0, -1.0)",
+   "expect": "-16777216"
+  },
+  {
+   "expr": "sum3(33554432.0, 2.0, 2.0)",
+   "expect": "33554432"
+  },
+  {
+   "expr": "sum3(16777216.0, 2.0, 1.0)",
+   "expect": "16777220"
+  }
+ ],
+ "hints": [
+  "There are two additions here, so an f32 machine rounds twice. Count the calls to `to_f32` in the starter.",
+  "Round the first sum before the second addition uses it.",
+  "The return line becomes `return to_f32(to_f32(a + b) + c)`."
+ ],
+ "explain": "An f32 machine rounds the result of every operation, so `a + b` is rounded before `c` is added, and that sum is rounded again. With 16777216, 1 and 1, the first sum rounds back to 16777216 and so does the second. Rounding once at the end gives 16777218, a number no f32 machine would produce here."
+}

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Week 4 Lab</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Teach your compiler to take whole-vector programs and turn them into loops itself: rank-1 ALU, reduce, expand and stage in the type checker and interpreter...">
+<meta name="description" content="In this lab your compiler learns whole vectors. It checks shapes, runs expand, reduce and stage, and turns every one of them into loops when it renders C. You...">
 <link rel="canonical" href="https://sharpterminal.com/site/week4/06-lab">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Week 4 Lab">
-<meta property="og:description" content="Teach your compiler to take whole-vector programs and turn them into loops itself: rank-1 ALU, reduce, expand and stage in the type checker and interpreter, and a rangeify pass in front of your week...">
+<meta property="og:description" content="In this lab your compiler learns whole vectors. It checks shapes, runs expand, reduce and stage, and turns every one of them into loops when it renders C. You build it in the order the week taught...">
 <meta property="og:url" content="https://sharpterminal.com/site/week4/06-lab">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,15 +20,9 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
-  .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
-  .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
-  .build > li::before { content: counter(st, decimal-leading-zero); position: absolute; left: var(--s5); top: var(--s4); font: 500 0.875rem/1.7 var(--mono); color: var(--ink-3); }
-  .build h3 { margin: 0 0 var(--s2); }
-  .build p { margin: 0 0 var(--s2); }
-  .build .check { font-size: 0.9375rem; color: var(--ink-3); margin: 0; }
   .checklist { list-style: none; padding: 0; margin: var(--s4) 0; max-width: var(--col); }
   .checklist li { border-bottom: 1px solid var(--line); }
   .checklist label { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) 0; cursor: pointer; }
@@ -39,30 +33,62 @@
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 4 · Lesson 6</p>
-<h1>The week 4 lab</h1>
-<p class="lede">Teach your compiler to take whole-vector programs and turn them into loops itself: rank-1 ALU, <code>reduce</code>, <code>expand</code> and <code>stage</code> in the type checker and interpreter, and a rangeify pass in front of your week 3 renderer. You're done when every week 4 test passes, weeks 1 to 3 still pass, and you've written 10 new tests of your own.</p>
+<h1>Lab: rangeify</h1>
+<p class="lede">In this lab your compiler learns whole vectors. It checks shapes, runs <code>expand</code>, <code>reduce</code> and <code>stage</code>, and turns every one of them into loops when it renders C. You build it in the order the week taught it, and every step ends with something you can run.</p>
 
-<div class="prose">
-<h2>What you're building</h2>
-<ul>
-<li><strong>Shapes on ALU ops.</strong> Every ALU op accepts operands of one shared shape, <code>()</code> or <code>(n,)</code>, and works elementwise. Mismatched shapes are a type error, so the program is rejected: there is no implicit broadcast. See <a href="../../spec/uir-week4.md">spec/uir-week4.md</a>.</li>
-<li><strong>Three new ops.</strong> <code>expand x [n]</code> broadcasts a scalar, <code>reduce x op=add|mul|max</code> folds a vector left to right from its first element, and <code>stage x</code> is the same value, materialized.</li>
-<li><strong>Vectors in your evaluator.</strong> Your interpreter can evaluate rank-1 values directly as arrays. Only the fold order of <code>reduce</code> needs care.</li>
-<li><strong>Rangeify in <code>render</code>.</strong> Lower every rank-1 value to scalars at an index, turning each rank-1 store and each reduce into a loop, and each stage into a filled temp. What comes out is a week 3 program, and your week 3 renderer prints it.</li>
-<li><strong>Small C.</strong> Rendered C must stay under 20,000 bytes, whatever the vector length.</li>
-</ul>
+<div class="note">
+<span class="label">Goal</span>
+<p>Pass all 90 week 4 tests with your own compiler, and write 10 tests of your own.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Your compiler from the <a href="../week3/06-lab.html">week 3 lab</a>, and this week's lessons: vectors and elementwise ops (<a href="01-vectors.html">4.1</a>), reduce and expand (<a href="02-reduce-expand.html">4.2</a>), rangeify (<a href="03-rangeify.html">4.3</a>), fuse or materialize (<a href="04-materialization.html">4.4</a>) and rendering vectors (<a href="05-rendering-vectors.html">4.5</a>).</p>
 </div>
 
 <h2>Warm up</h2>
-<p class="prose">A dot product is a whole-vector program in two ops.</p>
-<div class="exercise small" data-ex="w4-06-dot">
-<h3>Warm-up: a dot product</h3>
-<p>Slots 0 and 1 are <code>a</code> and <code>b</code> (4 f32 each). Write their dot product, the left fold of <code>a[i] * b[i]</code>, into the one-element buffer in slot 2. No hand-written <code>range</code>.</p>
+<p class="prose">Two questions from this week. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="1">
+<p class="q"><code>%x</code> holds the f32 values <code>100000000.0 1.0 -100000000.0 1.0</code>. What is <code>reduce %x op=add</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Lesson 4.2: fold left to right, and round after every step. A hundred million plus one is too close to a hundred million for an f32 to tell apart.</p>
+<div class="why"><p>1. The first sum rounds back to 100000000.0, the third element cancels it, and the last 1.0 is left. A fold from the right gives 0.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Rangeify asks <code>expand %s [4096]</code> for its element at index <code>i</code>. What is the answer?</p>
+<div class="opts">
+<button data-k="a"><code>%s</code></button>
+<button data-k="b">A load at <code>i</code></button>
+<button data-k="c">A loop of 4096 trips</button>
+</div>
+<p class="hint">Lesson 4.3: does any element of an <code>expand</code> differ from the others?</p>
+<div class="why"><p><code>%s</code>. Every element is the same scalar, so the index is thrown away and the broadcast costs nothing in the C.</p></div>
 </div>
 
 <div class="prose">
-<h2>The command-line contract</h2>
-<p>Nothing new on the command line. What changes is which programs the commands accept and what <code>render</code> may print.</p>
+<h2>What you are building</h2>
+<p>The same three commands as last week. What changes is which programs they take.</p>
+<ul>
+<li><code>compile FILE</code> judges programs with values that have a shape. An ALU op takes operands of one shared shape, <code>()</code> or <code>(n,)</code>, and works elementwise. Three ops are new: <code>expand</code>, <code>reduce</code> and <code>stage</code>. A program that breaks a shape rule is <code>REJECTED</code>.</li>
+<li><code>compile render FILE</code> prints loops for those programs. The C must be at most 20,000 bytes, whatever the vector length.</li>
+<li><code>compile simplify FILE</code> does not change.</li>
+</ul>
+<p>The suite has 55 run tests and 35 render tests. The language contract is <a href="../../spec/uir-week4.md">spec/uir-week4.md</a>. If this page and the spec disagree, the spec wins.</p>
+</div>
+
+<div class="quiz" data-fill="0">
+<p class="q">A week 2 program loads 4 floats from one buffer and stores them into another. How many <code>for</code> loops may its C have this week?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Lesson 4.5: it has no range, no new op, no elementwise op on a vector and no vector over 32 elements.</p>
+<div class="why"><p>0. A week 2 style program must still render with no loops, and the grader fails it if it finds a <code>for</code>.</p></div>
+</div>
+
+<details class="toggle">
+<summary>The command-line contract for week 4, for when the grader and you disagree about output</summary>
+<div class="prose">
+<p>Nothing is new on the command line. What changes is which programs the commands accept and what <code>render</code> may print.</p>
 </div>
 <div class="tablewrap"><table>
 <thead><tr><th>command</th><th>week 4 changes</th></tr></thead>
@@ -70,9 +96,11 @@
 <tr><td><code>your.exe FILE...</code></td><td>Programs may use rank-1 ALU, <code>expand</code>, <code>reduce</code> and <code>stage</code>. A shape mismatch, an <code>expand</code> that grows an axis that isn't size 1, a <code>reduce</code> of a scalar or with a missing or unknown <code>op</code>, or a rank-1 value that depends on an open range from a hand-written loop makes the program invalid: print <code>REJECTED FILE</code>.</td></tr>
 <tr><td><code>your.exe render FILE</code></td><td>The C must be at most 20,000 bytes. It may use <code>for</code> loops when the program contains a <code>range</code>, a <code>reduce</code>, an <code>expand</code>, a <code>stage</code>, an elementwise op on a rank-1 value, or any rank-1 value with more than 32 elements (so a plain 4096-element copy may loop too). Otherwise it stays loopless, as in week 2.</td></tr>
 </tbody></table></div>
+</details>
 
+<details class="toggle">
+<summary>How a render test is graded, step by step, for when a kernel fails</summary>
 <div class="prose">
-<h2>How render tests are graded</h2>
 <p>For each <code># render</code> test, the grader goes through five steps in order:</p>
 <ol>
 <li>Runs <code>your.exe render FILE</code> and fails the test on a nonzero exit.</li>
@@ -82,36 +110,244 @@
 <li>Runs it and compares every element of every buffer with the oracle: i32 and bool exactly, f32 bit for bit, any NaN matching any NaN.</li>
 </ol>
 <p>The bit-for-bit comparison is what makes the fold order matter. A reduce that folds right to left turns <code>1e8, 1, -1e8, 1</code> into 0 instead of 1, and one that starts from <code>0.0f</code> turns a lone <code>-0.0</code> into <code>+0.0</code>. Either way the bits differ and the test fails.</p>
+</div>
+</details>
 
-<h2>Running the suite</h2>
+<div class="prose">
+<h2>Plan it first</h2>
+<p>First decide the order.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A vector program has to work in <code>compile FILE</code>, which runs it, and in <code>render</code>. Which do you build first?</p>
+<div class="opts">
+<button data-k="a"><code>render</code>, because rangeify is the hard part</button>
+<button data-k="b">Running it, in your evaluator</button>
+<button data-k="c">Both at once, since they share the shape rules</button>
+</div>
+<p class="hint">Which of the two needs no C, and gives you right answers to hold the other against?</p>
+<div class="why"><p>The evaluator. It can work on a vector as a plain array, the 55 run tests need no C, and its answers are what your loops must match.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">After rangeify, a program has only scalars, <code>range</code>, <code>end</code>, <code>alloc</code>, loads and stores. What new printing code does <code>render</code> need?</p>
+<div class="opts">
+<button data-k="a">A printer for vector ops</button>
+<button data-k="b">A printer for <code>reduce</code> and <code>stage</code></button>
+<button data-k="c">None</button>
+</div>
+<p class="hint">Lesson 4.5: which week's programs look like that?</p>
+<div class="why"><p>None. That is a week 3 program, and your week 3 placement and printer already handle it.</p></div>
+</div>
+
+<p class="prose">So the route is shapes, then running <code>reduce</code> and <code>stage</code>, then rangeify one op at a time: the store, the reduce and the stage.</p>
+
+<div class="prose">
+<h2>Give ALU ops a shape</h2>
+<p><code>YOURS</code> is the path to your compiler in quotes, as in the week 1 lab. From the root of the course repo, run the new suite with your compiler as it is:</p>
+<pre><code>python tools/test.py --compiler YOURS --week 4</code></pre>
+<p>The last line should read <code>12 / 90 passed</code>. One of those tests is a week 3 loop. The other 11 are <code>rejected_</code> tests, and they pass by luck: your compiler rejects any vector op.</p>
+<ol>
+<li><strong>Change the type rule.</strong> An ALU op used to need scalars. Now every operand must have the same shape, and the result has that shape. For <code>where</code> that includes the condition. A vector with a scalar is still an error.</li>
+<li><strong>Add expand.</strong> <code>expand x [n]</code> takes a scalar and a shape with <code>n</code> of 1 or more. Its result has shape <code>(n,)</code>.</li>
+<li><strong>Refuse vectors in hand-written loops.</strong> A vector made by an ALU op or a new op may not depend on an open range.</li>
+<li><strong>Evaluate elementwise.</strong> Keep a vector as an array. Apply your scalar op at each position, so wrapping and rounding stay as they were. An <code>expand</code> is <code>n</code> copies.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p>From here on, a checkpoint lists what to add to that command, and the last line you should see.</p>
+<pre><code>-k _vec               19 / 19 passed
+-k run/expand_dtypes  3 / 3 passed
+-k rejected_          11 / 11 passed
+(no filter)           35 or more of 90</code></pre>
+<p>The four <code>rejected_reduce</code> tests still pass by luck. Commit after every checkpoint.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread "Elementwise: one position at a time" and "When the shapes differ" in <a href="01-vectors.html">lesson 4.1</a>.</p>
+
+<div class="prose">
+<h2>Run reduce and stage</h2>
+<p>First write a reduce yourself, so you know what your evaluator has to compute.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-06-dot">
+<h3>A dot product</h3>
+<p>Slots 0 and 1 are <code>a</code> and <code>b</code> (4 f32 each). Write their dot product, the left fold of <code>a[i] * b[i]</code>, into the one-element buffer in slot 2. No hand-written <code>range</code>.</p>
+</div>
+
+<div class="prose">
+<ol>
+<li><strong>Type reduce.</strong> <code>reduce x op=add</code> takes one i32 or f32 vector and gives a scalar. The <code>op</code> is required and is <code>add</code>, <code>mul</code> or <code>max</code>. A scalar operand, a bool vector or any other <code>op</code> is rejected.</li>
+<li><strong>Fold from the left.</strong> Start with <code>x[0]</code>. Fold in <code>x[1]</code>, then <code>x[2]</code>, to the end, with your scalar op at every step. Never start from 0 or 1.</li>
+<li><strong>Pass stage through.</strong> <code>stage x</code> has the type of <code>x</code> and its value. In the evaluator it does nothing.</li>
+<li><strong>Widen the bounds.</strong> In your interval analysis, an <code>expand</code>, a <code>reduce</code> and a <code>stage</code> each get the full range of their dtype.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<pre><code>-k run/reduce_         13 / 13 passed
+-k run/dot             1 / 1 passed
+-k run/stage_identity  2 / 2 passed
+-k run/                55 / 55 passed
+(no filter)            56 or more of 90</code></pre>
+</div>
+
+<p class="prose muted">Stuck? A wrong sum is "Same numbers, two orders" in <a href="02-reduce-expand.html">lesson 4.2</a>. Every rule for the two ops is in its <a href="02-reduce-expand.html#reference">reference</a>.</p>
+
+<div class="prose">
+<h2>Turn a store into a loop</h2>
+<p>Now <code>render</code>. Rangeify is a pass that takes the checked program and builds a week 3 program. Start with the op that makes the plainest loop, a store of a whole vector.</p>
+<ol>
+<li><strong>Write "the element at i".</strong> One function takes a vector and a scalar index and returns a scalar. An elementwise op is the same op on its operands' elements at i. A load of a view is a scalar load at the view's offset plus i. An <code>expand</code> is its scalar. Remember each answer, so the same question builds one node.</li>
+<li><strong>Lower the store.</strong> Make a <code>range n</code>. Store the value's element at the range into the view at the range. Close it with an <code>end</code>, and hand that <code>end</code> to the <code>after</code> that took the store.</li>
+<li><strong>Print it with week 3.</strong> Give the new program to your placement pass and your printer.</li>
+<li><strong>Keep week 2 loopless.</strong> Send a program through rangeify only when it may loop. The contract toggle in "What you are building" has the rule.</li>
+</ol>
+<p>Ask the oracle what it prints for the first big test:</p>
+<pre><code>python _reference/uirc.py render tests/week4/render/r_add_f32_2048.uir</code></pre>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p>The oracle's output ends with this kernel. Yours should have the same single loop:</p>
+<pre><code>void kernel(float *restrict b0, float *restrict b1, float *restrict b2) {
+  for (int32_t r4 = 0; r4 &lt; 2048; r4++) {
+    float v7 = b0[r4];
+    float v9 = b1[r4];
+    float v10 = (v7 + v9);
+    b2[r4] = v10;
+  }
+}</code></pre>
+<pre><code>-k r_add_f32_2048      1 / 1 passed
+-k render/r_copy_4096  1 / 1 passed
+-k r_relu_4096         1 / 1 passed
+-k r_view_slices       1 / 1 passed
+(no filter)            73 or more of 90</code></pre>
+<p>In Git Bash, <code>YOURS render tests/week4/render/r_copy_4096.uir | wc -c</code> counts the bytes. The oracle's C for it is 1,206 bytes as the grader counts (lesson 4.5). If yours is over 20,000, a vector reached the printer without becoming a loop.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread "Ask each value for its element at i" in <a href="03-rangeify.html">lesson 4.3</a> and "Render reuses rangeify" in <a href="05-rendering-vectors.html">lesson 4.5</a>.</p>
+
+<details class="toggle">
+<summary>Two more cases of "the element at i", and a way to test rangeify without C</summary>
+<div class="prose">
+<ul>
+<li>A <code>stack a b c</code> at i is an <code>index</code> of the stack at i.</li>
+<li>An <code>index</code> of a computed vector, as in <code>r_index_computed</code>, asks that vector for its element at the index operand. No loop is needed.</li>
+</ul>
+<p>Your evaluator ran week 3 programs, so it can run what rangeify builds. Run a vector program directly, run its lowered form and compare the buffers. That checks rangeify before any C exists.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>Turn a reduce into a loop</h2>
+<p>A reduce becomes the accumulator loop from lesson 3.2.</p>
+</div>
+
+<div class="quiz" data-fill="4095">
+<p class="q">How many trips does the loop for a <code>reduce</code> of 4,096 elements make?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Lesson 4.3: the first element does not go through the loop. It is the seed.</p>
+<div class="why"><p>4095. Element 0 seeds the accumulator, and the loop folds in elements 1 to 4095.</p></div>
+</div>
+
+<div class="prose">
+<ol>
+<li><strong>Seed.</strong> Make a one-element <code>alloc</code>. Store the operand's element at 0 into it.</li>
+<li><strong>Fold.</strong> Open a <code>range n-1</code>. Load the accumulator, fold in the operand's element at the range plus 1, store the result and close with <code>end</code>.</li>
+<li><strong>Read.</strong> Load the accumulator after the loop. That scalar is the reduce.</li>
+<li><strong>Build it once.</strong> Remember the result for each reduce, so two uses share one loop.</li>
+</ol>
+<p>A reduce of one element makes a <code>range 0</code>, and week 3 already runs that zero times.</p>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<pre><code>-k render/r_reduce    7 / 7 passed
+-k r_dot_4096         1 / 1 passed
+-k normalize_4096     1 / 1 passed
+-k r_used_twice_2048  1 / 1 passed
+(no filter)           85 or more of 90</code></pre>
+<p>The oracle's kernel for <code>r_dot_4096</code> has one <code>for</code>, with the bound <code>r18 &lt; 4095</code>.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread "A reduce makes its own loop" in <a href="03-rangeify.html">lesson 4.3</a>, and "Two loops and the scalars between them" in <a href="05-rendering-vectors.html">lesson 4.5</a>.</p>
+
+<div class="prose">
+<h2>Turn a stage into a temp</h2>
+<p>The last op. A staged vector is computed once, into memory of its own.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%q = stage %d</code> has 2,048 elements, and a reduce and a store both read <code>%q</code>. How many loops does the C have?</p>
+<div class="opts">
+<button data-k="a">2</button>
+<button data-k="b">3</button>
+<button data-k="c">4</button>
+</div>
+<p class="hint">Lesson 4.4: one loop fills the temp. Then count the uses.</p>
+<div class="why"><p>3. One loop fills the temp, one folds it and one stores. The fill loop is built once, however many uses read it.</p></div>
+</div>
+
+<div class="prose">
+<ol>
+<li><strong>Fill a temp.</strong> Make an <code>alloc</code> of <code>n</code> elements. Add a loop that stores the operand's element at i into it.</li>
+<li><strong>Answer with a load.</strong> The element at i of a <code>stage</code> is a load from the filled temp at i.</li>
+<li><strong>Build it once.</strong> Every use of the same <code>stage</code> reads the same temp.</li>
+<li><strong>Stage a store that reads its own memory.</strong> If any load in a stored vector's graph reads the buffer the store writes, treat the value as staged: fill a temp, then copy it in.</li>
+</ol>
+<p>A <code>stage</code> of a scalar can be the scalar itself.</p>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<pre><code>-k stage                   7 / 7 passed
+-k r_inplace_scale_by_sum  1 / 1 passed
+-k 4096                    8 / 8 passed
+(no filter)                90 / 90 passed</code></pre>
+<p><code>--week 3</code> should say <code>94 / 94 passed</code> and <code>--week 2</code> <code>198 / 198 passed</code>. <code>--week 1</code> should say <code>272 / 282 passed</code>, with the same ten failures as last week: the <code>overbudget_</code>, float and vector tests.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread "Two answers: fuse or materialize" in <a href="04-materialization.html">lesson 4.4</a>. The in-place store is in the toggle "Storing into the memory you read" in its <a href="04-materialization.html#reference">reference</a>.</p>
+
+<details class="toggle">
+<summary>Every way to run the suite, and where to read about a failing test</summary>
+<div class="prose">
 <p>Stuck on a failing test? The <a href="../resources/tests-week4.html">week 4 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week4.html">week 4 study guide</a> has a cheat sheet and a step-by-step way out.</p>
-<p>Run these from the course repo root, and keep every earlier week green:</p>
+<p>Run these from the course repo root, and keep the earlier weeks working while you build:</p>
 <pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 4
 python tools/test.py --compiler "C:/path/to/your.exe" --week 4 -k render -v   # the render tests, with details
 python tools/test.py --compiler "C:/path/to/your.exe" --week 3
 python tools/test.py --compiler "C:/path/to/your.exe" --week 2
 python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <p>Pass <span class="only-ocaml">the built executable, not <code>dune exec</code>: the grader runs tests in parallel.</span><span class="only-python">the same wrapper script as in week 1.</span> Tests live in <code>tests/week4/run/</code> and <code>tests/week4/render/</code>.</p>
+</div>
+</details>
 
+<div class="prose">
 <h2>Write your 10 tests</h2>
-<p>Ten tests in <code>path/to/your-repo/tests/week4/</code>, each aimed at a rule someone will get wrong. Check them against the oracle:</p>
-<pre><code>python tools/test.py --check-tests path/to/your-repo/tests/week4 --week 4</code></pre>
-<p>Good targets: a reduce whose bits depend on the fold order, a one-element reduce, and <code>reduce op=max</code> over a vector containing NaN. Also try an <code>add</code> of a vector and a scalar without <code>expand</code> (a <code>rejected_</code> test), and a value used by a reduce and a store, once with <code>stage</code> and once without (same answer). Finish with a render test with a vector long enough that unrolling breaks the size limit.</p>
+<p>Same deal as before: 10 tests in <code>&lt;your compiler repo&gt;/tests/week4/</code>, each aimed at a rule someone will get wrong. This one catches a reduce that folds from the right, which would give 1.0:</p>
+<pre><code>%x = stack 1.0 100000000.0 -100000000.0
+%s = reduce %x op=add
+%t = assert %s 0.0</code></pre>
+<p>Check your tests against the oracle:</p>
+<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week4 --week 4</code></pre>
+<p>With that one file in the folder, it prints <code>1 / 1 tests agree with the oracle</code>.</p>
 </div>
 
-<h2>A build order that works</h2>
-<ol class="build">
-<li><h3>Shapes on ALU ops</h3><p>Change the ALU type rule from "every operand is a scalar" to "every operand has the same shape". The result has that shape.</p><p class="check">Checkpoint: the shape-mismatch tests print <code>REJECTED</code>, and every week 1 test still passes.</p></li>
-<li><h3>Parse and type expand, reduce, stage</h3><p><code>expand</code> needs a scalar and a shape operand like <code>[n]</code> (week 5 widens it to grow size-1 axes). <code>reduce</code> needs a vector and <code>op=</code>, and <code>stage</code> keeps its operand's type. Rank-1 values may not depend on an open range.</p><p class="check">Checkpoint: every file in <code>tests/week4/run/</code> parses, or is <code>REJECTED</code>.</p></li>
-<li><h3>Evaluate vectors</h3><p>Evaluate rank-1 values as arrays: elementwise ops per element, <code>expand</code> as n copies, <code>stage</code> as the identity, and <code>reduce</code> as a left fold seeded with element 0, rounding after every step.</p><p class="check">Checkpoint: every week 4 run test passes.</p></li>
-<li><h3>The element at an index</h3><p>Write the lowering as two mutually recursive functions: one that rebuilds scalars and effects, and one that answers "your element at index i" for a vector. Memoize both, so a value asked twice at the same index is built once.</p><p class="check">Checkpoint: print the lowered graph for <code>store %y (mul %v (expand 2.0))</code> and find no rank-1 nodes in it.</p></li>
-<li><h3>Stores and reduces become loops</h3><p>A rank-1 store becomes <code>range n</code>, a scalar store at the index, and <code>end</code>. A reduce becomes a seeded one-element accumulator and a loop over <code>1..n-1</code>, exactly week 3's pattern.</p><p class="check">Checkpoint: the small render tests pass bit for bit.</p></li>
-<li><h3>Stage becomes a temp</h3><p>A staged vector gets its own <code>alloc</code>, filled once in its own loop. Its element at an index is a load from that temp.</p><p class="check">Checkpoint: staged and unstaged versions of the same program leave identical bits.</p></li>
-<li><h3>Check the size</h3><p>Render the 4096-element tests and measure them. If the output grows with n, something reached the printer without being rangeified.</p><p class="check">Checkpoint: every render test passes, and your largest kernel stays a couple of kilobytes at most, whatever n is.</p></li>
-<li><h3>Your 10 tests</h3><p>Write them, check them with <code>--check-tests</code>, and use them to break your compiler before the suite does.</p></li>
-</ol>
+<details class="toggle">
+<summary>Good targets for your tests</summary>
+<div class="prose">
+<p>Good targets: a reduce whose bits depend on the fold order, a one-element reduce, and <code>reduce op=max</code> over a vector containing NaN. Also try an <code>add</code> of a vector and a scalar without <code>expand</code> (a <code>rejected_</code> test), and a value used by a reduce and a store, once with <code>stage</code> and once without (same answer). Finish with a render test with a vector long enough that unrolling breaks the size limit.</p>
+</div>
+</details>
 
-<h2>Checklist</h2>
+<details class="toggle">
+<summary>A checklist to tick off before you call the lab done</summary>
+
 <ul class="checklist" id="checklist">
 <li><label><input type="checkbox" data-k="shapes"><span>ALU ops work elementwise on one shared shape, with no implicit broadcast</span></label></li>
 <li><label><input type="checkbox" data-k="ops"><span><code>expand</code>, <code>reduce</code> and <code>stage</code> parse and type check</span></label></li>
@@ -121,14 +357,33 @@ python tools/test.py --compiler "C:/path/to/your.exe" --week 1</code></pre>
 <li><label><input type="checkbox" data-k="stage"><span><code>stage</code> fills a temp once, and gives the same bits as recomputing</span></label></li>
 <li><label><input type="checkbox" data-k="size"><span>Rendered C stays under 20,000 bytes on the 4096-element tests</span></label></li>
 <li><label><input type="checkbox" data-k="suite4"><span><code>python tools/test.py --compiler ... --week 4</code> passes everything</span></label></li>
-<li><label><input type="checkbox" data-k="suite123"><span>Weeks 1 to 3 still pass everything</span></label></li>
+<li><label><input type="checkbox" data-k="suite123"><span>Weeks 2 and 3 pass everything, and week 1 says 272 / 282 with the same ten failures as last week</span></label></li>
 <li><label><input type="checkbox" data-k="mine"><span>10 week 4 tests of my own, passing <code>--check-tests</code></span></label></li>
 </ul>
+</details>
 
 <div class="key">
 <span class="label">The AI policy, still</span>
+<p>An AI assistant may explain, draw and ask questions. It must <strong>never write or rewrite compiler code</strong>, and this week that includes your rangeify pass.</p>
+</div>
+
+<details class="toggle">
+<summary>The AI policy in full</summary>
+<div class="prose">
 <p>Your repo's <code>AGENTS.md</code> hasn't changed: an AI assistant may <strong>explain concepts, draw diagrams, and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. That includes your rangeify pass. "Why does my staged program give different bits from the unstaged one?" is a fine question. "Write my element-at-index function" is not.</p>
 <p>The oracle in <code>_reference/</code> stays closed. Running <code>python _reference/uirc.py render FILE</code> on your own test to see the loops it produces is fine.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Check shapes, and refuse a vector that meets a scalar without <code>expand</code>.</li>
+<li>Run <code>expand</code>, <code>reduce</code> and <code>stage</code>, with every fold going left to right from the first element.</li>
+<li>Rangeify a vector program into week 3 loops, one rule per op.</li>
+<li>Render 4,096 elements in a couple of kilobytes of C.</li>
+</ul>
+<p>Next is <a href="../week5/01-shapes.html">week 5</a>, where values get more than one axis.</p>
 </div>
 
 <h2>Check yourself</h2>

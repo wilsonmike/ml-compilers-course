@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ranges and Ends</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Week 2 programs touch every element by hand: one view, one store, one after per element. That&#x27;s fine for four elements and hopeless for a thousand. This lesson...">
+<meta name="description" content="Every program so far did a fixed number of steps: one line of .uir, one piece of work. Week 3 adds loops, so a short program can work through a thousand...">
 <link rel="canonical" href="https://sharpterminal.com/site/week3/01-ranges">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Ranges and Ends">
-<meta property="og:description" content="Week 2 programs touch every element by hand: one view, one store, one after per element. That&#x27;s fine for four elements and hopeless for a thousand. This lesson adds the two ops that make a loop...">
+<meta property="og:description" content="Every program so far did a fixed number of steps: one line of .uir, one piece of work. Week 3 adds loops, so a short program can work through a thousand numbers. This lesson gives you the two ops...">
 <meta property="og:url" content="https://sharpterminal.com/site/week3/01-ranges">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,46 +20,152 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .nest { font: 0.875rem/1.7 var(--mono); color: var(--ink-2); }
   .nest .box { border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s2) var(--s3); margin: var(--s2) 0 0; }
   .nest .box .box { margin-left: var(--s4); }
   .nest .lab { color: var(--ink); font-weight: 500; }
   .stack { display: grid; gap: var(--s3); }
+  .ctr { font: 0.875rem var(--mono); color: var(--ink-2); }
 </style>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 3 · Lesson 1</p>
 <h1>Ranges and ends</h1>
-<p class="lede">Week 2 programs touch every element by hand: one view, one store, one <code>after</code> per element. That's fine for four elements and hopeless for a thousand. This lesson adds the two ops that make a loop, <code>range</code> and <code>end</code>, and the one property your compiler has to track to place them: the set of open ranges.</p>
+<p class="lede">Every program so far did a fixed number of steps: one line of <code>.uir</code>, one piece of work. Week 3 adds loops, so a short program can work through a thousand numbers. This lesson gives you the two ops that make a loop: <code>range</code>, a counter, and <code>end</code>, which says what gets repeated.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Write a <code>.uir</code> loop with <code>range</code> and <code>end</code>, and say which values sit inside it.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Views (<a href="../week2/01-buffers-and-views.html">lesson 2.1</a>), <code>store</code> and <code>after</code> (<a href="../week2/02-load-store-after.html">2.2</a>), the bounds check (<a href="../week2/03-bounds.html">2.3</a>) and row-major positions (<a href="../week0/04-tensors-and-shapes.html">lesson 0.4</a>).</p>
+<p class="only-python">A <code>for</code> loop (<a href="../learn/py-02-decisions-loops.html">P.2</a>) and <code>match</code> on your own classes (<a href="../learn/py-04-your-own-types.html">P.4</a>).</p>
+<p class="only-ocaml">A <code>for</code> loop on an array (<a href="../learn/ml-05-mutation.html">O.5</a>) and <code>match</code> on your own types (<a href="../learn/ml-04-your-own-types.html">O.4</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from week 2, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="5 6 1 | [5 6 1] | 5, 6, 1">
+<p class="q">What does <code>%b1</code> hold?</p>
+<pre><code>%b  = buffer 3 [5 6 7] dtype=i32 slot=0
+%e  = shrink %b 2 []
+%s  = store %e 1
+%b1 = after %b %s</code></pre>
+<div class="fill"><input aria-label="answer" placeholder="e.g. 1 2 3"><button class="btn">check</button></div>
+<p class="hint">The store writes into box 2. <code>after</code> names the buffer once that write has happened.</p>
+<div class="why"><p>Box 2 gets the 1 and the other boxes keep their values: 5, 6, 1.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">A buffer has 4 elements. <code>shrink %b %k []</code> passes the bounds check only if the interval of <code>%k</code> fits inside which range?</p>
+<div class="opts">
+<button data-k="a">[0, 3]</button>
+<button data-k="b">[0, 4]</button>
+<button data-k="c">[1, 4]</button>
+</div>
+<p class="hint">Boxes are numbered from 0.</p>
+<div class="why"><p>Four boxes are numbered 0, 1, 2 and 3. Any value of <code>%k</code> outside [0, 3] would miss the buffer, so the program is rejected.</p></div>
+</div>
+
+<h2>A sum that does not scale</h2>
+<div class="prose">
+<p>Here is a week 2 program that adds up the four numbers in <code>%b</code>. <code>%s3</code> is the total, 9:</p>
+<pre><code>%b   = buffer 4 [3 1 4 1] dtype=i32 slot=0
+%v0  = shrink %b 0 []
+%x0  = load %v0
+%v1  = shrink %b 1 []
+%x1  = load %v1
+%v2  = shrink %b 2 []
+%x2  = load %v2
+%v3  = shrink %b 3 []
+%x3  = load %v3
+%s1  = add %x0 %x1
+%s2  = add %s1 %x2
+%s3  = add %s2 %x3</code></pre>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Each element costs a view, a load and an add. What does this program look like for a buffer of 1,000 numbers?</p>
+<div class="opts">
+<button data-k="a">The same 12 lines, with 4 changed to 1,000.</button>
+<button data-k="b">About 1,000 lines.</button>
+<button data-k="c">About 3,000 lines, and a different file for every buffer size.</button>
+</div>
+<p class="hint">Count the lines that mention element 2.</p>
+<div class="why"><p>Three lines per element, so about 3,000 lines. A real model works on millions of numbers.</p></div>
+</div>
 
 <div class="prose">
-<h2>A range is a counter</h2>
-<p><code>%i = range 4</code> is an i32 value that takes the values 0, 1, 2 and 3. The statement's name is the range's name. Anything computed from <code>%i</code> is computed once per value of <code>%i</code>:</p>
+<p>In <span class="only-python">Python</span><span class="only-ocaml">OCaml</span> you would write a loop: one copy of the work and a counter that says which element it is on. Week 3 gives <code>.uir</code> the same thing.</p>
+<p>A sum also needs a running total kept in memory. That is lesson 3.2. This lesson builds the loop on a smaller job: put <code>i * i</code> into box <code>i</code>.</p>
+</div>
+
+<h2>A counter that is a value</h2>
+<div class="prose">
+<p>The loop you already know:</p>
+<pre class="only-python"><code>b = [0, 0, 0, 0]
+for i in range(4):
+    b[i] = i * i</code></pre>
+<pre class="only-ocaml"><code>let b = Array.make 4 0 in
+for i = 0 to 3 do
+  b.(i) &lt;- i * i
+done</code></pre>
+<p>In <code>.uir</code> every line is a value, so the counter is a value too. <code>%i = range 4</code> is an i32 that takes the values 0, 1, 2 and 3, one after the other. Anything computed from <code>%i</code> is computed once for each of those values.</p>
+</div>
+
+<div class="quiz" data-fill="10 11 12 13 | [10 11 12 13] | 10, 11, 12, 13">
+<p class="q">With <code>%i = range 4</code>, what values does <code>%t = add %i 10</code> take, in order?</p>
+<div class="fill"><input aria-label="answer" placeholder="e.g. 1 2 3 4"><button class="btn">check</button></div>
+<p class="hint"><code>%i</code> starts at 0 and stops before 4.</p>
+<div class="why"><p><code>%i</code> is 0, 1, 2, 3, so <code>%t</code> is 10, 11, 12, 13. A range counts from 0 up to one less than its bound.</p></div>
+</div>
+
+<div class="prose">
+<p>Now the body of the loop, built from the counter:</p>
 <pre><code>%b  = buffer 4 dtype=i32 slot=0
 %i  = range 4
-%sq = mul %i %i             # i * i, for each i
-%v  = shrink %b %i []       # element i
-%s  = store %v %sq          # b[i] = i * i
-%e  = end %s %i             # repeat %s for i = 0, 1, 2, 3
+%sq = mul %i %i
+%v  = shrink %b %i []
+%s  = store %v %sq</code></pre>
+<ol>
+<li><strong>Make the counter.</strong> <code>%i = range 4</code>.</li>
+<li><strong>Compute with it.</strong> <code>%sq</code> is <code>i * i</code>, once for each <code>i</code>.</li>
+<li><strong>Aim with it.</strong> <code>%v</code> is a window onto box <code>i</code>. The window moves with the counter.</li>
+<li><strong>Write.</strong> <code>%s</code> stores <code>i * i</code> into box <code>i</code>.</li>
+</ol>
+</div>
+
+<h2>Close the loop with end</h2>
+<div class="prose">
+<p>Those lines are not a loop yet. <span class="only-python">Python marks the body of a loop by indenting it.</span><span class="only-ocaml">OCaml marks the body of a loop with <code>do</code> and <code>done</code>.</span> A graph has no such marks, only nodes that point at their sources.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">You add <code>%b1 = after %b %s</code> to the five lines. What is wrong?</p>
+<div class="opts">
+<button data-k="a">Nothing. The store runs four times.</button>
+<button data-k="b"><code>%s</code> is a different store for each value of <code>%i</code>, and nothing says to run them all.</button>
+<button data-k="c">A store may not use a view that moves.</button>
+</div>
+<p class="hint"><code>after %b %s</code> means "<code>%b</code>, once <code>%s</code> has happened". Which <code>%s</code>?</p>
+<div class="why"><p><code>%s</code> still depends on the counter, so it is not one write. The program is <code>REJECTED</code>. Something has to say "do this for every value of <code>%i</code>".</p></div>
+</div>
+
+<div class="prose">
+<p>That something is <code>end</code>. <code>%e = end %s %i</code> means: run the store <code>%s</code> once for every value of <code>%i</code>, in increasing order. An <code>end</code> is an <strong>effect</strong>, a thing that happens to memory, the same as a store. So <code>after</code> can sequence it:</p>
+<pre><code>%e  = end %s %i             # repeat %s for i = 0, 1, 2, 3
 %b1 = after %b %e           # the buffer after the whole loop</code></pre>
-<p><code>end %s %i</code> says "run the store once for every value of <code>%i</code>, in order". After the loop, <code>%b1</code> holds 0, 1, 4, 9. A <code>range</code> on its own doesn't loop anything. The loop exists only where an <code>end</code> closes it.</p>
-<p>The bound can be any i32 expression that doesn't depend on another range. <code>range 0</code> (or anything 0 or below) runs zero times. A computed or loaded bound is fine too, like <code>range %c</code> with <code>%c = mod %k 5</code> for a loaded <code>%k</code>. Because the bound can't depend on another range, every loop nest in week 3 is a rectangle: no triangular loops yet.</p>
+<p>A <code>range</code> on its own loops nothing. The loop exists only where an <code>end</code> closes it. Step through the loop as it runs:</p>
 </div>
 
-<h2>Open ranges</h2>
-<div class="prose">
-<p>Every UOp has a set of <strong>open ranges</strong>: the ranges it depends on that no <code>end</code> has closed yet. A <code>range</code> is open in itself. Any other op takes the union of its operands' sets. An <code>end</code> removes the range it closes. Step through the program above:</p>
-</div>
-
-<div class="fig bleed" id="opens" data-title="open ranges, node by node"></div>
-
-<div class="prose">
-<p>The open ranges tell your compiler where each value lives: a value with <code>{i}</code> open is computed inside the i loop, and a value with nothing open is computed once, outside every loop. That's the whole placement rule for ordinary values. Loads get one more rule, in lesson 3.2.</p>
-</div>
+<div class="fig bleed" id="run" data-title="the loop, one value of %i at a time"></div>
 
 <div class="exercise" data-ex="w3-01-square">
 <h3>Square every element</h3>
@@ -67,9 +173,63 @@
 <p class="muted">The grader sets both buffers' data for each test and checks slot 1's final contents.</p>
 </div>
 
-<h2>Nesting</h2>
+<h2>The counter has bounds</h2>
 <div class="prose">
-<p>Two ranges make a loop nest. The order of the <code>end</code>s decides which loop is outside. Here the store depends on both <code>%i</code> and <code>%j</code>. <code>%j</code> is closed first, so it's the inner loop:</p>
+<p>Week 2 checks every view before the program runs. In a loop one view lands on many boxes, so the check has to cover all of them at once.</p>
+</div>
+
+<div class="quiz" data-fill="REJECTED">
+<p class="q">A buffer has 4 elements, and <code>%v = shrink %b %i []</code> with <code>%i = range 5</code>. What outcome does <code>./compile</code> print for the file?</p>
+<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
+<p class="hint">What's the interval of <code>%i</code>?</p>
+<div class="why"><p><code>%i</code> is in [0, 4], so the view could start at element 4 of a four-element buffer. The bounds check fails, so the program is rejected before it runs: <code>REJECTED</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>A <code>range n</code> has the interval <code>[0, n-1]</code>, and the week 2 bounds check uses it like any other interval. Arithmetic on the counter moves the interval with it: for <code>%i = range 4</code>, <code>add %i 1</code> is in [1, 4], which also misses a four-element buffer.</p>
+</div>
+
+<div class="exercise small" data-ex="w3-01-reverse">
+<h3>Reverse into a second buffer</h3>
+<p>Copy slot 0 (five i32s) into slot 1 backwards: <code>out[i] = in[4 - i]</code>. There's no subtract op, and the view has to pass the bounds check.</p>
+</div>
+
+<h2>What is inside the loop</h2>
+<div class="prose">
+<p>When your compiler prints C for a loop, it has to decide which lines go between the braces.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">In the squares program, which of these has to be computed again for every <code>i</code>?</p>
+<div class="opts">
+<button data-k="a"><code>%b</code>, the buffer</button>
+<button data-k="b"><code>%sq = mul %i %i</code></button>
+<button data-k="c"><code>%b1 = after %b %e</code></button>
+</div>
+<p class="hint">Which one changes when <code>%i</code> changes?</p>
+<div class="why"><p><code>%sq</code> is built from <code>%i</code>, so it has a new value each time around. The buffer exists once, and <code>%b1</code> comes after the loop.</p></div>
+</div>
+
+<div class="prose">
+<p>Your compiler tracks this with one property. Every node has a set of <strong>open ranges</strong>: the ranges it depends on that no <code>end</code> has closed yet.</p>
+<ol>
+<li><strong>A range opens itself.</strong> The set of <code>%i</code> is <code>{i}</code>.</li>
+<li><strong>Other ops take the union.</strong> A node's set is everything open in any of its operands.</li>
+<li><strong>An end removes its range.</strong> <code>end %s %i</code> has the set of <code>%s</code>, minus <code>i</code>.</li>
+</ol>
+<p>A value with <code>{i}</code> open is computed inside the i loop. A value with nothing open is computed once, outside every loop. Loads get one more rule in lesson 3.2.</p>
+</div>
+
+<div class="fig bleed" id="opens" data-title="open ranges, node by node"></div>
+
+<div class="exercise small" data-ex="w3-01n-opens-fix" data-ex-py="w3-01n-opens-fix-py">
+<h3>Fix the open ranges</h3>
+<p>A toy graph has four kinds of node: <code>Range name</code>, <code>Lit n</code>, <code>Add (a, b)</code> and <code>End (effect, name)</code>, which closes the range called <code>name</code>. <code>opens n</code> should return the sorted names of the ranges still open at <code>n</code>. The <code>Lit</code> and <code>Add</code> cases are right. The <code>Range</code> and <code>End</code> cases are wrong. Fix those two.</p>
+</div>
+
+<h2>Two loops, one inside the other</h2>
+<div class="prose">
+<p>A grid needs two counters: one for the row and one for the column. Lesson 0.4 put row <code>i</code>, column <code>j</code> of a 3-column grid at <code>i*3 + j</code>. This store depends on <code>%i</code> and <code>%j</code>, so it needs two <code>end</code>s:</p>
 <pre><code>%b  = buffer 6 dtype=i32 slot=0
 %i  = range 2
 %j  = range 3
@@ -80,6 +240,17 @@
 %ej = end %s %j             # inner loop: j
 %ei = end %ej %i            # outer loop: i
 %b1 = after %b %ei</code></pre>
+</div>
+
+<div class="quiz" data-fill="6">
+<p class="q">How many times does the store run?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">For each of the 2 values of <code>%i</code>, <code>%j</code> takes all 3 of its values.</p>
+<div class="why"><p>2 × 3 = 6 times, once for each box of the grid.</p></div>
+</div>
+
+<div class="prose">
+<p>The order of the <code>end</code>s decides which loop is inside. <code>%ej</code> closes <code>%j</code> around the store, so j is the inner loop. <code>%ei</code> then repeats that whole inner loop for every <code>%i</code>.</p>
 </div>
 
 <div class="split">
@@ -103,15 +274,55 @@
 
 <div class="prose">
 <p class="muted">The C is the oracle's rendering, with the wraparound casts trimmed for reading.</p>
-<p>Notice where <code>%i3</code> went. It depends only on <code>%i</code>, so it's computed in the i loop, not the j loop. That's open ranges doing the hoisting for free. Swap the two <code>end</code>s and you get the same answers with the loops the other way round. Lesson 3.3 shows why that choice matters.</p>
+<p>The open set of <code>%i3</code> is <code>{i}</code>, so it's computed in the i loop, not the j loop. Swap the two <code>end</code>s and you get the same answers with the loops the other way round. Lesson 3.3 shows why that choice matters.</p>
 </div>
 
-<div class="exercise small" data-ex="w3-01-reverse">
-<h3>Reverse into a second buffer</h3>
-<p>Copy slot 0 (five i32s) into slot 1 backwards: <code>out[i] = in[4 - i]</code>. There's no subtract op, and the view has to pass the bounds check.</p>
+<div class="exercise" data-ex="w3-01n-bias">
+<h3>Add a row to every row</h3>
+<p>Slot 0 holds a grid of 2 rows and 3 columns, stored row-major in six i32s. Slot 1 holds one row of three i32s. Write the grid with that row added to each of its rows into slot 2: <code>out[i*3 + j] = grid[i*3 + j] + row[j]</code>. The starter has only the three buffers.</p>
 </div>
 
-<h2>What makes a loop invalid</h2>
+<div class="exercise small" data-ex="w3-01-opens" data-ex-py="w3-01-opens-py">
+<h3>Open ranges on a toy graph</h3>
+<p>Here's a five-constructor toy version of the graph. Write <code>opens</code>: the sorted, duplicate-free names of the ranges a node depends on that no <code>End</code> has closed. This is the property your compiler computes for every UOp.</p>
+</div>
+
+<h2>Loops your compiler must refuse</h2>
+<div class="prose">
+<p>You have met two loops the checker rejects: one that no <code>end</code> closes, and one whose counter runs past the buffer. Two more:</p>
+<ul>
+<li><strong>Closing a range the effect doesn't use.</strong> <code>end %s %j</code> when <code>%s</code> doesn't depend on <code>%j</code> is an error.</li>
+<li><strong>An assert with an open range.</strong> An <code>assert</code> gives one answer for the whole program, so it must sit outside every loop.</li>
+</ul>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">You want a triangle: for each <code>i</code>, the inner loop runs <code>i</code> times. So you write <code>%j = range %i</code>. What happens in week 3?</p>
+<div class="opts">
+<button data-k="a">It works. The inner loop gets longer each time.</button>
+<button data-k="b">It runs, with <code>%i</code> read as 0.</button>
+<button data-k="c">The program is rejected.</button>
+</div>
+<p class="hint">The bound has to be known before the loop starts. Is <code>%i</code> one fixed number?</p>
+<div class="why"><p>The bound of a range must have no open ranges, and <code>%i</code> is open in itself. So every loop nest in week 3 is a rectangle: each loop runs the same number of times whatever the other counters are.</p></div>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Write a loop with <code>range</code>, close it with <code>end</code> and sequence it with <code>after</code>.</li>
+<li>Use a counter's interval <code>[0, n-1]</code> to pass the bounds check.</li>
+<li>Work out the open ranges of any node, and from them which loop it sits in.</li>
+<li>Nest two loops and say which one is inside.</li>
+</ul>
+<p>Next, lesson 3.2 puts a load inside a loop, which is what the sum from the start of this page needs.</p>
+</div>
+
+<h2 id="reference">Reference for the lab</h2>
+<p class="prose">You do not need these to finish the page. Open them when you add loops to your own compiler.</p>
+
+<details class="toggle">
+<summary>Every rule that makes a loop invalid, for when you write the checker</summary>
 <div class="prose">
 <p>The oracle checks these statically. Each one is a mistake that would otherwise produce C that means something different from your graph:</p>
 <ul>
@@ -122,18 +333,42 @@
 <li><strong>Closing a range twice.</strong> Each range has exactly one <code>end</code>, so each range is exactly one loop.</li>
 <li><strong>Out of bounds.</strong> A range's interval is <code>[0, n-1]</code>, and week 2's bounds check uses it. <code>shrink %b %i []</code> with <code>%i = range 5</code> on a four-element buffer is invalid. When the bound isn't a constant, the interval is <code>[0, hi(n) - 1]</code>, where <code>hi(n)</code> is the top of the bound's own interval, so <code>range %c</code> with <code>%c</code> in [0, 4] is <code>[0, 3]</code>. If <code>hi(n) ≤ 0</code> the loop never runs, and the interval is <code>[0, 0]</code>.</li>
 </ul>
+<p>Two more from the spec. The last operand of an <code>end</code> must be a range, and every operand before it must be an effect: a <code>store</code> or another <code>end</code>. And an <code>after</code> that sequences a loop must name the version the loop stores into, as it must for a single store.</p>
 </div>
+</details>
 
-<div class="exercise small" data-ex="w3-01-opens" data-ex-py="w3-01-opens-py">
-<h3>Open ranges on a toy graph</h3>
-<p>Here's a five-constructor toy version of the graph. Write <code>opens</code>: the sorted, duplicate-free names of the ranges a node depends on that no <code>End</code> has closed. This is the property your compiler computes for every UOp.</p>
+<details class="toggle">
+<summary>Range bounds that are computed, zero or negative, for when you run a loop in your interpreter</summary>
+<div class="prose">
+<p>The bound can be any i32 expression that doesn't depend on another range. <code>range 0</code> (or anything 0 or below) runs zero times. A computed or loaded bound is fine too, like <code>range %c</code> with <code>%c = mod %k 5</code> for a loaded <code>%k</code>. Because the bound can't depend on another range, every loop nest in week 3 is a rectangle: no triangular loops yet.</p>
 </div>
+</details>
+
+<details class="toggle">
+<summary>One end with several effects, and loops that ignore an outer range, for when a test uses them</summary>
+<div class="prose">
+<p>The full form is <code>end x1 ... xk r</code>: one or more effects, then the range. It runs all of the effects once for every value of <code>r</code>, and at least one of them must depend on <code>r</code>. This loop fills two buffers:</p>
+<pre><code>%a  = buffer 3 dtype=i32 slot=0
+%b  = buffer 3 dtype=i32 slot=1
+%i  = range 3
+%va = shrink %a %i []
+%vb = shrink %b %i []
+%sq = mul %i %i
+%sa = store %va %i
+%sb = store %vb %sq
+%e  = end %sa %sb %i
+%a1 = after %a %e
+%b1 = after %b %e</code></pre>
+<p>Ranges nest the way the ends do. If an effect is inside <code>end ... r1</code>, and that end is inside <code>end ... r2</code>, then <code>r2</code> is the outer loop. A loop body may ignore an outer range. It then repeats, doing the same thing each time.</p>
+<p>An <code>after</code> may also sit inside a loop. Only an <code>after</code> with no open ranges counts as a buffer's output version. Lesson 3.2 covers that case.</p>
+</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
 
 <div class="quiz" data-fill="0 1 4 9 | [0 1 4 9] | 0, 1, 4, 9 | [0, 1, 4, 9]">
-<p class="q">After the first program on this page runs, what does <code>%b1</code> hold?</p>
+<p class="q">After the squares program on this page runs, what does <code>%b1</code> hold?</p>
 <div class="fill"><input aria-label="your answer" placeholder="e.g. 1 2 3 4"><button class="btn">Check</button></div>
 <p class="hint">The store writes <code>i * i</code> into element <code>i</code>, for i from 0 to 3.</p>
 <div class="why"><p>The loop runs the store four times: b[0] = 0, b[1] = 1, b[2] = 4, b[3] = 9. The oracle agrees.</p></div>
@@ -175,13 +410,6 @@
 <div class="why"><p>A range with bound 0 or below runs zero times, so the store never happens and the buffer's final version holds its initial data. The program is valid, and an assert on that data gives MATCH.</p></div>
 </div>
 
-<div class="quiz" data-fill="REJECTED">
-<p class="q">A buffer has 4 elements, and <code>%v = shrink %b %i []</code> with <code>%i = range 5</code>. What outcome does <code>./compile</code> print for the file?</p>
-<div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
-<p class="hint">What's the interval of <code>%i</code>?</p>
-<div class="why"><p><code>%i</code> is in [0, 4], so the view could start at element 4 of a four-element buffer. The bounds check fails, so the program is rejected before it runs: <code>REJECTED</code>.</p></div>
-</div>
-
 <div class="quiz" data-answer="d">
 <p class="q">Why must an <code>assert</code> have no open ranges?</p>
 <div class="opts">
@@ -212,7 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
 %b1 = after %b %e`;
   const { nodes, names } = CC.parseUir(src);
   const c = `for (int32_t r2 = 0; r2 < 4; r2++) {
-  int32_t v4 = r2 * r2;
+  int32_t v4 = (int32_t)((uint32_t)r2 * (uint32_t)r2);
   b0[r2] = v4;
 }`;
   // each step: which statements are open in i, which one is the end, the highlighted .uir line, the C line
@@ -224,6 +452,22 @@ document.addEventListener('DOMContentLoaded', () => {
     { open: ['i', 'sq', 'v', 's'], closed: 'e', hl: 5, cl: 3, caption: '<code>end %s %i</code> closes i: its open set is <code>{i}</code> minus i, which is empty. In C, this is the closing brace.' },
     { open: [], closed: 'e', done: ['b1'], hl: 6, cl: -1, caption: '<code>after %b %e</code> has nothing open. It sits outside every loop and names the buffer once the whole loop has run.' },
   ];
+  const run = [
+    { hl: 0, on: [], i: null, cells: [0, 0, 0, 0], at: -1, caption: '<code>%b</code> is four boxes. A buffer with no data starts as zeros.' },
+    { hl: 1, on: ['i'], i: null, cells: [0, 0, 0, 0], at: -1, caption: '<code>%i = range 4</code> is the counter. Nothing has run yet. It will take the values 0, 1, 2 and 3.' },
+    { hl: 4, on: ['i', 'sq', 'v', 's'], i: 0, cells: [0, 0, 0, 0], at: 0, caption: '<code>%i</code> is 0. <code>%sq</code> is 0 × 0 = 0. The view is box 0, and the store writes 0 into it.' },
+    { hl: 4, on: ['i', 'sq', 'v', 's'], i: 1, cells: [0, 1, 0, 0], at: 1, caption: '<code>%i</code> is 1. <code>%sq</code> is 1 × 1 = 1. The view has moved to box 1.' },
+    { hl: 4, on: ['i', 'sq', 'v', 's'], i: 2, cells: [0, 1, 4, 0], at: 2, caption: '<code>%i</code> is 2. <code>%sq</code> is 2 × 2 = 4, stored into box 2.' },
+    { hl: 4, on: ['i', 'sq', 'v', 's'], i: 3, cells: [0, 1, 4, 9], at: 3, caption: '<code>%i</code> is 3. <code>%sq</code> is 3 × 3 = 9, stored into box 3. That was the last value of the counter.' },
+    { hl: 5, on: ['e'], i: null, cells: [0, 1, 4, 9], at: -1, caption: '<code>%e = end %s %i</code> is all four of those stores, in that order, as one effect.' },
+    { hl: 6, on: ['b1'], i: null, cells: [0, 1, 4, 9], at: -1, caption: '<code>%b1 = after %b %e</code> names the buffer once the whole loop has happened: 0, 1, 4, 9.' },
+  ];
+  CC.stepper(document.getElementById('run'), run, (s, body) => {
+    const g = nodes.map(n => ({ ...n, cls: s.on.some(x => names[x] === n.id) ? 'hit' : '' }));
+    const mem = h('div', { class: 'mem' }, s.cells.map((v, k) => h('div', { class: 'cell' + (k === s.at ? ' on' : '') }, h('span', { class: 'addr', text: String(k) }), String(v))));
+    const left = h('div', { class: 'stack' }, CC.code(src, s.hl), h('div', { class: 'ctr', text: s.i == null ? '%i: not running' : '%i = ' + s.i }), mem);
+    body.append(h('div', { class: 'split' }, left, CC.graph(g)));
+  });
   CC.stepper(document.getElementById('opens'), steps, (s, body) => {
     const id = n => names[n];
     const g = nodes.map(n => ({ ...n, cls: s.open.some(x => id(x) === n.id) ? 'hit' : (s.closed && id(s.closed) === n.id) ? 'new' : (s.done || []).some(x => id(x) === n.id) ? 'new' : '' }));

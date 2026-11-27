@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Python for This Course</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="You&#x27;re going to write your compiler in Python. This lesson is about the parts that matter for a compiler: a project the grader can run, the places where...">
+<meta name="description" content="By the end of this page, the course&#x27;s test runner runs a Python program of yours and prints 1 / 1 passed. That program is the empty shell of your compiler, and...">
 <link rel="canonical" href="https://sharpterminal.com/site/week0/07-python">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Python for This Course">
-<meta property="og:description" content="You&#x27;re going to write your compiler in Python. This lesson is about the parts that matter for a compiler: a project the grader can run, the places where Python&#x27;s numbers differ from C&#x27;s and the tools...">
+<meta property="og:description" content="By the end of this page, the course&#x27;s test runner runs a Python program of yours and prints 1 / 1 passed. That program is the empty shell of your compiler, and week 1 fills it in. You&#x27;ll also meet...">
 <meta property="og:url" content="https://sharpterminal.com/site/week0/07-python">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,105 +20,270 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Week 0|Python for this course" data-root="../">
 <main>
   <p class="eyebrow">Week 0 · Lesson 7</p>
   <h1>Python for this course</h1>
-  <p class="lede">You're going to write your compiler in Python. This lesson is about the parts that matter for a compiler: a project the grader can run, the places where Python's numbers differ from C's and the tools that make graphs of nodes easy.</p>
+  <p class="lede">By the end of this page, the course's test runner runs a Python program of yours and prints <code>1 / 1 passed</code>. That program is the empty shell of your compiler, and week 1 fills it in. You'll also meet the few places where Python acts differently from the 32-bit numbers your compiler has to produce.</p>
 
   <div class="note">
-    <span class="label">Which track is this?</span>
-    <p>This lesson is for the Python track. If you picked OCaml under Language in the sidebar, <a href="06-ocaml.html">lesson 0.6</a> is yours instead, and you can skip this one.</p>
-  </div>
-
-  <div class="note">
-    <span class="label">New to Python?</span>
-    <p>This lesson assumes you can already write Python. If you can't yet, or you're new to programming, work through <a href="../learn/py-01-first-steps.html">Learn Python</a> first. Its six lessons go slowly. Then come back to week 0.</p>
+    <span class="label">Goal</span>
+    <p>Set up a Python project on your own machine that <code>python tools/test.py --compiler ... --week 1 -k basic_add</code> can run, and know the Python traps that bite in a compiler.</p>
   </div>
 
   <div class="note">
-    <span class="label">Why the examples are cards and words</span>
-    <p>Like lesson 0.6, this page teaches the language, not the course. You won't find a UOp class or a parser here, on purpose. Turning "deck of cards" ideas into "graph of ops" ideas is part of the learning.</p>
+    <span class="label">You'll use</span>
+    <p>A terminal, exceptions, <code>import</code>, dicts, dataclasses and <code>match</code>. This page uses them and doesn't teach them. <a href="../learn/py-01-first-steps.html#setup">P.1</a> covers the terminal and installing Python, <a href="../learn/py-03-collections.html">P.3</a> dicts, <a href="../learn/py-04-your-own-types.html">P.4</a> dataclasses and <code>match</code>, <a href="../learn/py-05-recursion.html">P.5</a> recursion and <a href="../learn/py-06-files-errors-tests.html">P.6</a> exceptions, exit codes and <code>import</code> (its toggle on modules has the detail). On the OCaml track, read <a href="06-ocaml.html">lesson 0.6</a> instead.</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from the start steps, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="26">
+    <p class="q">What is <code>%out</code>?</p>
+<pre><code>%a   = add 2 3
+%b   = mul %a %a
+%out = add %b 1</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Work out one line at a time. <code>%a</code> is 5.</p>
+    <div class="why"><p><code>%a</code> is 5, <code>%b</code> is 5 × 5 = 25, and <code>%out</code> is 26.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">In step 2, your <code>run</code> function kept each line's answer under its name in <code>env</code>. What kind of Python value was <code>env</code>?</p>
+    <div class="opts">
+      <button data-k="a">A string</button>
+      <button data-k="b">A dict</button>
+      <button data-k="c">A function</button>
+    </div>
+    <p class="hint">You looked values up with <code>env[x]</code>, where <code>x</code> was a name such as <code>"a"</code>.</p>
+    <div class="why"><p>A dict, which finds a value by its key. Your compiler will use dicts everywhere, and one of the traps below is about their keys.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Install</h2>
-    <p>You need Python 3.10 or newer, because <code>match</code> arrived in 3.10. The course uses only the standard library, so there's nothing else to install. Check what you have:</p>
+    <h2>Check your Python</h2>
+    <p>In the start steps your code ran in the browser. Your compiler will run on your own machine, so first make sure Python is there.</p>
+    <ol>
+      <li><strong>Open a terminal.</strong> If that is new, <a href="../learn/py-01-first-steps.html#setup">P.1</a> shows how.</li>
+      <li><strong>Ask for the version.</strong>
+<pre><code>python --version</code></pre>
+      On macOS and Linux, type <code>python3 --version</code>. You should see something like <code>Python 3.12.7</code>.</li>
+      <li><strong>Install it if it is missing or older than 3.10.</strong> On Windows, <code>winget install Python.Python.3.12</code>. On macOS, <code>brew install python</code>. On Ubuntu or WSL, <code>sudo apt install python3</code>. Then open a new terminal and check again.</li>
+    </ol>
+    <p>The course uses only what comes with Python, so there is nothing else to install. From here on, commands say <code>python</code>. On macOS and Linux, type <code>python3</code>.</p>
   </div>
-<pre><code>python --version              # Windows. 3.10 or newer?
-python3 --version             # macOS and Linux</code></pre>
-  <div class="prose">
-    <p>If it's missing or too old: on Windows, <code>winget install Python.Python.3.12</code> (then open a new terminal), or the installer from python.org with "Add python.exe to PATH" ticked. On macOS, <code>brew install python</code>. On Ubuntu or WSL, <code>sudo apt install python3</code>. The course's own tools, <code>tools/serve.py</code> and <code>tools/test.py</code>, run on the same Python.</p>
-    <p>For an editor, use VS Code with the <b>Python</b> extension. Write type hints on your functions (<code>def wrap32(x: int) -&gt; int</code>). Python ignores them at run time, but the editor uses them to show the type of anything you hover over and to flag a <code>None</code> you forgot to handle. In a compiler full of nodes, that catches real bugs.</p>
 
-    <h2>A project the grader can run</h2>
-    <p>Your compiler is a <b>package</b>: a folder of modules with an <code>__init__.py</code>. A <code>__main__.py</code> inside it is what <code>python -m mlc</code> runs. Make a new folder <em>outside</em> the course repo, like this:</p>
+  <div class="quiz" data-answer="b">
+    <p class="q">Your terminal answers <code>Python 3.9.6</code>. Can you use it for this course?</p>
+    <div class="opts">
+      <button data-k="a">Yes, any Python 3 works</button>
+      <button data-k="b">No, the course needs 3.10 or newer</button>
+      <button data-k="c">Yes, if you install extra packages</button>
+    </div>
+    <p class="hint">Compare the second number, 9, with the smallest one the course accepts.</p>
+    <div class="why"><p>The <code>match</code> statement arrived in Python 3.10, and your compiler will lean on it. Python 3.9 stops with a <code>SyntaxError</code> at the first <code>match</code>.</p></div>
   </div>
-<pre><code>my-ml-compiler/
-  mlc/
-    __init__.py         # empty: it marks mlc as a package
-    __main__.py         # the command line: reads sys.argv, calls the rest, exits
-    ...                 # your modules: one per idea, as the weeks go on
-  tests/                # your own .uir tests
-  mlc.cmd               # Windows wrapper (below)
-  mlc                   # macOS and Linux wrapper (below)
-  AGENTS.md             # copied from the course's templates/</code></pre>
+
+  <details class="toggle">
+    <summary>An editor, type hints and how the in-page exercises run (optional)</summary>
+    <div class="prose">
+      <p>For an editor, use VS Code with the <b>Python</b> extension. Write type hints on your functions (<code>def wrap32(x: int) -&gt; int</code>). Python ignores them at run time, but the editor uses them to show the type of anything you hover over and to flag a <code>None</code> you forgot to handle. In a compiler full of nodes, that catches real bugs.</p>
+      <p>The Python editors in these lessons run in your browser on the course site. If you opened the lessons with <code>python tools/serve.py</code>, they run on your machine with the same Python that runs the server. The course's own tools, <code>tools/serve.py</code> and <code>tools/test.py</code>, need only Python.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>Each <code>.py</code> file is a module, and inside the package you import siblings by name: <code>from mlc.words import count</code>. Start <code>__main__.py</code> with something that only reads its arguments and sets the exit code:</p>
-  </div>
+    <h2>Make the project and run it</h2>
+    <p>Your compiler is a <b>package</b>: a folder of Python files that Python can run by name. Yours is named <code>mlc</code>. It lives in a folder of its own, outside the course folder.</p>
+    <ol>
+      <li><strong>Make the folders.</strong> In a terminal:
+<pre><code>mkdir my-ml-compiler
+cd my-ml-compiler
+mkdir mlc</code></pre></li>
+      <li><strong>Make the package.</strong> In your editor, save an empty file as <code>mlc/__init__.py</code>. It marks <code>mlc</code> as a package.</li>
+      <li><strong>Write the program.</strong> Save this as <code>mlc/__main__.py</code>. Python runs the file with that name when you ask it to run the package.
 <pre><code>import sys
 
-def main(argv: list[str]) -&gt; int:
-    match argv:
-        case ["count", path]:
-            with open(path, encoding="utf-8") as f:
-                print(len(f.read().splitlines()), "lines")
-            return 0
-        case _:
-            print("usage: mlc count FILE", file=sys.stderr)
-            return 2
-
-sys.exit(main(sys.argv[1:]))</code></pre>
-  <div class="prose">
-    <p><code>sys.argv[0]</code> is the program name, so <code>sys.argv[1:]</code> holds the arguments. <code>sys.exit(n)</code> ends the program with status <code>n</code>, the usual way for a command to say it failed. For run tests, the course's grader looks only at the outcome line you print (for <code>simplify</code> and <code>render</code> later, it also checks exit status 0 or 2). <code>print(..., file=sys.stderr)</code> writes to stderr. <code>splitlines()</code> doesn't count an empty line after a final newline, which plain <code>split("\n")</code> does.</p>
-    <p>The test runner, <code>tools/test.py</code>, runs your compiler as <code>COMPILER FILE</code> from the course repo's folder and reads the one line it prints: <code>MATCH FILE</code>, <code>MISMATCH FILE</code>, <code>REJECTED FILE</code> or <code>OVERBUDGET FILE</code>, with the path exactly as it was given. <code>python -m mlc</code> only finds <code>mlc</code> when its parent folder is on Python's path, so give the grader a small wrapper that sets it. On Windows, save this as <code>mlc.cmd</code> next to the <code>mlc</code> folder:</p>
+for path in sys.argv[1:]:
+    print("MATCH", path)</code></pre></li>
+      <li><strong>Run it.</strong> From inside <code>my-ml-compiler</code>:
+<pre><code>python -m mlc hello.uir</code></pre>
+      You should see:
+<pre><code>MATCH hello.uir</code></pre></li>
+    </ol>
+    <p><code>sys.argv[1:]</code> is the list of words you typed after the program's name. The program prints <code>MATCH</code> and each word. There is no file named <code>hello.uir</code>, and that is fine, because this program never opens one. Your folder now looks like this:</p>
+<pre><code>my-ml-compiler/
+  mlc/
+    __init__.py
+    __main__.py</code></pre>
   </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">What does <code>python -m mlc a.uir b.uir</code> print?</p>
+    <div class="opts">
+      <button data-k="a"><code>MATCH a.uir b.uir</code> on one line</button>
+      <button data-k="b">An error, because neither file exists</button>
+      <button data-k="c"><code>MATCH a.uir</code>, then <code>MATCH b.uir</code> on a second line</button>
+    </div>
+    <p class="hint">The <code>for</code> loop runs once for each word in <code>sys.argv[1:]</code>.</p>
+    <div class="why"><p>Two words, so the loop runs twice and prints two lines. One line per file is the shape the course's grader expects.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Make it run from any folder</h2>
+    <p>The grader lives in the course folder and runs your compiler from there. Guess what that does before you read on.</p>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">You <code>cd</code> to a different folder and type <code>python -m mlc hello.uir</code> again. What happens?</p>
+    <div class="opts">
+      <button data-k="a">An error: <code>No module named mlc</code></button>
+      <button data-k="b">It prints <code>MATCH hello.uir</code> as before</button>
+      <button data-k="c">It prints nothing</button>
+    </div>
+    <p class="hint">Python looks for a package in the folder you are standing in. Is <code>mlc</code> there?</p>
+    <div class="why"><p>Python searches the current folder, and <code>mlc</code> is not in it. The grader has the same problem, since it runs from the course folder.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The fix is a <b>wrapper</b>: a tiny script that tells Python where your package is and then runs it. It sets <code>PYTHONPATH</code>, a list of extra folders Python searches for packages. Steps 1 and 2 are the same step for two systems. Do the one for yours.</p>
+    <ol>
+      <li><strong>Windows: save the wrapper.</strong> Save these three lines as <code>mlc.cmd</code> in <code>my-ml-compiler</code>, next to the <code>mlc</code> folder.
 <pre><code>@echo off
 set "PYTHONPATH=%~dp0"
-python -m mlc %*</code></pre>
-  <div class="prose">
-    <p><code>%~dp0</code> is the folder the <code>.cmd</code> file lives in, and <code>%*</code> passes every argument through. The exit code of the last line becomes the wrapper's exit code. On macOS and Linux, save this as <code>mlc</code> and run <code>chmod +x mlc</code> once:</p>
-  </div>
+python -m mlc %*</code></pre></li>
+      <li><strong>macOS and Linux: save the wrapper.</strong> Save these two lines as <code>compile</code> in <code>my-ml-compiler</code>, next to the <code>mlc</code> folder. Then run <code>chmod +x compile</code> once, which lets the file run as a command. The name can't be <code>mlc</code>, because a file and a folder can't share a name.
 <pre><code>#!/bin/sh
-PYTHONPATH="$(dirname "$0")" exec python3 -m mlc "$@"</code></pre>
+PYTHONPATH="$(dirname "$0")" exec python3 -m mlc "$@"</code></pre></li>
+      <li><strong>Find the full path.</strong> Inside <code>my-ml-compiler</code>, type <code>pwd</code> (in the old Windows Command Prompt, <code>cd</code> alone). It prints the folder's full path, such as <code>C:\Users\you\my-ml-compiler</code> or <code>/home/you/my-ml-compiler</code>.</li>
+      <li><strong>Run it from somewhere else.</strong> <code>cd</code> to any other folder and run the wrapper by its full path. Use the line for your system:
+<pre><code>C:\Users\you\my-ml-compiler\mlc.cmd hello.uir
+/home/you/my-ml-compiler/compile hello.uir</code></pre>
+      You should see <code>MATCH hello.uir</code> again.</li>
+    </ol>
+    <p>Your folder now holds one of the last two files below: <code>mlc.cmd</code> on Windows, <code>compile</code> on macOS and Linux.</p>
+<pre><code>my-ml-compiler/
+  mlc/
+    __init__.py
+    __main__.py
+  mlc.cmd
+  compile</code></pre>
+  </div>
+
+  <details class="toggle">
+    <summary>What each line of the wrappers does (for when one misbehaves)</summary>
+    <div class="prose">
+      <p><b>Windows.</b> <code>@echo off</code> stops the script from printing its own commands, which would add lines the grader does not expect. <code>%~dp0</code> is the folder the <code>.cmd</code> file lives in, and <code>%*</code> passes every argument through. The exit code of the last line becomes the wrapper's exit code.</p>
+      <p><b>macOS and Linux.</b> <code>#!/bin/sh</code> says which program runs the script. <code>$(dirname "$0")</code> is the folder the script lives in, <code>"$@"</code> passes every argument through, and <code>exec</code> replaces the shell with Python, so Python's exit code is the wrapper's.</p>
+      <p>Each <code>.py</code> file in the package is a module. Inside the package you import a sibling by its full name, such as <code>from mlc.words import count</code>.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>Then, from the course repo, point the grader at the wrapper:</p>
+    <h2>Watch the grader run it</h2>
+    <p>The grader is <code>tools/test.py</code> in the course folder. It runs your wrapper on a test file and reads the one line your program prints.</p>
+    <ol>
+      <li><strong>Get the course folder,</strong> if you don't have it yet:
+<pre><code>git clone https://github.com/wilsonmike/ml-compilers-course
+cd ml-compilers-course</code></pre></li>
+      <li><strong>Run one test.</strong> Put your own full path in place of the example. On Windows, write the path with forward slashes and put it in quotes:
+<pre><code>python tools/test.py --compiler "C:/Users/you/my-ml-compiler/mlc.cmd" --week 1 -k basic_add</code></pre>
+      On macOS and Linux:
+<pre><code>python3 tools/test.py --compiler ~/my-ml-compiler/compile --week 1 -k basic_add</code></pre></li>
+      <li><strong>Read the result.</strong> You should see:
+<pre><code>1 / 1 passed</code></pre></li>
+    </ol>
+    <p><code>--week 1</code> picks week 1's tests, and <code>-k basic_add</code> keeps only the tests whose path contains <code>basic_add</code>. That test expects the line <code>MATCH</code>, a space and the file's path, which is what your program prints for every file. It passed by luck, and that is fine for now. This step proves the setup, not the compiler.</p>
   </div>
-<pre><code>python tools/test.py --compiler "C:/path/to/my-ml-compiler/mlc.cmd" --week 1     # Windows
-python3 tools/test.py --compiler ~/my-ml-compiler/mlc --week 1                   # macOS and Linux</code></pre>
-  <div class="trap">
-    <span class="label">A traceback is not an answer</span>
-    <p>An uncaught exception prints a traceback to stderr and nothing on stdout, so the grader gets no outcome line and the test fails, even one that expected <code>REJECTED</code>. When your compiler rejects a program, raise your own exception class, catch it in <code>main</code> and print <code>REJECTED</code> and the file name. Let anything else crash loudly while you're developing, so you see it.</p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">You change <code>"MATCH"</code> to <code>"REJECTED"</code> in <code>__main__.py</code> and run the same test. What does the grader print last?</p>
+    <div class="opts">
+      <button data-k="a"><code>1 / 1 passed</code></button>
+      <button data-k="b"><code>0 / 1 passed</code></button>
+      <button data-k="c">A Python traceback</button>
+    </div>
+    <p class="hint">The grader compares the word your program prints with the word the test expects.</p>
+    <div class="why"><p>The test expects <code>MATCH</code> and now gets <code>REJECTED</code>, so it fails. Add <code>-v</code> to the command and the grader says so: <code>expected MATCH, got REJECTED</code>. Change the word back before you go on.</p></div>
   </div>
-<div class="note">
-    <span class="label">Running the exercises</span>
-    <p>The editors in these lessons are graded by <code>python tools/serve.py</code>, which runs your Python exercises with the same Python that runs the server. Nothing else is needed.</p>
+
+  <details class="toggle">
+    <summary>If it does not say 1 / 1 passed</summary>
+    <div class="prose">
+      <p>Run the command again with <code>-v</code> at the end to see what the grader got.</p>
+      <ul>
+        <li><strong><code>got ''</code></strong> with a stderr line such as <code>[WinError 2] The system cannot find the file specified</code>: the path after <code>--compiler</code> is wrong. Check it letter by letter, and keep the quotes.</li>
+        <li><strong><code>can't open file ... tools/test.py</code></strong>: you are not in the course folder. <code>cd</code> there first.</li>
+        <li><strong><code>No module named mlc</code></strong>: the wrapper is not next to the <code>mlc</code> folder.</li>
+        <li><strong><code>Permission denied</code></strong> on macOS or Linux: run <code>chmod +x compile</code>.</li>
+        <li><strong><code>python</code> is not found</strong>: on macOS and Linux the command is <code>python3</code>.</li>
+        <li><strong>Windows can't find <code>mlc.cmd</code></strong>: Notepad may have saved it as <code>mlc.cmd.txt</code>. Rename it.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>What the grader reads, and where the project goes from here (for the week 1 lab)</summary>
+    <div class="prose">
+      <p>The grader runs your compiler as <code>COMPILER FILE</code> from the course folder and reads one line from stdout: <code>MATCH FILE</code>, <code>MISMATCH FILE</code>, <code>REJECTED FILE</code> or <code>OVERBUDGET FILE</code>, with the path exactly as it was given. For these run tests it ignores the exit status and stderr. Later commands are stricter: <code>simplify</code> must exit with status 0, and <code>render</code> with 0 or 2. <code>sys.exit(n)</code> ends a program with status <code>n</code>, and <code>print(..., file=sys.stderr)</code> writes to stderr.</p>
+      <p>The <a href="../week1/06-lab.html">week 1 lab</a> starts from this same folder and names the same files. There you add <code>git</code>, a <code>.gitignore</code>, a copy of the course's <code>templates/AGENTS.md</code> and a <code>tests/</code> folder for your own <code>.uir</code> tests. Your modules go inside <code>mlc/</code>, one per idea, as the weeks go on.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>A crash is not an answer</h2>
+    <p>The setup is done. The rest of this page is a short list of Python behaviors that cause wrong answers in a compiler. Each one starts with a guess.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">A test holds a broken program and expects <code>REJECTED</code>. Your compiler hits the broken line and raises a <code>ValueError</code> that nothing catches. What does the grader record?</p>
+    <div class="opts">
+      <button data-k="a">A pass, since the program was refused</button>
+      <button data-k="b">A fail, since no outcome line was printed</button>
+      <button data-k="c">Nothing, the test is skipped</button>
+    </div>
+    <p class="hint">The grader reads one line from your program's normal output. Where does Python print a traceback?</p>
+    <div class="why"><p>An <b>uncaught exception</b> is an error that no <code>except</code> handles. Python prints its traceback to stderr, the separate channel for error messages, and prints nothing to the normal output. The grader finds no line and fails the test.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Integers never overflow</h2>
-    <p>A Python <code>int</code> grows as large as it needs to. <code>2147483647 + 1</code> is <code>2147483648</code>, and <code>2**100</code> is exact. That's lovely for a calculator and wrong for your compiler: the language you're compiling has a 32-bit <code>i32</code> that <em>must</em> wrap, the way C's <code>int32_t</code> does. Python won't wrap for you, so you wrap after every operation.</p>
+    <p>So refusing a program takes three moves:</p>
+    <ol>
+      <li><strong>Make your own exception class.</strong> For example <code>class Rejected(Exception)</code>.</li>
+      <li><strong>Raise it</strong> wherever your compiler finds a broken program.</li>
+      <li><strong>Catch only that class</strong> at the top, and print <code>REJECTED</code> and the path.</li>
+    </ol>
+    <p>Let every other exception crash loudly. Such a crash is a bug in your compiler, and you want to see its traceback.</p>
   </div>
-<pre><code>x = 2147483647 + 1                 # 2147483648: no wrap
-low = x &amp; 0xFFFFFFFF               # 2147483648: the low 32 bits, read as unsigned
-y = low - 2**32 if low &gt;= 2**31 else low    # -2147483648: read as signed
-print(x, low, y)</code></pre>
+
+  <div class="exercise" data-ex="w0-07n-outcome">
+    <h3>Answer with a line, not a crash</h3>
+    <p><code>check</code> raises <code>Rejected</code> for a program with a bad line. <code>judge</code> should return the outcome line, but right now a bad program crashes it. Catch <code>Rejected</code> inside <code>judge</code> and return <code>"REJECTED "</code> plus the path. Leave <code>check</code> as it is.</p>
+  </div>
+
   <div class="prose">
-    <p><code>&amp;</code> on a negative int acts as if it had infinitely many sign bits, so <code>-1 &amp; 0xFFFFFFFF</code> is <code>4294967295</code>. Masking then fixing the sign works for every int. Do it in one helper and call it everywhere an i32 is produced: add, multiply, shift left, negate and division (yes, division, see below).</p>
-    <p><code>&gt;&gt;</code> on a negative int is an arithmetic shift (GCC and Clang do the same on signed values, though the C standard leaves that implementation-defined). <code>&lt;&lt;</code> never drops bits, so <code>1 &lt;&lt; 40</code> is a 41-bit number until you wrap it.</p>
+    <h2>Integers never wrap</h2>
+    <p>The course's language has a 32-bit whole number type named <code>i32</code>. An <code>i32</code> holds values from -2147483648 to 2147483647. One step past the top <b>wraps</b> around to the bottom, so 2147483647 + 1 is -2147483648.</p>
+  </div>
+
+  <div class="quiz" data-fill="2147483648">
+    <p class="q">What does Python print for <code>print(2147483647 + 1)</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Python is not using 32 bits here. Just add 1.</p>
+    <div class="why"><p><code>2147483648</code>. A Python <code>int</code> grows as large as it needs to, so it never wraps. That is the wrong answer for an <code>i32</code>, and Python gives no warning.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>So your compiler wraps by hand, after every operation that makes an <code>i32</code>:</p>
+    <ol>
+      <li><strong>Do the math.</strong> <code>x = 2147483647 + 1</code> gives 2147483648.</li>
+      <li><strong>Keep the low 32 bits.</strong> <code>low = x &amp; 0xFFFFFFFF</code> gives a number from 0 to 2<sup>32</sup> - 1. Here it is still 2147483648.</li>
+      <li><strong>Fix the sign.</strong> If <code>low</code> is 2<sup>31</sup> or more, it stands for a negative number, so subtract 2<sup>32</sup>. Here that gives -2147483648.</li>
+    </ol>
+    <p>Put those steps in one helper and call it everywhere: add, subtract, multiply, negate, shift left and even division. <a href="../learn/hard-04-numbers-like-c.html">H.4</a> explains slowly why the bits work this way.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-07-wrap32">
@@ -127,9 +292,28 @@ print(x, low, y)</code></pre>
     <p class="muted">A mask and a sign fix, or the one-line version that shifts the range first.</p>
   </div>
 
+  <details class="toggle">
+    <summary>Negative numbers and shifts, for when you write shl and shr</summary>
+    <div class="prose">
+      <p><code>&amp;</code> on a negative int acts as if it had infinitely many sign bits, so <code>-1 &amp; 0xFFFFFFFF</code> is <code>4294967295</code>. Masking then fixing the sign works for every int.</p>
+      <p><code>&gt;&gt;</code> on a negative int is an arithmetic shift (GCC and Clang do the same on signed values, though the C standard leaves that implementation-defined). <code>&lt;&lt;</code> never drops bits, so <code>1 &lt;&lt; 40</code> is a 41-bit number until you wrap it.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <h2>Division floors, C truncates</h2>
-    <p>Python's <code>//</code> rounds toward negative infinity, and so does the course's <code>div</code>. C's <code>/</code> on ints rounds toward zero. They agree when the signs agree, or when the division is exact. They disagree when the signs differ and there's a remainder. <code>%</code> follows <code>//</code>, so it takes the sign of the divisor in Python and the sign of the dividend in C.</p>
+    <h2>Division rounds down</h2>
+    <p>Dividing two whole numbers often leaves a fraction, and something has to round it away. Languages disagree on which way.</p>
+  </div>
+
+  <div class="quiz" data-fill="1">
+    <p class="q">What is <code>-7 % 2</code> in Python? (<code>%</code> is the remainder.)</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Python's <code>-7 // 2</code> is <code>-4</code>. The remainder is what you add to <code>-4 * 2</code> to get back to <code>-7</code>.</p>
+    <div class="why"><p><code>1</code>, since <code>-4 * 2 + 1</code> is <code>-7</code>. C answers <code>-1</code> to the same question, because C's division gives <code>-3</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Python's <code>//</code> <b>floors</b>: it rounds down, toward negative infinity. C's <code>/</code> on ints <b>truncates</b>: it rounds toward zero. They differ only when the signs differ and there is a remainder.</p>
   </div>
   <div class="tablewrap"><table>
     <thead><tr><th>expression</th><th>Python (and your compiler's <code>div</code>, <code>mod</code>)</th><th>C</th></tr></thead>
@@ -141,8 +325,7 @@ print(x, low, y)</code></pre>
     </tbody>
   </table></div>
   <div class="prose">
-    <p>The Python column uses <code>//</code> where the table says <code>/</code>. Here Python is on your side: <code>//</code> and <code>%</code> already match .uir's <code>div</code> and <code>mod</code>. Two edges don't. Python raises <code>ZeroDivisionError</code> for a zero divisor, where .uir defines <code>div x 0</code> as <code>-1</code> and <code>mod x 0</code> as <code>x</code>. And <code>-2147483648 // -1</code> is 2<sup>31</sup>, which must wrap back to <code>-2147483648</code>.</p>
-    <p>You'll want C's rule too, from week 2, when your compiler prints C. Plain <code>/</code> in Python always gives a float: <code>7 / 2</code> is <code>3.5</code>. <code>int(3.5)</code> truncates toward zero, but going through a float is a habit to avoid, since floats can't hold every 64-bit int. Divide the absolute values with <code>//</code> and put the sign back yourself. <code>math.fmod</code> is C's <code>fmod</code> for floats, which truncates like C. And <code>round(2.5)</code> is <code>2</code>, because Python rounds halves to even.</p>
+    <p>The Python column uses <code>//</code> where the table says <code>/</code>. Here Python is on your side: the course's <code>div</code> and <code>mod</code> floor too. Two edges still need care. Python raises <code>ZeroDivisionError</code> for a zero divisor, where the course defines <code>div x 0</code> as <code>-1</code> and <code>mod x 0</code> as <code>x</code>. And <code>-2147483648 // -1</code> is 2<sup>31</sup>, which has to wrap back to <code>-2147483648</code>.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-07-div32">
@@ -151,23 +334,41 @@ print(x, low, y)</code></pre>
     <p class="muted">The starter's <code>//</code> already floors, so this is about the edges. What does it do when <code>b</code> is 0? And exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
   </div>
 
+  <details class="toggle">
+    <summary>C's rounding in Python, for week 2 when your compiler prints C</summary>
+    <div class="prose">
+      <p><code>%</code> follows <code>//</code>, so it takes the sign of the divisor in Python and the sign of the dividend in C.</p>
+      <p>You'll want C's rule too, from week 2. Plain <code>/</code> in Python always gives a float: <code>7 / 2</code> is <code>3.5</code>. <code>int(3.5)</code> truncates toward zero, but going through a float is a habit to avoid, since floats can't hold every 64-bit int. Divide the absolute values with <code>//</code> and put the sign back yourself. <code>math.fmod</code> is C's <code>fmod</code> for floats, which truncates like C. And <code>round(2.5)</code> is <code>2</code>, because Python rounds halves to even.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <h2>Floats are doubles</h2>
-    <p>Python's <code>float</code> is a 64-bit double. The course's <code>f32</code>, which arrives in week 2, is single precision. To round a double to the nearest single, pack it into 4 bytes with <code>struct</code> and unpack it again:</p>
-  </div>
+    <h2>Floats need rounding to f32</h2>
+    <p>Python's <code>float</code> is a 64-bit number, called a double. The course's <code>f32</code>, which arrives in week 2, has only 32 bits, so it holds fewer digits. This helper rounds a double to the nearest <code>f32</code>. It packs the number into 4 bytes with the <code>struct</code> module and unpacks it again:</p>
 <pre><code>import struct
 
 def to_f32(x: float) -&gt; float:
-    return struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]
-
-print(repr(0.1), repr(to_f32(0.1)))
-# 0.1 0.10000000149011612</code></pre>
-  <div class="prose">
-    <p><code>"&lt;f"</code> means one little-endian 32-bit float. <code>struct.pack</code> rounds to the nearest single, ties to even, exactly like C's <code>(float)</code> cast. <code>"&lt;I"</code> reads the same 4 bytes as an unsigned int, which is how you get at an f32's bits: <code>struct.unpack("&lt;I", struct.pack("&lt;f", x))[0]</code>.</p>
+    return struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]</code></pre>
   </div>
-  <div class="trap">
-    <span class="label">struct refuses to overflow</span>
-    <p>C turns a double that's too big for a float into infinity. <code>struct.pack("&lt;f", 1e39)</code> raises <code>OverflowError</code> instead. Catch it and return <code>math.copysign(math.inf, x)</code>. NaN and the infinities themselves pack fine. And round after <em>every</em> f32 operation, not just at the end: <code>a + b</code> on two f32 values is computed in double, and the sum has to be rounded back before anything else uses it.</p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What is <code>to_f32(0.1) == 0.1</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>True</code></button>
+      <button data-k="b"><code>False</code></button>
+      <button data-k="c">It raises an error</button>
+    </div>
+    <p class="hint">0.1 has no exact binary form, so the 64-bit and the 32-bit versions each hold the closest value they can.</p>
+    <div class="why"><p><code>False</code>. <code>to_f32(0.1)</code> is <code>0.10000000149011612</code>, the closest <code>f32</code> to 0.1. A value such as 0.5 fits exactly and comes back unchanged.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Round after <em>every</em> <code>f32</code> operation, not only at the end. <code>a + b</code> on two <code>f32</code> values is computed as a double, and the sum has to be rounded before anything else uses it. One kind of input makes <code>to_f32</code> crash. Repair that in the first exercise, then use the helper in the second.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-07n-to-f32">
+    <h3>Round to f32 without crashing</h3>
+    <p>C turns a number too big for an <code>f32</code> into infinity. <code>struct.pack</code> raises <code>OverflowError</code>. Repair <code>to_f32</code> so it returns infinity with the sign of <code>x</code>: <code>math.copysign(math.inf, x)</code>.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-07-is-f32">
@@ -176,22 +377,58 @@ print(repr(0.1), repr(to_f32(0.1)))
     <p class="muted">Round it with the trick above and compare. Then check what your answer says about <code>float('nan')</code> and <code>1e39</code>.</p>
   </div>
 
+  <details class="toggle">
+    <summary>The format codes, and how to read an f32's bits</summary>
+    <div class="prose">
+      <p><code>"&lt;f"</code> means one little-endian 32-bit float. <code>struct.pack</code> rounds to the nearest single, ties to even, exactly like C's <code>(float)</code> cast. <code>"&lt;I"</code> reads the same 4 bytes as an unsigned int, which is how you get at an f32's bits: <code>struct.unpack("&lt;I", struct.pack("&lt;f", x))[0]</code>. NaN and the infinities themselves pack fine.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <h2>Equal is not the same key</h2>
-    <p>A dict finds a key by its hash and then by <code>==</code>. That's usually what you want, but for a compiler it hides three traps, because Python considers some different values equal:</p>
+    <h2>Equal values share a dict key</h2>
+    <p>In week 1 your compiler keeps a dict from "what a node is" to the node, so that building the same node twice gives back the one you already have. A dict finds a key by <code>==</code>, and Python calls some different values equal.</p>
   </div>
+
+  <div class="quiz" data-fill="1">
+    <p class="q">How many keys does the dict <code>{1: "a", True: "b"}</code> have?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Python says <code>True == 1</code> is <code>True</code>.</p>
+    <div class="why"><p>One. <code>True == 1</code>, so the second entry lands on the first key and the dict is <code>{1: 'b'}</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>For a compiler that is three bugs waiting:</p>
+    <ol>
+      <li><strong>A number and a bool collide.</strong> An <code>i32</code> constant <code>1</code> and a bool <code>true</code> become one node.</li>
+      <li><strong>Two zeros collide.</strong> <code>0.0 == -0.0</code>, but they are different <code>f32</code> values.</li>
+      <li><strong>NaN gets lost.</strong> <code>nan == nan</code> is <code>False</code>, so a new NaN never finds the old one.</li>
+    </ol>
+    <p>One fix covers all three: make the key the dtype plus the value's <em>bits</em>, not the value. <code>struct</code> gives you the bits.</p>
+    <p>Python also has a second kind of equality. <code>a == b</code> asks whether two values are equal. <code>a is b</code> asks whether they are the very same object. Week 1 turns on that difference, and <a href="../learn/py-04-your-own-types.html">P.4</a> has the details. The drill below checks that counting and sorting with a dict feel easy.</p>
+  </div>
+
+  <div class="exercise" data-ex="w0-07-top-words">
+    <h3>The k most common words</h3>
+    <p>Write <code>top_words(k, words)</code>. Count every word, then return the <code>k</code> most frequent as <code>(word, count)</code> tuples: higher counts first, and ties broken alphabetically (plain string order, so <code>"A"</code> sorts before <code>"a"</code>). If there are fewer than <code>k</code> distinct words, return them all.</p>
+    <p class="muted">Tools: a dict to count, <code>sorted</code> with a tuple key, and a slice to take a prefix.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The three key traps in code, and how to test for NaN and -0.0</summary>
+    <div class="prose">
 <pre><code>print({0.0: "a", -0.0: "b"})       # {0.0: 'b'}: one key, since -0.0 == 0.0
 print({1: "a", True: "b"})          # {1: 'b'}: True == 1, and 1 == 1.0 too
 nan = float("nan")
 d = {nan: "a"}
 print(d.get(nan), d.get(float("nan")))   # a None: the same NaN object is found, a new one isn't</code></pre>
-  <div class="prose">
-    <p>In week 1 you'll keep a table from "what a node is" to the node itself, so that building the same node twice returns the one you already have. An i32 <code>1</code> and a bool <code>true</code> collide unless the dtype is part of the key. Floats arrive in week 2, and then a key that holds a float constant as a plain float makes <code>0.0</code> and <code>-0.0</code> one node, even though they are different f32 values (in C, <code>1.0f / -0.0f</code> is <code>-inf</code>). A NaN constant never finds itself. The fix for all three: key on the dtype plus the value's <em>bits</em>, not the value. <code>struct</code> gives you the bits.</p>
-    <p>NaN also breaks <code>==</code> everywhere else: <code>nan == nan</code> is <code>False</code>. Test for it with <code>math.isnan</code>. Test for <code>-0.0</code> with <code>math.copysign(1.0, x) &lt; 0</code>, since <code>-0.0 == 0.0</code>.</p>
+      <p>In C, <code>1.0f / -0.0f</code> is <code>-inf</code>, which is why the two zeros must stay apart. Test for NaN with <code>math.isnan</code>. Test for <code>-0.0</code> with <code>math.copysign(1.0, x) &lt; 0</code>, since <code>-0.0 == 0.0</code>.</p>
+    </div>
+  </details>
 
-    <h2>Frozen dataclasses, <code>==</code> and <code>is</code></h2>
-    <p>A <b>dataclass</b> writes the boring parts of a class for you: the constructor, a readable <code>repr</code> and <code>==</code>. <code>frozen=True</code> makes instances immutable, which is what a node in a graph should be: once built, it never changes.</p>
-  </div>
+  <details class="toggle">
+    <summary>Frozen dataclasses, == and is, for when you design your node class</summary>
+    <div class="prose">
+      <p>A <b>dataclass</b> writes the boring parts of a class for you: the constructor, a readable <code>repr</code> and <code>==</code>. <code>frozen=True</code> makes instances immutable, which is what a node in a graph should be: once built, it never changes.</p>
 <pre><code>from dataclasses import dataclass
 from enum import Enum
 
@@ -211,14 +448,71 @@ b = Card(14, Suit.SPADES)
 print(a == b, a is b)        # True False
 print(len({a, b}))           # 1: frozen dataclasses hash by their fields
 # a.rank = 2                 # dataclasses.FrozenInstanceError</code></pre>
-  <div class="prose">
-    <p>An <b>enum</b> is a fixed set of named values. <code>Suit.HEARTS</code> is never equal to <code>1</code> or to a string, so a typo becomes an error instead of a silent mismatch. Use one for anything with a fixed list of choices, like a set of ops or dtypes.</p>
-    <p>Python has two equalities. <code>a == b</code> calls the class's <code>__eq__</code>. For a dataclass, that compares every field, and if a field holds another node, it compares that one too, all the way down. On a big graph that can take as long as the graph is big. <code>a is b</code> asks whether they're the very same object in memory, which is one pointer comparison. Remember this distinction. It matters in week 1.</p>
-    <p>Writing <code>@dataclass(frozen=True, eq=False)</code> keeps the fields immutable but leaves <code>==</code> and <code>hash</code> as identity, the same as <code>is</code>. That's the right choice for a class whose instances you guarantee are unique. For such a class, slow structural equality is the wrong choice. If you ever key a dict on <code>id(x)</code>, keep <code>x</code> alive, because Python reuses the id of an object that has been freed.</p>
+      <p>An <b>enum</b> is a fixed set of named values. <code>Suit.HEARTS</code> is never equal to <code>1</code> or to a string, so a typo becomes an error instead of a silent mismatch. Use one for anything with a fixed list of choices, like a set of ops or dtypes.</p>
+      <p>For a dataclass, <code>==</code> compares every field, and if a field holds another node, it compares that one too, all the way down. On a big graph that can take as long as the graph is big. <code>a is b</code> is one pointer comparison.</p>
+      <p>Writing <code>@dataclass(frozen=True, eq=False)</code> keeps the fields immutable but leaves <code>==</code> and <code>hash</code> as identity, the same as <code>is</code>. That's the right choice for a class whose instances you guarantee are unique. For such a class, slow structural equality is the wrong choice. If you ever key a dict on <code>id(x)</code>, keep <code>x</code> alive, because Python reuses the id of an object that has been freed.</p>
+    </div>
+  </details>
 
-    <h2>match</h2>
-    <p><code>match</code> takes a value apart by its shape. With one small class per kind of card, each <code>case</code> names a class and pulls out its fields. Dataclasses support positional patterns like <code>Number(n, _)</code> automatically.</p>
+  <details class="toggle">
+    <summary>Dict order, sorting and functools.cache, for when you memoize</summary>
+    <div class="prose">
+      <p>A dict keeps keys in insertion order, which makes output reproducible. <code>sorted</code> takes a <code>key</code> function, and a tuple key sorts by its first element, then its second.</p>
+<pre><code>counts: dict[str, int] = {}
+for word in ["kiwi", "pear", "kiwi"]:
+    counts[word] = counts.get(word, 0) + 1
+print(counts)                                             # {'kiwi': 2, 'pear': 1}
+print(sorted(counts.items(), key=lambda wn: -wn[1]))      # most common first</code></pre>
+      <p><code>functools.cache</code> remembers a function's results by its arguments, so a second call with the same arguments returns at once. It's the quickest memo there is. It has two catches. The cache lives as long as the program, so it never forgets. And it keys only on the arguments: if the answer also depends on something else, such as which call's arguments are in effect (week 1, lesson 5), a global cache will hand back a stale answer. A plain dict that you create, pass around and drop when you're done is often the better memo.</p>
+<pre><code>from functools import cache
+
+@cache
+def ways(n: int) -&gt; int:          # ways to climb n stairs, 1 or 2 at a time
+    return 1 if n &lt;= 1 else ways(n - 1) + ways(n - 2)
+
+print(ways(90))                     # instant: each n is computed once</code></pre>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>match has no safety net</h2>
+    <p><code>match</code> takes a value apart by its shape, one <code>case</code> per shape. Your compiler will have one <code>case</code> per kind of node. Here is a small one:</p>
+<pre><code>def points(card: str) -&gt; int:
+    match card:
+        case "king":
+            return 10
+        case "ace":
+            return 11</code></pre>
   </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">What does <code>points("queen")</code> return?</p>
+    <div class="opts">
+      <button data-k="a">It raises an error, since no case matches</button>
+      <button data-k="b"><code>0</code></button>
+      <button data-k="c"><code>None</code></button>
+    </div>
+    <p class="hint">When no <code>case</code> matches, <code>match</code> does nothing and the function runs off its end.</p>
+    <div class="why"><p><code>None</code>. No case matched, nothing was returned, and Python stayed silent. The wrong value shows up much later, far from the <code>match</code> that caused it.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Nothing checks that you covered every case. Add a new kind of node next month, and every <code>match</code> that forgot it falls through and returns <code>None</code>. So end each <code>match</code> with a catch-all that raises:</p>
+<pre><code>        case _:
+            raise TypeError(f"not a card: {card!r}")</code></pre>
+    <p>Now a missing case is a loud error at the right line. One more trap: a number in a pattern compares with <code>==</code>, so <code>case 0:</code> also matches <code>0.0</code>, <code>-0.0</code> and <code>False</code>. A rule such as "x + 0 is x" has to check the dtype as well.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-07-hand-value">
+    <h3>Blackjack hand value</h3>
+    <p>The starter defines <code>Number</code>, <code>Jack</code>, <code>Queen</code>, <code>King</code> and <code>Ace</code> card classes. Write <code>hand_value(hand)</code>. Numbers are worth their number, faces 10, and an Ace 11. But while the total is over 21, an Ace may count as 1 instead, one Ace at a time.</p>
+    <p class="muted">A <code>match</code> for the points, <code>sum</code> for the total. Keep the classes in the starter exactly as they are: the tests build cards with them.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Class patterns, guards and sequence patterns in one example</summary>
+    <div class="prose">
+      <p>With one small class per kind of card, each <code>case</code> names a class and pulls out its fields. Dataclasses support positional patterns like <code>Number(n, _)</code> automatically. <code>Suit</code> is the enum from the dataclass toggle above.</p>
 <pre><code>@dataclass(frozen=True)
 class Number:          # 2 through 10
     n: int
@@ -244,50 +538,33 @@ def describe(card) -&gt; str:
             return "a high card"
         case _:
             raise TypeError(f"not a card: {card!r}")</code></pre>
-  <div class="prose">
-    <p>Cases are tried top to bottom, and the first that matches wins. <code>Number(n, _)</code> binds the first field to <code>n</code> and ignores the second. <code>if n &gt;= 9</code> is a guard: the case only matches if it's true. Sequence patterns work too: <code>case [first, *rest]:</code> matches a list or tuple with at least one element.</p>
-  </div>
-  <div class="trap">
-    <span class="label">No one checks that you covered every case</span>
-    <p>OCaml's compiler warns when a <code>match</code> misses a case. Python doesn't. Add a class next month, and every <code>match</code> that forgot it silently falls through and returns <code>None</code>. End each <code>match</code> with <code>case _:</code> that raises, so a missing case is a loud error. And literal patterns compare with <code>==</code>: <code>case 0:</code> matches <code>0.0</code>, <code>-0.0</code> and <code>False</code>. A rewrite rule like "x + 0 is x" must also check the dtype, because it's wrong for f32 (<code>-0.0 + 0.0</code> is <code>0.0</code>).</p>
-  </div>
-
-  <div class="exercise small" data-ex="w0-07-hand-value">
-    <h3>Blackjack hand value</h3>
-    <p>The starter defines <code>Number</code>, <code>Jack</code>, <code>Queen</code>, <code>King</code> and <code>Ace</code> card classes. Write <code>hand_value(hand)</code>. Numbers are worth their number, faces 10, and an Ace 11. But while the total is over 21, an Ace may count as 1 instead, one Ace at a time.</p>
-    <p class="muted">A <code>match</code> for the points, <code>sum</code> for the total. Keep the classes in the starter exactly as they are: the tests build cards with them.</p>
-  </div>
+      <p>Cases are tried top to bottom, and the first that matches wins. <code>Number(n, _)</code> binds the first field to <code>n</code> and ignores the second. <code>if n &gt;= 9</code> is a guard: the case only matches if it's true. Sequence patterns work too: <code>case [first, *rest]:</code> matches a list or tuple with at least one element.</p>
+      <p>OCaml's compiler warns when a <code>match</code> misses a case. Python doesn't. The "x + 0 is x" rule is wrong for f32 because <code>-0.0 + 0.0</code> is <code>0.0</code>.</p>
+    </div>
+  </details>
 
   <div class="prose">
-    <h2>Dicts, sorting and caches</h2>
-    <p>A dict is your hash table. It keeps keys in insertion order, which makes output reproducible. <code>sorted</code> takes a <code>key</code> function, and a tuple key sorts by its first element, then its second.</p>
+    <h2>Deep graphs hit the recursion limit</h2>
+    <p>A compiler walks its graph of nodes with a function that calls itself once per level. Here is the smallest function of that kind:</p>
+<pre><code>def depth(n: int) -&gt; int:
+    if n == 0:
+        return 0
+    return 1 + depth(n - 1)</code></pre>
   </div>
-<pre><code>counts: dict[str, int] = {}
-for word in ["kiwi", "pear", "kiwi"]:
-    counts[word] = counts.get(word, 0) + 1
-print(counts)                                             # {'kiwi': 2, 'pear': 1}
-print(sorted(counts.items(), key=lambda wn: -wn[1]))      # most common first</code></pre>
-  <div class="prose">
-    <p><code>functools.cache</code> remembers a function's results by its arguments, so a second call with the same arguments returns at once. It's the quickest memo there is. It has two catches. The cache lives as long as the program, so it never forgets. And it keys only on the arguments: if the answer also depends on something else, such as which call's arguments are in effect (week 1, lesson 5), a global cache will hand back a stale answer. A plain dict that you create, pass around and drop when you're done is often the better memo.</p>
-  </div>
-<pre><code>from functools import cache
 
-@cache
-def ways(n: int) -&gt; int:          # ways to climb n stairs, 1 or 2 at a time
-    return 1 if n &lt;= 1 else ways(n - 1) + ways(n - 2)
-
-print(ways(90))                     # instant: each n is computed once</code></pre>
-
-  <div class="exercise" data-ex="w0-07-top-words">
-    <h3>The k most common words</h3>
-    <p>Write <code>top_words(k, words)</code>. Count every word, then return the <code>k</code> most frequent as <code>(word, count)</code> tuples: higher counts first, and ties broken alphabetically (plain string order, so <code>"A"</code> sorts before <code>"a"</code>). If there are fewer than <code>k</code> distinct words, return them all.</p>
-    <p class="muted">Tools: a dict to count, <code>sorted</code> with a tuple key, and a slice to take a prefix.</p>
+  <div class="quiz" data-answer="b">
+    <p class="q">What does <code>depth(5000)</code> do?</p>
+    <div class="opts">
+      <button data-k="a">Returns <code>5000</code></button>
+      <button data-k="b">Raises <code>RecursionError</code></button>
+      <button data-k="c">Runs forever</button>
+    </div>
+    <p class="hint">Python limits how many calls can be waiting on each other at once.</p>
+    <div class="why"><p>Python stops any recursion deeper than about 1000 calls with <code>RecursionError</code>. <code>depth(5000)</code> needs 5000.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Deep graphs and the recursion limit</h2>
-    <p>Python stops any recursion deeper than about 1000 calls with <code>RecursionError</code>. A walk over a graph recurses once per level. Week 1 caps a program at 100 nodes, but from week 2 the caps are lifted, and a .uir program can be a chain thousands of nodes long. There are two fixes. <code>sys.setrecursionlimit(100_000)</code> raises the limit, and it's fine for a few thousand levels. The sturdier fix is to keep your own stack in a list:</p>
-  </div>
+    <p>Week 1 caps a program at 100 nodes, but from week 2 the caps are lifted, and a program can be a chain thousands of nodes long. There are two fixes. <code>sys.setrecursionlimit(100_000)</code> raises the limit, and it's fine for a few thousand levels. The sturdier fix is to keep your own stack in a list:</p>
 <pre><code>def total(tree) -&gt; int:            # tree: None, or a tuple (left, value, right)
     stack, out = [tree], 0
     while stack:
@@ -298,19 +575,30 @@ print(ways(90))                     # instant: each n is computed once</code></p
             stack.append(left)
             stack.append(right)
     return out</code></pre>
-  <div class="prose">
     <p>The loop does what the recursion would have done, but its "call stack" is an ordinary list, limited only by memory. For a walk that must visit a node's children <em>before</em> the node, push the node back with a "finished" flag before its children, and emit it when it comes off the stack the second time.</p>
   </div>
 
   <h2>Capstone: the toposort from lesson 0.3</h2>
   <div class="exercise" data-ex="w0-07-topo">
     <h3>Toposort a tiny DAG, in Python</h3>
-    <p>This is lesson 0.3's toposort, now with the traps in view. A graph is a list of <code>Node(name, srcs)</code>, each name appearing once, with <code>srcs</code> a tuple of names. Write <code>topo(graph, root)</code>: every name reachable from <code>root</code>, <b>each exactly once</b>, in depth-first post-order. Visit a node's <code>srcs</code> left to right, then emit the node itself.</p>
-    <p>For <code>(a + b) * (a + b)</code> that's <code>["a", "b", "add", "mul"]</code>. Nodes not reachable from <code>root</code> are left out. One hidden test is the doubling DAG from lesson 0.3's trap (<code>x0</code> to <code>x30</code>), so remember what you've visited. Another is a chain 5000 nodes deep.</p>
+    <p>A <b>toposort</b> lists the nodes of a graph so that every node comes after the nodes it uses. <a href="03-compilers-and-irs.html">Lesson 0.3</a> steps through one. Here you write it, with the traps in view. A graph is a list of <code>Node(name, srcs)</code>, each name appearing once, with <code>srcs</code> a tuple of names. Write <code>topo(graph, root)</code>: every name reachable from <code>root</code>, <b>each exactly once</b>, in depth-first post-order. Visit a node's <code>srcs</code> left to right, then emit the node itself.</p>
+    <p>For <code>(a + b) * (a + b)</code> that's <code>["a", "b", "add", "mul"]</code>. Nodes not reachable from <code>root</code> are left out. One hidden test is a doubling DAG (<code>x0</code> to <code>x30</code>), so remember what you've visited. Another is a chain 5000 nodes deep.</p>
     <details class="toggle">
       <summary>Python hints</summary>
       <p>Build <code>{n.name: n for n in graph}</code> once, so looking a node up is one dict access. A <code>set</code> remembers what you've seen. Then either raise the recursion limit or use an explicit stack, as shown just above.</p>
     </details>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Run a Python package of your own with <code>python -m mlc</code>, and through a wrapper from any folder.</li>
+      <li>Point the course's grader at it and read <code>1 / 1 passed</code>.</li>
+      <li>Answer a broken program with a <code>REJECTED</code> line, not a traceback.</li>
+      <li>Wrap an int to 32 bits, divide the course's way and round a float to <code>f32</code>.</li>
+      <li>Spot the dict key, <code>match</code> and recursion traps before they cost you an evening.</li>
+    </ul>
+    <p>Next is <a href="../week1/01-the-uop.html">week 1</a>, where this empty shell starts to become a compiler.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -333,7 +621,7 @@ print(ways(90))                     # instant: each n is computed once</code></p
   </div>
 
   <div class="quiz" data-answer="a">
-    <p class="q">With <code>Card</code> the frozen dataclass from above, what are <code>Card(2, Suit.CLUBS) == Card(2, Suit.CLUBS)</code> and <code>Card(2, Suit.CLUBS) is Card(2, Suit.CLUBS)</code>?</p>
+    <p class="q"><code>Card</code> is a frozen dataclass with two fields, <code>rank</code> and <code>suit</code>. What are <code>Card(2, Suit.CLUBS) == Card(2, Suit.CLUBS)</code> and <code>Card(2, Suit.CLUBS) is Card(2, Suit.CLUBS)</code>?</p>
     <div class="opts"><button data-k="a"><code>True</code> and <code>False</code></button><button data-k="b"><code>True</code> and <code>True</code></button><button data-k="c"><code>False</code> and <code>False</code></button></div>
     <p class="hint">A dataclass's <code>==</code> compares fields. <code>is</code> asks whether two values are the same object in memory.</p>
     <p class="hint">Were the two cards built separately?</p>

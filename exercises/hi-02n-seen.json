@@ -1,0 +1,49 @@
+{
+ "id": "hi-02n-seen",
+ "lang": "ocaml",
+ "title": "Repair the seen notebook",
+ "show": "string_of_int",
+ "starter": "type node = { op : string; src : node list; arg : int option }\n\nlet lit v = { op = \"const\"; src = []; arg = Some v }\nlet node op a b = { op; src = [a; b]; arg = None }\nlet rec chain k = if k = 0 then lit 1 else let s = chain (k - 1) in node \"add\" s s\n\nlet count_boxes (root : node) : int =\n  let seen = ref [] in\n  let rec walk n =\n    if List.memq n !seen then 0\n    else begin\n      List.fold_left (fun inside s -> inside + walk s) 1 n.src\n    end\n  in\n  walk root\n",
+ "tests": [
+  {
+   "expr": "count_boxes (lit 7)",
+   "expect": "1",
+   "sample": true
+  },
+  {
+   "expr": "count_boxes (chain 3)",
+   "expect": "4",
+   "sample": true
+  },
+  {
+   "expr": "count_boxes (node \"add\" (lit 2) (lit 3))",
+   "expect": "3"
+  },
+  {
+   "expr": "count_boxes (node \"add\" (lit 1) (lit 1))",
+   "expect": "3"
+  },
+  {
+   "expr": "let a = node \"add\" (lit 2) (lit 3) in count_boxes (node \"mul\" a a)",
+   "expect": "4"
+  },
+  {
+   "expr": "let x = lit 5 in let a = node \"add\" x (lit 1) in count_boxes (node \"mul\" a x)",
+   "expect": "4"
+  },
+  {
+   "expr": "count_boxes (chain 1)",
+   "expect": "2"
+  },
+  {
+   "expr": "count_boxes (chain 18)",
+   "expect": "19"
+  }
+ ],
+ "hints": [
+  "The walk looks in `seen` before it goes inside a box. Does anything ever get written into `seen`?",
+  "A box has to go into the notebook the first time the walk goes inside it, before the walk moves on to its sources.",
+  "Add one line before the `List.fold_left`: `seen := n :: !seen;`."
+ ],
+ "explain": "The walk checked the notebook but never wrote in it, so every check said \"new\" and the shared boxes were walked once per arrow: 15 times for `chain 3`. Putting `n` into `seen` the first time a box is entered makes every later arrival stop at the check, so each box is entered once. `List.memq` compares with `==`, so two separate boxes that look alike still count as two."
+}

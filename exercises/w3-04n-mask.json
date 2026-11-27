@@ -1,0 +1,144 @@
+{
+ "id": "w3-04n-mask",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "Add the mask",
+ "starter": "%x  = buffer 6 dtype=i32 slot=0\n%w  = buffer 3 dtype=i32 slot=1\n%y  = buffer 6 dtype=i32 slot=2\n%i  = range 6\n%yv = shrink %y %i []\n%z  = store %yv 0\n%y0 = after %y %z\n%k  = range 3\n%ik = add %i %k\n%j  = add %ik -1\n%jm = mod %j 6\n%xv = shrink %x %jm []\n%xe = load %xv\n%wv = shrink %w %k []\n%we = load %wv\n%p  = mul %xe %we\n%yv0 = shrink %y0 %i []\n%cur = load %yv0\n%sum = add %cur %p\n%s  = store %yv0 %sum\n%ek = end %s %k\n%ei = end %ek %i\n%y1 = after %y %ei\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "1": [
+     1,
+     1,
+     1
+    ]
+   },
+   "sample": true,
+   "expect": "[3 6 9 12 15 11]"
+  },
+  {
+   "data": {
+    "0": [
+     2,
+     2,
+     2,
+     8,
+     8,
+     8
+    ],
+    "1": [
+     -1,
+     0,
+     1
+    ]
+   },
+   "sample": true,
+   "expect": "[2 0 6 6 0 -8]"
+  },
+  {
+   "data": {
+    "0": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "1": [
+     5,
+     5,
+     5
+    ]
+   },
+   "expect": "[0 0 0 0 0 0]"
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "1": [
+     1,
+     2,
+     3
+    ]
+   },
+   "expect": "[2 1 0 0 0 0]"
+  },
+  {
+   "data": {
+    "0": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    "1": [
+     1,
+     2,
+     3
+    ]
+   },
+   "expect": "[0 0 0 0 3 2]"
+  },
+  {
+   "data": {
+    "0": [
+     7,
+     7,
+     7,
+     7,
+     7,
+     7
+    ],
+    "1": [
+     0,
+     1,
+     0
+    ]
+   },
+   "expect": "[7 7 7 7 7 7]"
+  },
+  {
+   "data": {
+    "0": [
+     2147483647,
+     1,
+     0,
+     0,
+     0,
+     9
+    ],
+    "1": [
+     1,
+     1,
+     1
+    ]
+   },
+   "expect": "[-2147483648 -2147483648 1 0 9 9]"
+  }
+ ],
+ "hints": [
+  "The starter wraps around: at `i = 0` the left tap reads `x[5]`, and at `i = 5` the right tap reads `x[0]`. Those two reads should count as 0.",
+  "`j` is a real index exactly when `0 <= j` and `j < 6`. Build that bool from two `cmplt` lines: `cmplt %j 0` is true off the left end, and `cmplt %j 6` is false off the right end.",
+  "Add `%lo = cmplt %j 0`, `%hi = cmplt %j 6` and `%ok = where %lo false %hi`. After the load, add `%xz = where %ok %xe 0` and multiply `%xz`, not `%xe`, by the kernel element. Keep `mod %j 6` as the offset."
+ ],
+ "explain": "The offset stays `mod j 6`, which is provably in [0, 5], so every view is legal. The new `where` swaps the loaded element for 0 whenever `j` is -1 or 6, so the element that the wrapped offset picked up never reaches the sum. The test with a 1 at one end shows the wrap most clearly: without the mask it leaks to the other end."
+}

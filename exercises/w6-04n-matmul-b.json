@@ -1,0 +1,120 @@
+{
+ "id": "w6-04n-matmul-b",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "The gradient for B, checked by a nudge",
+ "starter": "%a  = buffer 4 dtype=f32 slot=0\n%b  = buffer 4 dtype=f32 slot=1\n%o  = buffer 4 dtype=f32 slot=2\n%va = load %a\n%vb = load %b\n%A  = reshape %va [2 2]\n%B  = reshape %vb [2 2]\n%gf = reshape %B [4]\n%st = store %o %gf\n%o1 = after %o %st\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0
+    ],
+    "1": [
+     5.0,
+     6.0,
+     7.0,
+     8.0
+    ]
+   },
+   "expect": "[4.0 4.0 6.0 6.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "1": [
+     2.0,
+     3.0,
+     4.0,
+     5.0
+    ]
+   },
+   "expect": "[1.0 1.0 1.0 1.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     4.0,
+     4.0,
+     6.0,
+     6.0
+    ],
+    "1": [
+     4.0,
+     4.0,
+     6.0,
+     6.0
+    ]
+   },
+   "expect": "[10.0 10.0 10.0 10.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.5,
+     -1.0,
+     2.0,
+     0.25
+    ],
+    "1": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "expect": "[2.5 2.5 -0.75 -0.75]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "1": [
+     9.0,
+     8.0,
+     7.0,
+     6.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     -2.0,
+     3.0,
+     5.0,
+     -3.0
+    ],
+    "1": [
+     0.0,
+     1.0,
+     0.0,
+     1.0
+    ]
+   },
+   "expect": "[3.0 3.0 0.0 0.0]"
+  }
+ ],
+ "hints": [
+  "Build the loss first, the same three lines as the exercise before this one: `matmul`, a `reshape` to `[4]`, then `reduce` with `op=add`.",
+  "Ask for `gradient %L %B`. It has B's shape, 2x2, so reshape it to `[4]` before the store.",
+  "`%C = matmul %A %B`, `%f = reshape %C [4]`, `%L = reduce %f op=add`, `%g = gradient %L %B`, then change the last reshape to `%gf = reshape %g [4]`."
+ ],
+ "explain": "Nudge `B[0][0]` by 1. It is multiplied by `A[0][0]` in `C[0][0]` and by `A[1][0]` in `C[1][0]`, so L moves by `A[0][0] + A[1][0]`, the sum of column 0 of A. The same holds for `B[0][1]`. Row 1 of B gets the sum of column 1 of A. For A = `[[1 2] [3 4]]` that is `[4 4 6 6]`. You wrote no rule for matmul. The backward walk went through its reduce, mul, expand and reshape, one partner at a time."
+}

@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
@@ -40,7 +40,7 @@
   <h3><a href="../week7/05-kernels.html">7.5 Kernels and outlining</a></h3>
   <p>A thread loop's body becomes a function called through <code>uir_parallel_for</code>. Its free names (buffers, earlier values, outer counters) go in a context struct, which is closure conversion. Private allocs are declared inside it. <code>restrict</code> lets the C compiler keep values in registers.</p>
   <h3><a href="../week7/06-lab.html">7.6 Lab</a></h3>
-  <p>The suite has 41 tests, three of them speed tests on a 768×768 GEMM, which need 0.5 or 0.65 of the reference's speed. Weeks 1 to 6 must stay green.</p>
+  <p>The suite has 41 tests, three of them speed tests on a 768×768 GEMM, which need 0.5 or 0.65 of the reference's speed. Weeks 2 to 6 must still pass in full, and week 1 stays at 272 / 282 (the ten programs week 2 made legal).</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -78,6 +78,7 @@
   <p>Build in this order, and don't move on until the check passes.</p>
   <ol>
     <li><strong>Axes as plain loops.</strong> Parse and validate <code>axis=</code>, then ignore it. Every week 7 render test except <code>r_thread_private_alloc</code> already passes with correct bits. The speed tests, the thread rules and the private-alloc tests fail.</li>
+    <li><strong>Upcast in the renderer.</strong> Copy the body per value. Done when <code>s_gemm_768_upcast</code> passes.</li>
     <li><strong>The slice rule.</strong> Flatten the offset's adds into terms, find the one term with the thread range, and bound the others. Done when every <code>rejected_thread_*</code> test prints REJECTED and <code>thread_store_own_slice</code> prints MATCH.</li>
     <li><strong>Private allocs.</strong> Done when this prints MATCH, and still does with <code>axis=thread</code> removed and the expected value changed to <code>[0 1 3 6]</code>:
 <pre><code>%o = buffer 4 dtype=i32 slot=0
@@ -96,7 +97,6 @@
 %o1 = after %o %e
 %l = load %o1
 %t = assert %l [0 1 2 3]</code></pre></li>
-    <li><strong>Upcast in the renderer.</strong> Copy the body per value. Done when <code>s_gemm_768_upcast</code> passes.</li>
     <li><strong>Outlining.</strong> Done when <code>r_thread_captures_values</code> passes, then the threaded speed tests.</li>
   </ol>
 
@@ -120,6 +120,8 @@
     <p class="hint">Private allocs.</p>
     <div class="why">All zeros, like at the start of every iteration.</div>
   </div>
+  <p>More practice: the <a href="review.html?week=7">week 7 quiz review</a>.</p>
+
   <h2>Go deeper</h2>
   <ul>
     <li><a href="https://people.freebsd.org/~lstewart/articles/cpumemory.pdf">What Every Programmer Should Know About Memory</a> (Drepper). Caches, cache lines and why tiling pays.</li>

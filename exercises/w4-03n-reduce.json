@@ -1,0 +1,45 @@
+{
+ "id": "w4-03n-reduce",
+ "lang": "ocaml",
+ "title": "Lower a reduce",
+ "show": "(fun s -> s)",
+ "starter": "type vexp =\n  | Vec of string\n  | Bcast of float\n  | Add of vexp * vexp\n  | Mul of vexp * vexp\n\ntype sexp =\n  | Load of string * string\n  | Const of float\n  | SAdd of sexp * sexp\n  | SMul of sexp * sexp\n\nlet rec show = function\n  | Load (b, i) -> b ^ \"[\" ^ i ^ \"]\"\n  | Const c -> Printf.sprintf \"%g\" c\n  | SAdd (a, b) -> \"(\" ^ show a ^ \" + \" ^ show b ^ \")\"\n  | SMul (a, b) -> \"(\" ^ show a ^ \" * \" ^ show b ^ \")\"\n\nlet rec at (e : vexp) (i : string) : sexp =\n  match e with\n  | Vec b -> Load (b, i)\n  | Bcast c -> Const c\n  | Add (a, b) -> SAdd (at a i, at b i)\n  | Mul (a, b) -> SMul (at a i, at b i)\n\nlet lower_reduce (e : vexp) (n : int) : string =\n  \"\"\n",
+ "tests": [
+  {
+   "expr": "lower_reduce (Vec \"x\") 4",
+   "expect": "acc = x[0]; for r < 3: acc = acc + x[r+1]",
+   "sample": true
+  },
+  {
+   "expr": "lower_reduce (Mul (Vec \"x\", Vec \"x\")) 4",
+   "expect": "acc = (x[0] * x[0]); for r < 3: acc = acc + (x[r+1] * x[r+1])",
+   "sample": true
+  },
+  {
+   "expr": "lower_reduce (Vec \"b\") 4096",
+   "expect": "acc = b[0]; for r < 4095: acc = acc + b[r+1]"
+  },
+  {
+   "expr": "lower_reduce (Add (Vec \"a\", Bcast 1.0)) 8",
+   "expect": "acc = (a[0] + 1); for r < 7: acc = acc + (a[r+1] + 1)"
+  },
+  {
+   "expr": "lower_reduce (Vec \"x\") 1",
+   "expect": "acc = x[0]; for r < 0: acc = acc + x[r+1]"
+  },
+  {
+   "expr": "lower_reduce (Bcast 2.5) 3",
+   "expect": "acc = 2.5; for r < 2: acc = acc + 2.5"
+  },
+  {
+   "expr": "lower_reduce (Mul (Add (Vec \"x\", Vec \"y\"), Bcast 0.5)) 2",
+   "expect": "acc = ((x[0] + y[0]) * 0.5); for r < 1: acc = acc + ((x[r+1] + y[r+1]) * 0.5)"
+  }
+ ],
+ "hints": [
+  "There are three holes in the text: the seed, the trip count and the step. Which index does each one need?",
+  "The seed is `show (at e \"0\")`. The loop runs `n - 1` times. The step is `show (at e \"r+1\")`.",
+  "`Printf.sprintf \"acc = %s; for r < %d: acc = acc + %s\" (show (at e \"0\")) (n - 1) (show (at e \"r+1\"))`"
+ ],
+ "explain": "A reduce asks its operand the same question a store does, with two different indexes. Index `0` gives the seed, so the fold starts from the first element. Index `r+1` inside a loop of `n - 1` trips gives elements 1 to n-1 in order. The operand's own rules do the rest, so a sum of squares needs no new code."
+}

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Proving Bounds</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="The syllabus says loads and stores are &quot;bounds checked to never be out of range&quot;. Our compiler doesn&#x27;t check at run time. It proves, before anything runs, that...">
+<meta name="description" content="A program that reads past the end of a buffer gets whatever is stored next door, and nobody is told. In this lesson you prove, before the program runs, that...">
 <link rel="canonical" href="https://sharpterminal.com/site/week2/03-bounds">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Proving Bounds">
-<meta property="og:description" content="The syllabus says loads and stores are &quot;bounds checked to never be out of range&quot;. Our compiler doesn&#x27;t check at run time. It proves, before anything runs, that every view is inside its memory, using...">
+<meta property="og:description" content="A program that reads past the end of a buffer gets whatever is stored next door, and nobody is told. In this lesson you prove, before the program runs, that every read and write lands inside its...">
 <meta property="og:url" content="https://sharpterminal.com/site/week2/03-bounds">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   svg.nl { display: block; width: 100%; max-width: 40rem; height: auto; font-family: var(--mono); margin-top: var(--s4); }
   svg.nl .axis { stroke: var(--line-2); stroke-width: 1.5; }
@@ -40,29 +40,159 @@
 <main>
 <p class="eyebrow">Week 2 · Lesson 3</p>
 <h1>Proving bounds</h1>
-<p class="lede">The syllabus says loads and stores are "bounds checked to never be out of range". Our compiler doesn't check at run time. It proves, before anything runs, that every view is inside its memory, using week 1's bounds rules: the same ones that already decide whether an <code>index</code> is safe.</p>
+<p class="lede">A program that reads past the end of a buffer gets whatever is stored next door, and nobody is told. In this lesson you prove, before the program runs, that every read and write lands inside its buffer. The tool is one you already have: the bounds from week 1.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Decide whether a view is provably inside its buffer, and repair one that is not.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Bounds, the smallest and largest a value can be, from <a href="../week1/04-symbolic.html">lesson 1.4</a>. Buffers and <code>shrink</code> views from <a href="01-buffers-and-views.html">lesson 2.1</a>. <code>load</code>, <code>store</code> and <code>after</code> from <a href="02-load-store-after.html">lesson 2.2</a>.</p>
+<p class="only-python">In the exercises: a tuple and unpacking it (<a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">In the exercises: a tuple taken apart in the function's arguments (<a href="../learn/ml-03-lists-matching.html">O.3</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from lesson 1.4, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="[0, 7] | [0,7] | 0 7 | 0..7 | 0-7 | 0, 7">
+<p class="q"><code>%x</code> can be any i32. What are the bounds of <code>mod %x 8</code>? Write them as <code>[lo, hi]</code>.</p>
+<div class="fill"><input aria-label="answer" placeholder="[lo, hi]"><button class="btn">check</button></div>
+<p class="hint"><code>mod</code> floors, so a remainder by 8 is never negative. What is the smallest remainder, and the largest?</p>
+<div class="why"><p><code>[0, 7]</code>. A remainder by 8 is one of 0 to 7, even when <code>%x</code> is negative: <code>mod -1 8</code> is 7.</p></div>
+</div>
+
+<div class="quiz" data-fill="[4, 7] | [4,7] | 4 7 | 4..7 | 4-7 | 4, 7">
+<p class="q"><code>%k</code> has bounds <code>[0, 3]</code>. What are the bounds of <code>add %k 4</code>?</p>
+<div class="fill"><input aria-label="answer" placeholder="[lo, hi]"><button class="btn">check</button></div>
+<p class="hint">The rule for <code>add</code>: add the two low ends, and add the two high ends. The literal 4 has bounds <code>[4, 4]</code>.</p>
+<div class="why"><p><code>[0 + 4, 3 + 4]</code> is <code>[4, 7]</code>. You will use both of these answers in this lesson.</p></div>
+</div>
 
 <div class="prose">
-<h2>The rule</h2>
-<p>For <code>shrink m off [k]</code>, where the parent <code>m</code> has n elements (k counts as 1 for a <code>[]</code> view), work out the interval <code>[lo, hi]</code> of <code>off</code>, then require:</p>
-<pre><code>lo ≥ 0     and     hi + k ≤ n</code></pre>
-<p>The first says the window can't start before the parent. The second says that even at its largest offset, the window still ends inside. The allowed offsets are exactly <code>[0, n - k]</code>, and the whole interval of <code>off</code> has to sit inside that range.</p>
-<p>With a constant offset the interval is a single point, so this is the plain check from lesson 1. It gets interesting when the offset is computed.</p>
+<h2>A read that misses the buffer</h2>
+<p>This buffer has 8 elements, numbered 0 to 7. The program asks for element 10.</p>
+<pre><code>%b = buffer 8 [5 6 7 8 9 10 11 12] dtype=i32 slot=0
+%e = shrink %b 10 []
+%x = load %e</code></pre>
+</div>
+<div class="tablewrap"><table>
+<tr><th>element</th><td>0</td><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td></tr>
+<tr><th>holds</th><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td><td>11</td><td>12</td><td>?</td><td>?</td><td>?</td></tr>
+</table></div>
+<p class="prose">In lesson 2.4 your compiler turns programs like this into C, and the load becomes <code>int32_t x = b[10];</code>.</p>
 
-<h2>Loaded values are unknown</h2>
-<p>A value loaded from memory could be anything, because memory comes from outside. Its interval is the full i32 range. So this gather, which reads an index from one buffer and uses it on <code>%d</code>, a 4-element buffer, is invalid, even if the data happens to hold a small number:</p>
-<pre><code>%i0  = shrink %ix 0 []
-%i   = load %i0                 # interval: [INT_MIN, INT_MAX]
-%src = shrink %d %i []          # can't prove 0 ≤ %i ≤ 3</code></pre>
-<p>To make it valid you shape the interval with ops whose bounds you can compute, using week 1's exact rules (spec section 5). The one that does most of the work is <code>mod</code>. It floors, so a nonzero remainder has the sign of <code>y</code>: <code>mod %i 4</code> is in <code>[0, 3]</code> for <em>every</em> <code>%i</code>, negative ones included. <code>mod -7 4</code> is 1, not -3. We write nested forms like <code>shrink %b (mod %i 4) []</code> as shorthand, but in a <code>.uir</code> file each op is its own binding. Step through: the green line is the allowed range <code>[0, n - k]</code>, and the thick line is the offset's interval.</p>
+<div class="quiz" data-answer="c">
+<p class="q">What does C do when it runs <code>b[10]</code> on a buffer of 8 elements?</p>
+<div class="opts">
+<button data-k="a">It stops with an "index out of range" error.</button>
+<button data-k="b">It gives 0, because nothing is there.</button>
+<button data-k="c">It reads whatever sits in memory past the buffer and keeps going.</button>
+</div>
+<p class="hint">Lesson 0.1: C does not store a buffer's size next to it. <code>b[10]</code> only means "start at <code>b</code> and step 10 elements along".</p>
+<div class="why"><p>C does not check. Most of the time it reads whatever is next door: another variable or leftover junk. Now and then the memory is not the program's at all, and it crashes. C calls this undefined behavior, which means anything may happen. The usual result is a wrong number and no error.</p></div>
+</div>
+
+<div class="prose">
+<p>A store is worse: it overwrites something that belongs to another part of the program.</p>
+<p>So <code>.uir</code> promises that nothing goes wrong at run time. The compiler does not add a check before every read, which would cost time on every access. It proves, before anything runs, that every view is inside its buffer. A program with a view it cannot prove is invalid: <code>./compile</code> prints <code>REJECTED</code> for the file above, and <code>render</code> refuses it too.</p>
+<p>A fixed offset like 10 is easy to check. The hard case is an offset the program computes.</p>
+
+<h2>Which of these views are safe?</h2>
+<p>Predict before you get any rule. <code>%b</code> is a buffer of 8 elements. <code>%i</code> is a number loaded from a second buffer, <code>%ix</code>:</p>
+<pre><code>%b  = buffer 8 [5 6 7 8 9 10 11 12] dtype=i32 slot=0
+%ix = buffer 1 [2] dtype=i32 slot=1
+%i0 = shrink %ix 0 []
+%i  = load %i0</code></pre>
+<p>A view is safe when it can never reach outside <code>%b</code>, whatever the buffers hold.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Is <code>shrink %b %i []</code> safe? The file says <code>%ix</code> starts as <code>[2]</code>.</p>
+<div class="opts">
+<button data-k="a">Yes. <code>%i</code> is 2, and element 2 exists.</button>
+<button data-k="b">No. On other data <code>%i</code> could be 10 or -1.</button>
+</div>
+<p class="hint">A buffer lives outside the program. Who decides what it holds when the compiled code runs?</p>
+<div class="why"><p>The data in the file is one possible input. The compiled kernel runs on whatever its caller passes, so <code>%i</code> could be any i32. This view is the read of element 10 again, waiting for the wrong data.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Add one line, <code>%k = mod %i 8</code>. Is <code>shrink %b %k []</code> safe?</p>
+<div class="opts">
+<button data-k="a">Yes, for every <code>%i</code>.</button>
+<button data-k="b">No. A negative <code>%i</code> gives a negative <code>%k</code>.</button>
+<button data-k="c">No. An <code>%i</code> of 8 or more is still too big.</button>
+</div>
+<p class="hint">This is the first warm up question.</p>
+<div class="why"><p><code>%k</code> has bounds <code>[0, 7]</code>, and the elements of <code>%b</code> are numbered 0 to 7. Whatever <code>%i</code> is, the view lands inside.</p></div>
+</div>
+
+<div class="prose">
+<p>In both you asked the same thing: how small and how large can the offset be, and does the window still fit at both ends? That question is the whole proof.</p>
+
+<h2>The proof in three steps</h2>
+<p>Take a view <code>shrink m off [k]</code>. Its parent <code>m</code> has n elements, and the window is k elements wide. A <code>[]</code> view counts as k = 1. The compiler proves the view like this:</p>
+<ol>
+<li><strong>Find the offset's bounds.</strong> Use the week 1 rules to get <code>[lo, hi]</code> for <code>off</code>. A literal like 6 has bounds <code>[6, 6]</code>.</li>
+<li><strong>Find the last allowed start.</strong> A window of k elements fits when it starts at <code>n - k</code> or earlier.</li>
+<li><strong>Compare.</strong> The view is proven when <code>lo ≥ 0</code> and <code>hi ≤ n - k</code>. If either test fails, the program is rejected.</li>
+</ol>
+<p>Try it on <code>shrink %b %k [2]</code>, with <code>%k = mod %i 8</code> and the 8 elements of <code>%b</code>:</p>
+<ol>
+<li><strong>Find the offset's bounds.</strong> <code>%k</code> is <code>[0, 7]</code>.</li>
+<li><strong>Find the last allowed start.</strong> 8 - 2 is 6.</li>
+<li><strong>Compare.</strong> 0 ≥ 0 holds. 7 ≤ 6 does not. Rejected: a window that starts at 7 would cover elements 7 and 8.</li>
+</ol>
+</div>
+
+<div class="quiz" data-fill="5">
+<p class="q">What is the last allowed start for a <code>[3]</code> view on a buffer of 8 elements?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Step 2: n - k.</p>
+<div class="why"><p>8 - 3 is 5. A window that starts at 5 covers elements 5, 6 and 7, which is the end of the buffer. So <code>shrink %b 6 [3]</code> is rejected.</p></div>
+</div>
+
+<div class="exercise" data-ex="w2-03n-view-safe" data-ex-py="w2-03n-view-safe-py">
+<h3>Repair the bounds check</h3>
+<p><code>view_safe (lo, hi) n k</code> answers one question: is a view of <code>k</code> elements provably inside a parent of <code>n</code> elements, when all you know about its offset is the bounds <code>(lo, hi)</code>? It follows the three steps, and two of them are wrong:</p>
+<ul>
+<li><strong>Step 2.</strong> <code>last_start</code> is only right for a one-element view. Make it right for any <code>k</code>.</li>
+<li><strong>Step 3.</strong> The compare checks the high end only. A negative offset gets through. Check the low end too.</li>
+</ul>
+</div>
+
+<details class="toggle">
+<summary>The rule as the spec writes it, and everything it covers, for when you write validation in the lab</summary>
+<div class="prose">
+<p>The spec states the same test as <code>lo ≥ 0</code> and <code>hi + k ≤ n</code>. The first part says the window cannot start before the parent. The second says that even at its largest offset the window still ends inside. The allowed offsets are exactly <code>[0, n - k]</code>, and the whole range of <code>off</code> has to sit inside it.</p>
+<ul>
+<li>With a constant offset the bounds are a single point, so this is the plain check from lesson 2.1.</li>
+<li>Every <code>shrink</code> is checked, whether a load or a store uses it or nothing does.</li>
+<li>A view of a view is checked against its own parent, not against the buffer underneath.</li>
+<li>The offset must be an i32 scalar. A loaded <code>bool</code> has bounds <code>[0, 1]</code>, but it cannot be an offset until you <code>cast</code> it.</li>
+<li>The oracle's message names all three numbers: <code>can't prove the view is in bounds: offset in [0, 7], 2 element(s), parent has 8</code>.</li>
+</ul>
+</div>
+</details>
+
+<div class="prose">
+<h2>A loaded value could be anything</h2>
+<p>Step 1 needs bounds for the offset. Memory comes from outside the program, so the compiler knows nothing about a number loaded from it. A loaded i32 gets the full range, from <code>INT_MIN</code> (-2147483648) to <code>INT_MAX</code> (2147483647). That is why <code>shrink %b %i []</code> failed: step 3 compares that huge range with <code>[0, 7]</code>.</p>
+<p>To make the view valid, you shape the value with ops whose bounds rules give a small answer. The one that does most of the work is <code>mod</code>. It floors, so a nonzero remainder has the sign of the right operand. <code>mod %i 4</code> is in <code>[0, 3]</code> for every <code>%i</code>, negative ones included: <code>mod -7 4</code> is 1, not -3.</p>
+<p>Step through a 4-element buffer. The green line is the allowed starts, <code>[0, n - k]</code>. The thick line is the offset's bounds.</p>
 </div>
 
 <div class="fig" id="nl" data-title="shaping an index until it provably fits"></div>
 
 <div class="trap">
 <span class="label">A guard is not a proof</span>
-<p>In C you'd write <code>if (i &lt; 4) x = d[i];</code>. The <code>.uir</code> equivalent, <code>where (cmplt %i 4) %i 0</code>, doesn't help: when the condition isn't fixed, the bounds of a <code>where</code> are the hull of both branches, so the interval is still everything <code>%i</code> could be. The analysis doesn't look at the condition. The oracle rejects <code>where (cmplt %i 4) (max %i 0) 0</code> with an offset interval of <code>[0, 2147483647]</code>.</p>
+<p>In C you'd write <code>if (i &lt; 4) x = d[i];</code>. The <code>.uir</code> equivalent, <code>where (cmplt %i 4) %i 0</code>, doesn't help: when the condition isn't fixed, the bounds of a <code>where</code> are the hull of both branches, so the bounds are still everything <code>%i</code> could be. The analysis doesn't look at the condition. The oracle rejects <code>where (cmplt %i 4) (max %i 0) 0</code> with offset bounds of <code>[0, 2147483647]</code>.</p>
 </div>
+
+<p class="prose">Nested forms like <code>shrink %b (mod %i 4) []</code> are shorthand on this page. In a <code>.uir</code> file each op is its own line. Now repair a program the compiler rejects.</p>
 
 <div class="exercise" data-ex="w2-03-gather">
 <h3>A gather the compiler can prove</h3>
@@ -71,43 +201,111 @@
 </div>
 
 <div class="prose">
-<h2>Offsets add up, and so do intervals</h2>
-<p>A view of a view is checked against its own parent. An offset built from arithmetic is checked with the interval rules for that arithmetic: <code>add</code> adds the endpoints when nothing can wrap. With an 8-element buffer:</p>
-<pre><code>%k = mod %i 4         # [0, 3]
-%o = add %k 4         # [4, 7]: fits a [] view on 8 elements
-%p = add %k 5         # [5, 8]: 8 + 1 > 8, invalid</code></pre>
+<h2>Offsets built with arithmetic</h2>
+<p>An offset can be the result of several ops. The three steps stay the same. Step 1 just pushes bounds through more lines, one rule per op, as in week 1. Here are three offsets for a <code>[]</code> view on a buffer of 8 elements, where the last allowed start is 7. <code>add</code> adds the low ends and the high ends, as long as nothing can wrap.</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>line</th><th>bounds</th><th>as an offset</th></tr>
+<tr><td><code>%k = mod %i 4</code></td><td><code>[0, 3]</code></td><td>proven</td></tr>
+<tr><td><code>%o = add %k 4</code></td><td><code>[4, 7]</code></td><td>proven</td></tr>
+<tr><td><code>%p = add %k 5</code></td><td><code>[5, 8]</code></td><td>rejected: 8 is past 7</td></tr>
+</table></div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>%k</code> has bounds <code>[0, 3]</code> and <code>%b</code> has 8 elements. Is <code>shrink %b (mul %k 2) [2]</code> proven?</p>
+<div class="opts">
+<button data-k="a">Yes</button>
+<button data-k="b">No. The offset can reach 6, and 6 + 2 is 8.</button>
+<button data-k="c">No. <code>mul</code> can wrap, so its bounds are the full range.</button>
+</div>
+<p class="hint">Do the three steps. The bounds of <code>mul %k 2</code> run from 0 × 2 to 3 × 2.</p>
+<div class="why"><p>The offset is <code>[0, 6]</code>. The last allowed start is 8 - 2 = 6. 0 ≥ 0 and 6 ≤ 6, so it is proven: a window that starts at 6 covers elements 6 and 7. Nothing here comes near <code>INT_MAX</code>, so nothing wraps.</p></div>
+</div>
+
+<p class="prose">Now write the lines yourself.</p>
+
+<div class="exercise" data-ex="w2-03n-pair">
+<h3>Two reads from one index</h3>
+<p>Slot 0 is eight i32s of data, <code>d</code>. Slot 1 holds one index, and the starter loads it as <code>%i</code>. Slot 2 is a one-element result. With <code>k = i mod 4</code>, set <code>res[0] = d[k] + d[k + 4]</code>. Both views must be provable for every <code>i</code>, so give each offset its own line and check its bounds with the three steps.</p>
+<p class="muted">The grader sets the data in slots 0 and 1 for each test and checks the final contents of slot 2.</p>
+</div>
+
+<details class="toggle">
+<summary>Two more places the same proof shows up: a view of a view, and index</summary>
+<div class="prose">
 <p>You can also cut the window first and index inside it: <code>shrink %b 4 [4]</code>, then <code>shrink</code> that by <code>%k</code>. The inner view only has to fit the four-element window, and <code>[0, 3]</code> does.</p>
 <p>The week 1 rule for <code>index</code> still applies, and it's the same idea. <code>index [7 8 9] %i</code> with a loaded <code>%i</code> is rejected, and <code>index [7 8 9] %k</code> with <code>%k = mod %i 3</code> is safe. An index into a vector you loaded works the same way: loading a <code>[3]</code> view gives an axis of size 3, just like the stack.</p>
 </div>
+</details>
 
-<div class="note">
-<span class="label">Soundness versus exact spec rules</span>
-<p>In general, a <em>wrong</em> interval that leaves out a value the offset can really take is dangerous, because your compiler would accept a program that reads outside its memory. In this course, validation uses week 1's exact interval rules (neither tighter nor looser), so every compiler accepts and rejects the same programs in the test suite.</p>
+<div class="prose">
+<h2>Where mod's bounds come from</h2>
+<p>Most of your proofs lean on <code>mod</code>. Lesson 1.4 gave its bounds rule in a table, and here you turn it into code. Predict first.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%x</code> has bounds <code>[9, 11]</code>. What are the tightest bounds of <code>mod %x 8</code>?</p>
+<div class="opts">
+<button data-k="a"><code>[0, 7]</code></button>
+<button data-k="b"><code>[1, 3]</code></button>
+<button data-k="c"><code>[9, 11]</code></button>
+</div>
+<p class="hint">Work out <code>mod 9 8</code>, <code>mod 10 8</code> and <code>mod 11 8</code>.</p>
+<div class="why"><p>The remainders are 1, 2 and 3. <code>[0, 7]</code> is true but wider than it needs to be. The spec's rule gives <code>[1, 3]</code>, and your compiler has to give exactly what the spec gives.</p></div>
+</div>
+
+<div class="prose">
+<p>The rule for <code>mod x y</code>, with <code>x</code> in <code>[lo, hi]</code> and <code>y</code> a fixed number:</p>
+<ol>
+<li><strong>Handle zero.</strong> <code>mod x 0</code> returns <code>x</code>, so the bounds are <code>[lo, hi]</code>.</li>
+<li><strong>Compare the two quotients.</strong> Floor divide <code>lo</code> and <code>hi</code> by <code>y</code>. If the answers match, no multiple of <code>y</code> gets in the way, and the remainders run from <code>lo mod y</code> to <code>hi mod y</code>. Answer those two, smaller one first.</li>
+<li><strong>If they differ, the remainder wraps.</strong> It can be any remainder at all: <code>[0, y - 1]</code> for a positive <code>y</code>, and <code>[y + 1, 0]</code> for a negative one.</li>
+</ol>
+<p>For <code>[9, 11]</code> and 8, both quotients are 1, so step 2 gives <code>[1, 3]</code>. For <code>[7, 9]</code> the quotients are 0 and 1, so step 3 gives <code>[0, 7]</code>.</p>
 </div>
 
 <div class="exercise small" data-ex="w2-03-mod-bounds" data-ex-py="w2-03-mod-bounds-py">
 <h3>Bounds of x mod y</h3>
-<p>This is the week 1 rule the oracle uses for <code>mod x y</code> when <code>x</code> is in <code>[lo, hi]</code> and <code>y</code> is fixed. Write <span class="only-ocaml"><code>mod_bounds (lo, hi) y</code></span><span class="only-python"><code>mod_bounds(r, y)</code>, with <code>r = (lo, hi)</code></span>. If <code>y</code> is 0, <code>mod</code> returns <code>x</code>, so the answer is <code>(lo, hi)</code>. Otherwise, if <code>lo</code> and <code>hi</code> have the same floor quotient by <code>y</code>, the remainders run from <code>lo mod y</code> to <code>hi mod y</code>, so answer their hull. If the quotients differ, the remainder wraps around: answer <code>(0, y - 1)</code> for a positive <code>y</code> and <code>(y + 1, 0)</code> for a negative one. So <span class="only-ocaml"><code>mod_bounds (9, 11) 8</code></span><span class="only-python"><code>mod_bounds((9, 11), 8)</code></span> is <code>(1, 3)</code>, and <span class="only-ocaml"><code>mod_bounds (7, 9) 8</code></span><span class="only-python"><code>mod_bounds((7, 9), 8)</code></span> is <code>(0, 7)</code>.</p>
-<p class="muted">C's <code>%</code> truncates instead, so its remainder has the sign of <code>x</code> and can be negative. Lesson 4 renders <code>mod</code> with a helper for exactly that reason.</p>
+<p>Write <span class="only-ocaml"><code>mod_bounds (lo, hi) y</code></span><span class="only-python"><code>mod_bounds(r, y)</code>, with <code>r = (lo, hi)</code></span>: the three steps above, returning the pair <code>(lo, hi)</code> of the answer. So <span class="only-ocaml"><code>mod_bounds (9, 11) 8</code></span><span class="only-python"><code>mod_bounds((9, 11), 8)</code></span> is <code>(1, 3)</code>, and <span class="only-ocaml"><code>mod_bounds (7, 9) 8</code></span><span class="only-python"><code>mod_bounds((7, 9), 8)</code></span> is <code>(0, 7)</code>.</p>
+<p class="muted">C's <code>%</code> truncates instead, so its remainder has the sign of <code>x</code> and can be negative. Lesson 2.4 renders <code>mod</code> with a helper for exactly that reason.</p>
+</div>
+
+<details class="toggle">
+<summary>Why your bounds must match the spec exactly, not just be true</summary>
+<div class="prose">
+<p><strong>Soundness versus exact spec rules.</strong> In general, a <em>wrong</em> interval that leaves out a value the offset can really take is dangerous, because your compiler would accept a program that reads outside its memory. In this course, validation uses week 1's exact interval rules (neither tighter nor looser), so every compiler accepts and rejects the same programs in the test suite.</p>
+<p>The full table of rules, one per op, is in <a href="../week1/04-symbolic.html">lesson 1.4</a>.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say what C does with a read past the end of a buffer, and why <code>.uir</code> rejects the program instead.</li>
+<li>Prove a view in three steps: the offset's bounds, the last allowed start, the compare.</li>
+<li>Explain why a loaded value has the full range, and shape it with <code>mod</code>, <code>max</code> and <code>add</code> until the proof goes through.</li>
+<li>Compute the bounds of <code>mod</code> the way the spec does.</li>
+</ul>
+<p>Next, lesson 2.4 turns a valid program into C. Because every view is already proven, that C never reads or writes past an array.</p>
 </div>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
 
 <div class="quiz" data-answer="c">
-<p class="q">What's the interval of <code>%i = load %e</code>, where <code>%e</code> is a view of a buffer whose data is <code>[3 1 2 0]</code>?</p>
+<p class="q">What are the bounds of <code>%i = load %e</code>, where <code>%e</code> is a view of a buffer whose data is <code>[3 1 2 0]</code>?</p>
 <div class="opts">
 <button data-k="a"><code>[0, 3]</code>, the smallest and largest values in the data</button>
 <button data-k="b"><code>[3, 3]</code>, if <code>%e</code> is element 0</button>
 <button data-k="c"><code>[INT_MIN, INT_MAX]</code></button>
-<button data-k="d">It has no interval, so any view using it is fine</button>
+<button data-k="d">It has no bounds, so any view using it is fine</button>
 </div>
 <p class="hint">Is the data part of the program, or does it come from outside?</p>
 <div class="why"><p>Memory is input: the same kernel runs on whatever data the caller passes. The starting data in a test file is just one possible input, so a loaded value gets the full i32 range.</p></div>
 </div>
 
 <div class="quiz" data-fill="[0, 3] | [0,3] | 0 3 | 0..3 | 0, 3">
-<p class="q">What's the interval of <code>mod %i 4</code> when <code>%i</code> is a loaded value? Write it as <code>[lo, hi]</code>.</p>
+<p class="q">What are the bounds of <code>mod %i 4</code> when <code>%i</code> is a loaded value? Write it as <code>[lo, hi]</code>.</p>
 <div class="fill"><input aria-label="your answer" placeholder="[lo, hi]"><button class="btn">Check</button></div>
 <p class="hint">In <code>.uir</code>, <code>mod</code> floors, so a nonzero remainder has the sign of the right operand, not the left.</p>
 <div class="why"><p><code>[0, 3]</code>. Even a negative <code>%i</code> gives a remainder from 0 to 3: <code>mod -7 4</code> is 1. That's exactly the allowed range for a <code>[]</code> view on 4 elements. C's <code>%</code> would give <code>[-3, 3]</code>.</p></div>
@@ -129,8 +327,8 @@
 <button data-k="c"><code>cmplt</code> returns a bool, so the types don't match.</button>
 <button data-k="d">Both branches are evaluated, so the index might be out of range.</button>
 </div>
-<p class="hint">What are the intervals of the two branches?</p>
-<div class="why"><p>The branches are <code>[0, INT_MAX]</code> and <code>[0, 0]</code>, so the hull is <code>[0, INT_MAX]</code>. Interval analysis doesn't learn anything from the condition. Shape the value itself with <code>mod</code> instead.</p></div>
+<p class="hint">What are the bounds of the two branches?</p>
+<div class="why"><p>The branches are <code>[0, INT_MAX]</code> and <code>[0, 0]</code>, so the hull is <code>[0, INT_MAX]</code>. The bounds analysis learns nothing from the condition. Shape the value itself with <code>mod</code> instead.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">
@@ -141,12 +339,12 @@
 <button data-k="c"><code>add %k -1</code></button>
 <button data-k="d"><code>mul %k 3</code></button>
 </div>
-<p class="hint">Work out each interval and compare it with <code>[0, 7]</code>.</p>
+<p class="hint">Work out each offset's bounds and compare them with <code>[0, 7]</code>.</p>
 <div class="why"><p><code>add %k 4</code> is <code>[4, 7]</code>, inside <code>[0, 7]</code>. <code>add %k 5</code> reaches 8, <code>add %k -1</code> reaches -1, and <code>mul %k 3</code> reaches 9.</p></div>
 </div>
 
 <div class="quiz" data-fill="n - k | n-k">
-<p class="q">For a <code>[k]</code> view on a parent of n elements, the offset's whole interval must fit inside <code>[0, ?]</code>. What goes in place of the question mark?</p>
+<p class="q">For a <code>[k]</code> view on a parent of n elements, the offset's bounds must fit inside <code>[0, ?]</code>. What goes in place of the question mark?</p>
 <div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
 <p class="hint">The window's last element is at <code>off + k - 1</code>, and that must be at most <code>n - 1</code>.</p>
 <div class="why"><p><code>off + k - 1 ≤ n - 1</code> means <code>off ≤ n - k</code>, which is the same as the rule <code>hi + k ≤ n</code>.</p></div>
@@ -178,7 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return svg;
   }
   const steps = [
-    { caption: 'A raw loaded index on a 4-element buffer, as a <code>[]</code> view. Its interval is all of i32, far outside <code>[0, 3]</code>. Invalid.',
+    { caption: 'A raw loaded index on a 4-element buffer, as a <code>[]</code> view. Its bounds are all of i32, far outside <code>[0, 3]</code>. Invalid.',
       code: '%i = load %i0', lo: MIN, hi: MAX, n: 3, label: '%i ∈ [MIN, MAX]', ok: false },
     { caption: '<code>max %i 0</code> cuts off everything below zero: <code>[0, MAX]</code>. Still too wide.',
       code: '%m = max %i 0', lo: 0, hi: MAX, n: 3, label: '[0, MAX]', ok: false },

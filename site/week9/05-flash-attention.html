@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flash Attention</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Attention is the core of every transformer, and its obvious implementation writes a table of scores that grows with the square of the sequence length. Flash...">
+<meta name="description" content="Attention is the step a language model spends most of its time in. Done the obvious way, it fills a table of scores far too big for a GPU&#x27;s fast memory. You&#x27;ll...">
 <link rel="canonical" href="https://sharpterminal.com/site/week9/05-flash-attention">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Flash Attention">
-<meta property="og:description" content="Attention is the core of every transformer, and its obvious implementation writes a table of scores that grows with the square of the sequence length. Flash attention never writes it. It streams keys...">
+<meta property="og:description" content="Attention is the step a language model spends most of its time in. Done the obvious way, it fills a table of scores far too big for a GPU&#x27;s fast memory. You&#x27;ll learn the one trick that lets a kernel...">
 <meta property="og:url" content="https://sharpterminal.com/site/week9/05-flash-attention">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,32 +20,132 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .os { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; max-width: 30rem; }
   .os .s { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 1.9rem; }
   .os .s.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .os .s.done { color: var(--ink-3); }
   .state { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s2); }
+  .look { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); max-width: 22rem; align-items: end; }
+  .look .col { display: grid; gap: var(--s2); justify-items: center; }
+  .look .bar { width: 100%; background: var(--ink); border-radius: var(--r-sm); }
+  .look .word { font: 500 1rem var(--sans); }
+  .look .wt { font: 0.875rem var(--mono); color: var(--ink-2); }
 </style>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 9 · Lesson 5</p>
 <h1>Flash attention</h1>
-<p class="lede">Attention is the core of every transformer, and its obvious implementation writes a table of scores that grows with the square of the sequence length. Flash attention never writes it. It streams keys through shared memory and keeps a running softmax in each thread's registers. This lesson derives the trick and walks through the kernel in the tests.</p>
+<p class="lede">Attention is the step a language model spends most of its time in. Done the obvious way, it fills a table of scores far too big for a GPU's fast memory. You'll learn the one trick that lets a kernel get the same answer without ever storing that table.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Compute a softmax in one pass, and explain how that lets an attention kernel skip the table of scores.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Softmax from <a href="../week6/02-sugar.html">lesson 6.2</a>, shared memory from <a href="../week8/03-shared-memory.html">lesson 8.3</a> and per-thread memory in registers from <a href="01-registers.html">lesson 9.1</a>.</p>
+<p class="only-python">In the exercises: a <code>for</code> loop over a list of pairs (<a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">In the exercises: <code>List.fold_left</code> with a tuple as the running state (<a href="../learn/ml-03-lists-matching.html">O.3</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="1">
+<p class="q">Softmax turns a row of scores into shares. What do the shares add up to?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Each share is one score's <code>exp</code> divided by the sum of all of them.</p>
+<div class="why"><p>1. Every share is a piece of the same total, so together they make the whole.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">An alloc is only ever used at <code>t·16 + e</code>, inside a local loop over <code>t</code>, with <code>e</code> from 0 to 15. Where can the CUDA compiler keep it?</p>
+<div class="opts">
+<button data-k="a">In global memory</button>
+<button data-k="b">In registers: each thread touches only its own 16 elements</button>
+<button data-k="c">Only in shared memory, because it is an alloc</button>
+</div>
+<p class="hint">Lesson 9.1 had a name for memory of this shape.</p>
+<div class="why"><p>It's per-thread memory. No thread reads another thread's slice, so each thread can hold its 16 elements in registers, the fastest memory there is.</p></div>
+</div>
 
 <div class="prose">
-<h2>Attention</h2>
+<h2>What attention does</h2>
+<p>A language model reads text as a row of words. (Real models cut text into <b>tokens</b>, which are words or pieces of words. We'll say words.) To understand one word, the model needs the others. In "big dogs bark", who is barking?</p>
+<p><b>Attention</b> is the step that lets each word look at every word and decide how much each one matters. The amounts are called <b>weights</b>. They're shares that add up to 1. Models like the one behind ChatGPT are stacks of attention steps, and attention is where they spend most of their time. So it's a kernel worth making fast.</p>
+</div>
+
+<div class="fig">
+<div class="head"><span class="title">How much "bark" looks at each word</span></div>
+<div class="body">
+<div class="look">
+<div class="col"><div class="bar" style="height: 1.47rem"></div><span class="word">big</span><span class="wt">0.245</span></div>
+<div class="col"><div class="bar" style="height: 4rem"></div><span class="word">dogs</span><span class="wt">0.665</span></div>
+<div class="col"><div class="bar" style="height: 0.54rem"></div><span class="word">bark</span><span class="wt">0.090</span></div>
+</div>
+</div>
+<div class="cap">The three weights add up to 1. These numbers are made up for the lesson. A trained model learns to produce its own.</div>
+</div>
+
+<div class="quiz" data-fill="9">
+<p class="q">A sentence has 3 words. Every word looks at every word, itself included. How many weights is that in all?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The picture shows the weights for one word. There are 3 words.</p>
+<div class="why"><p><code>3 · 3 = 9</code>. For <code>S</code> words it's <code>S · S</code>. Keep that square in mind.</p></div>
+</div>
+
+<div class="prose">
+<h2>Work one row by hand</h2>
+<p>Each word carries three rows of numbers. Its <b>query</b> says what it's looking for. Its <b>key</b> says what it offers. Its <b>value</b> is what it hands over when a word looks at it. The <b>score</b> of one word looking at another is high when the first word's query matches the second word's key.</p>
+<p>Here's the row for "bark". Its scores for the three words are 1, 2 and 0. A real value is a row of <code>D</code> numbers. To keep the arithmetic small, each value here is one number: 10, 20 and 30.</p>
+<ol>
+<li><strong>Subtract the largest score.</strong> The largest is 2, so the scores become -1, 0 and -2. Week 6 did this to keep <code>exp</code> from overflowing. It doesn't change the answer.</li>
+<li><strong>Take <code>exp</code> of each.</strong> 0.368, 1 and 0.135.</li>
+<li><strong>Add them up.</strong> 1.503.</li>
+<li><strong>Divide each by the sum.</strong> The weights are 0.245, 0.665 and 0.090. Steps 1 to 4 are softmax.</li>
+<li><strong>Average the values by weight.</strong> <code>0.245·10 + 0.665·20 + 0.090·30 = 18.45</code>.</li>
+</ol>
+<p>The output for "bark" is 18.45. It's mostly the 20 from "dogs", pulled a little toward the other two.</p>
+</div>
+
+<div class="quiz" data-fill="20">
+<p class="q">Suppose all three scores were equal. With values 10, 20 and 30, what would the output be?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Equal scores give equal weights, one third each.</p>
+<div class="why"><p>20. Equal weights make a plain average. Scores only matter by how far apart they are.</p></div>
+</div>
+
+<details class="toggle">
+<summary>The full formula with Q, K and V, for when you read the kernel</summary>
+<div class="prose">
 <p>A head of attention has three <code>S×D</code> matrices: queries <code>Q</code>, keys <code>K</code> and values <code>V</code>, one row per token. For query row <code>i</code>:</p>
 <pre><code>s_j = (q_i · k_j) / sqrt(D)          for every key j: a score
 p_j = exp(s_j - m) / l               m = the largest s_j, l = the sum of exp(s_j - m): softmax
 o_i = sum over j of p_j · v_j        the output row</code></pre>
 <p>Subtracting the largest score <code>m</code> changes nothing mathematically and keeps <code>exp</code> from overflowing. A model runs many heads at once: the speed test uses 16.</p>
+</div>
+</details>
 
-<h2>The obvious way, and its cost</h2>
-<p>The obvious kernel computes every score into an <code>S×S</code> matrix in global memory, then a softmax pass over each row, then a product with <code>V</code>. At 1,024 tokens one head's scores are 4 MB. They're written, read for the max, read for the sum, read again to normalize into another 4 MB, and read for the product. At 8,192 tokens one head's scores are 256 MB. The arithmetic is cheap next to all that traffic. Measured on the 4060 Ti, 4 heads of 1,024 tokens with <code>D = 32</code>:</p>
+<div class="prose">
+<h2>The problem: a table of scores</h2>
+<p>A row of <code>S</code> words has <code>S</code> scores for every word, so <code>S × S</code> in all. The obvious way uses three kernels. The first writes every score into a table. The second runs softmax over each row of it. The third multiplies the weights by the values. Each score is an f32, which takes 4 bytes.</p>
+</div>
+
+<div class="quiz" data-fill="256">
+<p class="q">Guess first. A model reads 8,192 words at once. How many MB is its table of scores? (8,192 is 2<sup>13</sup>, and 1 MB is 2<sup>20</sup> bytes.)</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>8192 · 8192 · 4</code> bytes is <code>2<sup>13</sup> · 2<sup>13</sup> · 2<sup>2</sup></code>.</p>
+<div class="why"><p>2<sup>28</sup> bytes, which is 256 MB, for one table. A model runs several attentions side by side, each called a <b>head</b>, and every head has its own table.</p></div>
+</div>
+
+<div class="prose">
+<p>A block's shared memory holds tens of kilobytes. A thread's registers hold about 1 KB. So 256 MB fits in neither, and the table has to live in global memory, the slow one.</p>
+<p>Even at 1,024 words, one head's scores are 4 MB. They're written, read for the max, read for the sum, read again to normalize into another 4 MB, and read for the product. The arithmetic is cheap next to all that traffic. Measured on the 4060 Ti, 4 heads of 1,024 tokens with <code>D = 32</code>:</p>
 </div>
 <div class="tablewrap"><table>
 <thead><tr><th>kernel (4 heads, 1,024 tokens, D = 32)</th><th>time</th></tr></thead>
@@ -54,16 +154,80 @@ o_i = sum over j of p_j · v_j        the output row</code></pre>
 <tr><td>flash attention: one kernel, nothing S×S stored</td><td>0.33 ms</td></tr>
 </tbody></table></div>
 <div class="prose">
-<p>Our three-kernel version is simple in other ways too: its softmax pass gives each row to one thread. A tuned version would close some of the gap, but not the traffic, which grows with <code>S²</code>.</p>
+<p>The second row is <b>flash attention</b>. It gets the same outputs and never writes the table. The rest of this lesson builds it.</p>
+</div>
 
-<h2>Softmax in one pass</h2>
-<p>The trouble is the softmax: it needs the largest score before it can add anything up, and the largest isn't known until every score has been seen. The fix is to keep a running max <code>m</code> and a running sum <code>l</code>, relative to the max so far, and correct the sum when the max changes. When a new score <code>s</code> arrives:</p>
+<details class="toggle">
+<summary>Is that comparison fair? A note on the slow kernel</summary>
+<div class="prose">
+<p>Our three-kernel version is simple in other ways too: its softmax pass gives each row to one thread. A tuned version would close some of the gap, but not the traffic, which grows with <code>S²</code>.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>Softmax without keeping the scores</h2>
+<p>To skip the table, a thread has to finish a row while its scores go by one at a time, keeping none of them. Softmax seems to forbid that. Its first step subtracts the largest score, and the largest isn't known until every score has been seen.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Scores arrive one at a time. So far you've seen only the score 1, so the largest is <code>m = 1</code> and the sum is <code>l = exp(1 - 1) = 1</code>. Now a 2 arrives, a new largest. The old sum was built against the wrong max. Can you fix it without the old scores?</p>
+<div class="opts">
+<button data-k="a">No: every old term has to be computed again from its score</button>
+<button data-k="b">Yes: multiply the whole sum by <code>exp(1 - 2)</code></button>
+<button data-k="c">Yes: subtract 1 from the sum</button>
+</div>
+<p class="hint"><code>exp(a)·exp(b) = exp(a + b)</code>. What is <code>exp(s - 1)·exp(1 - 2)</code>?</p>
+<div class="why"><p>It's <code>exp(s - 2)</code>, exactly what the term should have been. One multiply fixes every old term at once, because they all sit inside the sum.</p></div>
+</div>
+
+<div class="prose">
+<p>So keep two numbers, a running max <code>m</code> and a running sum <code>l</code>. This is a <b>running softmax</b>. When a new score <code>s</code> arrives:</p>
 <pre><code>m_new = max(m, s)
 c     = exp(m - m_new)              the correction: 1 if the max didn't change
 l     = l · c + exp(s - m_new)
 m     = m_new</code></pre>
-<p>Every term already in <code>l</code> was <code>exp(s_old - m)</code>. Multiplying by <code>exp(m - m_new)</code> turns it into <code>exp(s_old - m_new)</code>, as if the new max had been known all along. Start with <code>m = -inf</code> and <code>l = 0</code>: <code>exp(-inf)</code> is 0, so the first score needs no special case.</p>
-<p>The output row works the same way. Keep a running <code>acc</code>, the sum of <code>exp(s_j - m)·v_j</code>, and rescale it by the same <code>c</code>. At the end, <code>o_i = acc / l</code>.</p>
+<p>Start with <code>m = -inf</code> and <code>l = 0</code>. <code>exp(-inf)</code> is 0, so the first score needs no special case.</p>
+<p>Try it on the scores for "bark", 1, 2 and 0, arriving in two pieces: first the 1, later the 2 and the 0.</p>
+<ol>
+<li><strong>First piece, score 1.</strong> <code>m_new = 1</code> and <code>c = exp(-inf) = 0</code>, so <code>l = 0·0 + exp(0) = 1</code>.</li>
+<li><strong>Second piece, score 2.</strong> A new max. <code>c = exp(1 - 2) = 0.368</code>, so <code>l = 1·0.368 + exp(0) = 1.368</code>.</li>
+<li><strong>Score 0.</strong> The max stays 2, so <code>c = 1</code> and <code>l = 1.368 + exp(-2) = 1.503</code>.</li>
+<li><strong>Check.</strong> By hand, with every score in view, the sum was 1.503. Same answer, and no score was kept.</li>
+</ol>
+
+<h2>Watch it run, then repair it</h2>
+<p>Step through four scores. Before each step, guess whether the sum gets rescaled.</p>
+</div>
+
+<div class="fig" id="online" data-title="Folding the scores 1, 3, 2, 5 into a running softmax"></div>
+
+<div class="exercise small" data-ex="w9-05-online" data-ex-py="w9-05-online-py">
+<h3>Softmax in one pass</h3>
+<p><code>online scores</code> returns <code>(m, l)</code> after one pass. The starter updates the max but forgets to rescale the sum, so it's only right when the max never rises. Repair it.</p>
+</div>
+
+<div class="prose">
+<h2>Carry the output along too</h2>
+<p>The sum <code>l</code> is only the bottom of the division. The top is the weighted sum of the values. Keep it the same way, in a running <code>acc</code> that is rescaled by the same <code>c</code>:</p>
+<pre><code>acc = acc · c + exp(s - m_new) · v</code></pre>
+<p>At the end, the output is <code>acc / l</code>. Here is "bark" again, with values 10, 20 and 30:</p>
+<ol>
+<li><strong>Score 1, value 10.</strong> <code>acc = 0·0 + 1·10 = 10</code>.</li>
+<li><strong>Score 2, value 20.</strong> <code>acc = 10·0.3679 + 1·20 = 23.679</code>.</li>
+<li><strong>Score 0, value 30.</strong> <code>acc = 23.679·1 + 0.1353·30 = 27.739</code>.</li>
+<li><strong>Divide.</strong> <code>27.739 / 1.5032 = 18.45</code>, the output you got by hand.</li>
+</ol>
+<p>That's a whole row of attention from three numbers of state. When a value is a row of <code>D</code> numbers, <code>acc</code> is a row of <code>D</code> numbers too.</p>
+</div>
+
+<div class="exercise" data-ex="w9-05n-attend" data-ex-py="w9-05n-attend-py">
+<h3>Attention for one row, in one pass</h3>
+<p>Write <code>attend pairs</code>. Each pair is <code>(score, value)</code> for one key. Return the output for the row: the average of the values, weighted by the softmax of the scores. Go through the pairs once and keep only three numbers: <code>m</code>, <code>l</code> and <code>acc</code>. Do not build a list of scores. The starter returns 0.</p>
+</div>
+
+<details class="toggle">
+<summary>The same update with value rows of two numbers</summary>
+<div class="prose">
 <p>Here it is on two keys with <code>D = 2</code>. Say their scores come out 1 and 2, with <code>v_1 = [1, 0]</code> and <code>v_2 = [0, 1]</code>. Start from <code>m = -inf</code>, <code>l = 0</code>, <code>acc = [0, 0]</code>:</p>
 <pre><code>key 1, s = 1:  m_new = 1, c = exp(-inf) = 0
                l = 0·0 + exp(0) = 1
@@ -74,24 +238,36 @@ key 2, s = 2:  m_new = 2, c = exp(1 - 2) = 0.368
 end:           o = [0.368, 1] / 1.368 = [0.269, 0.731]</code></pre>
 <p>That's exactly the softmax of <code>[1, 2]</code>, <code>[0.269, 0.731]</code>, weighting the two value rows. Key 1's terms were computed against a max of 1 and fixed up by <code>c</code> once the max became 2.</p>
 </div>
-
-<div class="fig" id="online" data-title="Folding the scores 1, 3, 2, 5 into a running softmax"></div>
-
-<div class="exercise small" data-ex="w9-05-online" data-ex-py="w9-05-online-py">
-<h3>Softmax in one pass</h3>
-<p>The starter forgets to rescale when the max goes up.</p>
-</div>
+</details>
 
 <div class="prose">
-<h2>The kernel in the tests</h2>
-<p><code>s_cuda_flash_attention</code> gives each block 64 query rows of one head, one row per thread, and tiles of 64 keys. Its small version, <code>c_flash_attention</code>, uses 32 of each:</p>
+<h2>The kernel: one tile of keys at a time</h2>
+<p>Now a kernel can skip the table. <code>s_cuda_flash_attention</code> gives each block 64 query rows of one head, one row per thread. The keys and values go past in tiles of 64:</p>
 <ul>
 <li>Phase 0: thread <code>t</code> loads its query row into <code>qr[t·D + d]</code>, and sets its running max <code>mx[t]</code> to <code>-inf</code>. Its running sum <code>l[t]</code> starts at 0, as every alloc does.</li>
 <li>Then a loop over tiles of keys. Phase 1 copies the tile's keys and values into shared memory. Phase 2 has each thread fold the tile's keys into its row, one at a time, with the update above.</li>
 <li>Phase 3: <code>O[row] = acc / l</code>.</li>
 </ul>
-<p>Tiling the keys is what saves global memory traffic. Each tile of keys and values is read from global memory once per block, then used from shared memory by all 64 of the block's query rows, so the block reads K and V once instead of 64 times. This kernel rescales after every key. The FlashAttention paper rescales once per tile: it computes a whole tile's scores, takes their max, and corrects <code>l</code> and <code>acc</code> once.</p>
-<p>Here's phase 2's update in .uir, from <code>c_flash_attention</code> (head size 8), after the scaled dot product <code>%s</code>:</p>
+<p>A score exists for a moment inside one thread, and then it's gone. Nothing <code>S×S</code> is ever stored.</p>
+<p>Tiling the keys is what saves global memory traffic. Each tile of keys and values is read from global memory once per block, then used from shared memory by all 64 of the block's query rows, so the block reads K and V once instead of 64 times.</p>
+<p>Everything a thread keeps across keys, <code>qr</code>, <code>acc</code>, <code>mx</code> and <code>l</code>, is at <code>t·S + e</code>: per-thread memory, so it lives in registers, with <code>e</code> a literal from the upcast loops.</p>
+</div>
+
+<div class="quiz" data-fill="66">
+<p class="q">In <code>s_cuda_flash_attention</code>, <code>D = 32</code>: a query row has 32 numbers, and so does <code>acc</code>. How many floats does one thread keep across keys, counting <code>qr</code>, <code>acc</code>, <code>mx</code> and <code>l</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Two rows of 32 and two single numbers.</p>
+<div class="why"><p><code>32 + 32 + 1 + 1 = 66</code> floats a thread, all in registers. In shared memory instead, the same kernel takes 1.39 ms for 16 heads, against 0.82 ms in registers, and <code>s_cuda_flash_attention</code> asks for at least 0.8 of the reference's speed.</p></div>
+</div>
+
+<div class="prose">
+<p>One thing to know before the lab. Flash attention computes the same softmax as the three-kernel version, but not the same bits: it rescales its sums as it goes, so it rounds at different points. That's fine in .uir, where a program means exactly its own operations. The tests check the flash program's bits against the interpreter running the flash program.</p>
+</div>
+
+<details class="toggle">
+<summary>Phase 2's update in .uir, for when you debug the kernel in the lab</summary>
+<div class="prose">
+<p>The small version of the kernel, <code>c_flash_attention</code>, uses 32 query rows a block and tiles of 32 keys. Here's phase 2's update from it (head size 8), after the scaled dot product <code>%s</code>:</p>
 <pre><code>%mnew = max %v112 %s                # %v112 = mx[t]
 %v114 = sub %v112 %mnew
 %corr = exp %v114
@@ -102,11 +278,26 @@ end:           o = [0.368, 1] / 1.368 = [0.269, 0.731]</code></pre>
 %v118 = store %v110 %mnew           # mx[t] = mnew
 %v119 = store %v111 %v117           # l[t] = l * corr + pj
 %d2 = range 8 axis=upcast           # then acc[t*8 + d] = acc[t*8 + d] * corr + pj * V[j][d]</code></pre>
-<p>Everything a thread keeps across keys, <code>qr</code>, <code>acc</code>, <code>mx</code> and <code>l</code>, is at <code>t·S + e</code>: per-thread memory, so it lives in registers, with <code>e</code> a literal from the upcast loops. In <code>s_cuda_flash_attention</code>, with <code>D = 32</code>, that's 66 floats a thread. In shared memory instead, the same kernel takes 1.39 ms for 16 heads, against 0.82 ms in registers, and <code>s_cuda_flash_attention</code> asks for at least 0.8 of the reference's speed.</p>
+</div>
+</details>
 
-<h2>Same math, different bits</h2>
-<p>Flash attention computes the same softmax as the three-kernel version, but not the same bits: it rescales its sums as it goes, so it rounds at different points. That's fine in .uir, where a program means exactly its own operations. The tests check the flash program's bits against the interpreter running the flash program.</p>
+<details class="toggle">
+<summary>What exact bits cost, and what real kernels do differently</summary>
+<div class="prose">
 <p>The bits do cost speed. .uir's <code>exp</code> is defined by a fixed, fully specified recipe (week 6): a range reduction, a polynomial and some bit tricks, dozens of operations, and the kernel calls it twice per key. Real kernels use the GPU's fast, approximate exponential instead, and do the two matrix products on tensor cores in 16-bit floats. Neither gives bits a grader can check.</p>
+<p>This kernel rescales after every key. The FlashAttention paper rescales once per tile: it computes a whole tile's scores, takes their max, and corrects <code>l</code> and <code>acc</code> once.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say what attention is: each word looks at every word, and softmax turns its scores into weights.</li>
+<li>Work out how big the table of scores is, and why it can't live in fast memory.</li>
+<li>Fold scores into a running max, sum and output, rescaling by <code>exp(m - m_new)</code> when the max rises.</li>
+<li>Explain how the flash kernel streams tiles of keys through shared memory and keeps each row's state in registers.</li>
+</ul>
+<p>Next is the week 9 lab, where your <code>render-cuda</code> has to put that state in registers to pass the speed test.</p>
 </div>
 
 <h2>Check yourself</h2>

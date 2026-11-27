@@ -1,0 +1,93 @@
+{
+ "id": "w3-02n-total",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "Read the total from the right version",
+ "starter": "%in   = buffer 4 dtype=i32 slot=0\n%out  = buffer 1 dtype=i32 slot=1\n%acc  = alloc 1 dtype=i32\n%a    = shrink %acc 0 []\n%k    = range 4\n%cur  = load %a\n%iv   = shrink %in %k []\n%x    = load %iv\n%sum  = add %cur %x\n%s    = store %a %sum\n%e    = end %s %k\n%acc1 = after %acc %e\n%tot  = load %a\n%o    = shrink %out 0 []\n%so   = store %o %tot\n%out1 = after %out %so\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4
+    ]
+   },
+   "expect": "[10]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     5,
+     5,
+     5,
+     5
+    ],
+    "1": [
+     99
+    ]
+   },
+   "expect": "[20]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     -1,
+     -2,
+     -3,
+     -4
+    ]
+   },
+   "expect": "[-10]"
+  },
+  {
+   "data": {
+    "0": [
+     0,
+     0,
+     0,
+     7
+    ],
+    "1": [
+     -3
+    ]
+   },
+   "expect": "[7]"
+  },
+  {
+   "data": {
+    "0": [
+     100,
+     -100,
+     1,
+     0
+    ]
+   },
+   "expect": "[1]"
+  },
+  {
+   "data": {
+    "0": [
+     2147483647,
+     1,
+     0,
+     0
+    ],
+    "1": [
+     1
+    ]
+   },
+   "expect": "[-2147483648]"
+  }
+ ],
+ "hints": [
+  "The loop is fine. Look at the line that reads the total. Which version is its view cut from?",
+  "`%a` is a view of `%acc`, the memory before the loop. The memory after the loop is `%acc1`.",
+  "Add `%a1 = shrink %acc1 0 []` after the `after` line and change the last load to `%tot = load %a1`."
+ ],
+ "explain": "`%acc1 = after %acc %e` names the accumulator once the whole loop has run, so a view cut from `%acc1` reads the finished total. The view `%a` is cut from `%acc`, the version before the loop, which still holds 0. With the total read through `%a1`, the only use of `%cur` is inside the loop, so it is loaded fresh on every pass."
+}

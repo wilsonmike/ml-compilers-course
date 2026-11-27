@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The .uir Format</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content=".uir is the text form of a UOp graph: each binding names one node. Your first milestone is an interpreter (a program that runs another program directly instead...">
+<meta name="description" content="Your interpreter from the start steps ran programs that were already split into pieces. A real compiler is handed a text file. In this lesson you grow that...">
 <link rel="canonical" href="https://sharpterminal.com/site/week1/02-uir-and-interpreting">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="The .uir Format">
-<meta property="og:description" content=".uir is the text form of a UOp graph: each binding names one node. Your first milestone is an interpreter (a program that runs another program directly instead of translating it). It reads the file...">
+<meta property="og:description" content="Your interpreter from the start steps ran programs that were already split into pieces. A real compiler is handed a text file. In this lesson you grow that interpreter one problem at a time, until it...">
 <meta property="og:url" content="https://sharpterminal.com/site/week1/02-uir-and-interpreting">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,7 +20,7 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
 <style>
   .anat { font: 0.9375rem/1 var(--mono); display: flex; flex-wrap: wrap; gap: var(--s2); align-items: flex-end; margin: var(--s4) 0; }
   .anat span { display: inline-flex; flex-direction: column; align-items: center; gap: var(--s2); }
@@ -33,124 +33,128 @@
 <main>
   <p class="eyebrow">Week 1 · Lesson 2</p>
   <h1>The .uir format, and running it</h1>
-  <p class="lede">.uir is the text form of a UOp graph: each binding names one node. Your first milestone is an interpreter (a program that runs another program directly instead of translating it). It reads the file, builds hash-consed nodes, checks them, evaluates the assert and prints one line saying how it went.</p>
+  <p class="lede">Your interpreter from the start steps ran programs that were already split into pieces. A real compiler is handed a text file. In this lesson you grow that interpreter one problem at a time, until it can read a <code>.uir</code> file and print one word saying how the run went.</p>
 
   <div class="note">
-    <span class="label">Want it slower?</span>
-    <p>Your interpreter has to compute with 32-bit integers that wrap, and with a division that floors (rounds down, like Python's <code>//</code>, not toward zero like C's <code>/</code>). <a href="../learn/hard-04-numbers-like-c.html">H.4 Numbers that behave like C</a> goes through both slowly, in your language. Its float sections are a head start on week 2: week 1 has no floats.</p>
+    <span class="label">Goal</span>
+    <p>Follow a <code>.uir</code> test file from its text to the one word your compiler prints for it: <code>MATCH</code>, <code>MISMATCH</code>, <code>REJECTED</code> or <code>OVERBUDGET</code>.</p>
   </div>
 
-  <div class="note"><span class="label">The spec is the source of truth</span><p>Everything here summarizes <a href="../../spec/uir-week1.md">spec/uir-week1.md</a>, which follows the official 10-411 week 1 reference. If this page and the spec disagree, the spec wins.</p></div>
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>The ten-line interpreter from <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a>, and the idea from <a href="01-the-uop.html">lesson 1</a> that a program is a graph of nodes, each built once.</p>
+    <p class="only-python">In Python: cutting a string into words with <code>.split()</code> (<a href="../learn/py-03-collections.html">P.3</a>), tuples (<a href="../learn/py-03-collections.html">P.3</a>) and <code>//</code> and <code>%</code> (<a href="../learn/py-01-first-steps.html">P.1</a>).</p>
+    <p class="only-ocaml">In OCaml: lists and <code>match</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>), your own types such as <code>Lit</code> and <code>Name</code> (<a href="../learn/ml-04-your-own-types.html">O.4</a>) and <code>/</code> and <code>mod</code> (<a href="../learn/ml-01-first-steps.html">O.1</a>).</p>
 
-  <h2>Anatomy of a binding</h2>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Your interpreter did three moves for each line: find the values, apply the op and then what?</p>
+    <div class="opts">
+      <button data-k="a">Save the answer under the line's name</button>
+      <button data-k="b">Print the answer</button>
+      <button data-k="c">Throw away the earlier names</button>
+    </div>
+    <p class="hint">A later line has to be able to use this line's answer.</p>
+    <div class="why"><p>The answer goes into <code>env</code> under the line's name. That is how line 2 can use what line 1 made.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="1">
+    <p class="q">A program has the lines <code>%a = add 2 3</code> and <code>%b = add 2 3</code>. With hash consing, how many <code>add</code> nodes get built?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Hash consing means the same node is never built twice.</p>
+    <div class="why"><p>One. Both lines have the same op and the same sources, so <code>%a</code> and <code>%b</code> are two names for one node.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2 id="read">From text to pieces</h2>
+    <p>In the start steps, the line <code>%out = mul %a 4</code> reached your <code>run</code> function as <span class="only-python"><code>('out', 'mul', 'a', 4)</code></span><span class="only-ocaml"><code>("out", "mul", Name "a", Lit 4)</code></span>. A file gives you only a row of characters, so the first job is to split it yourself.</p>
+    <p>Turning text into a structure a program can use is called <strong>parsing</strong>. For one simple line it takes four moves:</p>
+    <ol>
+      <li><strong>Cut at the spaces.</strong> <code>%out = mul %a 4</code> becomes five words.</li>
+      <li><strong>Take the name.</strong> It is the first word with its <code>%</code> removed: <code>out</code>.</li>
+      <li><strong>Take the op.</strong> It is the third word, <code>mul</code>. The second word is the <code>=</code>, and you skip it.</li>
+      <li><strong>Sort the values.</strong> A word that starts with <code>%</code> is an earlier name. Any other word is a number, but it is still text: the character <code>4</code>, not the number 4. Convert it.</li>
+    </ol>
+  </div>
+
+  <div class="exercise" data-ex="w1-02n-line" data-ex-py="w1-02n-line-py">
+    <h3>From a line of text to its pieces</h3>
+    <p><code>parse_line</code> turns one line of text, such as <code>"%out = mul %a 4"</code>, into the tuple your interpreter from the start steps ran: <code>("out", "mul", Name "a", Lit 4)</code>. A name loses its <code>%</code> and becomes a <code>Name</code>. A number becomes a <code>Lit</code>.</p>
+    <p>Cutting the line, the name, the op and the first value are written. Two places still use <code>Lit 0</code>. In <code>atom</code>, a word that is not a name is a number: turn the text into an <code>int</code>. In <code>parse_line</code>, make <code>b</code> from <code>y</code> the same way <code>a</code> is made from <code>x</code>.</p>
+  </div>
+
+  <div class="prose">
+    <p>Feed each line of a file through <code>parse_line</code> and into the <code>run</code> you wrote in the start steps, and your interpreter reads text.</p>
+
+    <h3>What a real file adds</h3>
+    <p>Real <code>.uir</code> has a few more kinds of piece. Here is one line with all of them:</p>
+  </div>
   <div class="anat" aria-label="parts of a .uir binding">
     <span class="acc"><b>%flag =</b><i>definition</i></span><span class="acc"><b>cast</b><i>op</i></span><span><b>%x</b><i>source</i></span><span class="acc"><b>dtype=bool</b><i>attribute</i></span><span><b># comment</b><i>ignored</i></span>
   </div>
   <div class="prose">
-    <p>A .uir file is a list of <strong>tokens</strong>, not lines. Here they all are:</p>
-  </div>
-  <div class="tablewrap"><table>
-    <tr><th>token</th><th>example</th><th>meaning</th></tr>
-    <tr><td>DEF</td><td><code>%x=</code></td><td>a definition. <code>%x=</code> and <code>%x =</code> are both one token.</td></tr>
-    <tr><td>REF</td><td><code>%x</code>, <code>%0</code></td><td>a defined name: <code>%</code> and then letters, digits or underscores</td></tr>
-    <tr><td>INT</td><td><code>-7</code>, <code>0xff</code>, <code>007</code></td><td>an i32 literal, decimal or hex. Leading zeros are fine: <code>007</code> is 7.</td></tr>
-    <tr><td>BOOL</td><td><code>true</code>, <code>false</code></td><td>a bool literal</td></tr>
-    <tr><td>OP</td><td><code>add</code></td><td>a lowercase op name</td></tr>
-    <tr><td>ATTR</td><td><code>slot=0</code></td><td>one <code>key=value</code> token, with no spaces inside</td></tr>
-    <tr><td><code>[</code> <code>]</code></td><td><code>[3 6]</code></td><td>brackets around the elements of a stack</td></tr>
-  </table></div>
-<pre><code>file    := binding+ EOF
-binding := DEF rhs
-rhs     := OP atom* ATTR* | atom
-atom    := REF | INT | BOOL | '[' atom* ']'</code></pre>
-  <div class="prose">
     <ul>
-      <li>A newline is just whitespace. A binding may span lines, and several may share one. A comment runs from <code>#</code> to the end of the line.</li>
-      <li>Define a name <em>above</em> its first use, and only once. So the file is already in a valid evaluation order.</li>
-      <li>There's no <code>const</code> op in the text. A constant is written as its literal, and a binding can be a single atom: <code>%x = 5</code>, <code>%y = %x</code>, <code>%v = [10 20 30]</code>.</li>
-      <li>Attributes come after every source, and each key at most once. <code>cast dtype=bool 1</code> and <code>cast 1 dtype=bool dtype=i32</code> are rejected, and so is an attribute the op doesn't take, like <code>add 1 2 dtype=i32</code>.</li>
+      <li>A <strong>binding</strong> is one name and what it stands for. So far every line has been one binding.</li>
+      <li>A <strong>source</strong> is a value the op reads: <code>cast</code> has one, <code>add</code> two and <code>where</code> three.</li>
+      <li>An <strong>attribute</strong> is extra data for the op, written <code>key=value</code> with no spaces, after the sources.</li>
+      <li><code>0xff</code> is 255 written in hex. <code>true</code> and <code>false</code> are values too.</li>
     </ul>
+    <p>One more thing breaks the cut-at-spaces plan. The format is made of <strong>tokens</strong>, the smallest pieces that mean something, like words in a sentence. A line break counts as a space and nothing more.</p>
   </div>
-  <div class="tablewrap"><table>
-    <tr><th>you write</th><th>it means</th></tr>
-    <tr><td><code>3</code>, <code>-7</code>, <code>007</code></td><td>a constant, dtype <code>i32</code>. It must fit in 32 bits.</td></tr>
-    <tr><td><code>0xff</code>, <code>0x7fffffff</code></td><td>hex, also <code>i32</code>. A lowercase <code>0x</code> and no sign. <code>0x80000000</code> doesn't fit, so it's rejected.</td></tr>
-    <tr><td><code>true</code>, <code>false</code></td><td>a constant, dtype <code>bool</code></td></tr>
-    <tr><td><code>[1 2 3]</code></td><td>the same node as <code>stack 1 2 3</code>, shape <code>(3,)</code> (lesson 5)</td></tr>
-    <tr><td><code>[]</code></td><td>the scalar shape marker: dtype <code>void</code>, shape <code>()</code>. A param's first source.</td></tr>
-    <tr><td><code>1.5</code>, <code>%x = const 3</code></td><td>rejected. Week 1 has no floats, and no <code>const</code> op.</td></tr>
-  </table></div>
 
-  <div class="key"><span class="label">Params in one paragraph</span><p><code>%x = param [] slot=0 dtype=i32 addrspace=ALU</code> declares an input: a scalar (<code>[]</code>) i32 in slot 0. Every week 1 value lives in the <code>ALU</code> address space, so that part never changes this week. The exercises in lessons 1 to 4 use params: the tests fill slot 0 (and 1, and so on) with numbers and print what your <code>%out</code> computes. Lesson 5 shows how <code>call</code> fills params inside a program. Until then, think of a param as "a number the test hands in". In a test file, nothing fills a param that sits outside any <code>call</code>, so that file is rejected (lesson 5).</p></div>
-
-  <h2>Three dtypes, no implicit conversions</h2>
-  <div class="tablewrap"><table>
-    <tr><th>dtype</th><th>values</th><th>watch out</th></tr>
-    <tr><td><code>void</code></td><td>none</td><td>Only <code>[]</code> and <code>assert</code> have it, and neither can be an operand of an ALU op.</td></tr>
-    <tr><td><code>bool</code></td><td><code>true</code>, <code>false</code></td><td>What <code>cmplt</code> returns, and what <code>where</code> takes. As a number it's 0 or 1.</td></tr>
-    <tr><td><code>i32</code></td><td>-2³¹ to 2³¹-1</td><td><code>add</code>, <code>mul</code> and <code>shl</code> wrap around.</td></tr>
-  </table></div>
-  <div class="trap"><span class="label">No implicit conversion</span><p><code>add 1 true</code> is <strong>rejected</strong>, not <code>2</code>. <code>1</code> is an <code>i32</code> and <code>true</code> is a <code>bool</code>, and binary ops need matching dtypes. Write <code>add 1 %b</code> with <code>%b = cast true dtype=i32</code>. C would quietly convert for you. Here, the conversion has to be its own visible node. Floats, <code>f32</code>, arrive in <a href="../week2/01-buffers-and-views.html">week 2</a>.</p></div>
-  <div class="prose"><p>The ALU ops, the ones that compute on values, are below. The spec has the full typing rules.</p></div>
-  <div class="tablewrap"><table>
-    <tr><th>op</th><th>means</th></tr>
-    <tr><td><code>add a b</code>, <code>mul a b</code></td><td><code>a + b</code>, <code>a * b</code></td></tr>
-    <tr><td><code>div a b</code>, <code>mod a b</code></td><td>i32 quotient and remainder, floored (below)</td></tr>
-    <tr><td><code>max a b</code></td><td>the larger of <code>a</code> and <code>b</code></td></tr>
-    <tr><td><code>xor a b</code></td><td>bitwise exclusive or for i32, logical for bool</td></tr>
-    <tr><td><code>shl a b</code></td><td><code>a</code> shifted left by <code>b mod 32</code> bits, i32 only</td></tr>
-    <tr><td><code>cmplt a b</code></td><td><code>a &lt; b</code>, as a bool</td></tr>
-    <tr><td><code>where c a b</code></td><td><code>a</code> if the bool <code>c</code> is true, else <code>b</code>. Both branches are evaluated.</td></tr>
-    <tr><td><code>cast a dtype=T</code></td><td><code>a</code> converted to dtype <code>T</code> (rules below)</td></tr>
-  </table></div>
-  <p class="prose"><code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code> and <code>cmplt</code> also take two bools. They compute on 0 and 1 and turn the answer back into a bool, so <code>add true true</code> is <code>true</code> (it acts as or) and <code>mul</code> acts as and.</p>
-
-  <h2>Evaluating: sources first</h2>
-  <div class="prose">
-    <p>To evaluate a node, first evaluate its sources. Because names are defined before use, the file order is already a <strong>topological order</strong>: every node comes after its sources. So the simplest correct evaluator is a recursive <code>eval node</code> that evaluates the sources first and caches each result. Run it on the assert. (Once <code>call</code> arrives in lesson 5, that cache must be per call, because the same param node means different values in different calls.) Step through it:</p>
+  <div class="quiz" data-fill="2">
+    <p class="q">How many bindings does this file hold?</p>
+<pre><code>%a = add 2
+     3 %t = assert %a 5</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Don't count lines. Count the places where a name is followed by <code>=</code>.</p>
+    <div class="why"><p>Two: <code>%a = add 2 3</code>, spread over two lines, and <code>%t = assert %a 5</code>. <code>%a=add 2 3</code> with no spaces is legal too, so a real parser reads tokens, not lines.</p></div>
   </div>
-  <div class="fig" id="ev" data-title="evaluating a program one node at a time"></div>
 
   <div class="prose">
-    <h3>The assert is the root</h3>
-    <p>A test file ends with exactly one <code>assert</code>, as its last binding, and nothing uses it as an operand. Its left side is the program's return value, a scalar in week 1. Its right side is the expected value: a literal, or a stack of literals, never a computation. And <strong>every node must be reachable from the assert</strong>, call bodies and unused call arguments included. So this file is rejected. The division is fine (<code>div 1 0</code> is -1, see below), but nothing reaches it:</p>
-  </div>
-  <div class="split">
-<pre><code>%bad = div 1 0     # never needed
-%t   = assert 1 1  # the only root</code></pre>
-    <div id="lazy"></div>
-  </div>
-  <p class="prose">Change the assert to <code>assert %bad -1</code> and it's a MATCH. Nothing in week 1 can fail at run time: every op gives an answer for every input, and the checks that could fail all happen before anything runs.</p>
+    <p>Every token and the grammar are in the <a href="#reference">reference</a>.</p>
+    <h3>Build nodes, don't compute yet</h3>
+    <p>One plan changes from the start steps. There, each line's <em>answer</em> was saved under its name as soon as the line was read. Your compiler saves a <em>node</em> under each name, built through the hash-consing table from <a href="01-the-uop.html">lesson 1</a>, and computes nothing yet, because the whole program has to be checked before any of it runs.</p>
 
-  <h2>Four outcomes</h2>
-  <p class="prose">Your compiler is one program, run as <code>./compile FILE...</code>. For each file it prints one line to stdout: the outcome, one space, and the path exactly as it was given. A second subcommand, <code>simplify</code>, arrives in lessons 3 and 4.</p>
-  <div class="tablewrap"><table>
-    <tr><th>outcome</th><th>when</th><th>example</th></tr>
-    <tr><td><code>MATCH</code></td><td>the program ran, and the values are equal</td><td><code>%t = assert 3 3</code></td></tr>
-    <tr><td><code>MISMATCH</code></td><td>the program ran, and the values differ</td><td><code>%t = assert 3 4</code></td></tr>
-    <tr><td><code>REJECTED</code></td><td>invalid before anything runs: a parse error, a type error, an unsafe index, a broken test-file rule</td><td><code>%t = assert 3 true</code></td></tr>
-    <tr><td><code>OVERBUDGET</code></td><td>a size or cost limit is hit, so it never runs</td><td>a file with 100 nodes</td></tr>
-  </table></div>
+    <h2 id="numbers">Compute like the machine</h2>
+    <p>Your interpreter now reads text. Does it get the right answers? Press Next and guess each value with ordinary school arithmetic.</p>
+  </div>
+
+  <div class="fig" id="wrap"></div>
+
   <div class="prose">
-    <p>The checks happen in a fixed order, and the first one that decides stops the rest:</p>
+    <p>School arithmetic says 65536 × 65536 is 4,294,967,296 and -7 ÷ 2 is -3.5. The program says 0 and -4, and it is right. The language fixes what happens in each case, so that every compiler gives the same result.</p>
+
+    <h3>Numbers wrap at 32 bits</h3>
+    <p>Whole numbers in <code>.uir</code> are of a kind called <strong>i32</strong>: an integer stored in 32 bits, which are 32 switches that are each on or off. That is enough for every whole number from -2,147,483,648 to 2,147,483,647 and no others. A result that goes past one end comes back in at the other, like a car's mileage counter rolling over. That is called <strong>wrapping</strong>.</p>
+    <p><code>add 2147483647 1</code> lands 1 past the largest i32. To come around, subtract 2³², which is 4,294,967,296. The result is -2,147,483,648, the smallest i32. The same rule turns 65536 × 65536 into 0. <code>add</code> and <code>mul</code> wrap. So does <code>shl a b</code>, which shifts <code>a</code> left by <code>b</code> bits, the same as doubling it <code>b</code> times. It only looks at <code>b mod 32</code>, a number from 0 to 31.</p>
+    <p><span class="only-python">Python's numbers never wrap</span><span class="only-ocaml">An OCaml <code>int</code> is 63 bits wide</span>, so your <code>apply</code> wraps the result of every <code>add</code>, <code>mul</code> and <code>shl</code> by hand:</p>
+<pre class="only-python"><code>def wrap(x):
+    return (x + 2**31) % 2**32 - 2**31</code></pre>
+<pre class="only-ocaml"><code>let wrap x = Int32.to_int (Int32.of_int x)</code></pre>
+
+    <h3>Division rounds down</h3>
+    <p>An i32 can't hold -3.5, so <code>div</code> rounds. It always rounds <em>down</em>, toward the more negative number, which is called <strong>flooring</strong>. Its partner <code>mod</code> gives the remainder that is left. Take <code>div -7 2</code> and <code>mod -7 2</code>:</p>
     <ol>
-      <li>Over 4096 bytes: <code>OVERBUDGET</code>, without even parsing.</li>
-      <li>Parse. A file that breaks the grammar: <code>REJECTED</code>.</li>
-      <li>100 or more nodes, or 300 or more source edges: <code>OVERBUDGET</code>. Nodes are counted after hash consing, literals and <code>[]</code> included, reachable or not. An edge is one source of one node.</li>
-      <li>Validate: dtypes, shapes, index safety (lesson 4), call arguments (lesson 5) and the test-file rules. Any failure: <code>REJECTED</code>.</li>
-      <li>Static cost (lesson 1) of 1,000,000 or more: <code>OVERBUDGET</code>.</li>
-      <li>Run it: <code>MATCH</code> or <code>MISMATCH</code>.</li>
+      <li><strong>Divide exactly.</strong> -7 ÷ 2 is -3.5.</li>
+      <li><strong>Round down.</strong> The next whole number below -3.5 is -4. So <code>div -7 2</code> is -4, not -3.</li>
+      <li><strong>Find what is left.</strong> <code>mod a b</code> is <code>a - b * (div a b)</code>. Here that is -7 - 2 × (-4), which is 1.</li>
     </ol>
   </div>
-<pre><code>$ ./compile tests/week1/run/rejected_assert_dtype.uir tests/week1/run/basic_add.uir
-REJECTED tests/week1/run/rejected_assert_dtype.uir
-MATCH tests/week1/run/basic_add.uir</code></pre>
-  <p class="prose">A test's expected outcome is in its file name: a <code>mismatch_</code>, <code>rejected_</code> or <code>overbudget_</code> prefix, and <code>MATCH</code> otherwise. The grader copies each test to a neutral name before your compiler sees it, so the name can't help you.</p>
 
-  <h2>i32: wrapping, flooring, never failing</h2>
+  <div class="quiz" data-fill="-4">
+    <p class="q">Your turn. What is <code>div 7 -2</code>?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Divide exactly first. Then go down to the next whole number, away from zero for a negative result.</p>
+    <div class="why"><p>7 ÷ -2 is -3.5, and rounding down gives -4. Then <code>mod 7 -2</code> is 7 - (-2) × (-4), which is -1.</p></div>
+  </div>
+
   <div class="prose">
-    <p><strong>Wraparound.</strong> <code>add 2147483647 1</code> is <code>-2147483648</code>. In C, signed overflow is undefined behavior. Here it's defined: the result is reduced mod 2³² into the signed range.</p>
-    <p><strong>Division floors</strong> (like Python's <code>//</code>, unlike C's <code>/</code>, which truncates toward zero). <code>div a b</code> is <code>floor(a / b)</code>, and <code>mod a b</code> is <code>a - b * floor(a / b)</code>, so a nonzero remainder has the sign of <code>b</code>.</p>
+    <p>Here are the four sign cases and two odd ones, next to C, which rounds toward zero:</p>
   </div>
   <div class="tablewrap"><table>
     <tr><th>a</th><th>b</th><th>div a b</th><th>mod a b</th><th>C a / b, a % b</th></tr>
@@ -161,24 +165,297 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
     <tr><td>-2147483648</td><td>-1</td><td>-2147483648</td><td>0</td><td>undefined behavior</td></tr>
     <tr><td>5</td><td>0</td><td>-1</td><td>5</td><td>undefined behavior</td></tr>
   </table></div>
-  <p class="prose">So neither op can fail. <code>div x 0</code> is -1 and <code>mod x 0</code> is <code>x</code>. <code>div INT_MIN -1</code> is 2³¹, which wraps to <code>INT_MIN</code>, and <code>mod INT_MIN -1</code> is 0. <code>shl a b</code> shifts by <code>b mod 32</code>, which is always 0 to 31: <code>shl 1 31</code> and <code>shl 1 -1</code> are both <code>-2147483648</code>, and <code>shl 1 32</code> is 1.</p>
+  <div class="prose">
+    <p>The last row matters most. Dividing by zero is not an error in <code>.uir</code>: <code>div x 0</code> is -1 and <code>mod x 0</code> is <code>x</code>. So no op can fail while a program runs. <span class="only-ocaml">OCaml's <code>/</code> and <code>mod</code> round toward zero, like C.</span><span class="only-python">Python's <code>//</code> and <code>%</code> round down already, but they never wrap and they raise an error on zero.</span></p>
+  </div>
 
   <div class="exercise small" data-ex="w1-02-div32" data-ex-py="w1-02-div32-py">
     <h3>div and mod, exactly</h3>
-    <p class="only-ocaml">Write <code>divmod32 a b</code> for i32 values held in OCaml <code>int</code>s, returning .uir's <code>div</code> and <code>mod</code> as a pair. The quotient is <code>floor(a / b)</code>, wrapped to 32 bits, and the remainder is <code>a - b * floor(a / b)</code>. When <code>b</code> is 0 the pair is <code>(-1, a)</code>. (Lesson 0.6 had the quotient alone. This one adds the remainder.)</p>
-    <p class="only-python">Write <code>divmod32(a, b)</code> for i32 values held in Python <code>int</code>s, returning .uir's <code>div</code> and <code>mod</code> as a pair: the floor quotient wrapped to 32 bits, and the remainder <code>a - b * floor(a / b)</code>. When <code>b == 0</code> the pair is <code>(-1, a)</code>. (Lesson 0.7 had the quotient alone. This one adds the remainder.)</p>
-    <p class="muted">Check the table above against what your language's own division does. <span class="only-ocaml">OCaml's <code>/</code> and <code>mod</code> truncate, like C.</span><span class="only-python">Python's <code>//</code> and <code>%</code> floor already, but they never wrap, and they raise on zero.</span></p>
+    <p>Write <code>divmod32</code> for i32 values held in your language's own ints. It returns .uir's <code>div</code> and <code>mod</code> as a pair: the floor quotient wrapped to 32 bits, and the remainder <code>a - b * floor(a / b)</code>. When <code>b</code> is 0 the pair is <code>(-1, a)</code>. Check your answers against the table above.</p>
   </div>
 
   <div class="prose">
-    <h3>What assert means by "equal"</h3>
-    <ul>
-      <li>i32 and bool compare exactly, and both sides must have the same dtype: <code>assert 3 true</code> is rejected.</li>
-      <li>The expected side must be written out. <code>%e = 6</code> then <code>assert %s %e</code> is fine, because <code>%e</code> just names a literal. <code>assert %s %f</code> with <code>%f = add 3 3</code> is rejected.</li>
-    </ul>
-    <p><strong>Casts.</strong> A number to bool means "not zero": <code>cast 5 dtype=bool</code> is <code>true</code>. A bool to i32 gives 0 or 1. A cast to the dtype a value already has changes nothing.</p>
+    <p>If wrapping or flooring still feels shaky, <a href="../learn/hard-04-numbers-like-c.html">H.4 Numbers that behave like C</a> goes through both slowly, with pictures, in your language.</p>
+
+    <h2 id="types">Check types</h2>
+    <p>Numbers are not the only values. The op <code>cmplt a b</code> (compare, less than) asks "is <code>a</code> less than <code>b</code>?". Its answer is <code>true</code> or <code>false</code>, not a number. So what happens when a program uses that answer as a number?</p>
   </div>
-  <div class="note"><span class="label">Floats wait for week 2</span><p>Week 1 is i32 and bool only. A float literal like <code>1.5</code> is rejected. f32, its rounding rules and its odd values (<code>nan</code>, <code>inf</code>, <code>-0.0</code>) are taught in <a href="../week2/01-buffers-and-views.html">week 2, lesson 1</a>, along with the exercise that rounds to f32.</p></div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Guess first. 3 is less than 5, so <code>%c</code> is <code>true</code>. What should a compiler do with the second line?</p>
+<pre><code>%c = cmplt 3 5
+%s = add %c 1</code></pre>
+    <div class="opts">
+      <button data-k="a">Treat <code>true</code> as 1, so <code>%s</code> is 2</button>
+      <button data-k="b">Refuse the whole program</button>
+      <button data-k="c">Treat 1 as <code>true</code>, so <code>%s</code> is <code>true</code></button>
+    </div>
+    <p class="hint">Two of these answers are guesses about what the writer meant. Which answer makes no guess?</p>
+    <div class="why"><p>It refuses. Options a and c are both reasonable guesses, and they disagree. A compiler that guesses can turn a slip into a wrong answer that nobody notices.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Every value has a <strong>dtype</strong>, short for data type: the kind of value it is. Week 1 has two that hold values: <code>i32</code>, a whole number, and <code>bool</code>, <code>true</code> or <code>false</code>. An op with two operands needs both to have the <em>same</em> dtype, so <code>add 1 true</code> is refused.</p>
+    <p>To mix them, say so with <code>cast</code>, an op that converts a value to the dtype named in its attribute. Here is the program from the quiz, repaired:</p>
+<pre><code>%c = cmplt 3 5
+%n = cast %c dtype=i32
+%s = add %n 1</code></pre>
+    <ol>
+      <li><strong>Find the dtypes.</strong> <code>%c</code> is a <code>bool</code>, because <code>cmplt</code> always makes one. <code>1</code> is an <code>i32</code>.</li>
+      <li><strong>Compare them.</strong> They differ, so <code>add %c 1</code> would be refused.</li>
+      <li><strong>Convert in the open.</strong> <code>cast %c dtype=i32</code> turns <code>true</code> into 1 and <code>false</code> into 0. Now <code>add %n 1</code> has two <code>i32</code> operands, and <code>%s</code> is 2.</li>
+    </ol>
+
+    <p>A <code>bool</code> is what lets a program choose. <code>where c a b</code> gives <code>a</code> when <code>c</code> is <code>true</code> and <code>b</code> when it is <code>false</code>. Its first operand must be a <code>bool</code>, and the other two must share a dtype.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Exactly one of these is refused. Which?</p>
+    <div class="opts">
+      <button data-k="a"><code>add true false</code></button>
+      <button data-k="b"><code>where 1 5 6</code></button>
+      <button data-k="c"><code>cmplt 4 4</code></button>
+    </div>
+    <p class="hint">One op needs a <code>bool</code> and was handed a number.</p>
+    <div class="why"><p><code>where</code> chooses with a <code>bool</code>, and <code>1</code> is an <code>i32</code>. <code>add true false</code> has two operands of the same dtype, and on bools <code>add</code> acts as "or", so it is <code>true</code>. <code>cmplt 4 4</code> is a legal question whose answer is <code>false</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The check happens when the node is built, because that is when lesson 1 said its dtype is worked out. If no dtype fits, the program is refused before anything is computed. The rule for every op is in the <a href="#reference">reference</a>.</p>
+  </div>
+
+  <div class="exercise" data-ex="w1-02n-dtype" data-ex-py="w1-02n-dtype-py">
+    <h3>Finish the type check</h3>
+    <p><code>result_dtype op a b</code> is given an op and the dtypes of its two operands, each <code>"i32"</code> or <code>"bool"</code>. It returns the dtype of the result, or <code>"rejected"</code> when the op does not accept those operands.</p>
+    <p>The branch for <code>add</code>, <code>mul</code>, <code>max</code> and <code>xor</code> is right. Two branches are too trusting. <code>cmplt</code> needs both operands to have the same dtype, and its result is always <code>"bool"</code>. <code>div</code>, <code>mod</code> and <code>shl</code> need both operands to be <code>"i32"</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2 id="outcomes">Judge the run</h2>
+    <p>Every test file ends with one <code>assert a b</code>, which compares the program's answer <code>a</code> with the expected value <code>b</code>. Nothing uses the assert and everything leads to it, so it is the <strong>root</strong> of the graph: the node you start from.</p>
+    <p>Running starts at the root and works backward. To get a node's value, first get the values of its sources, then apply the op. Each answer is saved under its <em>node</em>, so a node used twice is computed once. (<a href="../learn/hard-02-walking-graphs.html">H.2 Walking a graph once</a> is the slow version.) Step through a whole test:</p>
+  </div>
+  <div class="fig" id="ev" data-title="evaluating a program one node at a time"></div>
+
+  <div class="prose">
+    <p>That run ended in <code>MATCH</code>. Had the assert expected 21, it would have ended in <code>MISMATCH</code>. But a file can go wrong before it runs.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Guess first. A test file has <code>add 1 true</code> on its first line. Its last line is an assert that would compare 4 with 5. What should the compiler print?</p>
+    <div class="opts">
+      <button data-k="a"><code>MISMATCH</code>, because 4 is not 5</button>
+      <button data-k="b"><code>REJECTED</code>, because of the type error</button>
+      <button data-k="c">Both words, one for each problem</button>
+    </div>
+    <p class="hint">When is a type error found? Is that before or after the program runs?</p>
+    <div class="why"><p>The type error is found while the graph is built, so the program never runs and the assert never compares anything. The compiler prints exactly one word for each file, and the first check that fails decides it.</p></div>
+  </div>
+
+  <div class="prose">
+    <h3>Four outcomes, six checks</h3>
+    <p>For each file your compiler prints one line: the outcome, one space, and the path exactly as it was given. <code>MATCH</code> and <code>MISMATCH</code> are for a program that ran. <code>REJECTED</code> is for a file that breaks a rule. <code>OVERBUDGET</code> is for one too big or too costly to run. A file can break several rules, and every compiler has to print the same word. So the checks run in a fixed order, and the first one that decides stops the rest:</p>
+    <ol>
+      <li><strong>Size.</strong> A file over 4096 bytes is <code>OVERBUDGET</code>. It is not even parsed.</li>
+      <li><strong>Parse.</strong> Text that breaks the format is <code>REJECTED</code>.</li>
+      <li><strong>Count.</strong> 100 or more nodes, or 300 or more source edges, is <code>OVERBUDGET</code>. A source edge is one arrow in the graph.</li>
+      <li><strong>Validate.</strong> This checks every other rule the format has. Wrong dtypes, or a broken test-file rule, is <code>REJECTED</code>.</li>
+      <li><strong>Cost.</strong> A static cost (lesson 1) of 1,000,000 or more is <code>OVERBUDGET</code>.</li>
+      <li><strong>Run.</strong> Equal values are a <code>MATCH</code>. Different values are a <code>MISMATCH</code>.</li>
+    </ol>
+    <p>The cheap checks come first, and running comes last, when nothing is left that can go wrong.</p>
+  </div>
+
+  <div class="exercise" data-ex="w1-02n-outcome" data-ex-py="w1-02n-outcome-py">
+    <h3>Put the checks in order</h3>
+    <p><code>outcome</code> is handed a record of what the compiler found out about one file: its <code>size</code> in bytes, whether it <code>parses</code>, its <code>nodes</code> and source <code>edges</code>, whether it is <code>valid</code>, its static <code>cost</code>, the value it computes (<code>got</code>) and the value its assert expects (<code>want</code>). It returns the one word the compiler prints.</p>
+    <p>Every check is here with the right limit, but they run in the wrong order. Put them in the order of the list above. Then repair the last branch: a program that runs is not always a <code>MATCH</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h3>Everything must lead to the assert</h3>
+    <p>One more rule: <strong>every node must be reachable from the assert</strong> by following arrows backward. A binding that nothing uses breaks the rule, so this file is rejected, though <code>div 1 0</code> itself is fine:</p>
+  </div>
+  <div class="split">
+<pre><code>%bad = div 1 0     # never needed
+%t   = assert 1 1  # the only root</code></pre>
+    <div id="lazy"></div>
+  </div>
+  <div class="prose">
+    <p>Change the assert to <code>assert %bad -1</code> and it's a MATCH.</p>
+    <p>A test's file name says which outcome it expects: a <code>mismatch_</code>, <code>rejected_</code> or <code>overbudget_</code> prefix, and <code>MATCH</code> otherwise.</p>
+
+    <h2 id="params">Take inputs</h2>
+    <p>You have been copying one long line since the first start step. Now you can read it:</p>
+<pre><code>%x = param [] slot=0 dtype=i32 addrspace=ALU</code></pre>
+    <ol>
+      <li><strong><code>param</code></strong> is the op. It makes an input, a value handed in from outside.</li>
+      <li><strong><code>[]</code></strong> is its one source. It says the input is a <strong>scalar</strong>: a single value and not a list of them.</li>
+      <li><strong><code>slot=0</code></strong> says which input this is. Inputs are numbered from 0.</li>
+      <li><strong><code>dtype=i32</code></strong> says what kind of value comes in.</li>
+      <li><strong><code>addrspace=ALU</code></strong> says where the value lives. In week 1 it is always <code>ALU</code>.</li>
+    </ol>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">A program needs a second input, a yes or no value. Which line declares it?</p>
+    <div class="opts">
+      <button data-k="a"><code>%y = param [] slot=0 dtype=i32 addrspace=ALU</code></button>
+      <button data-k="b"><code>%y = param [] slot=1 dtype=i32 addrspace=ALU</code></button>
+      <button data-k="c"><code>%y = param [] slot=1 dtype=bool addrspace=ALU</code></button>
+    </div>
+    <p class="hint">Two attributes change: which input it is, and what kind of value it holds.</p>
+    <div class="why"><p>Slots count from 0, so the second input is <code>slot=1</code>. A yes or no value is a <code>bool</code>.</p></div>
+  </div>
+
+  <div class="key"><span class="label">Who fills a param?</span><p>In the exercises so far, the tests do: they fill each slot with numbers and check what your <code>%out</code> computes. Inside a program the <code>call</code> op does it (lesson 5). In a test file, nothing fills a param that sits outside any <code>call</code>, so that file is rejected.</p></div>
+
+  <p class="prose">Now write a program of your own with an input.</p>
+
+  <div class="exercise" data-ex="w1-uir-abs">
+    <h3>Absolute value in .uir</h3>
+    <p>Define <code>%out</code> as <code>|x|</code> for the i32 param <code>%x</code>, using <code>cmplt</code>, <code>where</code> and <code>mul</code>. There's no <code>sub</code> or <code>neg</code> op: <code>-x</code> is <code>mul %x -1</code>.</p>
+    <p class="muted">What should <code>|INT_MIN|</code> be when i32 wraps? The tests have an opinion.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Split a line of <code>.uir</code> text into a name, an op and its values, and say why a real parser reads tokens and not lines.</li>
+      <li>Work out <code>add</code>, <code>mul</code>, <code>div</code> and <code>mod</code> the way the language does: wrapping at 32 bits, rounding down, never failing on zero.</li>
+      <li>Say why <code>add 1 true</code> is refused, and repair it with a <code>cast</code>.</li>
+      <li>Name the four outcomes, and put the six checks in order.</li>
+      <li>Read every word of a <code>param</code> line.</li>
+    </ul>
+    <p>Next, in <a href="03-rewrites-and-folding.html">lesson 3</a>, the compiler starts improving the graph, one small rewrite rule at a time.</p>
+
+    <h2 id="reference">Reference</h2>
+    <p>Detail to look up while you write the lab.</p>
+  </div>
+
+  <div class="note"><span class="label">The spec is the source of truth</span><p>This page summarizes <a href="../../spec/uir-week1.md">spec/uir-week1.md</a>, which follows the official 10-411 week 1 reference. If they disagree, the spec wins.</p></div>
+
+  <details class="toggle">
+    <summary>Every token and the grammar, for when you write the parser</summary>
+    <div class="prose">
+      <p>A .uir file is a list of <strong>tokens</strong>, not lines. Here they all are:</p>
+      <div class="tablewrap"><table>
+        <tr><th>token</th><th>example</th><th>meaning</th></tr>
+        <tr><td>DEF</td><td><code>%x=</code></td><td>a definition. <code>%x=</code> and <code>%x =</code> are both one token.</td></tr>
+        <tr><td>REF</td><td><code>%x</code>, <code>%0</code></td><td>a defined name: <code>%</code> and then letters, digits or underscores</td></tr>
+        <tr><td>INT</td><td><code>-7</code>, <code>0xff</code>, <code>007</code></td><td>an i32 literal, decimal or hex. Leading zeros are fine: <code>007</code> is 7.</td></tr>
+        <tr><td>BOOL</td><td><code>true</code>, <code>false</code></td><td>a bool literal</td></tr>
+        <tr><td>OP</td><td><code>add</code></td><td>a lowercase op name</td></tr>
+        <tr><td>ATTR</td><td><code>slot=0</code></td><td>one <code>key=value</code> token, with no spaces inside</td></tr>
+        <tr><td><code>[</code> <code>]</code></td><td><code>[3 6]</code></td><td>brackets around the elements of a stack</td></tr>
+      </table></div>
+      <p>The grammar says how tokens may follow each other. Read <code>:=</code> as "is made of", <code>|</code> as "or", <code>*</code> as "zero or more" and <code>+</code> as "one or more". An <strong>atom</strong> is a value written in place: a name, a literal or a bracketed list.</p>
+<pre><code>file    := binding+ EOF
+binding := DEF rhs
+rhs     := OP atom* ATTR* | atom
+atom    := REF | INT | BOOL | '[' atom* ']'</code></pre>
+      <ul>
+        <li>A newline is just whitespace. A binding may span lines, and several may share one. A comment runs from <code>#</code> to the end of the line.</li>
+        <li>Define a name <em>above</em> its first use, and only once. So the file is already in a valid evaluation order.</li>
+        <li>There's no <code>const</code> op in the text. A constant is written as its literal, and a binding can be a single atom: <code>%x = 5</code>, <code>%y = %x</code>, <code>%v = [10 20 30]</code>.</li>
+        <li>Attributes come after every source, and each key at most once. <code>cast dtype=bool 1</code> and <code>cast 1 dtype=bool dtype=i32</code> are rejected, and so is an attribute the op doesn't take, like <code>add 1 2 dtype=i32</code>.</li>
+        <li>The text is case-sensitive ASCII. Outside comments, every character is printable ASCII or whitespace (space, tab, carriage return, newline). A comment can't sit between a name and its <code>=</code>.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Every literal, and the ones that are rejected</summary>
+    <div class="prose">
+      <p>A <strong>literal</strong> is a value written out in the text, like <code>3</code> or <code>true</code>.</p>
+      <div class="tablewrap"><table>
+        <tr><th>you write</th><th>it means</th></tr>
+        <tr><td><code>3</code>, <code>-7</code>, <code>007</code></td><td>a constant, dtype <code>i32</code>. It must fit in 32 bits.</td></tr>
+        <tr><td><code>0xff</code>, <code>0x7fffffff</code></td><td>hex, also <code>i32</code>. A lowercase <code>0x</code> and no sign. <code>0x80000000</code> doesn't fit, so it's rejected.</td></tr>
+        <tr><td><code>true</code>, <code>false</code></td><td>a constant, dtype <code>bool</code></td></tr>
+        <tr><td><code>[1 2 3]</code></td><td>the same node as <code>stack 1 2 3</code>, shape <code>(3,)</code> (lesson 5)</td></tr>
+        <tr><td><code>[]</code></td><td>the scalar shape marker: dtype <code>void</code>, shape <code>()</code>. A param's first source.</td></tr>
+        <tr><td><code>1.5</code>, <code>%x = const 3</code></td><td>rejected. Week 1 has no floats, and no <code>const</code> op.</td></tr>
+      </table></div>
+      <p>Week 1 is i32 and bool only. A float literal like <code>1.5</code> is rejected. f32, its rounding rules and its odd values (<code>nan</code>, <code>inf</code>, <code>-0.0</code>) are taught in <a href="../week2/01-buffers-and-views.html">week 2, lesson 1</a>, along with the exercise that rounds to f32.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>The three dtypes, every op and the cast rules, for when you write the type check and <code>apply</code></summary>
+    <div class="prose">
+      <p>There are three dtypes and no implicit conversions. "Implicit" means done for you without being asked.</p>
+      <div class="tablewrap"><table>
+        <tr><th>dtype</th><th>values</th><th>watch out</th></tr>
+        <tr><td><code>void</code></td><td>none</td><td>Only <code>[]</code> and <code>assert</code> have it, and neither can be an operand of an ALU op.</td></tr>
+        <tr><td><code>bool</code></td><td><code>true</code>, <code>false</code></td><td>What <code>cmplt</code> returns, and what <code>where</code> takes. As a number it's 0 or 1.</td></tr>
+        <tr><td><code>i32</code></td><td>-2³¹ to 2³¹-1</td><td><code>add</code>, <code>mul</code> and <code>shl</code> wrap around.</td></tr>
+      </table></div>
+      <div class="trap"><span class="label">No implicit conversion</span><p><code>add 1 true</code> is <strong>rejected</strong>, not <code>2</code>. <code>1</code> is an <code>i32</code> and <code>true</code> is a <code>bool</code>, and binary ops need matching dtypes. Write <code>add 1 %b</code> with <code>%b = cast true dtype=i32</code>. C would quietly convert for you. Here, the conversion has to be its own visible node. Floats, <code>f32</code>, arrive in <a href="../week2/01-buffers-and-views.html">week 2</a>.</p></div>
+      <p>The ALU ops, the ones that compute on values, are below. The spec has the full typing rules.</p>
+      <div class="tablewrap"><table>
+        <tr><th>op</th><th>means</th></tr>
+        <tr><td><code>add a b</code>, <code>mul a b</code></td><td><code>a + b</code>, <code>a * b</code></td></tr>
+        <tr><td><code>div a b</code>, <code>mod a b</code></td><td>i32 quotient and remainder, floored (see <a href="#numbers">Compute like the machine</a>)</td></tr>
+        <tr><td><code>max a b</code></td><td>the larger of <code>a</code> and <code>b</code></td></tr>
+        <tr><td><code>xor a b</code></td><td>bitwise exclusive or for i32, logical for bool</td></tr>
+        <tr><td><code>shl a b</code></td><td><code>a</code> shifted left by <code>b mod 32</code> bits, i32 only</td></tr>
+        <tr><td><code>cmplt a b</code></td><td><code>a &lt; b</code>, as a bool</td></tr>
+        <tr><td><code>where c a b</code></td><td><code>a</code> if the bool <code>c</code> is true, else <code>b</code>. Both branches are evaluated.</td></tr>
+        <tr><td><code>cast a dtype=T</code></td><td><code>a</code> converted to dtype <code>T</code> (rules below)</td></tr>
+      </table></div>
+      <p><code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code> and <code>cmplt</code> also take two bools. They compute on 0 and 1 and turn the answer back into a bool, so <code>add true true</code> is <code>true</code> (it acts as or) and <code>mul</code> acts as and.</p>
+      <p><strong>Casts.</strong> A number to bool means "not zero": <code>cast 5 dtype=bool</code> is <code>true</code>. A bool to i32 gives 0 or 1. A cast to the dtype a value already has changes nothing.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Edge cases of wrapping, div, mod and shl, for when a test disagrees with you</summary>
+    <div class="prose">
+      <p><strong>Wraparound.</strong> <code>add 2147483647 1</code> is <code>-2147483648</code>. In C, signed overflow is undefined behavior. Here it's defined: the result is reduced mod 2³² into the signed range.</p>
+      <p><strong>Division floors</strong> (like Python's <code>//</code>, unlike C's <code>/</code>, which truncates toward zero). <code>div a b</code> is <code>floor(a / b)</code>, and <code>mod a b</code> is <code>a - b * floor(a / b)</code>, so a nonzero remainder has the sign of <code>b</code>.</p>
+      <p>So neither op can fail. <code>div x 0</code> is -1 and <code>mod x 0</code> is <code>x</code>. <code>div INT_MIN -1</code> is 2³¹, which wraps to <code>INT_MIN</code>, and <code>mod INT_MIN -1</code> is 0. <code>shl a b</code> shifts by <code>b mod 32</code>, which is always 0 to 31: <code>shl 1 31</code> and <code>shl 1 -1</code> are both <code>-2147483648</code>, and <code>shl 1 32</code> is 1.</p>
+      <p><code>INT_MIN</code> is the smallest i32, -2147483648, and <code>INT_MAX</code> is the largest, 2147483647.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>How to evaluate: sources first, with a cache</summary>
+    <div class="prose">
+      <p>To evaluate a node, first evaluate its sources. Because names are defined before use, the file order is already a <strong>topological order</strong>: every node comes after its sources. So the simplest correct evaluator is a recursive <code>eval node</code> that evaluates the sources first and caches each result. Run it on the assert. <a href="../learn/hard-02-walking-graphs.html">H.2 Walking a graph once</a> builds this slowly, with pictures, in your language. (Once <code>call</code> arrives in lesson 5, that cache must be per call, because the same param node means different values in different calls.)</p>
+      <p><code>where</code> evaluates both of its branches even though it returns only one. Nothing in week 1 can fail at run time, so that is never visible.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Every rule a test file must follow, and what assert means by "equal"</summary>
+    <div class="prose">
+      <p>A test file ends with exactly one <code>assert</code>, as its last binding, and nothing uses it as an operand. Its left side is the program's return value, a scalar in week 1. Its right side is the expected value: a literal, or a stack of literals, never a computation. And <strong>every node must be reachable from the assert</strong>, call bodies and unused call arguments included.</p>
+      <ul>
+        <li>i32 and bool compare exactly, and both sides must have the same dtype: <code>assert 3 true</code> is rejected.</li>
+        <li>The expected side must be written out. <code>%e = 6</code> then <code>assert %s %e</code> is fine, because <code>%e</code> just names a literal. <code>assert %s %f</code> with <code>%f = add 3 3</code> is rejected.</li>
+        <li>"Exactly one" counts assert bindings. Two <code>assert</code> lines are two asserts even when they are identical and hash cons to one node.</li>
+        <li>"Last binding" means the last binding names the assert node. <code>%u = %t</code> after <code>%t = assert ...</code> is fine.</li>
+        <li>A file that is all comments has no bindings, so it is rejected.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>The complete check order, with every limit and what each step covers</summary>
+    <div class="prose">
+      <p>The checks happen in a fixed order, and the first one that decides stops the rest:</p>
+      <ol>
+        <li>Over 4096 bytes: <code>OVERBUDGET</code>, without even parsing.</li>
+        <li>Parse. A file that breaks the grammar: <code>REJECTED</code>.</li>
+        <li>100 or more nodes, or 300 or more source edges: <code>OVERBUDGET</code>. Nodes are counted after hash consing, literals and <code>[]</code> included, reachable or not. An edge is one source of one node.</li>
+        <li>Validate: dtypes, shapes, index safety (lesson 4), call arguments (lesson 5) and the test-file rules. Any failure: <code>REJECTED</code>.</li>
+        <li>Static cost (lesson 1) of 1,000,000 or more: <code>OVERBUDGET</code>.</li>
+        <li>Run it: <code>MATCH</code> or <code>MISMATCH</code>.</li>
+      </ol>
+      <p>Step 2 covers more than the grammar. It also catches a name that is used before it is defined or defined twice, an integer literal that doesn't fit in an i32, an unknown op, and a bad attribute key (one the op doesn't take, or the same key twice). Attribute values, operand counts, dtypes and shapes wait for step 4.</p>
+    </div>
+  </details>
 
   <h2>Check yourself</h2>
   <p class="score"></p>
@@ -186,21 +463,21 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
   <div class="quiz" data-fill="-4">
     <p class="q">What is <code>div -7 2</code>?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
-    <p class="hint">The exact quotient is -3.5. .uir's division floors: it rounds toward minus infinity, not toward zero.</p>
-    <div class="why"><p>Floor: -3.5 becomes -4. C's <code>/</code> would give -3, and Python's <code>//</code> agrees with .uir.</p></div>
+    <p class="hint">The exact quotient is -3.5. .uir's division rounds down, not toward zero.</p>
+    <div class="why"><p>Floor: -3.5 becomes -4. C's <code>/</code> would give -3.</p></div>
   </div>
 
   <div class="quiz" data-fill="1">
     <p class="q">What is <code>mod -7 2</code>?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">Use <code>a - b * (a div b)</code>, with the floored quotient from the previous quiz.</p>
-    <div class="why"><p><code>-7 - 2*(-4) = 1</code>. A nonzero remainder has the sign of the divisor, here positive.</p></div>
+    <div class="why"><p><code>-7 - 2*(-4) = 1</code>.</p></div>
   </div>
 
   <div class="quiz" data-fill="-1">
     <p class="q">What is <code>div 5 0</code>?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
-    <p class="hint">Division by zero isn't an error in .uir. The spec picks one fixed answer for every <code>x</code>.</p>
+    <p class="hint">Division by zero isn't an error in .uir. One fixed answer covers every <code>x</code>.</p>
     <div class="why"><p><code>div x 0</code> is -1, whatever <code>x</code> is. And <code>mod x 0</code> is <code>x</code>, so <code>mod 5 0</code> is 5.</p></div>
   </div>
 
@@ -208,7 +485,7 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
     <p class="q">What is <code>add 2147483647 1</code>?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">i32 addition wraps around. What comes after the largest i32?</p>
-    <div class="why"><p>i32 wraps: <code>INT_MAX + 1 = INT_MIN</code>.</p></div>
+    <div class="why"><p>i32 wraps: one past the largest is the smallest.</p></div>
   </div>
 
   <div class="quiz" data-answer="c">
@@ -221,7 +498,7 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
       <button data-k="c"><code>REJECTED</code>, a type error</button>
     </div>
     <p class="hint">Look at the dtypes of the two literals. Does .uir ever convert between them for you?</p>
-    <div class="why"><p><code>1</code> is an i32 literal and <code>true</code> is a bool. There's no implicit conversion, so <code>add</code> rejects mismatched dtypes before anything runs.</p></div>
+    <div class="why"><p><code>1</code> is an i32 and <code>true</code> is a bool. Nothing is converted for you, so <code>add</code> is refused before anything runs.</p></div>
   </div>
 
   <div class="quiz" data-answer="c">
@@ -233,7 +510,7 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
       <button data-k="b"><code>MISMATCH</code></button>
       <button data-k="c"><code>REJECTED</code></button>
     </div>
-    <p class="hint">The division itself is fine: <code>div 1 0</code> is -1. Look at the test-file rules instead. Is <code>%bad</code> reachable from the assert?</p>
+    <p class="hint">The division itself is fine: <code>div 1 0</code> is -1. Is <code>%bad</code> reachable from the assert?</p>
     <div class="why"><p>Every node must be reachable from the assert, and nothing reaches <code>%bad</code>. With <code>assert %bad -1</code> instead, the file would be a MATCH.</p></div>
   </div>
 
@@ -247,7 +524,7 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
       <button data-k="c"><code>REJECTED</code></button>
     </div>
     <p class="hint">The program parses and type checks. What does the assert compare?</p>
-    <div class="why"><p>A valid program whose values differ: 4 is not 5. A test that expects this outcome is named with a <code>mismatch_</code> prefix.</p></div>
+    <div class="why"><p>A valid program whose values differ: 4 is not 5.</p></div>
   </div>
 
   <div class="quiz" data-answer="a">
@@ -258,7 +535,7 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
       <button data-k="c">It depends on which error your compiler finds first</button>
     </div>
     <p class="hint">The checks run in a fixed order. Which one comes before parsing?</p>
-    <div class="why"><p>The byte limit is checked before the file is parsed, so the typo is never seen. The order is fixed so every compiler gives the same answer.</p></div>
+    <div class="why"><p>The byte limit is checked before the file is parsed, so the typo is never seen.</p></div>
   </div>
 
   <div class="quiz" data-fill="262">
@@ -272,24 +549,16 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
     <p class="q">What is <code>shl 1 32</code>?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint"><code>shl</code> shifts by the amount mod 32.</p>
-    <div class="why"><p>32 mod 32 is 0, so nothing moves: 1. That's also what x86 does with a 32-bit shift, and it's why a shift can never fail.</p></div>
+    <div class="why"><p>32 mod 32 is 0, so nothing moves: 1. It's why a shift can never fail.</p></div>
   </div>
-
-  <h2>Code it</h2>
-  <div class="exercise" data-ex="w1-uir-abs">
-    <h3>Absolute value in .uir</h3>
-    <p>Define <code>%out</code> as <code>|x|</code> for the i32 param <code>%x</code>, using <code>cmplt</code>, <code>where</code> and <code>mul</code>. There's no <code>sub</code> or <code>neg</code> op: <code>-x</code> is <code>mul %x -1</code>.</p>
-    <p class="muted">What should <code>|INT_MIN|</code> be when i32 wraps? The tests have an opinion.</p>
-  </div>
-
 
   <nav class="pager"><a href="01-the-uop.html">← The UOp</a><a href="03-rewrites-and-folding.html">Rewrites and constant folding →</a></nav>
 </main>
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<script src="../assets/course.js?v=013e314611"></script>
 <script>
 (() => {
   const { h, graph, parseUir, stepper, code } = CC;
-  const lit = nodes => nodes.map(n => (!n.src.length && n.op !== 'param' && n.op !== 'const') ? { ...n, op: 'const', sub: n.op, val: n.op } : { ...n });
+  const lit = nodes => nodes.map(n => (!n.src.length && n.op !== 'param' && n.op !== 'const') ? { ...n, op: 'const', sub: n.op } : { ...n });
 
   // evaluation stepper
   const prog = '%a = add 2 3\n%b = mul %a 4\n%c = cmplt %b 30\n%d = where %c %b 0\n%t = assert %d 20';
@@ -317,6 +586,9 @@ MATCH tests/week1/run/basic_add.uir</code></pre>
   const L = parseUir('%bad = div 1 0\n%t = assert 1 1');
   document.getElementById('lazy').append(graph(lit(L.nodes).map(n => ({ ...n, cls: n.id === L.names.bad ? 'dead' : n.id === L.names.t ? 'hit' : '' }))));
 })();
+</script>
+<script>
+CC.trace(document.getElementById('wrap'), '%a   = mul 65536 65536\n%b   = div -7 2\n%out = add %a %b', { title: 'Guess each value before you see it', edit: true });
 </script>
 </body>
 </html>

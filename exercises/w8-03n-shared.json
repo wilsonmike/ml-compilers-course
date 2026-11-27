@@ -1,0 +1,53 @@
+{
+  "id": "w8-03n-shared",
+  "lang": "ocaml",
+  "title": "Is this alloc shared memory?",
+  "show": "(fun v -> if v then \"yes\" else \"no\")",
+  "starter": "let shared (uses : int option list) : bool =\n  true\n",
+  "tests": [
+    {
+      "expr": "shared [Some 0; Some 0; Some 0]",
+      "expect": "yes",
+      "sample": true
+    },
+    {
+      "expr": "shared [Some 0; Some 1]",
+      "expect": "no",
+      "sample": true
+    },
+    {
+      "expr": "shared [Some 2; None]",
+      "expect": "no"
+    },
+    {
+      "expr": "shared [None]",
+      "expect": "no"
+    },
+    {
+      "expr": "shared [Some 3]",
+      "expect": "yes"
+    },
+    {
+      "expr": "shared [None; None]",
+      "expect": "no"
+    },
+    {
+      "expr": "shared [Some 1; Some 1; Some 2]",
+      "expect": "no"
+    },
+    {
+      "expr": "shared [None; Some 0; Some 0]",
+      "expect": "no"
+    },
+    {
+      "expr": "shared [Some 5; Some 5]",
+      "expect": "yes"
+    }
+  ],
+  "hints": [
+    "Take the first use. If it is <code>None</code>, the answer is already no.",
+    "Every other use must equal the first one. A small recursive function over the rest of the list can check that, and so can <code>List.for_all</code>.",
+    "<code>match uses with | [] -&gt; false | first :: rest -&gt; first &lt;&gt; None &amp;&amp; List.for_all (fun u -&gt; u = first) rest</code>"
+  ],
+  "explain": "An alloc is a block's shared memory when every load and store of it sits inside one and the same global loop. So the first use must be inside a global loop, and every other use must name that same loop. A use outside every global loop, or uses in two different global loops, make it ordinary memory that is not re-zeroed for each block."
+}

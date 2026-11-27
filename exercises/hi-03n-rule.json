@@ -1,0 +1,58 @@
+{
+ "id": "hi-03n-rule",
+ "lang": "ocaml",
+ "title": "Teach it three more rules",
+ "show": "fun r -> match r with Some e -> show e | None -> \"no rule\"",
+ "starter": "type e = Const of int | Var of string | Add of e * e | Mul of e * e\n\nlet rec show e =\n  match e with\n  | Const n -> string_of_int n\n  | Var s -> s\n  | Add (a, b) -> \"(\" ^ show a ^ \" + \" ^ show b ^ \")\"\n  | Mul (a, b) -> \"(\" ^ show a ^ \" * \" ^ show b ^ \")\"\n\nlet rule e =\n  match e with\n  | Add (x, Const 0) -> Some x\n  | _ -> None\n",
+ "tests": [
+  {
+   "expr": "rule (Add (Var \"y\", Const 0))",
+   "expect": "y",
+   "sample": true
+  },
+  {
+   "expr": "rule (Mul (Var \"y\", Const 1))",
+   "expect": "y",
+   "sample": true
+  },
+  {
+   "expr": "rule (Add (Const 2, Const 3))",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "rule (Mul (Const 4, Const 5))",
+   "expect": "20"
+  },
+  {
+   "expr": "rule (Mul (Add (Var \"a\", Var \"b\"), Const 1))",
+   "expect": "(a + b)"
+  },
+  {
+   "expr": "rule (Add (Const 0, Var \"y\"))",
+   "expect": "no rule"
+  },
+  {
+   "expr": "rule (Mul (Var \"y\", Const 2))",
+   "expect": "no rule"
+  },
+  {
+   "expr": "rule (Add (Var \"y\", Mul (Const 2, Const 0)))",
+   "expect": "no rule"
+  },
+  {
+   "expr": "rule (Var \"y\")",
+   "expect": "no rule"
+  },
+  {
+   "expr": "rule (Add (Const 7, Const 0))",
+   "expect": "7"
+  }
+ ],
+ "hints": [
+  "Each rule is one more branch above the `| _ -> None` line: the pattern on the left of `->`, and `Some` replacement on the right.",
+  "Times one looks like the rule that is already there: `| Mul (x, Const 1) -> Some x`.",
+  "For two numbers, name both in the pattern and build a new `Const`: `| Add (Const m, Const n) -> Some (Const (m + n))`. Do the same for `Mul`."
+ ],
+ "explain": "Each rule is one branch: a pattern for the shape, then the replacement. `x` matches any expression, so times one works on `(a + b) * 1` too. The folding branches match only when both children are numbers. `y + (2 * 0)` gets no rule, because its right child is a multiplication and not the number 0."
+}

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Symbolic Simplification</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Constant folding needs every input to be known. Symbolic simplification works on values you don&#x27;t know yet, like a param. It uses algebra and ranges to prove...">
+<meta name="description" content="A rewrite rule is only safe if it gives the same answer for every input, including inputs your compiler never sees. Some rules that look obvious are wrong for...">
 <link rel="canonical" href="https://sharpterminal.com/site/week1/04-symbolic">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Symbolic Simplification">
-<meta property="og:description" content="Constant folding needs every input to be known. Symbolic simplification works on values you don&#x27;t know yet, like a param. It uses algebra and ranges to prove things like &quot;this compare is always true&quot;.">
+<meta property="og:description" content="A rewrite rule is only safe if it gives the same answer for every input, including inputs your compiler never sees. Some rules that look obvious are wrong for 32-bit numbers, because those numbers...">
 <meta property="og:url" content="https://sharpterminal.com/site/week1/04-symbolic">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   svg.nl { display: block; width: 100%; max-width: 40rem; height: auto; font-family: var(--mono); margin-top: var(--s4); }
   svg.nl .axis { stroke: var(--line-2); stroke-width: 1.5; }
@@ -38,17 +38,131 @@
 <main>
 <p class="eyebrow">Week 1 · Lesson 4</p>
 <h1>Symbolic simplification</h1>
-<p class="lede">Constant folding needs every input to be known. Symbolic simplification works on values you <em>don't</em> know yet, like a <code>param</code>. It uses algebra and ranges to prove things like "this compare is always true".</p>
+<p class="lede">A rewrite rule is only safe if it gives the same answer for every input, including inputs your compiler never sees. Some rules that look obvious are wrong for 32-bit numbers, because those numbers wrap. In this lesson you learn to spot the wrong ones, to test a rule, and to use bounds (the smallest and largest a value can be) to prove the rest.</p>
 
-<div class="prose">
-<h2>Unknowns</h2>
-<p>Inside a function body, a <code>param</code> (the input in some slot, see lesson 1.2's params box) could be any i32 its limits allow. You can't fold <code>add %x 0</code> by computing it, but you can still prove it equals <code>%x</code> <em>for every possible x</em>. That's what makes a rule <strong>symbolic</strong>: it holds for all inputs, so it doesn't need the input.</p>
-<p>The <code>simplify</code> subcommand is your compiler's second command, next to plain <code>./compile FILE</code> from lesson 1.2. It reads a file that defines <code>%out</code> and has no assert, and prints a smaller program that computes the same thing. The grader checks two things. First, your output must give the same value as the original for every input inside the params' limits (more on limits below). It tries edge values in every param slot, nasty ones like <code>INT_MIN</code>, <code>-1</code> and the ends of each param's limits, plus random values. Second, each test has a <code>max_ops</code> budget, a limit on the op bindings you print. Params, literals and atom bindings like <code>%out = %t3</code> don't count. So leaving the graph untouched won't pass either.</p>
-
-<h2>i32 is a ring</h2>
-<p>i32 arithmetic is arithmetic <strong>mod 2<sup>32</sup></strong>. Wraparound sounds messy, but it makes i32 a <em>ring</em>: addition and multiplication are associative and commutative, and multiplication distributes over addition, exactly like the integers you learned in school. Every identity built only from <code>+</code> and <code>×</code> holds, even when the values overflow. Division is the odd one out: it doesn't undo a multiply that wrapped.</p>
+<div class="note">
+<span class="label">Goal</span>
+<p>Tell a safe rewrite rule from one that breaks a program, and use bounds to prove a rule is safe.</p>
 </div>
 
+<div class="note">
+<span class="label">You'll use</span>
+<p>Rewrite rules from <a href="03-rewrites-and-folding.html">lesson 1.3</a>, params from <a href="02-uir-and-interpreting.html">lesson 1.2</a>, and numbers that wrap and divide by flooring (<a href="../learn/hard-04-numbers-like-c.html">H.4 Numbers that behave like C</a> is the slow version).</p>
+<p class="only-python">In the exercises: a list comprehension (<a href="../learn/py-03-collections.html">P.3</a>), a small class made with <code>@dataclass</code> (<a href="../learn/py-04-your-own-types.html">P.4</a>) and a function handed to another function (<a href="../learn/py-05-recursion.html">P.5</a>).</p>
+<p class="only-ocaml">In the exercises: <code>fun x -&gt; ...</code> (<a href="../learn/ml-02-functions.html">O.2</a>), <code>List.filter</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>) and a record (<a href="../learn/ml-04-your-own-types.html">O.4</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="0">
+<p class="q">Your rules from lesson 1.3 run on this program. How many ops does <code>%out</code> use afterward?</p>
+<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
+%a   = add %x 0
+%out = mul %a 1</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Which rule fires on <code>add %x 0</code>? Then look at what the <code>mul</code> is left with.</p>
+<div class="why"><p>Zero. <code>add(x, 0) → x</code> removes the add, then <code>mul(x, 1) → x</code> removes the mul. <code>%out</code> is just <code>%x</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The largest i32 is 2147483647. What is <code>add 2147483647 1</code>?</p>
+<div class="opts">
+<button data-k="a"><code>2147483648</code></button>
+<button data-k="b"><code>-2147483648</code></button>
+<button data-k="c">Nothing. The program is rejected.</button>
+</div>
+<p class="hint">An i32 has 32 bits and no room for a bigger number. Think of a car's odometer rolling over.</p>
+<div class="why"><p>It wraps around to the smallest i32, <code>-2147483648</code>. Nothing fails. This one fact causes every problem in this lesson.</p></div>
+</div>
+
+<div class="prose">
+<h2>Which of these rules would break a program?</h2>
+<p>Your rules from lesson 1.3 already work on a <code>param</code>, a number the test hands in later. <code>add(x, 0) → x</code> never asks what <code>x</code> is. A rule like that is called <strong>symbolic</strong>: it treats <code>x</code> as a symbol that stands for any value.</p>
+<p>That is a big promise. An i32 has about 4 billion possible values, and the rule must give the same answer as the original for every one of them. If it is wrong for a single value, your compiler quietly changes what somebody's program computes.</p>
+<p>Below are two rules that both look true. One is safe and one breaks a program. Predict each before you read on. Two names help: <code>INT_MAX</code> is the largest i32, 2147483647, and <code>INT_MIN</code> is the smallest, -2147483648.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>div(mul(x, 2), 2) → x</code>. "Double it, halve it, and you are back where you started."</p>
+<div class="opts">
+<button data-k="a">Safe for every i32</button>
+<button data-k="b">Breaks for some i32</button>
+</div>
+<p class="hint">Try a large <code>x</code>, such as 1073741824. Does twice that fit in an i32?</p>
+<div class="why"><p>It breaks. Twice 1073741824 is 2147483648, one more than <code>INT_MAX</code>, so it wraps to -2147483648. Half of that is -1073741824, which is not <code>x</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>add(add(x, 3), 4) → add(x, 7)</code>. "Adding 3 and then 4 is adding 7."</p>
+<div class="opts">
+<button data-k="a">Safe for every i32</button>
+<button data-k="b">Breaks for some i32</button>
+</div>
+<p class="hint">Try <code>x = 2147483647</code> on both sides. Both sides wrap. Do they land on the same number?</p>
+<div class="why"><p>Safe, even when it wraps. With <code>x = INT_MAX</code> the left side wraps to -2147483646 and then adds 4, which gives -2147483642. The right side wraps straight to -2147483642. The next section says why they always agree.</p></div>
+</div>
+
+<div class="prose">
+<p>An input where a rule gives a different answer from the original is called a <strong>counterexample</strong>. One is enough to throw a rule out. Step through the one you just found, and guess the value of every line. The halving rule is the classic trap, because it works for almost every number you would think to try.</p>
+</div>
+
+<div class="fig" id="break-div"></div>
+
+<div class="prose">
+<p>Here is a second rule that looks true: <code>cmplt(x, add(x, 1)) → true</code>, "a number is always less than itself plus one". It breaks for exactly one value.</p>
+</div>
+
+<div class="fig" id="break-lt"></div>
+
+<div class="prose">
+<h2>How to convince yourself a rule is safe</h2>
+<p>Two questions settle most rules.</p>
+<ol>
+<li><strong>Which ops does it use?</strong> <code>add</code> and <code>mul</code> keep the low 32 bits of the true answer, and those bits never depend on the bits that were dropped. So it does not matter when the wrap happens, and every school rule made only of + and × stays true. <code>div</code>, <code>mod</code>, <code>cmplt</code> and <code>max</code> are different. They care how big a number is, and a wrap changes that.</li>
+<li><strong>What happens at the edges?</strong> Rules break where numbers wrap. Try 0, 1, -1, 1073741824, <code>INT_MAX</code> and <code>INT_MIN</code>.</li>
+</ol>
+<p>Passing the edge test is good evidence, but it is not a proof. A proof is a reason that covers every value, like question 1, or like the bounds later in this lesson.</p>
+<p>Here are both questions on the rule <code>mul(add(x, 1), 2) → add(mul(x, 2), 2)</code>:</p>
+<ol>
+<li><strong>List the ops.</strong> Only <code>add</code> and <code>mul</code>, so it is safe in i32.</li>
+<li><strong>Check an edge anyway.</strong> Take <code>x = INT_MAX</code>. Left: <code>x + 1</code> wraps to <code>INT_MIN</code>, and twice that wraps to 0. Right: <code>x * 2</code> wraps to -2, and adding 2 gives 0. They agree.</li>
+</ol>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Is <code>max(x, add(x, 1)) → add(x, 1)</code> safe? "The larger of x and x + 1 is x + 1."</p>
+<div class="opts">
+<button data-k="a">Safe. It only uses <code>add</code> and <code>max</code>.</button>
+<button data-k="b">It breaks when <code>x</code> is <code>INT_MAX</code></button>
+<button data-k="c">It breaks when <code>x</code> is negative</button>
+</div>
+<p class="hint"><code>max</code> cares how big a number is. Try the edge where <code>x + 1</code> wraps.</p>
+<div class="why"><p>At <code>INT_MAX</code>, <code>x + 1</code> wraps to <code>INT_MIN</code>. The original picks the larger one, <code>INT_MAX</code>. The rule picks <code>INT_MIN</code>.</p></div>
+</div>
+
+<p class="prose">Next, the edge test as code. It is wrong in the same two ways people get it wrong by hand.</p>
+
+<div class="exercise" data-ex="w1-04n-rule-tester" data-ex-py="w1-04n-rule-tester-py">
+<h3>Repair a rule tester</h3>
+<p><code>breaks before after</code> tests a rewrite rule. <code>before</code> and <code>after</code> are two small functions of <code>x</code>: the pattern and its replacement. It runs both on every value in <code>edges</code> and returns the values where they disagree.</p>
+<p>Right now it says the rule <code>div(mul(x, 2), 2) → x</code> is safe. Two things are wrong:</p>
+<ul>
+<li><strong>The multiply.</strong> <code>mul32</code> does not wrap, so it is not doing i32 math. Wrap its result with <code>wrap32</code>.</li>
+<li><strong>The edge values.</strong> <code>edges</code> only holds small numbers. Add <code>1073741824</code>, <code>int_max</code> and <code>int_min</code>.</li>
+</ul>
+</div>
+
+<p class="prose">Now apply safe rules yourself.</p>
+
+<div class="exercise small" data-ex="w1-04-hand-simplify">
+<h3>Simplify by hand</h3>
+<p>You are the rewrite engine. The starter computes <code>((3 + x) + x * 0) + 5</code> in four ops. Rewrite <code>%out</code> so it computes the same i32 value for <strong>every</strong> x, using at most <strong>one</strong> op.</p>
+<p class="muted">Which rules did you just apply? Is the answer still right when <code>x = INT_MAX</code>?</p>
+</div>
+
+<details class="toggle">
+<summary>Every safe rule in one table, for when you write your simplifier</summary>
 <div class="tablewrap"><table>
 <thead><tr><th>rule</th><th>i32</th><th>why</th></tr></thead>
 <tbody>
@@ -64,26 +178,115 @@
 <tr><td><code>where(c, a, a) → a</code></td><td class="ok">valid</td><td>Both branches are the same node.</td></tr>
 <tr><td><code>where(true, a, b) → a</code>, <code>where(false, a, b) → b</code></td><td class="ok">valid</td><td>The condition is known. It's often a <code>cmplt</code> that just folded.</td></tr>
 <tr><td><code>index(stack(a0, a1, ...), k) → ak</code></td><td class="ok">valid</td><td>For a const <code>k</code>. It's always in range, because validation already rejected anything else.</td></tr>
-<tr><td><code>div(mul(x, c), c) → x</code></td><td class="no">only with bounds</td><td><code>mul</code> can wrap, and <code>div</code> can't undo a wrap: <code>(2<sup>30</sup> × 2) / 2</code> is <code>INT_MIN / 2</code>, not <code>2<sup>30</sup></code>. Also <code>c</code> must be nonzero (<code>div 0 0</code> is -1). Safe when <code>c ≠ 0</code> and bounds prove the product fits, and always safe for <code>c = 1</code>. See the trap below.</td></tr>
+<tr><td><code>div(mul(x, c), c) → x</code></td><td class="no">only with bounds</td><td><code>mul</code> can wrap, and <code>div</code> can't undo a wrap: <code>(2<sup>30</sup> × 2) / 2</code> is <code>INT_MIN / 2</code>, not <code>2<sup>30</sup></code>. Also <code>c</code> must be nonzero (<code>div 0 0</code> is -1). Safe when <code>c ≠ 0</code> and bounds prove the product fits, and always safe for <code>c = 1</code>. With limits <code>[0 1000]</code> on <code>%x</code>, or with <code>%x = cast %b dtype=i32</code> (bounds [0, 1]), the oracle simplifies <code>(x * 2) / 2</code> down to <code>%x</code>. With a param that has no limits it must stay, and the grader's edge-case inputs include 2<sup>30</sup> precisely to catch this.</td></tr>
 </tbody></table></div>
+<div class="prose">
+<p><code>where</code>, <code>cast</code>, <code>stack</code> and <code>index</code> are ops from the spec that lesson 5 and the lab use. Their rows are here so the table is complete when you come back to it.</p>
+<p><strong>Floats come later.</strong> Week 1 has no floats, so every rule here only has to hold for i32 and bool. f32 breaks several of them (<code>x * 0</code> and <code>x + 0</code> among them), and week 2 lesson 1 has that version of the table.</p>
+</div>
+</details>
 
-<div class="note">
-<span class="label">Floats come later</span>
-<p>Week 1 has no floats, so every rule here only has to hold for i32 and bool. f32 breaks several of them (<code>x * 0</code> and <code>x + 0</code> among them), and week 2 lesson 1 has that version of the table.</p>
+<details class="toggle">
+<summary>Why wrapping keeps add and mul rules true: i32 is a ring</summary>
+<div class="prose">
+<p>i32 arithmetic is arithmetic <strong>mod 2<sup>32</sup></strong>. Wraparound sounds messy, but it makes i32 what mathematicians call a <strong>ring</strong>: addition and multiplication are associative and commutative, and multiplication distributes over addition, exactly like the integers you learned in school. Every identity built only from <code>+</code> and <code>×</code> holds, even when the values overflow. Division is the odd one out: it doesn't undo a multiply that wrapped.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>Bounds: how small and how large can it be?</h2>
+<p>Some true facts are not algebra at all. Predict this one.</p>
 </div>
 
-<div class="exercise small" data-ex="w1-04-hand-simplify">
-<h3>Simplify by hand</h3>
-<p>You are the rewrite engine. The starter computes <code>((3 + x) + x * 0) + 5</code> in four ops. Rewrite <code>%out</code> so it computes the same i32 value for <strong>every</strong> x, using at most <strong>one</strong> op.</p>
-<p class="muted">Which rules from the table did you just apply? Is the answer still right when <code>x = INT_MAX</code>?</p>
+<div class="quiz" data-answer="c">
+<p class="q"><code>%x</code> can be any i32. Can <code>%out</code> ever be <code>false</code>?</p>
+<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
+%k   = mod %x 8
+%out = cmplt %k 8</code></pre>
+<div class="opts">
+<button data-k="a">Yes, when <code>%x</code> is negative</button>
+<button data-k="b">Yes, when <code>%x</code> is 8 or more</button>
+<button data-k="c">No. It is <code>true</code> for every <code>%x</code>.</button>
+</div>
+<p class="hint"><code>mod</code> floors, so a remainder by 8 is never negative: <code>mod -1 8</code> is 7. List the values a remainder by 8 can be.</p>
+<div class="why"><p>A remainder by 8 is one of 0 to 7, even for a negative <code>%x</code>. Every one of those is less than 8, so the whole program can become <code>%out = true</code>.</p></div>
 </div>
 
 <div class="prose">
-<h2>Bounds: what range can this value be in?</h2>
-<p>Some facts don't follow from algebra alone. <code>cmplt (mod %k 8) 8</code> is always true, but only because you know a remainder by 8 is at most 7. That calls for <strong>bounds analysis</strong> (also called interval analysis): give every node an interval <code>[lo, hi]</code> that its value is guaranteed to stay inside. Bounds are worked out sources first, just like rewriting.</p>
-<p>In the official course, bounds aren't only an optimization. They're <strong>part of validation</strong>: they decide whether an <code>index</code> is safe and whether a call's arguments fit their params (lesson 5). So every op has one exact rule, and your compiler must compute the same bounds the rules give, no tighter and no looser. Below, <code>x</code> is in <code>[a, b]</code>, <code>y</code> is in <code>[c, d]</code>, <code>I</code> is the full i32 range, and "fixed" means a single value like <code>[8, 8]</code>.</p>
+<p>No rule from the last section says that, and you cannot test 4 billion inputs. What you used was a fact about how small and how large <code>%k</code> can be. A compiler keeps that fact as <strong>bounds</strong>: a pair <code>[lo, hi]</code> such that every value the node can ever have is from <code>lo</code> to <code>hi</code>, ends included. Bounds are also called an interval or a range.</p>
+<p>Bounds are worked out sources first, like rewriting. A literal like <code>8</code> has bounds <code>[8, 8]</code>. A param you know nothing about has the full i32 range, <code>[INT_MIN, INT_MAX]</code>. Each op then has a small rule that turns its sources' bounds into its own. Here it is on a program with one more line:</p>
+<ol>
+<li><strong>Start at the sources.</strong> <code>%x</code> is <code>[INT_MIN, INT_MAX]</code>. The literals are <code>[0, 0]</code> and <code>[8, 8]</code>.</li>
+<li><strong>Push through <code>max</code>.</strong> <code>max %x 0</code> is never below 0, so <code>%m</code> is <code>[0, INT_MAX]</code>.</li>
+<li><strong>Push through <code>mod</code>.</strong> A remainder by 8 is 0 to 7, so <code>%k</code> is <code>[0, 7]</code>.</li>
+<li><strong>Ask the question.</strong> The largest <code>%k</code> is 7 and the smallest right side is 8. 7 is less than 8, so <code>cmplt %k 8</code> is always <code>true</code>.</li>
+</ol>
 </div>
 
+<div class="split">
+<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
+%m   = max %x 0
+%k   = mod %m 8
+%out = cmplt %k 8</code></pre>
+<div class="fig" id="bounds" data-title="bounds flow from sources to results"></div>
+</div>
+
+
+
+<div class="quiz" data-fill="[1, 8] | [1,8] | 1 8 | 1..8 | 1-8 | 1, 8">
+<p class="q">The rule for <code>add</code>: add the two low ends, and add the two high ends. <code>%k</code> has bounds <code>[0, 7]</code>. What are the bounds of <code>add %k 1</code>? Write them as <code>[lo, hi]</code>.</p>
+<div class="fill"><input aria-label="answer" placeholder="[lo, hi]"><button class="btn">check</button></div>
+<p class="hint">The literal <code>1</code> has bounds <code>[1, 1]</code>. Add low to low and high to high.</p>
+<div class="why"><p><code>[0 + 1, 7 + 1]</code> is <code>[1, 8]</code>. The smallest sum uses the two smallest inputs, and the largest sum uses the two largest.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q"><code>%m</code> has bounds <code>[0, INT_MAX]</code>. What bounds should <code>add %m 1</code> get?</p>
+<div class="opts">
+<button data-k="a"><code>[1, 2147483648]</code></button>
+<button data-k="b"><code>[1, INT_MAX]</code></button>
+<button data-k="c">The full i32 range, <code>[INT_MIN, INT_MAX]</code></button>
+</div>
+<p class="hint">When <code>%m</code> is <code>INT_MAX</code>, what does the add really produce? Bounds must contain that value.</p>
+<div class="why"><p><code>INT_MAX + 1</code> wraps to <code>INT_MIN</code>, so the result can be very negative. The only honest bounds are the full range.</p></div>
+</div>
+
+<div class="prose">
+<p>That is the rule that keeps bounds honest: <strong>if an end does not fit in an i32, give up and say the full range</strong>. Bounds that are too wide only cost you a missed simplification. Bounds that leave out a value the node can really have are a bug, because a rule will trust them.</p>
+</div>
+
+<h2>Code the bounds rules</h2>
+<p class="prose">Finish two of the op rules yourself. Each takes the bounds of the two sources and returns the bounds of the result.</p>
+
+<div class="exercise" data-ex="w1-04n-bounds-fill" data-ex-py="w1-04n-bounds-fill-py">
+<h3>Finish two bounds rules</h3>
+<p>A <code>range</code> record holds <code>lo</code> and <code>hi</code>, the smallest and largest value a node can have. Each function takes the ranges of the two inputs and returns the range of the answer. Two are nearly done:</p>
+<ul>
+<li><strong><code>max_range</code>.</strong> The low end is right. The high end says 0. Fill it in.</li>
+<li><strong><code>cmplt_range</code>.</strong> A bool counts as 1 for true and 0 for false. It returns <code>[1, 1]</code> when the compare is always true and <code>[0, 1]</code> when it does not know. Add the missing case: return <code>[0, 0]</code> when the compare is always false.</li>
+</ul>
+</div>
+
+<p class="prose">Now the two rules where wrapping matters, from an empty function.</p>
+
+<div class="exercise" data-ex="w1-04-ranges" data-ex-py="w1-04-ranges-py">
+<h3>Interval arithmetic for i32</h3>
+<p>Write <code>add_range a b</code> and <code>mul_range a b</code>: the tightest range, with fields <code>lo</code> and <code>hi</code>, that contains every <code>x + y</code> (or <code>x * y</code>) with <code>x</code> in <code>a</code> and <code>y</code> in <code>b</code>. If any value in the result could fall outside the i32 range, the real operation might wrap, so you know nothing: return <code>full</code>.</p>
+<ul>
+<li class="only-ocaml">Do the math in OCaml's 63-bit <code>int</code>, then check against <code>int_min</code> and <code>int_max</code>.</li>
+<li class="only-python">Do the math in Python's unbounded <code>int</code>, then check against <code>int_min</code> and <code>int_max</code>.</li>
+<li>For <code>mul</code>, the smallest and largest products can come from any pair of ends: <code>[-3, 2] * [-5, 4]</code> is <code>[-12, 15]</code>.</li>
+</ul>
+<details class="toggle only-ocaml"><summary>Does 63 bits always hold the product?</summary>
+<p>Almost. Two i32 values multiply to at most 2<sup>62</sup>, and that one product (<code>INT_MIN * INT_MIN</code>) is one past OCaml's <code>max_int</code>, so it wraps to a negative <code>int</code>. Work out whether that breaks your answer for <code>full * full</code>. There's a test for it.</p>
+</details>
+</div>
+
+<details class="toggle">
+<summary>The bounds rule for every op, for when you write validation in the lab</summary>
+<div class="prose">
+<p>In the official course, bounds aren't only an optimization. They're <strong>part of validation</strong>: they decide whether an <code>index</code> is safe and whether a call's arguments fit their params (lesson 5). So every op has one exact rule, and your compiler must compute the same bounds the rules give, no tighter and no looser. Below, <code>x</code> is in <code>[a, b]</code>, <code>y</code> is in <code>[c, d]</code>, <code>I</code> is the full i32 range, and "fixed" means a single value like <code>[8, 8]</code>. The <strong>hull</strong> of some numbers is the interval from the smallest of them to the largest.</p>
+</div>
 <div class="tablewrap"><table>
 <thead><tr><th>node</th><th>bounds</th></tr></thead>
 <tbody>
@@ -103,21 +306,48 @@
 <tr><td><code>index v i</code></td><td>v's bounds</td></tr>
 <tr><td><code>call</code></td><td>the body's bounds</td></tr>
 </tbody></table></div>
-<p class="prose">Two extra rules cover the table: for every i32 row, if an end of the interval overflows i32, the bounds widen to <code>I</code> (the real value might have wrapped to anywhere). For <code>bool</code> ops (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>), the interval is normalized back to <code>[0, 0]</code>, <code>[1, 1]</code> or <code>[0, 1]</code>.</p>
+<div class="prose">
+<p>Two extra rules cover the table: for every i32 row, if an end of the interval overflows i32, the bounds widen to <code>I</code> (the real value might have wrapped to anywhere). For <code>bool</code> ops (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>), the interval is normalized back to <code>[0, 0]</code>, <code>[1, 1]</code> or <code>[0, 1]</code>.</p>
+<h3>Two mod examples</h3>
+<p>With <code>%x</code> in <code>[10, 13]</code>, <code>mod %x 8</code>: both ends have quotient 1 (<code>10 div 8</code> and <code>13 div 8</code>), so no multiple of 8 sits in between, and the bounds are the hull of <code>10 mod 8</code> and <code>13 mod 8</code>, which is <code>[2, 5]</code>. With <code>%x</code> in <code>[10, 20]</code> the quotients are 1 and 2, the remainder wraps around past 0 somewhere inside, and all the rule can say is <code>[0, 7]</code>. Because <code>mod</code> floors, that's true even for negative x: <code>mod %x 8</code> is in <code>[0, 7]</code> for <em>any</em> i32 x.</p>
+</div>
+</details>
 
-<div class="split">
-<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
-%m   = max %x 0
-%k   = mod %m 8
-%out = cmplt %k 8</code></pre>
-<div class="fig" id="bounds" data-title="bounds flow from sources to results"></div>
+<div class="prose">
+<h2>Bounds make more rules safe</h2>
+<p>The halving rule broke because nothing stopped <code>x * 2</code> from wrapping. If you know <code>x</code> is small, nothing wraps and the rule is fine. A param can tell you so:</p>
+<pre><code>%x = param [] [0 1000] slot=0 dtype=i32 addrspace=ALU</code></pre>
+<p>The <code>[0 1000]</code> after <code>[]</code> is the param's <strong>limits</strong>, a promise that every value handed in is from 0 to 1000. Lesson 5 says how calls keep the promise. With limits, the param's bounds are <code>[0, 1000]</code> and not the full range. Then <code>mul %x 2</code> has bounds <code>[0, 2000]</code>, which fits, so <code>div(mul(x, 2), 2) → x</code> is safe for this <code>%x</code>.</p>
+<p>These are the rules that ask bounds for permission. <code>a.hi</code> means the high end of <code>a</code>'s bounds and <code>a.lo</code> the low end:</p>
+<pre><code>cmplt(a, b) → true      if a.hi &lt; b.lo
+cmplt(a, b) → false     if a.lo ≥ b.hi
+max(a, b)   → a         if a.lo ≥ b.hi
+mod(x, c)   → x         if 0 ≤ x.lo and x.hi &lt; c
+div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%x</code> has limits <code>[0 8]</code>. Can <code>mod %x 8</code> be replaced by <code>%x</code>?</p>
+<div class="opts">
+<button data-k="a">Yes. Every value from 0 to 8 is its own remainder.</button>
+<button data-k="b">No. One allowed value gives a different answer.</button>
+<button data-k="c">No. Limits are never used by rules.</button>
+</div>
+<p class="hint">The rule needs <code>x.hi &lt; c</code>. Here <code>x.hi</code> is 8 and <code>c</code> is 8. Try that one value.</p>
+<div class="why"><p><code>8 mod 8</code> is 0, not 8, so 8 is a counterexample. With limits <code>[0 7]</code> the rule fires and the <code>mod</code> disappears.</p></div>
 </div>
 
 <div class="prose">
-<h3>Two mod examples</h3>
-<p>With <code>%x</code> in <code>[10, 13]</code>, <code>mod %x 8</code>: both ends have quotient 1 (<code>10 div 8</code> and <code>13 div 8</code>), so no multiple of 8 sits in between, and the bounds are the hull of <code>10 mod 8</code> and <code>13 mod 8</code>, which is <code>[2, 5]</code>. With <code>%x</code> in <code>[10, 20]</code> the quotients are 1 and 2, the remainder wraps around past 0 somewhere inside, and all the rule can say is <code>[0, 7]</code>. Because <code>mod</code> floors, that's true even for negative x: <code>mod %x 8</code> is in <code>[0, 7]</code> for <em>any</em> i32 x.</p>
+<p>These rules matter for real. When week 3 adds loops, every index carries a range, and these rules are how bounds checks and index math disappear.</p>
 
-<h2>Is this index safe?</h2>
+<h3>Bounds also decide which files are valid</h3>
+<p>Your compiler uses bounds for one more job, and this one is not optional. Lesson 5 adds an op that picks an item out of a list: <code>index [10 20 30] %i</code> is item number <code>%i</code>, counting from 0. It only makes sense when <code>%i</code> is 0, 1 or 2. The compiler does not wait to see which value arrives. If the bounds of <code>%i</code> fit inside <code>[0, 2]</code> the file is fine. If they do not, the file is <code>REJECTED</code> before anything runs.</p>
+<p>Every compiler has to agree on which files are rejected, so for this job the bounds rules are fixed by the spec. The toggles below have the full example and the true facts the rules miss.</p>
+</div>
+
+<details class="toggle">
+<summary>Is this index safe? The full example, for after lesson 5</summary>
+<div class="prose">
 <p>This is the official reference's own example:</p>
 <pre><code>%i = param [] [0 2] slot=0 dtype=i32 addrspace=ALU
 %v = index [10 20 30] %i
@@ -125,8 +355,12 @@
 %t = assert %r 20</code></pre>
 <p>On this call <code>%i</code> is 1, so the result is 20. But whether the program is valid depends on the bounds of <code>%i</code> across <em>all</em> calls. With limits <code>[0, 2]</code>, all three indices exist, so it's safe and the file is a MATCH. Change the limits to <code>[0, 3]</code> and index 3 would be past the end, so the file is <strong>REJECTED</strong>, whatever this call passes. A constant index works the same way: <code>index [10 20 30] 3</code> is rejected before anything runs.</p>
 <p>The <code>[0 2]</code> after <code>[]</code> is the param's <strong>limits</strong>, a promise that every argument is in that range (lesson 5 says how calls keep the promise). Without limits a param is <code>I</code>, and <code>index [10 20 30] %i</code> is rejected. To index with an unlimited value, bring it into range first: <code>%k = mod %i 3</code> is always in <code>[0, 2]</code>, so <code>index [10 20 30] %k</code> is safe for every <code>%i</code>.</p>
+</div>
+</details>
 
-<h3>Deliberately simple</h3>
+<details class="toggle">
+<summary>Deliberately simple: true facts the bounds rules miss</summary>
+<div class="prose">
 <p>The rules don't try to be clever, so they can miss facts that are true:</p>
 <ul>
 <li><code>mul %i %i</code> with <code>%i</code> in <code>[-1, 1]</code> is never negative, but the rule gives the hull of 1, -1, -1, 1: <code>[-1, 1]</code>. Indexing <code>[0 10]</code> with it is rejected.</li>
@@ -135,32 +369,18 @@
 <p>That's on purpose. Every compiler has to agree on which files are REJECTED, so the rules must be simple enough that everyone computes exactly the same intervals. When you write index math, write it in a form the rules can follow.</p>
 <p>Inside <code>simplify</code> you have more freedom. There, bounds only justify rewrites, so a tighter interval is fine as long as it's true. A <strong>wrong</strong> interval, one that leaves out a value the node can really have, is always a bug.</p>
 </div>
+</details>
 
 <div class="prose">
-<h3>Rules powered by bounds</h3>
-<pre><code>cmplt(a, b) → true      if a.hi &lt; b.lo
-cmplt(a, b) → false     if a.lo ≥ b.hi
-max(a, b)   → a         if a.lo ≥ b.hi
-mod(x, c)   → x         if 0 ≤ x.lo and x.hi &lt; c
-div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
-<p>Limits make these rules stronger. With <code>%x = param [] [0 7] slot=0 dtype=i32 addrspace=ALU</code>, <code>mod %x 8</code> simplifies to <code>%x</code>, 0 ops. With limits <code>[0 8]</code> it must stay, because <code>8 mod 8</code> is 0. These rules matter for real. When week 3 adds loops, every index carries a range, and these rules are how bounds checks and index math disappear.</p>
+<h3>Where this goes: the simplify command</h3>
+<p>In the lab your compiler gets a second command, <code>./compile simplify FILE</code>. It reads a program that defines <code>%out</code> and prints a smaller program that computes the same thing. The grader runs both versions on edge values, like your rule tester, and it counts your ops. A wrong rule fails the first check. A missing rule fails the second.</p>
 </div>
 
-<div class="trap">
-<span class="label">(x * 2) / 2 is not x</span>
-<p>It's tempting to cancel the 2s. In i32, <code>mul</code> wraps and <code>div</code> doesn't undo the wrap:</p>
-<div class="tablewrap"><table>
-<thead><tr><th>x</th><th>x * 2</th><th>(x * 2) / 2</th><th>equals x?</th></tr></thead>
-<tbody>
-<tr><td><code>3</code></td><td><code>6</code></td><td><code>3</code></td><td class="ok">yes</td></tr>
-<tr><td><code>-5</code></td><td><code>-10</code></td><td><code>-5</code></td><td class="ok">yes</td></tr>
-<tr><td><code>1073741824</code> (2<sup>30</sup>)</td><td><code>-2147483648</code> (wrapped)</td><td><code>-1073741824</code></td><td class="no">no</td></tr>
-</tbody></table></div>
-<p>So <code>div(mul(x, c), c) → x</code> is only valid when <code>c ≠ 0</code> and bounds prove <code>mul(x, c)</code> can't wrap. With limits <code>[0 1000]</code> on <code>%x</code>, or with <code>%x = cast %b dtype=i32</code> (bounds [0, 1]), it's safe, and the oracle simplifies <code>(x * 2) / 2</code> down to <code>%x</code>. With a param that has no limits it must stay. The grader's edge-case inputs include 2<sup>30</sup> precisely to catch this.</p>
-</div>
-
+<details class="toggle">
+<summary>How simplify is graded and what to print, for the lab</summary>
 <div class="prose">
-<h2>Printing your result</h2>
+<p>The <code>simplify</code> subcommand is your compiler's second command, next to plain <code>./compile FILE</code> from lesson 1.2. It reads a file that defines <code>%out</code> and has no assert, and prints a smaller program that computes the same thing. The grader checks two things. First, your output must give the same value as the original for every input inside the params' limits. It tries edge values in every param slot, nasty ones like <code>INT_MIN</code>, <code>-1</code> and the ends of each param's limits, plus random values. Second, each test has a <code>max_ops</code> budget, a limit on the op bindings you print. Params, literals and atom bindings like <code>%out = %t3</code> don't count. So leaving the graph untouched won't pass either.</p>
+<h3>Printing your result</h3>
 <p><code>simplify</code> prints a .uir program to stdout. Walk sources first from <code>%out</code> and print only the nodes it needs, each once, so every name is defined above its first use. Give each node a fresh name and write constants inline as literals. Print each param exactly as it was declared, limits included. The last binding defines <code>%out</code>. If <code>%out</code> folded to a constant, print it as an atom binding, like <code>%out = 3</code>. Here is one valid output for a file whose <code>%out</code> is <code>((max x (2 + 1)) + y * 4) + 0</code>:</p>
 <pre><code>%t0 = param [] slot=0 dtype=i32 addrspace=ALU
 %t1 = max %t0 3
@@ -169,20 +389,18 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 %out = add %t1 %t3</code></pre>
 <p>That's 3 ops: the <code>max</code>, the <code>mul</code> and the <code>add</code>. The params and the literal <code>3</code> are free. Any names work, because the grader compares values, not text.</p>
 </div>
-
-<h2>Code it</h2>
-<div class="exercise" data-ex="w1-04-ranges" data-ex-py="w1-04-ranges-py">
-<h3>Interval arithmetic for i32</h3>
-<p>Bounds analysis needs two operations on ranges. Write <code>add_range a b</code> and <code>mul_range a b</code>: the tightest range, with fields <code>lo</code> and <code>hi</code>, that contains every <code>x + y</code> (or <code>x * y</code>) with <code>x</code> in <code>a</code> and <code>y</code> in <code>b</code>.</p>
-<p>The catch is wraparound. If any value in the result could fall outside the i32 range, the real i32 operation might wrap, so you know nothing: return <code>full</code>.</p>
-<ul>
-<li class="only-ocaml">Do the math in OCaml's 63-bit <code>int</code>, then check against <code>int_min</code> and <code>int_max</code>.</li>
-<li class="only-python">Do the math in Python's unbounded <code>int</code>, then check against <code>int_min</code> and <code>int_max</code>.</li>
-<li>For <code>mul</code>, the smallest and largest products can come from any pair of ends: <code>[-3, 2] * [-5, 4]</code> is <code>[-12, 15]</code>.</li>
-</ul>
-<details class="toggle only-ocaml"><summary>Does 63 bits always hold the product?</summary>
-<p>Almost. Two i32 values multiply to at most 2<sup>62</sup>, and that one product (<code>INT_MIN * INT_MIN</code>) is one past OCaml's <code>max_int</code>, so it wraps to a negative <code>int</code>. Work out whether that breaks your answer for <code>full * full</code>. There's a test for it.</p>
 </details>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say what makes a rule symbolic: it is right for every input, so it never needs to know the input.</li>
+<li>Find a counterexample to a tempting rule by trying the values where i32 wraps.</li>
+<li>Explain why rules made only of <code>add</code> and <code>mul</code> survive wrapping, and why the other ops need care.</li>
+<li>Work out bounds sources first, and widen to the full range when an end does not fit.</li>
+<li>Use bounds and param limits to prove a compare is always true or a <code>mod</code> does nothing.</li>
+</ul>
+<p>Next, <a href="05-call-and-param.html">lesson 5</a> shows how <code>call</code> fills a param, how limits are checked, and what <code>stack</code> and <code>index</code> do.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -197,7 +415,7 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 <button data-k="d"><code>mod(x, 1) → 0</code></button>
 </div>
 <p class="hint">Try each rule on a value near the edge of the i32 range, like 2<sup>30</sup>.</p>
-<div class="why"><p>The multiply can wrap, and dividing doesn't undo the wrap. The other three hold for every i32: zero times anything is zero, addition is associative mod 2<sup>32</sup>, and every remainder by 1 is 0.</p></div>
+<div class="why"><p>The multiply can wrap, and dividing doesn't undo the wrap. The other three hold for every i32: zero times anything is zero and always fits, adding in two steps or one lands on the same bits, and every remainder by 1 is 0.</p></div>
 </div>
 
 <div class="quiz" data-fill="[0, 7] | [0,7] | 0 7 | 0..7 | 0-7 | 0, 7">
@@ -206,9 +424,8 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 %m = max %x 0
 %k = mod %m 8</code></pre>
 <div class="fill"><input aria-label="your answer" placeholder="[lo, hi]"><button class="btn">check</button></div>
-<p class="hint">First find the bounds of <code>%m</code>. Can <code>max %x 0</code> ever be negative?</p>
-<p class="hint">Do the two ends of <code>%m</code> have the same quotient by 8? If not, the rule for a positive fixed divisor gives <code>[0, divisor - 1]</code>.</p>
-<div class="why"><p><code>%m</code> is <code>[0, INT_MAX]</code>. The ends have quotients 0 and 268435455, which differ, so <code>mod 8</code> gives <code>[0, 7]</code>.</p></div>
+<p class="hint">First find the bounds of <code>%m</code>. Can <code>max %x 0</code> ever be negative? Then list the values a remainder by 8 can be.</p>
+<div class="why"><p><code>%m</code> is <code>[0, INT_MAX]</code>, and a remainder by 8 is 0 to 7, so <code>%k</code> is <code>[0, 7]</code>.</p></div>
 </div>
 
 <div class="quiz" data-fill="true">
@@ -218,7 +435,7 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 %out = cmplt %k 8</code></pre>
 <div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
 <p class="hint">Without the <code>max</code>, x can be negative. What sign does a floor remainder by a positive number have?</p>
-<div class="why"><p>Still <code>true</code>. A floor remainder by 8 is always in <code>[0, 7]</code>, even for negative x, so the <code>max</code> never mattered. In C, where <code>%</code> follows the sign of x, it would be <code>[-7, 7]</code>.</p></div>
+<div class="why"><p>Still <code>true</code>. A floor remainder by 8 is always in <code>[0, 7]</code>, even for negative x, so the <code>max</code> never mattered.</p></div>
 </div>
 
 <div class="quiz" data-fill="[2, 5] | [2,5] | 2 5 | 2..5 | 2-5 | 2, 5">
@@ -244,8 +461,7 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 <pre><code>%m   = mul %x 2
 %out = div %m 2</code></pre>
 <div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
-<p class="hint">Work out <code>1073741824 * 2</code> first. Does 2<sup>31</sup> fit in i32?</p>
-<p class="hint">When a product passes <code>INT_MAX</code>, it wraps to a negative number. Then divide that by 2.</p>
+<p class="hint">Work out <code>1073741824 * 2</code> first. Does 2<sup>31</sup> fit in i32? Then divide what you get by 2.</p>
 <div class="why"><p>2<sup>31</sup> doesn't fit in i32, so it wraps to <code>-2147483648</code>. Halving that gives <code>-1073741824</code>, not x.</p></div>
 </div>
 
@@ -257,8 +473,8 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 <button data-k="c">Wraparound addition is still associative: everything is exact mod 2<sup>32</sup></button>
 <button data-k="d">The interpreter checks for overflow</button>
 </div>
-<p class="hint">Think about what kind of arithmetic i32 wraparound is. Does regrouping change anything when everything is computed mod 2<sup>32</sup>?</p>
-<div class="why"><p>i32 is the ring of integers mod 2<sup>32</sup>. In a ring, grouping doesn't matter. Overflow here is defined wrapping, not undefined behavior like in C.</p></div>
+<p class="hint">Which ops does the rule use? Do their low 32 bits depend on when the wrap happens?</p>
+<div class="why"><p><code>add</code> keeps the low 32 bits of the true answer, so grouping doesn't matter. Overflow here is defined wrapping, not undefined behavior like in C.</p></div>
 </div>
 
 <div class="quiz" data-fill="1">
@@ -267,8 +483,8 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 %a   = add %x 3
 %out = add %a 4</code></pre>
 <div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">check</button></div>
-<p class="hint">Fold the two constants into one. How many adds are left, and would it vanish if the constants summed to 0?</p>
-<div class="why"><p>One: <code>add %x 7</code>. (With <code>-3</code> instead of <code>4</code>, it would be zero ops, since <code>add %x 0</code> becomes <code>%x</code>.)</p></div>
+<p class="hint">Fold the two constants into one. How many adds are left?</p>
+<div class="why"><p>One: <code>add %x 7</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">
@@ -280,7 +496,7 @@ div(x, c)   → 0         if 0 ≤ x.lo and x.hi &lt; c</code></pre>
 <button data-k="d">Only if x is 1</button>
 </div>
 <p class="hint">The grader only checks inputs inside the limits. What bounds does <code>%x * 2</code> have, and can that wrap?</p>
-<div class="why"><p>The rule is valid whenever <code>c ≠ 0</code> and bounds prove the multiply doesn't wrap. A bool cast to i32 gives the same <code>[0, 1]</code>, and the oracle reduces that version to a single <code>cast</code>.</p></div>
+<div class="why"><p>The rule is valid whenever <code>c ≠ 0</code> and bounds prove the multiply doesn't wrap.</p></div>
 </div>
 
 <nav class="pager">
@@ -323,6 +539,9 @@ document.addEventListener('DOMContentLoaded', () => {
       nodes: [N('x', 'param', [], 'dead'), N('z', '0', [], 'dead'), N('m', 'max', ['x', 'z'], 'dead'), N('e', '8', [], 'dead'), N('k', 'mod', ['m', 'e'], 'dead'), N('t', 'true', [], 'new', '%out')] },
   ];
   CC.stepper(document.getElementById('bounds'), steps, (s, body) => body.append(CC.graph(s.nodes), line(...s.line)));
+  const P = '%x = param [] slot=0 dtype=i32 addrspace=ALU\n';
+  CC.trace(document.getElementById('break-div'), P + '%m = mul %x 2\n%out = div %m 2', { title: 'The rule says %out is %x. Here %x is 1073741824.', args: { 0: 1073741824 } });
+  CC.trace(document.getElementById('break-lt'), P + '%n = add %x 1\n%out = cmplt %x %n', { title: 'The rule says %out is true. Here %x is 2147483647.', args: { 0: 2147483647 } });
 });
 </script>
 </body>

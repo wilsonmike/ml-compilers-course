@@ -1,0 +1,50 @@
+{
+ "id": "w1-01n-value",
+ "lang": "ocaml",
+ "title": "Finish value",
+ "show": "string_of_int",
+ "starter": "type node = { op : string; src : node list; arg : int option }\n\nlet lit v = { op = \"const\"; src = []; arg = Some v }\nlet node op a b = { op; src = [a; b]; arg = None }\n\nlet rec value (n : node) : int =\n  match n.op, n.src, n.arg with\n  | \"const\", [], Some _ -> 0\n  | \"add\", [a; b], None -> value a + value b\n  | \"mul\", [a; _], None -> value a\n  | _ -> failwith \"not a node this toy knows\"\n",
+ "tests": [
+  {
+   "expr": "value (lit 7)",
+   "expect": "7",
+   "sample": true
+  },
+  {
+   "expr": "value (node \"add\" (lit 2) (lit 3))",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "value (node \"mul\" (node \"add\" (lit 2) (lit 3)) (lit 4))",
+   "expect": "20",
+   "sample": true
+  },
+  {
+   "expr": "value (lit (-4))",
+   "expect": "-4"
+  },
+  {
+   "expr": "value (node \"mul\" (lit 6) (lit 0))",
+   "expect": "0"
+  },
+  {
+   "expr": "let a = node \"add\" (lit 2) (lit 3) in value (node \"mul\" a a)",
+   "expect": "25"
+  },
+  {
+   "expr": "value (node \"add\" (node \"mul\" (lit 3) (lit 4)) (node \"mul\" (lit (-2)) (lit 5)))",
+   "expect": "2"
+  },
+  {
+   "expr": "let x = lit 3 in let s = node \"mul\" x x in value (node \"mul\" s s)",
+   "expect": "81"
+  }
+ ],
+ "hints": [
+  "A `const` node has no sources. Its number is not worked out from anything: it is stored on the node.",
+  "In the `const` branch, name the stored number and return it: `Some v -> v`.",
+  "The `mul` branch throws its second source away with `_`. Name it `b`, as the `add` branch does, and return `value a * value b`."
+ ],
+ "explain": "A `const` keeps its number in `arg`, so its value is just that field. Every other node gets its number from its sources: `value` asks each source for its number first, then applies the op, here `a * b` for `mul`. That is the whole interpreter from the start steps, moved from lines to nodes."
+}

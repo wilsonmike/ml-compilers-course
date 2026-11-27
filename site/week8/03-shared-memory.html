@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shared Memory and Barriers</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A block&#x27;s threads can cooperate: each loads part of a tile into shared memory, they all wait, and then each reads whatever parts it needs. In .uir that&#x27;s an...">
+<meta name="description" content="So far every thread did its work alone. In this lesson the threads of one block work together: each puts a value in the block&#x27;s shared memory, they all wait...">
 <link rel="canonical" href="https://sharpterminal.com/site/week8/03-shared-memory">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Shared Memory and Barriers">
-<meta property="og:description" content="A block&#x27;s threads can cooperate: each loads part of a tile into shared memory, they all wait, and then each reads whatever parts it needs. In .uir that&#x27;s an alloc inside a global loop and two local...">
+<meta property="og:description" content="So far every thread did its work alone. In this lesson the threads of one block work together: each puts a value in the block&#x27;s shared memory, they all wait, and then each reads what the others put...">
 <meta property="og:url" content="https://sharpterminal.com/site/week8/03-shared-memory">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .rows { display: grid; gap: var(--s2); max-width: 32rem; }
   .row { display: grid; grid-template-columns: 4.5rem repeat(4, minmax(0, 1fr)); gap: 3px; align-items: center; }
@@ -34,44 +34,214 @@
 <main>
 <p class="eyebrow">Week 8 · Lesson 3</p>
 <h1>Shared memory and barriers</h1>
-<p class="lede">A block's threads can cooperate: each loads part of a tile into shared memory, they all wait, and then each reads whatever parts it needs. In .uir that's an alloc inside a global loop and two local loops in a row. The rules of lesson 2 still hold inside each loop, and the gap between the loops is the barrier.</p>
+<p class="lede">So far every thread did its work alone. In this lesson the threads of one block work together: each puts a value in the block's shared memory, they all wait, and then each reads what the others put there. Every fast GPU kernel your compiler writes will use this pattern, because it is how a block loads a tile once and reuses it.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Split a block's work into phases, say where the barrier goes, and tell which allocs are a block's shared memory.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Blocks, threads and shared memory from <a href="01-gpus.html">lesson 8.1</a>, <code>global</code> and <code>local</code> loops and the same-expression rule from <a href="02-global-and-local.html">lesson 8.2</a>, and <code>load</code>, <code>store</code> and <code>after</code> from <a href="../week2/02-load-store-after.html">lesson 2.2</a>.</p>
+<p class="only-python">In the last exercise: a list, a loop and <code>None</code> (<a href="../learn/py-02-decisions-loops.html">P.2</a>, <a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">In the last exercise: a list and an <code>option</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>, <a href="../learn/ml-04-your-own-types.html">O.4</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from lessons 8.1 and 8.2, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Who can read and write a block's shared memory?</p>
+<div class="opts">
+<button data-k="a">Every thread of every block</button>
+<button data-k="b">The threads of that one block</button>
+<button data-k="c">One thread only</button>
+</div>
+<p class="hint">Global memory, shared memory, registers. Shared is the middle one.</p>
+<div class="why"><p>Shared memory belongs to one block. All of that block's threads see it, and no other block does.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A kernel has 4 blocks <code>b</code> of 4 threads <code>t</code>. Which store offset gives every thread its own element?</p>
+<div class="opts">
+<button data-k="a"><code>b + t</code></button>
+<button data-k="b"><code>4b + t</code></button>
+<button data-k="c"><code>4t</code></button>
+</div>
+<p class="hint">The largest <code>t</code> is 3. The coefficient of <code>b</code> has to beat that.</p>
+<div class="why"><p>4 is more than 3, the most <code>t</code> can add, so <code>4b + t</code> is a different number for every block and thread. With <code>b + t</code>, block 0 thread 1 and block 1 thread 0 both write element 1.</p></div>
+</div>
 
 <div class="prose">
-<h2>Phases</h2>
-<p>Consecutive local loops in one global loop are <b>phases</b>. Between two phases, every thread of the block has finished the first before any thread starts the second. Run as plain loops, that's automatic: the first loop ends before the second starts. On a GPU, every thread runs both phases one after the other, so the compiler puts a barrier, <code>__syncthreads()</code>, between them.</p>
-<p>Here is a block of 8 threads reversing its part of <code>x</code> through shared memory:</p>
-<pre><code>%sh = alloc 8 dtype=f32                # the block's shared memory
+<h2>A job one thread cannot do alone</h2>
+<p>In <a href="01-gpus.html">lesson 8.1</a> a block reversed 8 numbers in two moves, through shared memory, with a barrier between them. Here you see why it needs both, starting from a plan with neither. A block of 4 threads owns 4 elements of a buffer <code>x</code>, which hold <code>[1 2 3 4]</code>. The job is to reverse them <b>in place</b>: <code>x</code> itself should end as <code>[4 3 2 1]</code>.</p>
+<p>The obvious plan gives every thread one small job. Thread <code>t</code> reads its mirror element <code>x[3 - t]</code> and writes that value into its own element <code>x[t]</code>. All four threads run at the same time.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Suppose the threads happen to run in the order 0, 1, 2, 3, each one finishing before the next starts. What is <code>x</code> afterward?</p>
+<div class="opts">
+<button data-k="a"><code>[4 3 2 1]</code></button>
+<button data-k="b"><code>[4 3 3 4]</code></button>
+<button data-k="c"><code>[1 2 3 4]</code></button>
+</div>
+<p class="hint">Thread 2 reads <code>x[1]</code>. Which thread has already written <code>x[1]</code> by then?</p>
+<div class="why"><p>Thread 0 writes 4 into <code>x[0]</code> and thread 1 writes 3 into <code>x[1]</code>. Then thread 2 reads <code>x[1]</code>, which is now 3 and no longer 2. Thread 3 reads <code>x[0]</code>, which is now 4. The 1 and the 2 were overwritten before anyone read them.</p></div>
+</div>
+
+<div class="prose">
+<p>Two of the threads read a value that another thread had already overwritten. On a GPU it is worse, because nobody chooses the order. The answer depends on which thread gets there first, and it can change from one run to the next. That is a <b>race</b>, the same trouble as the lost update in <a href="../week7/04-threads.html">lesson 7.4</a>.</p>
+<p>Lesson 8.2's rule already refuses this plan. One piece of code stores to <code>x[t]</code> and loads <code>x[3 - t]</code>, and those are two different offset expressions for one buffer. So the threads have to work together.</p>
+
+<h2>Two phases with a wait between them</h2>
+<p>The fix is lesson 8.1's two moves. The block uses its <b>shared memory</b> as a scratch area. Call it <code>sh</code>. The work splits into two <b>phases</b>: steps that every thread of the block does, one phase after the other.</p>
+<ol>
+<li><strong>Copy out.</strong> Thread <code>t</code> copies <code>x[t]</code> into <code>sh[t]</code>. Each thread touches only its own slot.</li>
+<li><strong>Wait.</strong> No thread goes on until all four have finished their copy.</li>
+<li><strong>Copy back, mirrored.</strong> Thread <code>t</code> reads <code>sh[3 - t]</code> and writes it into <code>x[t]</code>.</li>
+</ol>
+<p>The wait is the <b>barrier</b> from lesson 8.1, written <code>__syncthreads()</code> in CUDA: no thread of the block passes it until every thread has reached it.</p>
+<p>In the last step a thread reads a slot that another thread wrote. Inside one phase that would be a race. After the barrier it is safe, because every slot was filled before any thread got past.</p>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q"><code>x</code> starts as <code>[1 2 3 4]</code>. In the second phase, what number does thread 1 write into <code>x[1]</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Thread 1 reads <code>sh[3 - 1]</code>. What did the first phase put in that slot?</p>
+<div class="why"><p>The first phase copied the old <code>x[2]</code>, which is 3, into <code>sh[2]</code>. Thread 1 reads it there. It no longer matters who has overwritten <code>x[2]</code>, because nobody reads <code>x</code> in the second phase.</p></div>
+</div>
+
+<p class="prose">Step through the whole thing and check your answer against the last step.</p>
+
+<div class="fig" id="phases" data-title="Reversing a block of 4 through shared memory"></div>
+
+<div class="prose">
+<h2>Take the barrier away</h2>
+<p>Now delete step 2, the wait. Each thread does its copy out and goes straight on to its copy back. Some threads are faster than others.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Shared memory starts as all zeros. With no barrier, thread 0 finishes its copy out and starts its copy back while thread 3 has not copied anything yet. What does thread 0 write into <code>x[0]</code>?</p>
+<div class="opts">
+<button data-k="a">4, the old <code>x[3]</code></button>
+<button data-k="b">0</button>
+<button data-k="c">1, its own old value</button>
+</div>
+<p class="hint">Thread 0 reads <code>sh[3]</code>. Whose job was it to fill that slot?</p>
+<div class="why"><p>Thread 3 fills <code>sh[3]</code>, and it has not done so yet. Thread 0 reads the 0 that was there and writes it into <code>x[0]</code>. With the barrier, the answer was 4.</p></div>
+</div>
+
+<div class="prose">
+<p>The hard part is that a missing barrier gives a wrong answer only sometimes. An SM runs a block's threads in warps of 32 (<a href="01-gpus.html">lesson 8.1</a>). The threads of one warp usually run together, though nothing promises it. So a small block of one or two warps often gets lucky, and the test passes on your machine.</p>
+<p>That is why the lab's suite includes a block of 1024 threads, <code>c_reverse_shared_1024</code>. Its 32 warps really do run at different times. The emulator runs every thread of a block as a real operating system thread with a real barrier, so a missing barrier shows up there too.</p>
+
+<h2>Phases in .uir</h2>
+<p>In .uir you never write a barrier. Consecutive <code>local</code> loops inside one <code>global</code> loop are the phases, and the gap between two of them is the barrier. Run as plain loops, the wait is automatic: the first loop ends before the second starts. On a GPU every thread runs both phases one after the other, so your compiler puts <code>__syncthreads()</code> in the gap. Lesson 8.4 does that.</p>
+<p>Here is the reverse for 4 blocks of 8 threads, with the loop bodies left out:</p>
+<pre><code>%sh = alloc 8 dtype=f32
 %b = range 4 axis=global
-# phase 1: thread t copies x[8b + t] into sh[t]
 %t = range 8 axis=local
 ...
 %e1 = end %s1 %t
 %sh1 = after %sh %e1
-# phase 2: thread u reads sh[7 - u] and writes o[8b + u]
 %u = range 8 axis=local
-...</code></pre>
-<p>In phase 2, thread <code>u</code> reads a slot another thread wrote. Inside one phase that would be a race. Across the barrier it's safe: every slot was written before any thread got past it. So the rule from lesson 2 is checked one phase at a time, and <b>a later phase may read anything an earlier phase wrote to shared memory</b>.</p>
-<p>Buffers are different. Other blocks run at the same time, and no barrier waits for them, so the kernel check covers all of a block's phases at once: every access to a buffer in the kernel uses the same offset expression. That's why the reverse goes through <code>sh</code> instead of reading back <code>o</code>.</p>
+...
+%e2 = end %s2 %u
+%eb = end %e1 %e2 %b</code></pre>
+<ol>
+<li><strong>The shared memory.</strong> <code>%sh</code> is an alloc that is used only inside the global loop.</li>
+<li><strong>Phase 1.</strong> The loop <code>%t</code>. Thread <code>t</code> copies <code>x[8b + t]</code> into <code>sh[t]</code>.</li>
+<li><strong>The barrier.</strong> Nothing to write. <code>%sh1</code> is the shared memory after all of phase 1.</li>
+<li><strong>Phase 2.</strong> The loop <code>%u</code>. Thread <code>u</code> reads <code>sh[7 - u]</code> from <code>%sh1</code> and writes <code>o[8b + u]</code>.</li>
+<li><strong>The block.</strong> Its <code>end</code> lists both phases.</li>
+</ol>
+<p>Lesson 8.2's rule is checked one phase at a time. Phase 2 only reads <code>sh</code>, and memory that a phase only reads may be read anywhere. So <b>a later phase may read anything an earlier phase wrote to shared memory</b>.</p>
+<p>One thing differs from the picture: this program writes its answer to a second buffer <code>o</code> and not back into <code>x</code>. The toggle below says why.</p>
 </div>
-
-<div class="fig" id="phases" data-title="Reversing a block of 4 through shared memory"></div>
 
 <div class="exercise small" data-ex="w8-03-reverse">
 <h3>Reverse through shared memory</h3>
 <p>Phase 2 reads <code>sh[u]</code>, so the program copies each block unchanged. Make it read the mirror slot.</p>
 </div>
 
+<details class="toggle">
+<summary>Why the answer goes to <code>o</code> and not back into <code>x</code></summary>
 <div class="prose">
-<h2>Shared memory, in .uir</h2>
-<p>An alloc whose every load and store is inside one global loop is that block's <b>shared memory</b>. Each block starts with its own copy, all zeros. <code>./compile</code> re-zeroes it at the start of every block (every value of the global range), just as week 7 re-zeroed a thread loop's private alloc. The test <code>block_shared_starts_at_zero</code> checks that, and <code>plain_loop_alloc_carries_over</code> runs the same program with plain loops, where the alloc keeps its contents.</p>
-<p>On the GPU, shared memory isn't zero when a block starts. It may hold an earlier block's leftovers. So the rendered kernel zeroes it first, with every thread clearing part of it, and then a barrier. Skip that and a test like <code>c_shared_dirty_then_fresh</code> reads another block's leftovers.</p>
-<p>The kernel check, which proves blocks don't collide, skips shared memory: each block has its own, so block 0's <code>sh[0]</code> and block 1's <code>sh[0]</code> are different memory.</p>
+<p>Buffers are different from shared memory. Other blocks run at the same time, and no barrier waits for them. So the kernel check, which proves blocks don't collide, covers all of a block's phases at once: every access to a buffer in the kernel uses the same offset expression. Loading <code>x[8b + t]</code> in phase 1 and storing <code>x[8b + u]</code> in phase 2 are two expressions, because <code>%t</code> and <code>%u</code> are two different loops, so .uir rejects the in-place version. Hand-written CUDA can reverse in place this way. The .uir rule is stricter than it has to be, in exchange for being simple to check.</p>
+<p>With a second buffer, phase 2 could also read <code>x[8b + 7 - u]</code> directly, since <code>x</code> is only read. The exercise goes through <code>sh</code> because that is the shape of every tiled kernel: load a piece into fast shared memory once, wait, then let every thread read any part of it.</p>
+</div>
+</details>
 
-<h2>Phases in a loop</h2>
+<div class="prose">
+<h2>Write a second phase yourself</h2>
+<p>Now a phase from nothing, for a slightly different job: rotate each block of 4 left by one, so <code>[1 2 3 4]</code> becomes <code>[2 3 4 1]</code>. Thread <code>u</code> outputs the element of the thread to its right, and the last thread wraps around to the first. So thread <code>u</code> reads <code>sh[(u + 1) mod 4]</code>.</p>
+<p>Phase 1 is the same as before and is already written. Phase 2 needs four things:</p>
+<ol>
+<li><strong>A loop.</strong> <code>%u = range 4 axis=local</code>. The bound matches phase 1, because a kernel has one block size.</li>
+<li><strong>A load from shared memory.</strong> Through <code>%sh1</code>, at slot <code>(u + 1) mod 4</code>.</li>
+<li><strong>A store to the output.</strong> At <code>o[4b + u]</code>. The starter's <code>%m</code> is already <code>4b</code>.</li>
+<li><strong>The ends.</strong> End the phase on <code>%u</code>, list both phases in the block's <code>end</code>, and finish with <code>%o1 = after %o %eb</code>.</li>
+</ol>
+</div>
+
+<div class="exercise small" data-ex="w8-03n-rotate">
+<h3>Write the second phase</h3>
+<p>The starter has phase 1 only, so <code>o</code> is never written. Add phase 2 so that each block of 4 comes out rotated left by one: <code>o[4b + u]</code> gets <code>sh[(u + 1) mod 4]</code>.</p>
+</div>
+
+<div class="prose">
+<h2>What counts as shared memory</h2>
+<p>One question is still open: what is in <code>sh</code> when a block starts?</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">An alloc <code>sh</code> of 1 element is used only inside a global loop of 3 blocks. In each block, phase 1 copies <code>sh[0]</code> to <code>o[b]</code>, and phase 2 stores 9 into <code>sh[0]</code>. What is <code>o</code> at the end?</p>
+<div class="opts">
+<button data-k="a"><code>[0 9 9]</code></button>
+<button data-k="b"><code>[0 0 0]</code></button>
+<button data-k="c">It depends on which block runs first</button>
+</div>
+<p class="hint">Can one block ever see what another block left in shared memory?</p>
+<div class="why"><p>Every block starts with its own <code>sh</code>, all zeros. The 9 that a block stores is gone when that block ends. If blocks could see each other's leftovers, the answer would depend on the order they ran in, and .uir never allows that.</p></div>
+</div>
+
+<div class="prose">
+<p>The rule: <b>an alloc whose every load and store is inside one global loop is that block's shared memory</b>. Each block gets its own copy, and each copy starts as all zeros. Block 0's <code>sh[0]</code> and block 1's <code>sh[0]</code> are different memory, so the check that keeps blocks apart skips shared memory.</p>
+<p><code>./compile</code> runs the blocks as a plain loop, so it sets the alloc back to zeros at the start of every block, just as week 7 did for a thread loop's private alloc.</p>
+<p>An alloc that is used in two global loops, or anywhere outside one, is not shared memory. It is never set back to zero. <code>./compile</code> and <code>render</code> treat it like a buffer, and <code>render-cuda</code> refuses the program with exit code 2, because that memory has nowhere to live on a GPU.</p>
+<p>A real GPU does not hand a block clean memory. Shared memory may hold an earlier block's leftovers. So the kernel your compiler renders clears it first: every thread zeroes part of it, then comes a barrier, then phase 1.</p>
+</div>
+
+<div class="exercise" data-ex="w8-03n-shared" data-ex-py="w8-03n-shared-py">
+<h3>Is this alloc shared memory?</h3>
+<p>Your compiler has to decide which allocs are shared memory. <code>uses</code> has one entry for each load or store of one alloc: <code>Some g</code> when it is inside global loop number <code>g</code>, or <code>None</code> when it is outside every global loop. The list is never empty. Write <code>shared uses</code>: true when every use is inside the same global loop. The starter says yes to everything.</p>
+</div>
+
+<details class="toggle">
+<summary>The tests that check zeroing, for when you do the lab</summary>
+<div class="prose">
+<p>For <code>./compile</code>, the test <code>block_shared_starts_at_zero</code> checks that each block starts from zeros. <code>plain_loop_alloc_carries_over</code> runs the same program with plain loops, where the alloc keeps its contents from one iteration to the next.</p>
+<p>For <code>render-cuda</code>, the rendered kernel has to zero its shared arrays, with every thread clearing part of them, and then a barrier. Skip that and, on a real GPU, a test like <code>c_shared_dirty_then_fresh</code> reads another block's leftovers. In the emulator, <code>c_block_shared_fresh</code> is the test that catches it.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Phases inside a loop, and why the last phase ends with a barrier too</summary>
+<div class="prose">
 <p>A tiled GEMM puts its phases in a plain loop over tiles of <code>k</code>: load a tile of A and B into shared memory, multiply it in, then load the next. That needs a barrier at the end of the last phase too. Otherwise a fast thread starts loading tile <code>k + 1</code> while a slow one is still multiplying tile <code>k</code>. That's why the CUDA renderer puts a barrier after every phase, including the last.</p>
+</div>
+</details>
 
-<h2>A missing barrier</h2>
-<p>A missing barrier gives wrong answers only sometimes. On a real GPU the threads of a warp usually run together, though nothing promises it, so a small block of one or two warps often gets lucky, and the test passes on your machine. That's why the suite includes a block of 1024 threads, <code>c_reverse_shared_1024</code>, whose 32 warps really do run at different times. The emulator runs every thread of a block as a real operating-system thread, with a real barrier, so a missing barrier shows up there too.</p>
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say why threads that read and overwrite the same memory at the same time give wrong answers.</li>
+<li>Split a block's work into phases and say what the barrier between them guarantees.</li>
+<li>Write two phases in .uir as two <code>local</code> loops in a row.</li>
+<li>Tell which allocs are a block's shared memory, and say what each block finds in it at the start.</li>
+</ul>
+<p>Next, lesson 8.4 turns these loops into CUDA, with a real <code>__syncthreads()</code> in every gap.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -127,13 +297,13 @@
 document.addEventListener('DOMContentLoaded', () => {
   const { h } = CC;
   const row = (k, vals, on) => h('div', { class: 'row' }, [h('div', { class: 'k', text: k }), ...vals.map((v, i) => h('div', { class: 'c' + (on && on.includes(i) ? ' on' : ''), text: v }))]);
-  const x = ['a', 'b', 'c', 'd'];
+  const x = [1, 2, 3, 4];
+  const all = [0, 1, 2, 3];
   const steps = [
-    { caption: 'One block of 4 threads, before it starts. Its shared memory <code>sh</code> is all zeros.', rows: [row('x', x), row('sh', [0, 0, 0, 0]), row('o', ['', '', '', ''])] },
-    { caption: 'Phase 1: thread <code>t</code> copies <code>x[t]</code> into <code>sh[t]</code>. Each thread writes only its own slot, as lesson 2 requires.', rows: [row('x', x, [0, 1, 2, 3]), row('sh', x, [0, 1, 2, 3]), row('o', ['', '', '', ''])] },
-    { caption: 'The barrier: no thread goes on until all four have written their slot.', rows: [row('x', x), row('sh', x), row('o', ['', '', '', ''])] },
-    { caption: 'Phase 2: thread <code>u</code> reads <code>sh[3 - u]</code>, another thread\'s slot, and writes <code>o[u]</code>. Safe, because of the barrier.', rows: [row('x', x), row('sh', x, [0, 1, 2, 3]), row('o', ['d', 'c', 'b', 'a'], [0, 1, 2, 3])] },
-    { caption: 'Without the barrier: thread 0 may reach phase 2 before thread 3 has written. It reads <code>sh[3]</code> while it\'s still 0.', rows: [row('x', x), row('sh', ['a', 'b', 'c', 0], [3]), row('o', [0, '', '', ''], [0])] },
+    { caption: 'One block of 4 threads, before it starts. Its shared memory <code>sh</code> is all zeros.', rows: [row('x', x), row('sh', [0, 0, 0, 0])] },
+    { caption: 'Phase 1: thread <code>t</code> copies <code>x[t]</code> into <code>sh[t]</code>. Each thread writes only its own slot, as lesson 8.2 requires.', rows: [row('x', x, all), row('sh', x, all)] },
+    { caption: 'The barrier: no thread goes on until all four have written their slot.', rows: [row('x', x), row('sh', x)] },
+    { caption: 'Phase 2: thread <code>t</code> reads <code>sh[3 - t]</code>, another thread\'s slot, and writes <code>x[t]</code>. Safe, because of the barrier.', rows: [row('x', [4, 3, 2, 1], all), row('sh', x, all)] },
   ];
   CC.stepper(document.getElementById('phases'), steps, (s, body) => body.append(h('div', { class: 'rows' }, s.rows)));
 });

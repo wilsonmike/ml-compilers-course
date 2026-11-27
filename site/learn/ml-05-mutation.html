@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arrays, tables and mutation in OCaml</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Until now nothing you made in OCaml could change after you made it. This lesson covers the parts that can: boxes you can refill, loops, arrays, and hash...">
+<meta name="description" content="Until now nothing you made in OCaml could change after you made it. This lesson gives you the parts that can: a box you can refill, loops, arrays and hash...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/ml-05-mutation">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Arrays, tables and mutation in OCaml">
-<meta property="og:description" content="Until now nothing you made in OCaml could change after you made it. This lesson covers the parts that can: boxes you can refill, loops, arrays, and hash tables. It also covers building strings...">
+<meta property="og:description" content="Until now nothing you made in OCaml could change after you made it. This lesson gives you the parts that can: a box you can refill, loops, arrays and hash tables. Your first interpreter keeps its...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/ml-05-mutation">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,59 +20,126 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Learn OCaml|Arrays, tables and mutation" data-root="../">
 <main>
   <p class="eyebrow">Learn OCaml · Lesson 5</p>
   <h1>Arrays, tables and mutation</h1>
-  <p class="lede">Until now nothing you made in OCaml could change after you made it. This lesson covers the parts that can: boxes you can refill, loops, arrays, and hash tables. It also covers building strings, printing numbers neatly, and the difference between two values being equal and being the same value, which week 1 depends on.</p>
+  <p class="lede">Until now nothing you made in OCaml could change after you made it. This lesson gives you the parts that can: a box you can refill, loops, arrays and hash tables. Your first interpreter keeps its answers in a hash table, and your week 1 compiler uses one so it never builds the same node twice.</p>
+
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Count things, remember things by name, and tell "equal" from "the very same one".</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Functions and <code>fun</code> from <a href="ml-02-functions.html">O.2</a>, lists, <code>match</code> and <code>option</code> from <a href="ml-03-lists-matching.html">O.3</a>, and records from <a href="ml-04-your-own-types.html">O.4</a>.</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="4">
+    <p class="q">What is the value of <code>match Some 3 with Some n -&gt; n + 1 | None -&gt; 0</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Which branch fits <code>Some 3</code>, and what is <code>n</code> in it?</p>
+    <div class="why"><p><code>Some 3</code> fits the first branch with <code>n</code> as 3, so the answer is 4. You will use this exact shape to count words.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">After these two lines, what is <code>n.op</code>?</p>
+<pre><code>let n = { id = 0; op = "x"; src = [] }
+let m = { n with op = "y" }</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>"x"</code></button>
+      <button data-k="b"><code>"y"</code></button>
+      <button data-k="c">It is an error</button>
+    </div>
+    <p class="hint"><code>{ n with op = "y" }</code> builds a new record that copies <code>n</code> except for <code>op</code>.</p>
+    <div class="why"><p><code>m</code> is a new record. <code>n</code> is left alone, so <code>n.op</code> is still <code>"x"</code>. Nothing you have made so far can change.</p></div>
+  </div>
 
   <div class="prose">
-    <h2>Why OCaml prefers values that don't change</h2>
-    <p>To <b>mutate</b> a value means to change it in place, after it was made. In lesson O.4 you never did that. <code>{ p with x = 10 }</code> made a new record and left <code>p</code> alone. OCaml leans this way on purpose, and the reason is simple to state: if a value can't change, you can hand it to any function without worrying what that function does to it. When you read <code>let total = 5</code>, you know <code>total</code> is 5 on every later line. There is nothing to trace.</p>
-    <p>But some jobs really are about change. Counting things as you see them, filling in a table of results, reading a file line by line. Forcing those into the no-change style makes the code longer and slower, not clearer. So OCaml gives you mutation too, and it makes it visible: every place that changes something uses a special operator you can spot, like <code>:=</code> or <code>&lt;-</code>.</p>
-    <p>A good rule for the course: write functions that take values and return new values, and use mutation inside a function when it makes that function simpler. Your week 1 compiler does exactly that. Its expression trees never change, and a hash table on the side remembers which nodes it has already built.</p>
+    <h2>A job that needs change</h2>
+    <p>Here is a job: count how many times each word appears in a list. By hand you would keep a tally sheet. You see "the", so you add one to the number next to "the". That means changing a number you already wrote down.</p>
+    <p>Nothing you have made in OCaml so far can do that. Try to count with what you know:</p>
+<pre><code>let hits = 0
+let result = List.map (fun w -&gt; hits + 1) ["the"; "cat"; "the"]</code></pre>
   </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What is <code>result</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>[1; 2; 3]</code></button>
+      <button data-k="b"><code>[1; 1; 1]</code></button>
+      <button data-k="c"><code>3</code></button>
+    </div>
+    <p class="hint">Does <code>hits + 1</code> change <code>hits</code>, or only compute a number?</p>
+    <div class="why"><p><code>hits</code> is 0 on every line, forever. <code>hits + 1</code> computes 1 three times and changes nothing.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>To <b>mutate</b> a value means to change it in place, after it was made. The count needs that: one number that goes up each time. OCaml lets you do it, and it keeps every change easy to spot. A change always uses its own operator, <code>:=</code> or <code>&lt;-</code>.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Why OCaml prefers values that don't change, for when you wonder which style to use</summary>
+    <div class="prose">
+      <p>If a value can't change, you can hand it to any function without worrying what that function does to it. When you read <code>let total = 5</code>, you know <code>total</code> is 5 on every later line. There is nothing to trace.</p>
+      <p>But some jobs really are about change: counting things as you see them, filling in a table of results, reading a file line by line. Forcing those into the no-change style makes the code longer and slower, not clearer.</p>
+      <p>A good rule for the course: write functions that take values and return new values, and use mutation inside a function when it makes that function simpler. Your week 1 compiler does exactly that. Its expression trees never change, and a hash table on the side remembers which nodes it has already built.</p>
+    </div>
+  </details>
 
   <div class="prose">
     <h2>A box you can refill: ref</h2>
-    <p>A <b>ref</b> is a box that holds one value, and you can swap that value for another later. <code>ref 0</code> makes a box holding 0. <code>!</code> reads what's in the box. <code>:=</code> puts a new value in.</p>
-  </div>
-<pre><code># let counter = ref 0;;
-val counter : int ref = {contents = 0}
-# counter := !counter + 1;;
+    <p>You need a number that can go up. A <b>ref</b> is a box that holds one value, and you can swap that value for another later. Three pieces work the box:</p>
+    <ul>
+      <li><code>ref 0</code> makes a box holding 0.</li>
+      <li><code>!count</code> reads what is in the box.</li>
+      <li><code>count := 5</code> puts 5 in the box.</li>
+    </ul>
+<pre><code># let count = ref 0;;
+val count : int ref = {contents = 0}
+# count := !count + 1;;
 - : unit = ()
-# !counter;;
-- : int = 1
-# incr counter;;
-- : unit = ()
-# !counter;;
-- : int = 2</code></pre>
-  <div class="prose">
-    <p>Read <code>counter := !counter + 1</code> from the right: take what's in the box (<code>!counter</code>, which is 0), add 1, and put the result back in the box. The name <code>counter</code> always means the same box. Only what's inside it changes. <code>incr counter</code> is a shortcut for adding 1, and <code>decr</code> subtracts 1.</p>
-    <p>The type <code>int ref</code> reads "a box holding an int". utop prints it as <code>{contents = 0}</code> because a ref really is a record with one field, <code>contents</code>, which is marked as changeable. Records can have changeable fields too, written <code>mutable</code>. <a href="../week0/06-ocaml.html">Lesson 0.6</a> has an example with a bank balance.</p>
-  </div>
-  <div class="trap">
-    <span class="label">The box is not the number</span>
-    <p><code>counter + 1</code> fails with <code>Error: This expression has type "int ref" but an expression was expected of type "int"</code>. A box can't be added to a number. You need what's inside it: <code>!counter + 1</code>. If you see <code>int ref</code> where you expected <code>int</code> in an error, you've forgotten a <code>!</code>.</p>
+# !count;;
+- : int = 1</code></pre>
+    <p>Read <code>count := !count + 1</code> in three moves:</p>
+    <ol>
+      <li><strong>Read the box.</strong> <code>!count</code> is 0.</li>
+      <li><strong>Do the math.</strong> 0 + 1 is 1.</li>
+      <li><strong>Put it back.</strong> <code>:=</code> stores 1 in the same box.</li>
+    </ol>
+    <p>The name <code>count</code> always means the same box. Only what is inside changes. Adding 1 has a short form, <code>incr count</code>.</p>
+    <p>A change gives back <code>()</code>, called <b>unit</b>, which means "nothing worth returning". To do one step and then another, put a semicolon between them: <code>a; b</code> means "do <code>a</code>, then the answer is <code>b</code>".</p>
+    <p><code>()</code> also stands in as the parameter of a function that needs no input. <code>let fresh () = ref 0</code> is called as <code>fresh ()</code>, and each call makes a new box.</p>
   </div>
 
-  <div class="prose">
-    <h2>Doing things in order: unit, ; and loops</h2>
-    <p>Look at what <code>counter := !counter + 1</code> returned: <code>- : unit = ()</code>. As in lesson O.1, <b>unit</b> is a type with exactly one value, written <code>()</code>. It means "nothing interesting to return". Functions that do something, instead of computing something, return unit. Printing is the usual example:</p>
+  <div class="quiz" data-fill="30">
+    <p class="q">What is the value of this?</p>
+<pre><code>let count = ref 10 in
+count := !count + 5;
+count := !count * 2;
+!count</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Follow the box. What is in it after the first change?</p>
+    <div class="why"><p>The box starts at 10. The first change puts 15 in it. The second reads 15 and puts 30 in it. The last line reads 30.</p></div>
   </div>
-<pre><code># print_string "hi";;
-hi- : unit = ()
-# print_endline "one"; print_endline "two";;
-one
-two
-- : unit = ()</code></pre>
-  <div class="prose">
-    <p>The first line printed <code>hi</code>, and then utop printed the result, unit, right after it on the same line because <code>print_string</code> doesn't end the line. <code>print_endline</code> does.</p>
-    <p>You met the <b>semicolon</b> in lesson O.2. <code>a; b</code> means "do <code>a</code>, throw away its result, then do <code>b</code>, and the whole thing is <code>b</code>'s value". It is how you put steps in order. Because <code>a</code>'s result is thrown away, it should be unit. If it isn't, you probably made a mistake, and OCaml says so:</p>
+
+  <div class="trap">
+    <span class="label">The box is not the number</span>
+    <p><code>count + 1</code> fails with <code>This expression has type "int ref" but an expression was expected of type "int"</code>. A box can't be added to a number. You need what is inside it: <code>!count + 1</code>. If an error says <code>int ref</code> where you expected <code>int</code>, you forgot a <code>!</code>.</p>
   </div>
+
+  <details class="toggle">
+    <summary>What a ref really is, and what the semicolon warns about, for when an error mentions them</summary>
+    <div class="prose">
+      <p>The type <code>int ref</code> reads "a box holding an int". utop prints it as <code>{contents = 0}</code> because a ref is a record with one field, <code>contents</code>, which is marked as changeable. Your own records can have changeable fields too, written <code>mutable</code>. <a href="../week0/06-ocaml.html">Lesson 0.6</a> has an example with a bank balance. <code>decr count</code> subtracts 1, the way <code>incr</code> adds 1.</p>
+      <p>In <code>a; b</code> the result of <code>a</code> is thrown away, so it should be unit. If it isn't, you probably made a mistake, and OCaml says so:</p>
 <pre><code># let x = 5; 6;;
 Line 1, characters 8-9:
 1 | let x = 5; 6;;
@@ -80,25 +147,27 @@ Line 1, characters 8-9:
 Warning 10 [non-unit-statement]: this expression should have type unit.
 
 val x : int = 6</code></pre>
+      <p>The <code>5</code> was computed and thrown away. Inside a list the semicolon means something else. It separates elements: <code>[1; 2; 3]</code>. Outside square brackets it means "then".</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>The <code>5</code> was computed and thrown away. Inside a list the semicolon means something else. It separates elements: <code>[1; 2; 3]</code>. Outside square brackets it means "then".</p>
-    <h3>for and while</h3>
-    <p>A <b>for loop</b> runs its body once for each number in a range, both ends included. A <b>while loop</b> runs its body again and again while a condition is true. Both are written <code>do ... done</code>, and both return unit.</p>
+    <h2>Repeat with a counter: for and while</h2>
+    <p>To add up 1, 2, 3 and 4 into a box you could write four changes. For 1,000 numbers you need a way to say "do this again". A <b>for loop</b> runs its body once for each number in a range, both ends included:</p>
+<pre><code>let total = ref 0 in
+for i = 1 to 4 do
+  total := !total + i
+done;
+!total</code></pre>
   </div>
-<pre><code># for i = 1 to 3 do print_int i; print_newline () done;;
-1
-2
-3
-- : unit = ()
-# let total = ref 0;;
-val total : int ref = {contents = 0}
-# for i = 1 to 4 do total := !total + i done;;
-- : unit = ()
-# !total;;
-- : int = 10</code></pre>
-  <div class="prose">
-    <p>The loop variable <code>i</code> is not a ref. You can read it but not change it. Here is the second loop, one row per trip through the body:</p>
+
+  <div class="quiz" data-fill="10">
+    <p class="q">What is the value of that code?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The body runs four times, with <code>i</code> as 1, 2, 3 and 4.</p>
+    <div class="why"><p>1 + 2 + 3 + 4 is 10. The table below shows each trip through the body.</p></div>
   </div>
+
   <div class="tablewrap"><table>
     <thead><tr><th><code>i</code></th><th><code>!total</code> before</th><th><code>!total</code> after</th></tr></thead>
     <tbody>
@@ -108,45 +177,72 @@ val total : int ref = {contents = 0}
       <tr><td>4</td><td>6</td><td>10</td></tr>
     </tbody>
   </table></div>
+
   <div class="prose">
-    <p>A while loop needs something to change, or it would never stop, so its condition almost always reads a ref. This one halves a number until it reaches 1:</p>
+    <p>The loop variable <code>i</code> is not a ref. You can read it but not change it. The loop itself returns unit, so the work it does has to land in a box.</p>
+    <p>A <b>while loop</b> is for when you don't know the number of trips ahead of time. It runs its body again and again while a condition is true. Something must change or it would never stop, so its condition almost always reads a ref:</p>
+<pre><code>let n = ref 20 in
+while !n &gt; 1 do
+  n := !n / 2
+done;
+!n</code></pre>
   </div>
-<pre><code># let n = ref 20;;
-val n : int ref = {contents = 20}
-# while !n &gt; 1 do n := !n / 2; Printf.printf "%d\n" !n done;;
-10
-5
-2
-1
-- : unit = ()</code></pre>
-  <div class="prose">
-    <p><code>5 / 2</code> is 2 because int division drops the remainder. <code>Printf.printf "%d\n"</code> prints an int and a newline, as in lesson O.1. There is more on formats below. To count down instead of up, write <code>for i = 3 downto 1</code>.</p>
+
+  <div class="quiz" data-fill="4">
+    <p class="q">How many times does the body of that <code>while</code> loop run? Dividing ints drops the remainder, so <code>5 / 2</code> is 2.</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Write down what is in <code>n</code> after each trip: 10, then…</p>
+    <div class="why"><p>The box goes 20, 10, 5, 2, 1. That is four changes. Then <code>!n &gt; 1</code> is false and the loop stops.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Arrays: a row of boxes</h2>
-    <p>A list is good for going through things in order, but finding its 500th element means stepping past the first 499. An <b>array</b> is a fixed-size row of slots, numbered from 0, and you can read or change any slot directly.</p>
+    <p>To repeat over a list and not a range of numbers, use <code>List.iter f items</code>. It calls <code>f</code> on each item in order, as <code>List.map</code> does, but it builds no list and returns unit. To count down, write <code>for i = 3 downto 1</code>.</p>
   </div>
+
+  <div class="prose">
+    <h2>Many boxes in a row: arrays</h2>
+    <p>One score needs one ref. A thousand scores would need a thousand names. A list holds many values, but it can't change, and finding its 500th item means stepping past the first 499.</p>
+    <p>An <b>array</b> is a fixed-size row of boxes, called slots, numbered from 0. You can read or change any slot directly.</p>
 <pre><code># let a = Array.make 3 0;;
 val a : int array = [|0; 0; 0|]
 # a.(0) &lt;- 7;;
 - : unit = ()
-# a;;
-- : int array = [|7; 0; 0|]
-# a.(1);;
-- : int = 0
+# a.(0);;
+- : int = 7
 # Array.length a;;
 - : int = 3</code></pre>
-  <div class="prose">
-    <p><code>Array.make 3 0</code> makes an array of 3 slots, each holding 0. Arrays are written with bars inside the square brackets, <code>[|7; 0; 0|]</code>, so you can tell them from lists. <code>a.(1)</code> reads slot 1, and <code>a.(0) &lt;- 7</code> puts 7 in slot 0. Note the dot before the parentheses. The arrow <code>&lt;-</code> is the "change this slot" operator.</p>
-    <p>An array of length 3 has slots 0, 1 and 2. There is no slot 3:</p>
+    <ol>
+      <li><strong>Make it.</strong> <code>Array.make 3 0</code> makes 3 slots, each holding 0. You can also write one out: <code>[| 4; 5; 6 |]</code>. The bars tell it apart from a list.</li>
+      <li><strong>Change a slot.</strong> <code>a.(0) &lt;- 7</code> puts 7 in slot 0.</li>
+      <li><strong>Read a slot.</strong> <code>a.(0)</code> is now 7.</li>
+    </ol>
   </div>
-<pre><code># a.(3);;
-Exception: Invalid_argument "index out of bounds".</code></pre>
-  <div class="prose">
-    <p>This is the most common array bug: a loop that runs one step too far. The last valid index is always <code>Array.length a - 1</code>. OCaml checks every index and stops the program with this exception. That is much better than what C does, which is to read whatever happens to be next in memory.</p>
-    <p>You don't always need an index. <code>Array.map</code> and <code>Array.iter</code> work like their <code>List</code> cousins from lesson O.3. <code>Array.map</code> makes a new array, and <code>Array.iter</code> runs a function on each element for its effect:</p>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Start again from <code>let a = Array.make 3 0</code>. What is <code>a</code> after <code>a.(0) &lt;- 7; a.(2) &lt;- a.(0) + 1</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>[|7; 8; 0|]</code></button>
+      <button data-k="b"><code>[|0; 7; 8|]</code></button>
+      <button data-k="c"><code>[|7; 0; 8|]</code></button>
+    </div>
+    <p class="hint">Slots are numbered from 0. Which slot is <code>a.(2)</code>?</p>
+    <div class="why"><p>Slot 0 gets 7. Slot 2 is the third and last slot, and it gets 7 + 1. Slot 1 was never touched.</p></div>
   </div>
+
+  <div class="prose">
+    <p>An array of length 3 has slots 0, 1 and 2. There is no slot 3. Asking for <code>a.(3)</code> stops the program with <code>Invalid_argument "index out of bounds"</code>. The last slot is always <code>a.(Array.length a - 1)</code>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-05-sum-array">
+    <h3>Sum an array with a for loop</h3>
+    <p>Write <code>sum : int array -&gt; int</code> using a <code>for</code> loop over the indexes and the <code>total</code> ref from the starter. <code>sum [| 1; 2; 3 |]</code> is 6, and an empty array sums to 0.</p>
+    <p class="muted">The loop goes from 0 to <code>Array.length a - 1</code>. Inside it, <code>total := !total + a.(i)</code>.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Arrays without an index: map, iter and to_list, for when a loop feels like too much</summary>
+    <div class="prose">
+      <p><code>Array.map</code> and <code>Array.iter</code> work like <code>List.map</code> and <code>List.iter</code>. <code>Array.map</code> makes a new array, and <code>Array.iter</code> runs a function on each element for its effect:</p>
 <pre><code># let b = [| 1; 2; 3 |];;
 val b : int array = [|1; 2; 3|]
 # Array.map (fun x -&gt; x * 10) b;;
@@ -158,55 +254,78 @@ val b : int array = [|1; 2; 3|]
 - : unit = ()
 # Array.to_list b;;
 - : int list = [1; 2; 3]</code></pre>
+      <p>OCaml checks every index. That is much better than what C does, which is to read whatever happens to be next in memory.</p>
+    </div>
+  </details>
 
-  <div class="exercise small" data-ex="lo-05-sum-array">
-    <h3>Sum an array with a for loop</h3>
-    <p>Write <code>sum : int array -&gt; int</code> using a <code>for</code> loop over the indexes and the <code>total</code> ref from the starter. <code>sum [| 1; 2; 3 |]</code> is 6, and an empty array sums to 0.</p>
-    <p class="muted">The loop goes from 0 to <code>Array.length a - 1</code>. Inside it, <code>total := !total + a.(i)</code>.</p>
+  <div class="prose">
+    <h2>Look things up by name: Hashtbl</h2>
+    <p>An array finds things by number. An interpreter needs to find them by name: line 1 of a program saves its answer as <code>a</code>, and line 2 asks for <code>a</code>. A <b>hash table</b> stores pairs of a <b>key</b> (what you look up by) and a <b>value</b> (what you get back). OCaml's is called <code>Hashtbl</code>. Here is a tiny <code>env</code>, a place that keeps answers under names:</p>
+<pre><code># let env : (string, int) Hashtbl.t = Hashtbl.create 16;;
+val env : (string, int) Hashtbl.t = &lt;abstr&gt;
+# Hashtbl.replace env "a" 5;;
+- : unit = ()
+# Hashtbl.replace env "out" 20;;
+- : unit = ()
+# Hashtbl.find env "a";;
+- : int = 5</code></pre>
+    <ol>
+      <li><strong>Make the table.</strong> <code>Hashtbl.create 16</code> makes an empty one. The 16 is a first guess at its size. The type reads "a table from strings to ints".</li>
+      <li><strong>Save.</strong> <code>Hashtbl.replace env "a" 5</code> sets the value for <code>"a"</code> to 5, replacing any old one.</li>
+      <li><strong>Look up.</strong> <code>Hashtbl.find env "a"</code> gives back 5.</li>
+    </ol>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Nothing was ever saved under <code>"b"</code>. What does <code>Hashtbl.find env "b"</code> do?</p>
+    <div class="opts">
+      <button data-k="a">Returns 0</button>
+      <button data-k="b">Returns <code>None</code></button>
+      <button data-k="c">Stops with the exception <code>Not_found</code></button>
+    </div>
+    <p class="hint">The type says <code>find</code> returns an int. Is there an honest int to return?</p>
+    <div class="why"><p><code>find</code> must return an int and has none to give, so it raises <code>Not_found</code>. Returning 0 would hide the mistake.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Hash tables: look things up by name</h2>
-    <p>An array finds things by number. Often you want to find them by something else: a person's age by their name, a word's count by the word. A <b>hash table</b> stores pairs of a <b>key</b> (what you look up by) and a <b>value</b> (what you get back), and finds the value for a key in about the same time however big the table is. OCaml's is called <code>Hashtbl</code>. It is mutable: you add to the same table as you go.</p>
+    <p>When a missing key is normal, ask with <code>Hashtbl.find_opt</code>. It returns an option, so you handle both cases with <code>match</code>: <code>Hashtbl.find_opt env "b"</code> is <code>None</code> and <code>Hashtbl.find_opt env "a"</code> is <code>Some 5</code>.</p>
+    <p>One trap: <code>Hashtbl.add</code> does not replace. It puts the new value in front and keeps the old one hidden behind it. Use <code>replace</code> unless you are sure the key is new.</p>
   </div>
+
+  <div class="note">
+    <span class="label">Where you'll use this</span>
+    <p>In <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a>, your <code>run</code> function keeps each line's answer in a <code>Hashtbl</code> named <code>env</code>, exactly like this one, and remembers the last answer in a ref.</p>
+  </div>
+
+  <div class="exercise" data-ex="lo-05n-env">
+    <h3>Save answers and look them up</h3>
+    <p><code>final_value lines name</code> saves each <code>(name, value)</code> pair in <code>env</code>, in order, then returns the value saved under <code>name</code>. A later pair with the same name wins. Two things are wrong in the starter. It saves 0 for every name. And it stops with <code>Not_found</code> when the name was never saved, where it should return 0.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>More Hashtbl: the add trap in full, visiting every pair and why the order is odd</summary>
+    <div class="prose">
+      <p>utop prints <code>&lt;abstr&gt;</code> instead of the contents because a table's insides are hidden. A table finds a value in about the same time however big it is. Inside a function you can leave the type off and OCaml works it out.</p>
+      <ul>
+        <li><code>Hashtbl.replace t k v</code> sets the value for key <code>k</code> to <code>v</code>, replacing any old one.</li>
+        <li><code>Hashtbl.find t k</code> returns the value, or raises <code>Not_found</code> if the key isn't there.</li>
+        <li><code>Hashtbl.find_opt t k</code> returns an option instead.</li>
+        <li><code>Hashtbl.mem t k</code> answers "is this key in the table?".</li>
+        <li><code>Hashtbl.length t</code> counts the pairs.</li>
+        <li><code>Hashtbl.iter f t</code> calls <code>f key value</code> for every pair.</li>
+      </ul>
 <pre><code># let ages : (string, int) Hashtbl.t = Hashtbl.create 16;;
 val ages : (string, int) Hashtbl.t = &lt;abstr&gt;
-# Hashtbl.replace ages "ann" 31;;
-- : unit = ()
 # Hashtbl.replace ages "ann" 32;;
 - : unit = ()
-# Hashtbl.length ages;;
-- : int = 1
-# Hashtbl.find ages "bob";;
-Exception: Not_found.
-# Hashtbl.find_opt ages "bob";;
-- : int option = None
-# Hashtbl.find_opt ages "ann";;
-- : int option = Some 32
-# Hashtbl.mem ages "ann";;
-- : bool = true</code></pre>
-  <div class="prose">
-    <p>The type <code>(string, int) Hashtbl.t</code> reads "a hash table from strings to ints". The <code>16</code> in <code>Hashtbl.create 16</code> is a first guess at the size. The table grows by itself, so any small number is fine. utop prints <code>&lt;abstr&gt;</code> instead of the contents because a table's insides are hidden.</p>
-    <ul>
-      <li><code>Hashtbl.replace t k v</code> sets the value for key <code>k</code> to <code>v</code>, replacing any old one. That's why the length is still 1.</li>
-      <li><code>Hashtbl.find t k</code> returns the value, or raises <code>Not_found</code> if the key isn't there.</li>
-      <li><code>Hashtbl.find_opt t k</code> returns an option instead. Use this one when a missing key is normal.</li>
-      <li><code>Hashtbl.mem t k</code> answers "is this key in the table?".</li>
-      <li><code>Hashtbl.iter f t</code> calls <code>f key value</code> for every pair.</li>
-    </ul>
-  </div>
-<pre><code># Hashtbl.replace ages "bob" 27;;
+# Hashtbl.replace ages "bob" 27;;
 - : unit = ()
 # Hashtbl.iter (fun name age -&gt; Printf.printf "%s is %d\n" name age) ages;;
 bob is 27
 ann is 32
 - : unit = ()</code></pre>
-  <div class="prose">
-    <p>The pairs came out in neither the order you added them nor alphabetical order. A hash table keeps its own order, and you shouldn't rely on it. If you need sorted output, take the pairs out and sort them, as in the exercise below.</p>
-  </div>
-  <div class="trap">
-    <span class="label"><code>Hashtbl.add</code> doesn't replace</span>
-    <p>There is also <code>Hashtbl.add</code>, and it looks like the obvious name to use. But <code>add</code> doesn't replace the old value. It puts the new one in front and keeps the old one hidden behind it. Watch:</p>
+      <p>The pairs came out in neither the order you added them nor alphabetical order. A hash table keeps its own order, and you shouldn't rely on it. If you need sorted output, take the pairs out and sort them.</p>
+      <p>Here is <code>Hashtbl.add</code> stacking values:</p>
 <pre><code># let ages : (string, int) Hashtbl.t = Hashtbl.create 16;;
 val ages : (string, int) Hashtbl.t = &lt;abstr&gt;
 # Hashtbl.add ages "ann" 31;;
@@ -221,44 +340,38 @@ val ages : (string, int) Hashtbl.t = &lt;abstr&gt;
 - : unit = ()
 # Hashtbl.find ages "ann";;
 - : int = 31</code></pre>
-    <p><code>find</code> sees the newest value, so everything looks fine at first. But the length is 2, and after <code>remove</code> the old 31 comes back. If you then list the table, "ann" shows up twice. Use <code>replace</code> unless you want this stacking on purpose.</p>
-  </div>
+      <p><code>find</code> sees the newest value, so everything looks fine at first. But the length is 2, and after <code>remove</code> the old 31 comes back. If you then list the table, "ann" shows up twice.</p>
+    </div>
+  </details>
 
   <div class="prose">
-    <h3>Counting words, step by step</h3>
-    <p>Counting is the job hash tables are best at. For each word: look up its count so far (none means 0), add 1, and store the new count.</p>
-  </div>
-<pre><code># let count_words words =
-    let t = Hashtbl.create 16 in
-    List.iter
-      (fun w -&gt;
-        let n = match Hashtbl.find_opt t w with Some n -&gt; n | None -&gt; 0 in
-        Hashtbl.replace t w (n + 1))
-      words;
-    t;;
-val count_words : 'a list -&gt; ('a, int) Hashtbl.t = &lt;fun&gt;
-# let t = count_words ["the"; "cat"; "saw"; "the"; "hat"];;
-val t : (string, int) Hashtbl.t = &lt;abstr&gt;
-# Hashtbl.find t "the";;
-- : int = 2
-# Hashtbl.find t "cat";;
-- : int = 1</code></pre>
-  <div class="prose">
-    <p>The type says <code>'a list</code>: this works for a list of anything, not only strings, because a hash table can use any value as a key. Step through the five words and watch the table fill:</p>
+    <h2>Count the words</h2>
+    <p>Now the job from the start. The table is the tally sheet: the key is a word and the value is its count so far. For each word, take three moves:</p>
+    <ol>
+      <li><strong>Look up the count so far.</strong> <code>None</code> means the word is new, so the count is 0.</li>
+      <li><strong>Add 1.</strong> That is the new count.</li>
+      <li><strong>Save the new count.</strong> <code>replace</code> writes over the old one.</li>
+    </ol>
+<pre><code>let count_words words =
+  let t = Hashtbl.create 16 in
+  List.iter
+    (fun w -&gt;
+      let n = match Hashtbl.find_opt t w with Some n -&gt; n | None -&gt; 0 in
+      Hashtbl.replace t w (n + 1))
+    words;
+  t</code></pre>
+    <p>Step through five words and guess each row before you press next:</p>
   </div>
 
   <div class="fig" id="count" data-title="count_words [&quot;the&quot;; &quot;cat&quot;; &quot;saw&quot;; &quot;the&quot;; &quot;hat&quot;]"></div>
 
   <div class="prose">
-    <p>To get the counts out, <code>Hashtbl.fold</code> visits every pair and builds up a result, the same way <code>List.fold_left</code> does. Sorting the list afterward gives an order you can rely on:</p>
-  </div>
-<pre><code># Hashtbl.fold (fun w n acc -&gt; (w, n) :: acc) t [];;
-- : (string * int) list = [("cat", 1); ("saw", 1); ("the", 2); ("hat", 1)]
+    <p>To get the counts out as a list, <code>Hashtbl.fold</code> visits every pair and builds up a result, the way <code>List.fold_left</code> does. The table's order is its own, so sort the list afterward. <code>List.sort compare</code> puts pairs in order by their first part, the word:</p>
+<pre><code># let t = count_words ["the"; "cat"; "saw"; "the"; "hat"];;
+val t : (string, int) Hashtbl.t = &lt;abstr&gt;
 # List.sort compare (Hashtbl.fold (fun w n acc -&gt; (w, n) :: acc) t []);;
 - : (string * int) list = [("cat", 1); ("hat", 1); ("saw", 1); ("the", 2)]</code></pre>
-  <div class="note">
-    <span class="label">In week 1</span>
-    <p>Your compiler keeps a hash table whose keys describe nodes ("an add of these two inputs") and whose values are the nodes themselves. Before it builds a node, it looks in the table. If an equal node is already there, it returns that one instead of making a copy. It is this same find-or-add pattern.</p>
+    <p>Strings sort by their character codes, and every capital letter comes before every small letter.</p>
   </div>
 
   <div class="exercise small" data-ex="lo-05-word-counts">
@@ -267,117 +380,10 @@ val t : (string, int) Hashtbl.t = &lt;abstr&gt;
     <p class="muted">Count with <code>find_opt</code> and <code>replace</code>, get the pairs with <code>Hashtbl.fold</code>, then <code>List.sort compare</code>.</p>
   </div>
 
-  <div class="prose">
-    <h2>Building strings: Buffer and Printf</h2>
-    <p>You know <code>^</code> joins two strings. In a loop it's tempting to grow a string with it:</p>
-  </div>
-<pre><code># let s = ref "";;
-val s : string ref = {contents = ""}
-# for i = 1 to 4 do s := !s ^ string_of_int i done;;
-- : unit = ()
-# !s;;
-- : string = "1234"</code></pre>
-  <div class="prose">
-    <p>That works, but it is slow for long strings. OCaml strings can't change, so every <code>^</code> makes a brand new string and copies both halves into it. The fourth trip copies "123" again to make "1234". Adding 1,000 one-letter pieces copies 1 + 2 + 3 + ... + 1000 letters, about half a million, to build a string of 1,000. Doubling the pieces makes it four times slower.</p>
-    <p>A <b>Buffer</b> is a growable string made for this. You add pieces to the end, and it keeps spare room so it rarely has to copy. When you're done, <code>Buffer.contents</code> gives you the finished string:</p>
-  </div>
-<pre><code># let b = Buffer.create 16;;
-val b : Buffer.t = &lt;abstr&gt;
-# Buffer.add_string b "1";;
-- : unit = ()
-# Buffer.add_string b ", 2";;
-- : unit = ()
-# Buffer.add_char b '!';;
-- : unit = ()
-# Buffer.contents b;;
-- : string = "1, 2!"</code></pre>
-  <div class="prose">
-    <p>Here it is in a loop that puts a comma between numbers. The trick is to add the separator <em>before</em> every piece except the first:</p>
-  </div>
-<pre><code># let buf = Buffer.create 16 in
-  for i = 1 to 5 do
-    if i &gt; 1 then Buffer.add_string buf ", ";
-    Buffer.add_string buf (string_of_int i)
-  done;
-  Buffer.contents buf;;
-- : string = "1, 2, 3, 4, 5"</code></pre>
-
-  <div class="prose">
-    <h3>Printf: numbers into text</h3>
-    <p><code>Printf.sprintf</code> builds a string from a <b>format</b>: a template where each <code>%</code> code is a hole for a value. <code>Printf.printf</code> takes the same format and prints the result instead of returning it.</p>
-  </div>
-<pre><code># Printf.sprintf "%s is %d years old" "Ann" 31;;
-- : string = "Ann is 31 years old"
-# Printf.sprintf "%f" 3.14159;;
-- : string = "3.141590"
-# Printf.sprintf "%.2f" 3.14159;;
-- : string = "3.14"</code></pre>
-  <div class="tablewrap"><table>
-    <thead><tr><th>Code</th><th>Fills in</th><th>Example</th></tr></thead>
-    <tbody>
-      <tr><td><code>%d</code></td><td>an int</td><td><code>Printf.sprintf "%d" 42</code> is <code>"42"</code></td></tr>
-      <tr><td><code>%s</code></td><td>a string</td><td><code>Printf.sprintf "[%s]" "hi"</code> is <code>"[hi]"</code></td></tr>
-      <tr><td><code>%f</code></td><td>a float, 6 digits after the point</td><td><code>"3.141590"</code></td></tr>
-      <tr><td><code>%.2f</code></td><td>a float, 2 digits after the point, rounded</td><td><code>"3.14"</code></td></tr>
-      <tr><td><code>\n</code></td><td>a newline (not a hole)</td><td><code>Printf.printf "done\n"</code></td></tr>
-    </tbody>
-  </table></div>
-  <div class="prose">
-    <p>OCaml checks the format against the values. Give <code>%d</code> a float and it is a type error before the program runs:</p>
-  </div>
-<pre><code># Printf.sprintf "%d" 2.5;;
-Line 1, characters 20-23:
-1 | Printf.sprintf "%d" 2.5;;
-                        ^^^
-Error: This expression has type "float" but an expression was expected of type
-         "int"</code></pre>
-
-  <div class="exercise small" data-ex="lo-05-join">
-    <h3>Join strings with a Buffer</h3>
-    <p>Write <code>join : string -&gt; string list -&gt; string</code>, which puts <code>sep</code> between the parts. <code>join ", " ["a"; "b"; "c"]</code> is <code>"a, b, c"</code>. An empty list gives <code>""</code>, and there is no separator at either end. The starter adds the parts but forgets the separator.</p>
-    <p class="muted">The separator goes before every part except the first. <code>List.iteri</code> works like <code>List.iter</code>, but your function gets two arguments, the index (starting at 0) and the part: <code>List.iteri (fun i p -&gt; ...) parts</code>.</p>
-  </div>
-
-  <div class="prose">
-    <h2>Equal, the same, and in order</h2>
-    <p>Is <code>[1; 2; 3]</code> equal to <code>[1; 2; 3]</code>? It depends on what you mean, and OCaml has an operator for each meaning.</p>
-  </div>
-<pre><code># let a = [1; 2; 3];;
-val a : int list = [1; 2; 3]
-# let b = [1; 2; 3];;
-val b : int list = [1; 2; 3]
-# let c = a;;
-val c : int list = [1; 2; 3]
-# a = b;;
-- : bool = true
-# a == b;;
-- : bool = false
-# a == c;;
-- : bool = true</code></pre>
-  <div class="prose">
-    <p><code>=</code> is <b>structural equality</b>: "do these have the same contents?". It walks through both values piece by piece and compares everything. <code>a</code> and <code>b</code> hold the same numbers, so <code>a = b</code> is true.</p>
-    <p><code>==</code> is <b>physical equality</b>: "are these the very same value in the computer's memory?". <code>a</code> and <code>b</code> were built separately, so there are two lists in memory that happen to look alike. <code>let c = a</code> doesn't copy anything. It gives a second name to the list <code>a</code> already names. So <code>a == c</code> is true.</p>
-    <p>One caution. Each line you type into utop is built on its own, which is why <code>a == b</code> is false here. A compiled program may store two identical constant lists only once, and then <code>a == b</code> is true. So don't use <code>==</code> to tell apart values you wrote out by hand. Values built while the program runs, like your compiler's nodes, are only the same when your code makes them the same.</p>
-  </div>
-
-  <div class="fig" id="eq" data-title="two lists that look alike, and one list with two names"></div>
-
-  <div class="prose">
-    <p>Why have both? Because they cost different amounts. <code>==</code> compares two memory addresses, one step however big the values are. <code>=</code> has to look at everything inside, so comparing two trees with a million nodes takes a million steps.</p>
-  </div>
-  <div class="note">
-    <span class="label">Why the course cares</span>
-    <p>In week 1 your compiler uses <b>hash consing</b>: before building a node, it looks in a hash table like the ones above, and if an equal node exists it returns that one. The result is that two nodes with equal contents are always the very same value in memory. Then asking "are these two expressions equal?" needs only <code>==</code>, one step, instead of walking two whole trees with <code>=</code>.</p>
-  </div>
-  <div class="trap">
-    <span class="label"><code>!=</code> is not "not equal"</span>
-    <p>Each equality has its own "not": <code>&lt;&gt;</code> is the opposite of <code>=</code>, and <code>!=</code> is the opposite of <code>==</code>. Coming from other languages you'll reach for <code>!=</code>, and get surprises. <code>[|1; 2|] &lt;&gt; [|1; 2|]</code> is <code>false</code> (same contents), but <code>[|1; 2|] != [|1; 2|]</code> is <code>true</code> (two separate arrays). For everyday comparisons use <code>=</code> and <code>&lt;&gt;</code>.</p>
-  </div>
-
-  <div class="prose">
-    <h3>compare and sorting</h3>
-    <p><code>compare a b</code> answers "which comes first?" with a number: negative if <code>a</code> is smaller, 0 if they're equal, positive if <code>a</code> is bigger. It works on ints, strings, lists, tuples, almost anything.</p>
-  </div>
+  <details class="toggle">
+    <summary>compare and sorting in full, for when you need a different order</summary>
+    <div class="prose">
+      <p><code>compare a b</code> answers "which comes first?" with a number: negative if <code>a</code> is smaller, 0 if they're equal, positive if <code>a</code> is bigger. It works on ints, strings, lists, tuples, almost anything.</p>
 <pre><code># compare 3 7;;
 - : int = -1
 # compare 7 3;;
@@ -386,9 +392,7 @@ val c : int list = [1; 2; 3]
 - : int = 0
 # compare "pear" "apple";;
 - : int = 1</code></pre>
-  <div class="prose">
-    <p><code>List.sort</code> takes a function shaped like <code>compare</code> and a list, and returns a new sorted list. Pass <code>compare</code> itself for the normal order. For the reverse order, pass a function that swaps its arguments:</p>
-  </div>
+      <p><code>List.sort</code> takes a function shaped like <code>compare</code> and a list, and returns a new sorted list. Pass <code>compare</code> itself for the normal order. For the reverse order, pass a function that swaps its arguments:</p>
 <pre><code># List.sort compare [3; 1; 2];;
 - : int list = [1; 2; 3]
 # List.sort (fun a b -&gt; compare b a) [3; 1; 2];;
@@ -397,21 +401,155 @@ val c : int list = [1; 2; 3]
 - : string list = ["Apple"; "apple"; "pear"]
 # List.sort compare [("b", 2); ("a", 5); ("a", 1)];;
 - : (string * int) list = [("a", 1); ("a", 5); ("b", 2)]</code></pre>
+      <p>Strings compare letter by letter, so <code>"Apple"</code> sorts before <code>"apple"</code>. Pairs compare by their first part, and only look at the second part when the first parts are equal. The type of <code>count_words</code> is <code>'a list -&gt; ('a, int) Hashtbl.t</code>: it works for a list of anything, because a hash table can use any value as a key.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>Two things to notice. Strings compare letter by letter by their character codes, and every capital letter comes before every small letter, so <code>"Apple"</code> sorts before <code>"apple"</code>. And pairs compare by their first part, and only look at the second part when the first parts are equal. That's why sorting the word counts earlier put them in alphabetical order.</p>
+    <h2>Build a long string: Buffer</h2>
+    <p>Your compiler will print whole programs as text, one small piece at a time. You know <code>^</code> joins two strings. But strings can't change, so every <code>^</code> makes a brand new string and copies both halves into it. In a loop that copying adds up fast.</p>
+    <p>A <b>Buffer</b> is a growable string made for this job. You add pieces to the end, and when you're done, <code>Buffer.contents</code> gives you the finished string:</p>
+<pre><code># let b = Buffer.create 16;;
+val b : Buffer.t = &lt;abstr&gt;
+# Buffer.add_string b "a";;
+- : unit = ()
+# Buffer.add_string b ", ";;
+- : unit = ()
+# Buffer.add_string b "b";;
+- : unit = ()
+# Buffer.contents b;;
+- : string = "a, b"</code></pre>
+    <p>To turn numbers into text, <code>Printf.sprintf</code> fills the holes in a template. <code>%d</code> is a hole for an int and <code>%.2f</code> is a hole for a float shown with two digits after the point. <code>Printf.sprintf "%d apples cost %.2f" 3 1.5</code> is <code>"3 apples cost 1.50"</code>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-05-join">
+    <h3>Join strings with a Buffer</h3>
+    <p>Write <code>join : string -&gt; string list -&gt; string</code>, which puts <code>sep</code> between the parts. <code>join ", " ["a"; "b"; "c"]</code> is <code>"a, b, c"</code>. An empty list gives <code>""</code>, and there is no separator at either end. The starter adds the parts but forgets the separator.</p>
+    <p class="muted">The separator goes before every part except the first. <code>List.iteri</code> works like <code>List.iter</code>, but your function gets two arguments, the index (starting at 0) and the part: <code>List.iteri (fun i p -&gt; ...) parts</code>.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>How slow <code>^</code> in a loop gets, and every Printf code, for when you print your compiler's output</summary>
+    <div class="prose">
+<pre><code># let s = ref "";;
+val s : string ref = {contents = ""}
+# for i = 1 to 4 do s := !s ^ string_of_int i done;;
+- : unit = ()
+# !s;;
+- : string = "1234"</code></pre>
+      <p>That works, but the fourth trip copies "123" again to make "1234". Adding 1,000 one-letter pieces copies 1 + 2 + 3 + ... + 1000 letters, about half a million, to build a string of 1,000. Doubling the pieces makes it four times slower. A Buffer keeps spare room so it rarely has to copy. <code>Buffer.add_char b '!'</code> adds a single character.</p>
+      <p>Here is a Buffer in a loop that puts a comma between numbers. The separator goes <em>before</em> every piece except the first:</p>
+<pre><code># let buf = Buffer.create 16 in
+  for i = 1 to 5 do
+    if i &gt; 1 then Buffer.add_string buf ", ";
+    Buffer.add_string buf (string_of_int i)
+  done;
+  Buffer.contents buf;;
+- : string = "1, 2, 3, 4, 5"</code></pre>
+      <p><code>Printf.sprintf</code> builds a string from a <b>format</b>. <code>Printf.printf</code> takes the same format and prints the result instead of returning it.</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Code</th><th>Fills in</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>%d</code></td><td>an int</td><td><code>Printf.sprintf "%d" 42</code> is <code>"42"</code></td></tr>
+          <tr><td><code>%s</code></td><td>a string</td><td><code>Printf.sprintf "[%s]" "hi"</code> is <code>"[hi]"</code></td></tr>
+          <tr><td><code>%f</code></td><td>a float, 6 digits after the point</td><td><code>"3.141590"</code></td></tr>
+          <tr><td><code>%.2f</code></td><td>a float, 2 digits after the point, rounded</td><td><code>"3.14"</code></td></tr>
+          <tr><td><code>\n</code></td><td>a newline (not a hole)</td><td><code>Printf.printf "done\n"</code></td></tr>
+        </tbody>
+      </table></div>
+      <p>OCaml checks the format against the values. Give <code>%d</code> a float and it is a type error before the program runs:</p>
+<pre><code># Printf.sprintf "%d" 2.5;;
+Line 1, characters 20-23:
+1 | Printf.sprintf "%d" 2.5;;
+                        ^^^
+Error: This expression has type "float" but an expression was expected of type
+         "int"</code></pre>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>Equal, or the very same one</h2>
+    <p>Once values can change, a new question matters. Are these two things that look alike, or one thing with two names? Build two records the same way, reading the <code>id</code> from a box. The type is the <code>node</code> record from O.4:</p>
+<pre><code># type node = { id : int; op : string; src : node list };;
+type node = { id : int; op : string; src : node list; }
+# let next = ref 0;;
+val next : int ref = {contents = 0}
+# let a = { id = !next; op = "x"; src = [] };;
+val a : node = {id = 0; op = "x"; src = []}
+# let b = { id = !next; op = "x"; src = [] };;
+val b : node = {id = 0; op = "x"; src = []}
+# let c = a;;
+val c : node = {id = 0; op = "x"; src = []}</code></pre>
+    <p>OCaml has two ways to compare. <code>=</code> asks "do these have the same contents?". <code>==</code> asks "are these the very same one in the computer's memory?".</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What are <code>a = b</code> and <code>a == b</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>true</code> and <code>true</code></button>
+      <button data-k="b"><code>true</code> and <code>false</code></button>
+      <button data-k="c"><code>false</code> and <code>false</code></button>
+    </div>
+    <p class="hint">How many records did those lines build? Each <code>{ ... }</code> builds one.</p>
+    <div class="why"><p>The contents match, so <code>a = b</code> is true. But two records were built, one for each <code>{ ... }</code>, so <code>a == b</code> is false.</p></div>
+  </div>
+
+  <div class="prose">
+    <p><code>let c = a</code> builds nothing. It gives a second name to the record <code>a</code> already names, so <code>a == c</code> is true. A copy such as <code>{ a with op = "x" }</code> is a new record: equal to <code>a</code>, but not the same one.</p>
+  </div>
+
+  <div class="fig" id="eq" data-title="two records that look alike, and one record with two names"></div>
+
+  <div class="prose">
+    <p>Why have both? <code>=</code> compares every piece of both values, so on two big trees it takes a long time. <code>==</code> is one step however big the values are. For everyday comparisons use <code>=</code>.</p>
+  </div>
+
+  <div class="trap">
+    <span class="label"><code>!=</code> is not "not equal"</span>
+    <p>Each one has its own "not": <code>&lt;&gt;</code> is the opposite of <code>=</code>, and <code>!=</code> is the opposite of <code>==</code>. Coming from other languages you'll reach for <code>!=</code> and get surprises. Use <code>&lt;&gt;</code>.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>When <code>==</code> can surprise you: values you write out by hand</summary>
+    <div class="prose">
+      <p>Type <code>let a = [1; 2; 3]</code> and <code>let b = [1; 2; 3]</code> into utop and <code>a == b</code> is false, because each line is built on its own. A compiled program may store two identical constant lists only once, and then <code>a == b</code> is true. The same goes for a record whose fields are all written out as constants.</p>
+      <p>So don't use <code>==</code> to tell apart values you wrote out by hand. That is why the example above reads its <code>id</code> from a box: a value built while the program runs is only the same as another when your code makes it the same. Arrays are always safe here. An array can be changed, so OCaml never shares one behind your back, and <code>[|1; 2|] != [|1; 2|]</code> is always true.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>Find it or make it</h2>
+    <p>Put a table, a counter and <code>==</code> together and you get the trick that opens week 1. Suppose a program asks for the node <code>"x"</code> in ten places. Building ten equal records wastes memory, and comparing them needs the slow <code>=</code>. So build each node once and hand the same one back every time:</p>
+    <ol>
+      <li><strong>Look in the table.</strong> Is there already a node for this op?</li>
+      <li><strong>Found.</strong> Return the stored node itself, not a copy.</li>
+      <li><strong>Not found.</strong> Build it, give it the next number from the counter, move the counter on, save it and return it.</li>
+    </ol>
+    <p>Now two nodes with equal contents are always the very same node, so <code>==</code> is enough to compare them.</p>
+  </div>
+
+  <div class="exercise" data-ex="lo-05n-same-node">
+    <h3>Hand back the very same node</h3>
+    <p><code>make tbl next op</code> should follow the three steps above. Asking for the same op twice must give the very same node (<code>==</code>), and new nodes must get the ids 0, 1, 2 and so on. Two lines of the starter are wrong: one returns a copy, and one step is missing so every node gets the same id.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">Where you'll use this</span>
+    <p>This is called <b>hash consing</b>, and you build the real one in <a href="../week1/01-the-uop.html#repair">lesson 1.1</a>. There the key is a pair, <code>(op, list of source ids)</code>, the counter is a ref and the test is <code>==</code>. A pair works as a key because a <code>Hashtbl</code> compares keys by their contents. Its starter makes two local names in one <code>let</code>, joined by <code>and</code>: <code>let tbl = Hashtbl.create 64 and next = ref 0 in</code>.</p>
   </div>
 
   <div class="prose">
     <h2>What you can do now</h2>
     <ul>
-      <li>Explain why OCaml prefers values that don't change, and when mutation makes code simpler.</li>
-      <li>Use a <code>ref</code> with <code>!</code> and <code>:=</code>, and put steps in order with <code>;</code>.</li>
+      <li>Say what it means to mutate a value, and spot it by <code>:=</code> and <code>&lt;-</code>.</li>
+      <li>Use a <code>ref</code> with <code>!</code>, <code>:=</code> and <code>incr</code>, and put steps in order with a semicolon.</li>
       <li>Write <code>for</code> and <code>while</code> loops and trace them by hand.</li>
       <li>Make, read and change arrays, and know which index is the last one.</li>
-      <li>Count things with a <code>Hashtbl</code>, using <code>replace</code> and <code>find_opt</code>, and avoid the <code>add</code> trap.</li>
-      <li>Build long strings with a <code>Buffer</code> and format numbers with <code>Printf.sprintf</code>.</li>
-      <li>Tell <code>=</code> from <code>==</code>, and sort with <code>List.sort compare</code>.</li>
+      <li>Keep an <code>env</code> in a <code>Hashtbl</code> with <code>replace</code>, <code>find</code> and <code>find_opt</code>, and count with it.</li>
+      <li>Build a long string with a <code>Buffer</code>.</li>
+      <li>Tell <code>=</code> from <code>==</code>, and return the very same node from a table.</li>
     </ul>
+    <p>Next, lesson O.6 shows how to group code into modules and set up a project of your own.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -449,12 +587,17 @@ val c : int list = [1; 2; 3]
     <div class="why"><p><code>find</code> sees the newest value, 2. But <code>add</code> kept the old one hidden behind it, so the table holds two bindings and the length is 2. With <code>replace</code> the answer would be 2 and 1.</p></div>
   </div>
 
-  <div class="quiz" data-fill="&quot;2.00&quot; | 2.00">
+  <div class="quiz" data-answer="c">
     <p class="q">What string does <code>Printf.sprintf "%.2f" 2.0</code> return?</p>
-    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <div class="opts">
+      <button data-k="a"><code>"2"</code></button>
+      <button data-k="b"><code>"2.0"</code></button>
+      <button data-k="c"><code>"2.00"</code></button>
+      <button data-k="d"><code>"2."</code></button>
+    </div>
     <p class="hint"><code>%.2f</code> means a float with exactly two digits after the point.</p>
-    <p class="hint">Missing digits are filled with zeros.</p>
     <div class="why"><p><code>"2.00"</code>. The <code>.2</code> asks for two digits after the point, and the float 2.0 has none to show, so they're zeros.</p></div>
+
   </div>
 
   <div class="quiz" data-answer="a">
@@ -503,14 +646,14 @@ val c : int list = [1; 2; 3]
   });
 
   const eq = [
-    { caption: '<code>let a = [1; 2; 3]</code> and <code>let b = [1; 2; 3]</code> build two separate lists. A line from a name to a box means the name refers to that value.',
-      nodes: [{ id: 'a', op: 'a' }, { id: 'b', op: 'b' }, { id: 'la', op: '[1; 2; 3]', src: ['a'] }, { id: 'lb', op: '[1; 2; 3]', src: ['b'] }] },
-    { caption: '<code>let c = a</code> copies nothing. <code>c</code> is a second name for the list <code>a</code> already refers to.',
-      nodes: [{ id: 'a', op: 'a' }, { id: 'c', op: 'c', cls: 'new' }, { id: 'b', op: 'b' }, { id: 'la', op: '[1; 2; 3]', src: ['a', 'c'] }, { id: 'lb', op: '[1; 2; 3]', src: ['b'] }] },
+    { caption: 'The lines for <code>a</code> and <code>b</code> build two separate records. A line from a name to a box means the name refers to that value.',
+      nodes: [{ id: 'a', op: 'a' }, { id: 'b', op: 'b' }, { id: 'la', op: '{id = 0; op = "x"}', src: ['a'] }, { id: 'lb', op: '{id = 0; op = "x"}', src: ['b'] }] },
+    { caption: '<code>let c = a</code> copies nothing. <code>c</code> is a second name for the record <code>a</code> already refers to.',
+      nodes: [{ id: 'a', op: 'a' }, { id: 'c', op: 'c', cls: 'new' }, { id: 'b', op: 'b' }, { id: 'la', op: '{id = 0; op = "x"}', src: ['a', 'c'] }, { id: 'lb', op: '{id = 0; op = "x"}', src: ['b'] }] },
     { caption: '<code>a = b</code> is <code>true</code>: the two boxes have the same contents. <code>a == b</code> is <code>false</code>: they are two different boxes.',
-      nodes: [{ id: 'a', op: 'a', cls: 'hit' }, { id: 'c', op: 'c' }, { id: 'b', op: 'b', cls: 'hit' }, { id: 'la', op: '[1; 2; 3]', src: ['a', 'c'], cls: 'hit' }, { id: 'lb', op: '[1; 2; 3]', src: ['b'], cls: 'hit' }] },
-    { caption: '<code>a == c</code> is <code>true</code>: both names lead to the same box. Checking that takes one step, however long the list is.',
-      nodes: [{ id: 'a', op: 'a', cls: 'hit' }, { id: 'c', op: 'c', cls: 'hit' }, { id: 'b', op: 'b' }, { id: 'la', op: '[1; 2; 3]', src: ['a', 'c'], cls: 'hit' }, { id: 'lb', op: '[1; 2; 3]', src: ['b'] }] },
+      nodes: [{ id: 'a', op: 'a', cls: 'hit' }, { id: 'c', op: 'c' }, { id: 'b', op: 'b', cls: 'hit' }, { id: 'la', op: '{id = 0; op = "x"}', src: ['a', 'c'], cls: 'hit' }, { id: 'lb', op: '{id = 0; op = "x"}', src: ['b'], cls: 'hit' }] },
+    { caption: '<code>a == c</code> is <code>true</code>: both names lead to the same box. Checking that takes one step, however big the record is.',
+      nodes: [{ id: 'a', op: 'a', cls: 'hit' }, { id: 'c', op: 'c', cls: 'hit' }, { id: 'b', op: 'b' }, { id: 'la', op: '{id = 0; op = "x"}', src: ['a', 'c'], cls: 'hit' }, { id: 'lb', op: '{id = 0; op = "x"}', src: ['b'] }] },
   ];
   CC.stepper(document.getElementById('eq'), eq, (s, body) => body.append(CC.graph(s.nodes)));
 })();

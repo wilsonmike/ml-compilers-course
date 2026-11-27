@@ -1,0 +1,132 @@
+{
+ "id": "w4-01n-relu",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "Clamp at zero",
+ "starter": "%x   = buffer 5 dtype=f32 slot=0\n%out = buffer 5 dtype=f32 slot=1\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     -2.0,
+     3.0,
+     -4.0,
+     0.5
+    ],
+    "1": [
+     9.0,
+     9.0,
+     9.0,
+     9.0,
+     9.0
+    ]
+   },
+   "expect": "[1.0 0.0 3.0 0.0 0.5]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0,
+     -1.0
+    ],
+    "1": [
+     9.0,
+     9.0,
+     9.0,
+     9.0,
+     9.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0 0.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     2.0,
+     4.0,
+     6.0,
+     8.0,
+     10.0
+    ],
+    "1": [
+     9.0,
+     9.0,
+     9.0,
+     9.0,
+     9.0
+    ]
+   },
+   "expect": "[2.0 4.0 6.0 8.0 10.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     -0.0,
+     0.25,
+     -0.25,
+     1e+30
+    ],
+    "1": [
+     9.0,
+     9.0,
+     9.0,
+     9.0,
+     9.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.25 0.0 1.0000000150474662e+30]"
+  },
+  {
+   "data": {
+    "0": [
+     "inf",
+     "-inf",
+     "nan",
+     1.0,
+     -1.0
+    ],
+    "1": [
+     9.0,
+     9.0,
+     9.0,
+     9.0,
+     9.0
+    ]
+   },
+   "expect": "[inf 0.0 nan 1.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     -1e-30,
+     1e-30,
+     -3e+38,
+     3e+38,
+     0.0
+    ],
+    "1": [
+     9.0,
+     9.0,
+     9.0,
+     9.0,
+     9.0
+    ]
+   },
+   "expect": "[0.0 1.0000000031710769e-30 0.0 3.0000000054977558e+38 0.0]"
+  }
+ ],
+ "hints": [
+  "You need three things: `x` as a whole value, a value of shape `(5,)` that is zero everywhere, and `max` of the two.",
+  "`%vx = load %x` gives the first. `%zero = expand 0.0 [5]` gives the second. `max %vx 0.0` would be rejected because the shapes differ.",
+  "Finish with `%m = max %vx %zero`, then `%s = store %out %m` and `%o1 = after %out %s`."
+ ],
+ "explain": "`max` is elementwise, so both operands need shape `(5,)`. `expand 0.0 [5]` makes the zero the same shape as `x`, and `max` then keeps each element or replaces it with zero. This is ReLU, the most common activation function in neural networks. A NaN element stays NaN, as week 2's `max` rule says."
+}

@@ -1,0 +1,41 @@
+{
+ "id": "lo-06n-push-all",
+ "lang": "ocaml",
+ "title": "Use a module from outside",
+ "starter": "module Stack = struct\n  type t = int list\n  let empty = []\n  let push x s = x :: s\n  let pop s = match s with [] -> None | x :: rest -> Some (x, rest)\nend\n\nlet push_all (xs : int list) (s : Stack.t) : Stack.t =\n  s\n",
+ "show": "(fun l -> \"[\" ^ String.concat \"; \" (List.map string_of_int l) ^ \"]\")",
+ "tests": [
+  {
+   "expr": "push_all [1; 2; 3] Stack.empty",
+   "expect": "[3; 2; 1]",
+   "sample": true
+  },
+  {
+   "expr": "push_all [] Stack.empty",
+   "expect": "[]",
+   "sample": true
+  },
+  {
+   "expr": "push_all [5] (Stack.push 9 Stack.empty)",
+   "expect": "[5; 9]"
+  },
+  {
+   "expr": "push_all [] (Stack.push 7 Stack.empty)",
+   "expect": "[7]"
+  },
+  {
+   "expr": "push_all [4; 4] (push_all [1] Stack.empty)",
+   "expect": "[4; 4; 1]"
+  },
+  {
+   "expr": "(match Stack.pop (push_all [1; 2] Stack.empty) with Some (_, rest) -> rest | None -> Stack.empty)",
+   "expect": "[1]"
+  }
+ ],
+ "hints": [
+  "You are outside the module here, so `push` alone is an unbound value. Its full name is `Stack.push`.",
+  "Push the items one at a time, carrying the stack along. That is the job of `List.fold_left`, with the stack as the accumulator.",
+  "`List.fold_left (fun acc x -> Stack.push x acc) s xs`."
+ ],
+ "explain": "The reference is `List.fold_left (fun acc x -> Stack.push x acc) s xs`. Each step takes the stack so far and returns a taller one. Outside `struct ... end` the function is named `Stack.push`, the same way you write `List.map`. The first item is pushed first, so the last item ends up on top."
+}

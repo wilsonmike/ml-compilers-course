@@ -1,0 +1,45 @@
+{
+ "id": "w7-01n-limit",
+ "lang": "ocaml",
+ "title": "Which limit is it hitting?",
+ "show": "(fun s -> s)",
+ "starter": "let limit (peak : float) (bandwidth : float) (flops : float) (nbytes : float) : string =\n  let intensity = nbytes /. flops in\n  let memory_limit = peak *. intensity in\n  if memory_limit < peak then \"memory\" else \"compute\"\n",
+ "hints": [
+  "Intensity is FLOPs per byte. Which number goes on top of the division?",
+  "The memory limit is how fast memory can feed the kernel. Which of the machine's two numbers describes memory?",
+  "`let intensity = flops /. nbytes in` and `let memory_limit = bandwidth *. intensity in`. The last line is already right."
+ ],
+ "explain": "Intensity is work per byte, so FLOPs go on top: 1 add per 12 bytes is 1/12, about 0.08. Memory feeds `bandwidth` times that many GFLOP/s. The first sample gets 25 / 12, about 2.1, far under the peak of 200, so memory is the limit. The second sample is the 768 by 768 matmul at 128 FLOPs per byte: memory could feed 3200 GFLOP/s, the processor only does 200, so compute is the limit.",
+ "tests": [
+  {
+   "expr": "limit 200. 25. 1. 12.",
+   "expect": "memory",
+   "sample": true
+  },
+  {
+   "expr": "limit 200. 25. 905969664. 7077888.",
+   "expect": "compute",
+   "sample": true
+  },
+  {
+   "expr": "limit 200. 25. 1. 4.",
+   "expect": "memory"
+  },
+  {
+   "expr": "limit 100. 20. 1. 12.",
+   "expect": "memory"
+  },
+  {
+   "expr": "limit 100. 20. 10. 1.",
+   "expect": "compute"
+  },
+  {
+   "expr": "limit 100. 20. 4. 1.",
+   "expect": "memory"
+  },
+  {
+   "expr": "limit 10. 100. 1. 4.",
+   "expect": "compute"
+  }
+ ]
+}

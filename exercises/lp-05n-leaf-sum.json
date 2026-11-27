@@ -1,0 +1,45 @@
+{
+ "id": "lp-05n-leaf-sum",
+ "lang": "python",
+ "title": "Repair a tree walk",
+ "starter": "from dataclasses import dataclass\n\n@dataclass(frozen=True)\nclass Num:\n    value: int\n\n@dataclass(frozen=True)\nclass Add:\n    left: \"Expr\"\n    right: \"Expr\"\n\n@dataclass(frozen=True)\nclass Mul:\n    left: \"Expr\"\n    right: \"Expr\"\n\nExpr = Num | Add | Mul\n\ndef leaf_sum(e):\n    match e:\n        case Num(v):\n            return 1\n        case Add(left, right):\n            return leaf_sum(left)\n        case Mul(left, right):\n            return leaf_sum(left) + leaf_sum(right)\n        case _:\n            raise TypeError(f\"not an expression: {e!r}\")\n",
+ "show": "str",
+ "tests": [
+  {
+   "expr": "leaf_sum(Num(7))",
+   "expect": "7",
+   "sample": true
+  },
+  {
+   "expr": "leaf_sum(Add(Num(2), Mul(Num(3), Num(4))))",
+   "expect": "9",
+   "sample": true
+  },
+  {
+   "expr": "leaf_sum(Mul(Num(1), Num(2)))",
+   "expect": "3"
+  },
+  {
+   "expr": "leaf_sum(Add(Num(5), Num(6)))",
+   "expect": "11"
+  },
+  {
+   "expr": "leaf_sum(Num(0))",
+   "expect": "0"
+  },
+  {
+   "expr": "leaf_sum(Add(Add(Num(1), Num(2)), Add(Num(3), Num(4))))",
+   "expect": "10"
+  },
+  {
+   "expr": "leaf_sum(Mul(Add(Num(10), Num(20)), Num(30)))",
+   "expect": "60"
+  }
+ ],
+ "hints": [
+  "Try the base case by hand first: what should `leaf_sum(Num(7))` give, and what does the `Num` case return now?",
+  "A leaf is worth its own number, so the `Num` case returns `v`. Then compare the `Add` case with the `Mul` case under it.",
+  "The `Add` case asks only its left child. Make it `return leaf_sum(left) + leaf_sum(right)`, the same as the `Mul` case."
+ ],
+ "explain": "The reference returns `v` for a `Num`, because a leaf is worth its own number. For an `Add` or a `Mul` it adds the sums of both children. The starter had a wrong base case (it returned 1, which counts leaves) and a step that never asked the right child."
+}

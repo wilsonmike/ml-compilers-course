@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Compilers and IRs</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A compiler is a program that reads a program and writes a different program that means the same thing. In the middle it holds the program as a data structure...">
+<meta name="description" content="This page is the map of the course. You follow one small expression through every stage of a compiler: text, tree, graph, a simpler graph and C. Then you see...">
 <link rel="canonical" href="https://sharpterminal.com/site/week0/03-compilers-and-irs">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Compilers and IRs">
-<meta property="og:description" content="A compiler is a program that reads a program and writes a different program that means the same thing. In the middle it holds the program as a data structure called an IR. This course is about...">
+<meta property="og:description" content="This page is the map of the course. You follow one small expression through every stage of a compiler: text, tree, graph, a simpler graph and C. Then you see which week builds each stage, so you...">
 <meta property="og:url" content="https://sharpterminal.com/site/week0/03-compilers-and-irs">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,10 +20,10 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
-  .toks { display: flex; flex-wrap: wrap; gap: var(--s2); font: 0.9375rem var(--mono); }
+  .toks { display: flex; flex-wrap: wrap; gap: var(--s2); font: 0.9375rem var(--mono); margin: var(--s4) 0; }
   .toks span { padding: var(--s2) var(--s3); border: 1px solid var(--line-2); border-radius: 6px; background: var(--code-bg); }
   .toks span small { display: block; font-size: 0.875rem; color: var(--ink-3); }
   .stage { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
@@ -31,49 +31,177 @@
   .order { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s3); }
 </style>
 </head>
-<body data-root="../">
+<body data-crumbs="Week 0|Compilers and IRs" data-root="../">
 <main>
   <p class="eyebrow">Week 0 · Lesson 3</p>
   <h1>Compilers and IRs</h1>
-  <p class="lede">A compiler is a program that reads a program and writes a different program that means the same thing. In the middle it holds the program as a data structure called an IR. This course is about designing that data structure well.</p>
+  <p class="lede">This page is the map of the course. You follow one small expression through every stage of a compiler: text, tree, graph, a simpler graph and C. Then you see which week builds each stage, so you always know where you are.</p>
 
   <div class="note">
-    <span class="label">Want it slower?</span>
-    <p>This lesson shows three ideas quickly: sharing nodes, putting them in order and rewriting. <a href="../learn/hard-01-sharing.html">Hard ideas, slowly</a> takes each one slowly, with code in your language, once you know some <span class="only-python"><a href="../learn/py-01-first-steps.html">Python</a></span><span class="only-ocaml"><a href="../learn/ml-01-first-steps.html">OCaml</a></span>.</p>
+    <span class="label">Goal</span>
+    <p>Name the stages a program passes through inside a compiler, and say which week of the course builds each one.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Nothing you have to know first. The warm up uses the tiny language from <a href="../start/01-run-a-program.html">Run your first program</a>. If you have not done that step, guess and read the answers.</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two quick questions. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="14">
+    <p class="q">What is <code>2 + 3 * 4</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Multiplication happens before addition.</p>
+    <div class="why"><p>14. You did <code>3 * 4</code> first, even though <code>2 + 3</code> is written first. The order of the work is not the order of the text. A compiler has to find that structure too.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="25">
+    <p class="q">What is <code>%out</code>?</p>
+<pre><code>%a   = add 2 3
+%out = mul %a %a</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>add</code> adds and <code>mul</code> multiplies. Work out <code>%a</code> first.</p>
+    <div class="why"><p><code>%a</code> is 5, and 5 × 5 is 25. The second line uses <code>%a</code> twice, but the adding was done once. Keep that in mind: it comes back as "sharing".</p></div>
   </div>
 
   <div class="prose">
-    <h2>The pipeline</h2>
-    <p>A classic compiler goes through stages. Each one turns the program into a new representation that's easier to work with for the next job. Step through what happens to one small expression.</p>
+    <h2>Start with one line of text</h2>
+    <p>A <b>compiler</b> is a program that reads a program in one language and writes a program in another language that does the same thing. To see how, follow this one expression all the way through:</p>
+<pre><code>(a + b) * (a + b) * 1</code></pre>
+    <p>To the compiler this is only a string of characters. The first job is to split it into words, called <b>tokens</b>. The part that does this is the <b>lexer</b>. Spaces disappear and every token gets a label:</p>
+    <div class="toks"><span>(<small>lparen</small></span><span>a<small>name</small></span><span>+<small>op</small></span><span>b<small>name</small></span><span>)<small>rparen</small></span><span>*<small>op</small></span><span>(<small>lparen</small></span><span>a<small>name</small></span><span>+<small>op</small></span><span>b<small>name</small></span><span>)<small>rparen</small></span><span>*<small>op</small></span><span>1<small>number</small></span></div>
+    <p>A flat row of tokens still does not say what to do first. The next stage works that out.</p>
   </div>
 
-  <div class="fig" id="pipe" data-title="(a + b) * (a + b)"></div>
+  <div class="quiz" data-answer="c">
+    <p class="q">Predict: when this expression is worked out, which operation is done <b>last</b>?</p>
+    <div class="opts">
+      <button data-k="a">The first <code>a + b</code></button>
+      <button data-k="b">The <code>*</code> between the two parentheses</button>
+      <button data-k="c">The <code>* 1</code> at the end</button>
+    </div>
+    <p class="hint">Parentheses go first. After that, a row of <code>*</code> is worked left to right.</p>
+    <div class="why"><p>Both sums come first, then the two sums are multiplied, then the result is multiplied by 1. The last operation is the one the whole answer comes out of.</p></div>
+  </div>
 
   <div class="prose">
-    <h2>Trees repeat themselves, DAGs share</h2>
-    <p>A <b>tree</b> is the obvious way to store an expression: every operator node points at its operands. But <code>(a + b) * (a + b)</code> has the same subexpression twice, and a tree stores it twice. If you compile the tree naively, you compute <code>a + b</code> twice.</p>
-    <p>A <b>DAG</b> (directed acyclic graph) lets two parents point at the same child. You build it by keeping a table of every node you've made, keyed by "what op, which operands" (a hash table, which is a dictionary: give it a key and it quickly gives back the stored value). Before you build a node, you look it up. If it's already there, you reuse it. That trick is called <b>hash consing</b>, and it's how the course's IR works from day one. Two nodes with the same op and the same inputs are not just equal, they're the <em>same object</em>.</p>
+    <h2>The text becomes a tree</h2>
+    <p>The <b>parser</b> is the part that works out the structure. It turns the tokens into a <b>tree</b>: every operation is a box, and arrows run into it from the things it uses. Inputs sit on top and the answer comes out of the bottom box, the <code>* 1</code> you just picked.</p>
   </div>
 
-  <div class="trap">
-    <span class="label">Sharing compounds</span>
-    <p>Sharing isn't a small saving. Take <code>x1 = x0 + x0</code>, <code>x2 = x1 + x1</code>, and so on up to <code>x30</code>. As a DAG that's 31 nodes. As a tree it's over a billion. Any code that walks your IR without remembering what it already visited will treat the DAG like a tree, and it'll never finish. The week 1 tests include a deeper version of this case (94 levels).</p>
+  <div class="fig" id="trip-tree" data-title="(a + b) * (a + b) * 1 as a tree"></div>
+
+  <div class="prose">
+    <p>The parentheses are gone, because the shape of the tree says what happens first. But look at the top two rows. <code>a + b</code> was written twice, so the tree holds it twice. A compiler that walks this tree would add <code>a</code> and <code>b</code> twice.</p>
+  </div>
+
+  <div class="quiz" data-fill="6">
+    <p class="q">Predict: the tree has 9 boxes. If every box that is identical to another one is stored only once, how many boxes are left?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Two boxes are identical when they have the same label and the same inputs. The two <code>*</code> boxes have different inputs.</p>
+    <div class="why"><p>Six: <code>a</code>, <code>b</code>, one <code>+</code>, <code>1</code> and two <code>*</code>. The two <code>*</code> boxes stay separate because one multiplies the sum by itself and the other multiplies by 1.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>The tree becomes a graph that shares</h2>
+    <p>Store each identical box once and let both users point at it. The tree is now a graph. Its full name is a <b>DAG</b>, a directed acyclic graph: arrows have a direction and never loop back.</p>
+  </div>
+
+  <div class="fig" id="trip-dag" data-title="the same expression with shared boxes"></div>
+
+  <div class="prose">
+    <p>The <code>*</code> box takes the same <code>+</code> box twice, so the sum is worked out once. The trick that builds a graph this way is called <b>hash consing</b>: before making a box, look in a table to see if the same box already exists. You write it in <a href="../week1/01-the-uop.html">lesson 1.1</a>.</p>
+    <p>This graph is the compiler's <b>intermediate representation</b>, or <b>IR</b>: the form a compiler keeps the program in while it works on it, between reading the input and writing the output. Everything else in this course reads this graph or changes it.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Predict: one box in the graph does work that changes nothing. Which one could the compiler remove?</p>
+    <div class="opts">
+      <button data-k="a">The <code>+</code> box</button>
+      <button data-k="b">The bottom <code>*</code> box, which multiplies by <code>1</code></button>
+      <button data-k="c">The <code>*</code> box that multiplies the sum by itself</button>
+    </div>
+    <p class="hint">Which operation gives back exactly what went in?</p>
+    <div class="why"><p>Anything times 1 is itself, so that box can go and nothing about the answer changes.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>A rewrite makes the graph simpler</h2>
+    <p>A <b>rewrite</b> finds a pattern in the graph and replaces it with something simpler that gives the same answer. The rule here is <code>x * 1 → x</code>, where <code>x</code> stands for any box. Step through it.</p>
+  </div>
+
+  <div class="fig" id="trip-rw" data-title="rewrite rule: x * 1 → x"></div>
+
+  <div class="prose">
+    <p>Rewriting is most of what a compiler does between reading and writing. The hard part is the words "same answer". <code>x * 0 → 0</code> is right for whole numbers. It is wrong for decimal numbers, which have special values such as infinity, and infinity times 0 is not 0. <a href="../week1/03-rewrites-and-folding.html">Lessons 1.3</a> and <a href="../week1/04-symbolic.html">1.4</a> are about which rules are safe and how to prove it.</p>
+  </div>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">Predict: the last stage prints C, one line for each operation box left in the graph. Inputs like <code>a</code> and <code>b</code> get no line. How many lines?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">After the rewrite the graph has four boxes. Two of them are inputs.</p>
+    <div class="why"><p>Two: one for the <code>+</code> and one for the <code>*</code>.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>The graph becomes C</h2>
+    <p>There are two things to do with a finished graph. An <b>interpreter</b> is a program that runs another program directly, without writing a new one. That is what your week 1 compiler does with the graph. From week 2 on it also does the compiler's real job and writes a new program, in C:</p>
+<pre><code>int f(int a, int b) {
+  int t0 = a + b;
+  int t1 = t0 * t0;
+  return t1;
+}</code></pre>
+    <p>Read it in two moves:</p>
+    <ol>
+      <li><strong>One line per box.</strong> Each operation becomes a line that saves its answer in a fresh name, <code>t0</code> then <code>t1</code>.</li>
+      <li><strong>Inputs first.</strong> C runs top to bottom, so every box is printed after the boxes it uses. An order like that is called a <b>topological sort</b>, or toposort.</li>
+    </ol>
+    <p>The sum is computed once and the <code>* 1</code> is gone. The C is better than the text you started with, and all of the improving happened on the graph. The part that prints the output is called a <b>backend</b>.</p>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Predict: in week 8 the same compiler prints code for a GPU, a chip that runs thousands of small jobs at once. Which stage has to change the most?</p>
+    <div class="opts">
+      <button data-k="a">Splitting text into tokens</button>
+      <button data-k="b">The rewrite rules</button>
+      <button data-k="c">The printing at the end</button>
+    </div>
+    <p class="hint">Which stage is the only one that knows what the output language looks like?</p>
+    <div class="why"><p>The graph stays. The course adds a few new kinds of box that say which work runs side by side, and a second backend prints CUDA, the language NVIDIA GPUs run, from the same graph. That is why the IR matters so much: design it well once and every later stage reuses it.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Where the course builds each stage</h2>
+    <p>Here is the whole trip in one figure. Step through it once more, then use the table to find the week that builds each part.</p>
+  </div>
+
+  <div class="fig" id="pipe" data-title="(a + b) * (a + b) * 1"></div>
+
+  <div class="tablewrap"><table>
+    <tr><th>stage</th><th>what you build</th><th>where</th></tr>
+    <tr><td>Graph with shared boxes</td><td>The node every program is made of, and hash consing</td><td><a href="../week1/01-the-uop.html">1.1</a></td></tr>
+    <tr><td>Text to graph, then run it</td><td>A reader for <code>.uir</code> files and an interpreter</td><td><a href="../week1/02-uir-and-interpreting.html">1.2</a>, <a href="../week1/05-call-and-param.html">1.5</a></td></tr>
+    <tr><td>Rewrites</td><td>A simplifier, and proof that its rules are safe</td><td><a href="../week1/03-rewrites-and-folding.html">1.3</a>, <a href="../week1/04-symbolic.html">1.4</a></td></tr>
+    <tr><td>Graph to C</td><td>A backend that prints C, with memory and decimal numbers</td><td><a href="../week2/04-rendering-c.html">2.4</a></td></tr>
+    <tr><td>Bigger graphs, same stages</td><td>Loops, whole vectors, grids of any shape</td><td><a href="../resources/week3.html">Weeks 3</a>, <a href="../resources/week4.html">4</a> and <a href="../resources/week5.html">5</a></td></tr>
+    <tr><td>A real use</td><td>Enough math to train a model that reads handwritten digits</td><td><a href="../resources/week6.html">Week 6</a></td></tr>
+    <tr><td>Faster C</td><td>Measuring, caches and threads</td><td><a href="../resources/week7.html">Week 7</a></td></tr>
+    <tr><td>Graph to GPU code</td><td>A second backend that prints CUDA</td><td><a href="../week8/04-rendering-cuda.html">8.4</a>, <a href="../resources/week9.html">week 9</a></td></tr>
+  </table></div>
+
+  <div class="prose">
+    <p>One stage is missing from the table: the tree. The course's language, <code>.uir</code>, names one box per line, like the warm up program. So your reader builds the graph directly and never needs a tree.</p>
+
+    <h2>Optional: two exercises in C</h2>
+    <p>Skip these if you came for the map. They are here if you want to feel two of the ideas in code, and they use the C from <a href="01-c-and-pointers.html">lesson 0.1</a>.</p>
   </div>
 
   <div class="exercise small" data-ex="w0-03-tree-nodes">
     <h3>Code quiz: how big is the tree?</h3>
     <p><code>e0 = a + b</code> is a tree of 3 nodes. <code>e(k+1) = e(k) * e(k)</code>, stored as a tree with no sharing, so both operands are full copies. Write <code>long long tree_nodes(int k)</code> returning the node count of <code>e(k)</code>, for <code>0 &lt;= k &lt;= 60</code>. The same thing as a DAG has just <code>k + 3</code> nodes.</p>
   </div>
-
-  <div class="prose">
-    <h2>From a DAG to lines of C: toposort</h2>
-    <p>C runs top to bottom, so to print C from a DAG you need an order where every node comes <b>after</b> the nodes it uses. That order is a <b>topological sort</b>. A depth-first walk gives you one: visit a node's inputs first, then emit the node, and skip anything you've already emitted.</p>
-    <p>Each emitted node becomes one line of C that assigns a fresh temporary. Leaves (inputs and constants) don't need a line of their own.</p>
-    <p class="muted">You'll write this toposort yourself at the end of <span class="only-python"><a href="07-python.html">lesson 0.7</a>, in Python</span><span class="only-ocaml"><a href="06-ocaml.html">lesson 0.6</a>, in OCaml</span>, once you've seen the traps of your language.</p>
-  </div>
-
-  <div class="fig" id="topo" data-title="emit C in topological order"></div>
-
 
   <div class="exercise" data-ex="w0-03-rpn">
     <h3>Evaluate postfix with a stack</h3>
@@ -83,22 +211,67 @@
   </div>
 
   <div class="prose">
-    <h2>Rewriting, a first look</h2>
-    <p>Most of what a compiler does between parsing and printing is <b>rewriting</b>: find a pattern in the graph and replace it with something simpler that means the same thing. The simplest example is <code>x * 1 → x</code>.</p>
-  </div>
-
-  <div class="fig" id="rw" data-title="rewrite rule: x * 1 → x"></div>
-
-  <div class="prose">
-    <p>That looks trivial, but "means the same thing" hides real questions. Is <code>x * 0 → 0</code> safe? For integers, yes. For floats, no, because <code>inf * 0</code> and <code>nan * 0</code> are both <code>nan</code>, and <code>-3.0 * 0.0</code> is <code>-0.0</code>, not <code>0.0</code>. Those are special float values that integers don't have: <code>inf</code> is infinity, <code>nan</code> ("not a number") is the result of something undefined, and <code>-0.0</code> is a negative zero that compares equal to <code>0.0</code> but is a different value. Floats arrive in week 2, and <a href="../week2/01-buffers-and-views.html">lesson 2.1</a> covers them. Week 1 is all about rules like this, on integers: which ones are safe, how to apply them until nothing changes, and how to prove the rules you wrote didn't break anything.</p>
-
-    <h2>What makes a good IR</h2>
+    <h2>What you can do now</h2>
     <ul>
-      <li><b>Small.</b> Every op you add is one more case for every rewrite and every backend (the part of the compiler that prints C or GPU code). The course's IR has a few dozen ops by the end, and that's enough to train an LLM.</li>
-      <li><b>Uniform.</b> Every node is the same shape: an op, a tuple of source nodes, and an argument (extra data that isn't a node, like the number inside a constant). One rewrite engine handles all of it.</li>
-      <li><b>Shared.</b> Hash consing means equal things are the same object, so "are these equal?" is a pointer comparison.</li>
+      <li>Say what a compiler, an interpreter and an IR are, in one sentence each.</li>
+      <li>Follow an expression from text to tokens, tree, shared graph, simpler graph and C.</li>
+      <li>Explain why sharing and rewriting happen on the graph and not on the text.</li>
+      <li>Find the week that builds each stage.</li>
     </ul>
+    <p>Next, build the first stage yourself: <a href="../start/01-run-a-program.html">run your first program</a> if you have not yet, or go straight to <a href="../week1/01-the-uop.html">lesson 1.1</a>.</p>
   </div>
+
+  <details class="toggle">
+    <summary>The same graph in the course's language, for when you want to see real .uir</summary>
+    <div class="prose">
+      <p>A <code>param</code> is an input. This figure runs the program with <code>a</code> as 2 and <code>b</code> as 3. Each line names one box, and the last line is the <code>* 1</code> that a simplifier removes.</p>
+    </div>
+    <div class="fig" id="trip-uir"></div>
+  </details>
+
+  <details class="toggle">
+    <summary>How the printer picks an order, step by step (toposort)</summary>
+    <div class="prose">
+      <p>C runs top to bottom, so to print C from a DAG you need an order where every node comes <b>after</b> the nodes it uses. That order is a <b>topological sort</b>. A depth-first walk gives you one: visit a node's inputs first, then emit the node, and skip anything you've already emitted.</p>
+      <p>Each emitted node becomes one line of C that assigns a fresh temporary. Leaves (inputs and constants) don't need a line of their own.</p>
+      <p class="muted">You'll write this toposort yourself at the end of <span class="only-python"><a href="07-python.html">lesson 0.7</a>, in Python</span><span class="only-ocaml"><a href="06-ocaml.html">lesson 0.6</a>, in OCaml</span>, once you've seen the traps of your language.</p>
+    </div>
+    <div class="fig" id="topo" data-title="emit C in topological order"></div>
+  </details>
+
+  <details class="toggle">
+    <summary>Why sharing is a big deal, and how a table builds it</summary>
+    <div class="prose">
+      <p>You build a DAG by keeping a table of every node you've made, keyed by "what op, which operands" (a hash table, which is a dictionary: give it a key and it quickly gives back the stored value). Before you build a node, you look it up. If it's already there, you reuse it. Two nodes with the same op and the same inputs are not just equal, they're the <em>same object</em>.</p>
+    </div>
+    <div class="trap">
+      <span class="label">Sharing compounds</span>
+      <p>Sharing isn't a small saving. Take <code>x1 = x0 + x0</code>, <code>x2 = x1 + x1</code>, and so on up to <code>x30</code>. As a DAG that's 31 nodes. As a tree it's over a billion. Any code that walks your IR without remembering what it already visited will treat the DAG like a tree, and it'll never finish. The week 1 tests include a deeper version of this case (94 levels).</p>
+    </div>
+    <div class="prose">
+      <p><a href="../learn/hard-01-sharing.html">Hard ideas, slowly</a> takes sharing, walking a graph in order and rewriting one at a time, with code in your language.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>More on rewrites: a second example, fixpoints and the float traps</summary>
+    <div class="fig" id="rw" data-title="rewrite rule: x * 1 → x"></div>
+    <div class="prose">
+      <p>"Means the same thing" hides real questions. Is <code>x * 0 → 0</code> safe? For integers, yes. For floats, no, because <code>inf * 0</code> and <code>nan * 0</code> are both <code>nan</code>, and <code>-3.0 * 0.0</code> is <code>-0.0</code>, not <code>0.0</code>. Those are special float values that integers don't have: <code>inf</code> is infinity, <code>nan</code> ("not a number") is the result of something undefined, and <code>-0.0</code> is a negative zero that compares equal to <code>0.0</code> but is a different value. Floats arrive in week 2, and <a href="../week2/01-buffers-and-views.html">lesson 2.1</a> covers them. Week 1 is all about rules like this, on integers: which ones are safe, how to apply them until nothing changes, and how to prove the rules you wrote didn't break anything.</p>
+      <p>Integers have a trap of their own. In <code>.uir</code> a 32-bit <code>add</code> or <code>mul</code> that overflows wraps around, while in C a signed overflow is undefined. So the C backend cannot print a plain <code>a + b</code> for every <code>add</code>, and the short C on this page is a sketch. <a href="../week2/04-rendering-c.html">Lesson 2.4</a> shows what to print.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>What makes a good IR, for readers who have built a compiler before</summary>
+    <div class="prose">
+      <ul>
+        <li><b>Small.</b> Every op you add is one more case for every rewrite and every backend (the part of the compiler that prints C or GPU code). The course's IR has a few dozen ops by the end, and that's enough to train an LLM.</li>
+        <li><b>Uniform.</b> Every node is the same shape: an op, a tuple of source nodes, and an argument (extra data that isn't a node, like the number inside a constant). One rewrite engine handles all of it.</li>
+        <li><b>Shared.</b> Hash consing means equal things are the same object, so "are these equal?" is a pointer comparison.</li>
+      </ul>
+    </div>
+  </details>
 
   <h2>Check yourself</h2>
   <p class="score"></p>
@@ -170,18 +343,35 @@
   // --- pipeline stepper ---
   const tree = [
     { id: 'a1', op: 'a' }, { id: 'b1', op: 'b' }, { id: 'a2', op: 'a' }, { id: 'b2', op: 'b' },
-    { id: 'p1', op: '+', src: ['a1', 'b1'] }, { id: 'p2', op: '+', src: ['a2', 'b2'], cls: 'hit' },
-    { id: 'm', op: '*', src: ['p1', 'p2'] }];
-  const dag = [{ id: 'a', op: 'a' }, { id: 'b', op: 'b' }, { id: 'p', op: '+', src: ['a', 'b'], cls: 'new' }, { id: 'm', op: '*', src: ['p', 'p'] }];
-  const toks = [['(', 'lparen'], ['a', 'name'], ['+', 'op'], ['b', 'name'], [')', 'rparen'], ['*', 'op'], ['(', 'lparen'], ['a', 'name'], ['+', 'op'], ['b', 'name'], [')', 'rparen']];
+    { id: 'p1', op: '+', src: ['a1', 'b1'] }, { id: 'p2', op: '+', src: ['a2', 'b2'] },
+    { id: 'm', op: '*', src: ['p1', 'p2'] }, { id: 'one', op: '1' }, { id: 'o', op: '*', src: ['m', 'one'] }];
+  const mark = (nodes, cls, ids) => nodes.map(n => ({ ...n, cls: ids.includes(n.id) ? cls : n.cls || '' }));
+  const dag = [{ id: 'a', op: 'a' }, { id: 'b', op: 'b' }, { id: 'p', op: '+', src: ['a', 'b'] }, { id: 'm', op: '*', src: ['p', 'p'] },
+    { id: 'one', op: '1' }, { id: 'o', op: '*', src: ['m', 'one'] }];
+  const small = dag.slice(0, 4);
+  const csrc = 'int f(int a, int b) {\n  int t0 = a + b;\n  int t1 = t0 * t0;\n  return t1;\n}';
+  const toks = [['(', 'lparen'], ['a', 'name'], ['+', 'op'], ['b', 'name'], [')', 'rparen'], ['*', 'op'], ['(', 'lparen'], ['a', 'name'], ['+', 'op'], ['b', 'name'], [')', 'rparen'], ['*', 'op'], ['1', 'number']];
+  const still = (id, ...kids) => { const el = document.getElementById(id);
+    el.replaceChildren(h('div', { class: 'head' }, h('span', { class: 'title', text: el.dataset.title })), h('div', { class: 'body' }, ...kids)); };
+  still('trip-tree', CC.graph(mark(tree, 'hit', ['p1', 'p2'])));
+  still('trip-dag', CC.graph(mark(dag, 'new', ['p'])));
+  const rwTrip = [
+    { caption: 'The graph before the rewrite. Six boxes.', nodes: dag },
+    { caption: 'The pattern <code>x * 1</code> matches the bottom box. Here <code>x</code> is the <code>*</code> box above it.', nodes: mark(dag, 'hit', ['o', 'one']) },
+    { caption: 'Replace the match with <code>x</code>. Nothing uses the bottom <code>*</code> or the <code>1</code> any more, so they fade out.', nodes: mark(dag, 'dead', ['o', 'one']) },
+    { caption: 'The result has four boxes and gives the same answer for every <code>a</code> and <code>b</code>.', nodes: small },
+  ];
+  CC.stepper(document.getElementById('trip-rw'), rwTrip, (s, body) => body.append(CC.graph(s.nodes)));
   const pipe = [
-    { caption: '<b>Source.</b> To the compiler this is just a string of characters.', draw: b => b.append(h('pre', {}, h('code', { text: '(a + b) * (a + b)' }))) },
-    { caption: '<b>Tokens.</b> The <b>lexer</b> (the part that splits text into words) chops the string into words and labels each one. Spaces disappear.', draw: b => b.append(h('div', { class: 'toks' }, toks.map(([t, k]) => h('span', {}, t, h('small', { text: k }))))) },
-    { caption: '<b>Tree.</b> The <b>parser</b> (the part that works out the structure) builds a tree from the tokens. Inputs are on top, the result is at the bottom. Notice the second <code>a + b</code> (highlighted) is a separate copy of the first.', draw: b => b.append(CC.graph(tree)) },
-    { caption: '<b>DAG.</b> With hash consing, building the second <code>a + b</code> finds the first one in the table. One <code>+</code> node, used twice by <code>*</code>.', draw: b => b.append(CC.graph(dag)) },
-    { caption: '<b>C.</b> Walk the DAG in topological order and print one line per node. <code>a + b</code> is computed once.', draw: b => b.append(h('pre', {}, h('code', { text: 'float t0 = a + b;\nfloat t1 = t0 * t0;\nreturn t1;' }))) },
+    { caption: '<b>Text.</b> A string of characters.', draw: b => b.append(h('pre', {}, h('code', { text: '(a + b) * (a + b) * 1' }))) },
+    { caption: '<b>Tokens.</b> The lexer splits the string into labeled words.', draw: b => b.append(h('div', { class: 'toks' }, toks.map(([t, k]) => h('span', {}, t, h('small', { text: k }))))) },
+    { caption: '<b>Tree.</b> The parser works out the structure. <code>a + b</code> appears twice.', draw: b => b.append(CC.graph(mark(tree, 'hit', ['p1', 'p2']))) },
+    { caption: '<b>Graph.</b> Identical boxes are stored once. This is the IR.', draw: b => b.append(CC.graph(mark(dag, 'new', ['p']))) },
+    { caption: '<b>Simpler graph.</b> The rewrite <code>x * 1 → x</code> removes two boxes.', draw: b => b.append(CC.graph(small)) },
+    { caption: '<b>C.</b> A backend prints one line per operation, inputs first. Later weeks print GPU code from the same graph.', draw: b => b.append(h('pre', {}, h('code', { text: csrc }))) },
   ];
   CC.stepper(document.getElementById('pipe'), pipe, (s, body) => s.draw(body));
+  CC.trace(document.getElementById('trip-uir'), '%a = param [] slot=0 dtype=i32 addrspace=ALU\n%b = param [] slot=1 dtype=i32 addrspace=ALU\n%s = add %a %b\n%p = mul %s %s\n%out = mul %p 1', { title: 'The trip expression as .uir', args: { 0: 2, 1: 3 } });
 
   // --- toposort stepper over y = (a+b)*(a+b) + c ---
   const G = [{ id: 'a', op: 'a' }, { id: 'b', op: 'b' }, { id: 'c', op: 'c' },

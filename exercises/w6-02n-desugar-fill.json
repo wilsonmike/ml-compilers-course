@@ -1,0 +1,54 @@
+{
+ "id": "w6-02n-desugar-fill",
+ "lang": "ocaml",
+ "title": "Finish a desugarer",
+ "show": "(fun e -> to_string (desugar e))",
+ "starter": "type e =\n  | Lit of float\n  | Var of string\n  | Add of e * e\n  | Mul of e * e\n  | Max of e * e\n  | Recip of e\n  | Neg of e\n  | Sub of e * e\n  | Relu of e\n  | Fdiv of e * e\n\nlet rec to_string = function\n  | Lit x -> Printf.sprintf \"%.7g\" x\n  | Var s -> s\n  | Add (a, b) -> \"(add \" ^ to_string a ^ \" \" ^ to_string b ^ \")\"\n  | Mul (a, b) -> \"(mul \" ^ to_string a ^ \" \" ^ to_string b ^ \")\"\n  | Max (a, b) -> \"(max \" ^ to_string a ^ \" \" ^ to_string b ^ \")\"\n  | Recip a -> \"(recip \" ^ to_string a ^ \")\"\n  | Neg a -> \"(neg \" ^ to_string a ^ \")\"\n  | Sub (a, b) -> \"(sub \" ^ to_string a ^ \" \" ^ to_string b ^ \")\"\n  | Relu a -> \"(relu \" ^ to_string a ^ \")\"\n  | Fdiv (a, b) -> \"(fdiv \" ^ to_string a ^ \" \" ^ to_string b ^ \")\"\n\nlet rec desugar (e : e) : e =\n  match e with\n  | Lit _ | Var _ -> e\n  | Add (a, b) -> Add (desugar a, desugar b)\n  | Mul (a, b) -> Mul (desugar a, desugar b)\n  | Max (a, b) -> Max (desugar a, desugar b)\n  | Recip a -> Recip (desugar a)\n  | Neg a -> Mul (desugar a, Lit (-1.0))\n  | Sub (a, b) -> Add (desugar a, desugar (Neg b))\n  | Relu a -> Relu (desugar a)\n  | Fdiv (a, b) -> Fdiv (desugar a, desugar b)\n",
+ "tests": [
+  {
+   "expr": "Relu (Var \"x\")",
+   "expect": "(max x 0)",
+   "sample": true
+  },
+  {
+   "expr": "Fdiv (Var \"a\", Var \"b\")",
+   "expect": "(mul a (recip b))",
+   "sample": true
+  },
+  {
+   "expr": "Sub (Var \"a\", Var \"b\")",
+   "expect": "(add a (mul b -1))"
+  },
+  {
+   "expr": "Relu (Sub (Var \"a\", Var \"b\"))",
+   "expect": "(max (add a (mul b -1)) 0)",
+   "sample": true
+  },
+  {
+   "expr": "Fdiv (Relu (Var \"x\"), Lit 2.0)",
+   "expect": "(mul (max x 0) (recip 2))"
+  },
+  {
+   "expr": "Add (Relu (Var \"x\"), Lit 1.0)",
+   "expect": "(add (max x 0) 1)"
+  },
+  {
+   "expr": "Fdiv (Var \"a\", Fdiv (Var \"b\", Var \"c\"))",
+   "expect": "(mul a (recip (mul b (recip c))))"
+  },
+  {
+   "expr": "Sub (Lit 1.0, Fdiv (Var \"a\", Var \"b\"))",
+   "expect": "(add 1 (mul (mul a (recip b)) -1))"
+  },
+  {
+   "expr": "Max (Var \"x\", Neg (Var \"y\"))",
+   "expect": "(max x (mul y -1))"
+  }
+ ],
+ "hints": [
+  "Look at the `Neg` and `Sub` branches. Each returns core nodes built from desugared operands. The `Relu` and `Fdiv` branches still return sugar.",
+  "`relu x` means `max x 0`, and `fdiv a b` means `mul a (recip b)`. The zero is `Lit 0.0`.",
+  "`| Relu a -> Max (desugar a, Lit 0.0)` and `| Fdiv (a, b) -> Mul (desugar a, Recip (desugar b))`."
+ ],
+ "explain": "`relu x` means `max x 0` and `fdiv a b` means `mul a (recip b)`. Each branch calls `desugar` on its operands first, so sugar nested inside sugar is rewritten too. After `desugar`, the tree holds only `add`, `mul`, `max` and `recip`, which every later pass already handles."
+}

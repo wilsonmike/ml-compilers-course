@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Memory in Loops</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A loop body runs again and again over the same storage. Week 2&#x27;s rule, that every load names the version it reads, still holds, but &quot;the version&quot; now changes...">
+<meta name="description" content="By the end of this lesson you can write a loop that keeps a running total in memory, and say what every load in it sees. A loop runs the same store many times...">
 <link rel="canonical" href="https://sharpterminal.com/site/week3/02-memory-in-loops">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Memory in Loops">
-<meta property="og:description" content="A loop body runs again and again over the same storage. Week 2&#x27;s rule, that every load names the version it reads, still holds, but &quot;the version&quot; now changes every iteration. This lesson covers the...">
+<meta property="og:description" content="By the end of this lesson you can write a loop that keeps a running total in memory, and say what every load in it sees. A loop runs the same store many times, so &quot;which version does this load read?&quot;...">
 <meta property="og:url" content="https://sharpterminal.com/site/week3/02-memory-in-loops">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,12 +20,12 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
-  .strip .name { font: 0.875rem var(--mono); color: var(--ink-3); min-width: 4.5rem; }
+  .strip .name { font: 0.875rem var(--mono); color: var(--ink-3); min-width: 5.5rem; }
   .vals { font: 0.875rem var(--mono); color: var(--ink-2); }
   .stack { display: grid; gap: var(--s3); }
 </style>
@@ -34,62 +34,153 @@
 <main>
 <p class="eyebrow">Week 3 · Lesson 2</p>
 <h1>Memory in loops</h1>
-<p class="lede">A loop body runs again and again over the same storage. Week 2's rule, that every load names the version it reads, still holds, but "the version" now changes every iteration. This lesson covers the accumulator, the one placement rule that makes it work, and the case where a load reads the contents from before the loop.</p>
+<p class="lede">By the end of this lesson you can write a loop that keeps a running total in memory, and say what every load in it sees. A loop runs the same store many times, so "which version does this load read?" needs a clear answer. Every sum your compiler handles works this way, including the matrix multiply in the next lesson.</p>
 
+<div class="note">
+<span class="label">Goal</span>
+<p>Write a loop that adds into one box of memory, and say for any load which loop it runs in and which contents it reads.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p><code>range</code>, <code>end</code> and open ranges from <a href="01-ranges.html">lesson 3.1</a>. <code>load</code>, <code>store</code>, <code>after</code> and versions from <a href="../week2/02-load-store-after.html">lesson 2.2</a>. <code>alloc</code> from <a href="../week2/01-buffers-and-views.html">lesson 2.1</a>. The fact that two identical lines make one node, from <a href="../week1/01-the-uop.html">lesson 1.1</a>.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="5">
+<p class="q">From lesson 2.2. What does <code>%x</code> hold?</p>
+<pre><code>%b  = buffer 2 [5 6] dtype=i32 slot=0
+%e  = shrink %b 0 []
+%s  = store %e 7
+%b1 = after %b %s
+%x  = load %e</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">A load reads the version its view was cut from. Which version is <code>%e</code> cut from?</p>
+<div class="why"><p><code>%e</code> is a view of <code>%b</code>, the version before the store, so the load reads 5. The 7 is in <code>%b1</code>, the version that <code>after</code> names.</p></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">From lesson 3.1. How many times does the store run?</p>
+<pre><code>%b  = buffer 3 dtype=i32 slot=0
+%i  = range 3
+%v  = shrink %b %i []
+%s  = store %v 7
+%e  = end %s %i
+%b1 = after %b %e</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>end %s %i</code> repeats the store for every value of <code>%i</code>.</p>
+<div class="why"><p><code>%i</code> takes the values 0, 1 and 2, and <code>end</code> runs the store once for each. A value that does not depend on <code>%i</code> has no open range, so it is computed once, outside the loop.</p></div>
+</div>
+
+<h2>A total that comes out wrong</h2>
 <div class="prose">
-<h2>An accumulator</h2>
-<p>Summing a buffer means keeping a running total in memory. Here it lives in a one-element <code>alloc</code>:</p>
+<p>This program should add up four numbers and put the total in <code>out[0]</code>. The running total lives in <code>%acc</code>, an <code>alloc</code> with one box. An alloc is scratch memory that starts as 0.</p>
 <pre><code>%in   = buffer 4 [1 2 3 4] dtype=i32 slot=0
 %out  = buffer 1 dtype=i32 slot=1
-%acc  = alloc 1 dtype=i32       # starts as 0
-%k    = range 4
+%acc  = alloc 1 dtype=i32
 %a    = shrink %acc 0 []
-%cur  = load %a                 # the running total so far
+%k    = range 4
+%cur  = load %a
 %iv   = shrink %in %k []
-%x    = load %iv                # in[k]
+%x    = load %iv
 %sum  = add %cur %x
-%s    = store %a %sum           # acc = acc + in[k]
+%s    = store %a %sum
 %e    = end %s %k
-%acc1 = after %acc %e           # acc after the whole loop
-%a1   = shrink %acc1 0 []
-%tot  = load %a1                # 10
+%acc1 = after %acc %e
+%tot  = load %a
 %o    = shrink %out 0 []
 %so   = store %o %tot
 %out1 = after %out %so</code></pre>
-<p>Look at <code>%cur</code>. It doesn't depend on <code>%k</code>, so by the open-ranges rule from lesson 3.1 it would be computed once, before the loop. That would read 0 once, and every iteration would store <code>0 + in[k]</code>, leaving 4 instead of 10. Loads need one more rule.</p>
 </div>
 
-<div class="key">
-<span class="label">Where a load runs</span>
-<p>A load is placed like any other value: inside every loop whose range it depends on, and no deeper. One exception makes accumulators work. First place the load by its own open ranges, like any value. Then find the innermost loop that holds <strong>every use</strong> of the load. If that loop is deeper, and it stores into the version the load reads, the load moves into that loop: it runs on every iteration and sees the <strong>current</strong> contents (the previous iteration's store, or the contents before the loop on the first iteration).</p>
-<p>A use counts as inside a loop only if it's placed there itself: because it depends on that loop's range, or because it's a load this same rule moved there.</p>
+<div class="quiz" data-fill="0">
+<p class="q">It looks right: load the total, add <code>in[k]</code>, store it back, four times. What does <code>out[0]</code> hold at the end?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Look at <code>%tot = load %a</code>. Which version of the accumulator is <code>%a</code> cut from?</p>
+<div class="why"><p>It holds 0, not 10. <code>%tot</code> loads through <code>%a</code>, and <code>%a</code> is a view of <code>%acc</code>. That is the memory before the loop, and it holds 0.</p></div>
 </div>
 
 <div class="prose">
-<p><code>%cur</code>'s only use, <code>%sum</code>, is inside the k loop, and the k loop stores into <code>%acc</code>, the version <code>%cur</code> reads. So <code>%cur</code> is loaded fresh each iteration. Step through it:</p>
+<p>This is the warm up again, with a loop where the single store was. <code>end</code> wraps the repeated store into one effect, <code>%e</code>. Then <code>%acc1 = after %acc %e</code> names the memory once the <strong>whole loop</strong> has finished. (<code>after</code> and <code>end</code> are the only ops that take an effect.) The total is in <code>%acc1</code>, so the final load needs a view cut from <code>%acc1</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w3-02n-total">
+<h3>Read the total from the right version</h3>
+<p>This is the program above. Slot 0 holds four i32s, and their sum should end up in slot 1. Change the last load so it reads the accumulator after the loop. You need one new view.</p>
+</div>
+
+<h2>An accumulator, pass by pass</h2>
+<div class="prose">
+<p>An <strong>accumulator</strong> is a piece of memory that a loop reads, changes and writes back on every pass. Here it is one box. Each pass through the loop body is called an <strong>iteration</strong>, and each one does four things:</p>
+<ol>
+<li><strong>Load the total so far.</strong> <code>%cur = load %a</code> reads the box.</li>
+<li><strong>Load this pass's number.</strong> <code>%x</code> is <code>in[k]</code>.</li>
+<li><strong>Add.</strong> <code>%sum = add %cur %x</code>.</li>
+<li><strong>Store it back.</strong> <code>store %a %sum</code> writes into the same box, ready for the next pass.</li>
+</ol>
+<p>Step through the repaired program:</p>
 </div>
 
 <div class="fig" id="run" data-title="the accumulator, iteration by iteration"></div>
 
+<div class="quiz" data-fill="6">
+<p class="q">At the start of the iteration k = 3, what does <code>%cur</code> read?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">It reads what the iteration k = 2 stored.</p>
+<div class="why"><p>The first three passes added 1, 2 and 3, so the box holds 6. This pass adds 4 and stores 10.</p></div>
+</div>
+
+<h2>Where a load runs</h2>
 <div class="prose">
-<p><code>%tot</code> reads <code>%acc1</code>, the version after the loop. Its use is outside the loop, so it runs once, after the loop closes. Here's the C the oracle renders, trimmed of the wraparound casts:</p>
+<p><code>%cur = load %a</code> does not depend on <code>%k</code>. Lesson 3.1 said a value with no open range is computed once, outside every loop.</p>
+</div>
+
+<div class="quiz" data-fill="4">
+<p class="q">Suppose your compiler placed <code>%cur</code> by that rule alone: one load, before the loop. With <code>in</code> = 1 2 3 4, what would the accumulator hold after the loop?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>%cur</code> would be 0 on every pass. What does the last pass store?</p>
+<div class="why"><p>Every pass would store <code>0 + in[k]</code>. The last pass stores 0 + 4, so the box ends at 4 instead of 10.</p></div>
+</div>
+
+<div class="prose">
+<p>So a load gets one extra rule. It answers "which loop does this load belong to?"</p>
+</div>
+
+<div class="key">
+<span class="label">Where a load runs</span>
+<p>First place the load like any value: inside every loop whose range it depends on, and no deeper. Then find the innermost loop that holds <strong>every use</strong> of the load. If that loop is deeper, and it stores into the version the load reads, the load moves into that loop. It runs on every iteration and sees the <strong>current</strong> contents: the previous iteration's store, or the contents before the loop on the first iteration.</p>
+</div>
+
+<div class="prose">
+<p>Apply it to <code>%cur</code>:</p>
+<ol>
+<li><strong>Place it by open ranges.</strong> Nothing is open, so it starts outside the loop.</li>
+<li><strong>Find every use.</strong> Its only use is <code>%sum</code>. That depends on <code>%k</code>, so it sits inside the k loop.</li>
+<li><strong>Check the loop's stores.</strong> The k loop stores through <code>%a</code> into <code>%acc</code>, the version <code>%cur</code> reads. So <code>%cur</code> moves into the loop. Such a load is called <strong>loop-carried</strong>.</li>
+</ol>
+<p><code>%tot</code> reads <code>%acc1</code> and its use is outside the loop, so it runs once, after the loop. Here's the C the oracle renders, trimmed of the wraparound casts:</p>
 <pre><code>int32_t a4[1] = {0};
 for (int32_t r7 = 0; r7 &lt; 4; r7++) {
   int32_t v8 = a4[0];        /* %cur: inside the loop */
   int32_t v10 = b0[r7];      /* in[k] */
-  a4[0] = v8 + v10;
+  int32_t v11 = v8 + v10;
+  a4[0] = v11;
 }
-b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
+int32_t v15 = a4[0];         /* %tot: after the loop */
+b1[0] = v15;</code></pre>
 </div>
 
-<div class="exercise" data-ex="w3-02-rowsum">
-<h3>Row sums</h3>
-<p>Slot 0 is a 3-by-4 i32 matrix, row-major. Write each row's sum into slot 1: <code>out[i] = A[i*4+0] + ... + A[i*4+3]</code>. Slot 1 starts with junk, so every <code>out[i]</code> has to be reset before its row is summed. The starter forgets.</p>
+<div class="exercise" data-ex="w3-02n-dot">
+<h3>Dot product</h3>
+<p>Slots 0 and 1 each hold four i32s. Put their dot product from <a href="../week0/05-matmul.html">lesson 0.5</a>, <code>a[0]*b[0] + ... + a[3]*b[3]</code>, into slot 2's only element. Only the buffers are declared. Write the accumulator loop yourself: a one-box <code>alloc</code>, a <code>range</code>, the four steps, <code>end</code> and <code>after</code>. Then load the total from the version after the loop and store it into <code>out</code>.</p>
 </div>
 
-<h2>Split uses read the old contents</h2>
+<h2>One load, used inside and outside</h2>
 <div class="prose">
-<p>If a load is used both inside and outside a loop, no loop holds both uses, so the load stays <em>outside</em> the loop. It runs once, before the loop, and every use sees the contents from before the loop:</p>
+<p>The broken program says <code>load %a</code> on two lines. Two identical lines are one node, so there is one load with two uses: <code>%sum</code> inside the loop and the store into <code>%out</code> outside it. No loop holds both uses, so the load stays <em>outside</em>. It runs once, before the loop, and every use sees the contents from before the loop. That loop was broken too: every pass added to the same 0.</p>
+<p>Here is the same shape in a buffer you can see:</p>
 <pre><code>%b   = buffer 2 [5 0] dtype=i32 slot=0
 %acc = shrink %b 0 []
 %cur = load %acc            # used inside AND outside the loop
@@ -102,21 +193,23 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 %dst = shrink %b1 1 []
 %s2  = store %dst %cur      # use 2: after the loop
 %b2  = after %b1 %s2</code></pre>
-<p>Every iteration computes <code>5 + (k + 1)</code> from the same 5. The last one, k = 2, leaves b[0] = 8, and b[1] gets the old 5. Drop the second use and <code>%cur</code> moves into the loop: b[0] becomes 5 + 1 + 2 + 3 = 11.</p>
 </div>
 
-<div class="trap">
-<span class="label">The same node can't be both</span>
-<p>Because UOps are hash consed, "the load of b[0]" is one node. You can't have it be loop-carried for one use and pre-loop for another. And writing <code>load %acc</code> a second time doesn't help: two identical loads are the same node. If you need both the running value and the starting value, load through two <em>different</em> view nodes of the same element. Load the starting value through the view at offset <code>0</code>, as before. Load the running value through a view at offset <code>mul %k 0</code>: it's still element 0, but the graph sees a different node, and it depends on <code>%k</code>, so it runs inside the loop. With that change, the program above gives b[0] = 11 (loop-carried) and b[1] = 5 (the starting value).</p>
-</div>
-
-<div class="trap">
-<span class="label">Don't fold the trick away</span>
-<p><code>mul %k 0</code> only helps while it is still a node. If your graph builder applies week 1's <code>mul(x, 0) → 0</code> as it builds, the running view becomes <code>shrink %b 0 []</code>, the same node as <code>%acc</code>, and the two loads merge back into one. Place loads on the graph exactly as written, and run any simplifier rules afterwards or not at all.</p>
+<div class="quiz" data-fill="8 5 | [8 5] | 8, 5 | [8, 5]">
+<p class="q">What are the final contents of the buffer?</p>
+<div class="fill"><input aria-label="your answer" placeholder="e.g. 1 2"><button class="btn">Check</button></div>
+<p class="hint">Where does <code>%cur</code> run when one of its uses is outside the loop?</p>
+<div class="why"><p><code>%cur</code> runs once, before the loop, and reads 5. Each iteration stores 5 + (k + 1), so the last leaves 8. b[1] gets the pre-loop 5: [8 5].</p></div>
 </div>
 
 <div class="trap">
 <span class="label">A use that doesn't depend on the range pins the load</span>
+<p>A use counts as inside a loop only if it is placed there itself: because it depends on that loop's range, or because it is a load this same rule moved there. <code>%y = add %cur 1</code> depends on no range, so it sits outside the loop and keeps its load outside too. The accumulator then stops accumulating, with no error.</p>
+</div>
+
+<details class="toggle">
+<summary>A pinned load, worked through</summary>
+<div class="prose">
 <p>This loop is meant to add 1 to b[0] three times, starting from 10. It writes 11:</p>
 <pre><code>%b  = buffer 1 [10] dtype=i32 slot=0
 %i  = range 3
@@ -130,10 +223,71 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 %b1 = after %b %e</code></pre>
 <p><code>%y</code> depends on no range, so it's placed outside the loop, and so is its load: both run once, and every iteration stores the same 11. Load through the store's own view (<code>%x = load %v</code>) and the load depends on <code>%i</code>, runs every iteration, and the result is 13.</p>
 </div>
+</details>
 
-<h2>Resets and chains of versions inside a loop</h2>
+<details class="toggle">
+<summary>When you need both the starting value and the running value</summary>
 <div class="prose">
-<p>The row-sum exercise needs a reset per row. The reset store has to depend on <code>%i</code> so it runs inside the i loop, and it does: it stores into <code>shrink %out %i []</code>. Then the j loop accumulates into the version after the reset:</p>
+<p><strong>The same node can't be both.</strong> Because UOps are hash consed, "the load of b[0]" is one node. You can't have it be loop-carried for one use and pre-loop for another. And writing <code>load %acc</code> a second time doesn't help: two identical loads are the same node. If you need both the running value and the starting value, load through two <em>different</em> view nodes of the same element. Load the starting value through the view at offset <code>0</code>, as before. Load the running value through a view at offset <code>mul %k 0</code>: it's still element 0, but the graph sees a different node, and it depends on <code>%k</code>, so it runs inside the loop. With that change, the program above gives b[0] = 11 (loop-carried) and b[1] = 5 (the starting value).</p>
+<p><strong>Don't fold the trick away.</strong> <code>mul %k 0</code> only helps while it is still a node. If your graph builder applies week 1's <code>mul(x, 0) → 0</code> as it builds, the running view becomes <code>shrink %b 0 []</code>, the same node as <code>%acc</code>, and the two loads merge back into one. Place loads on the graph exactly as written, and run any simplifier rules afterwards or not at all.</p>
+</div>
+</details>
+
+<h2>Start the total before the loop</h2>
+<div class="prose">
+<p>An alloc starts as 0, which suits a sum. But an output buffer starts with junk, and a running maximum needs a start that no input can beat. In both cases you store a starting value before the loop. That store makes a new version, and the loop works on it:</p>
+<pre><code>%o    = shrink %out 0 []
+%z    = store %o 0
+%out0 = after %out %z
+%o0   = shrink %out0 0 []
+%k    = range 5
+%v    = shrink %in %k []
+%x    = load %v
+%cur  = load %o0
+%sum  = add %cur %x
+%s    = store %o0 %sum
+%e    = end %s %k</code></pre>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The loop loads and stores through <code>%o0</code>, a view of <code>%out0</code>. Which line names the buffer after the loop?</p>
+<div class="opts">
+<button data-k="a"><code>%out1 = after %out %e</code></button>
+<button data-k="b"><code>%out1 = after %out0 %e</code></button>
+<button data-k="c">Either one. Both name the same buffer.</button>
+</div>
+<p class="hint">In week 2, each <code>after</code> built on the version its store wrote into.</p>
+<div class="why"><p>The loop stores into <code>%out0</code>, so its <code>after</code> builds on <code>%out0</code>. With <code>after %out %e</code> two versions would both build on <code>%out</code>, and the buffer would have two possible outputs. The oracle rejects it: "the loop must store into the version after names, not an older one".</p></div>
+</div>
+
+<div class="prose">
+<p>A buffer's versions stay one chain, as in week 2. A whole loop is one link in that chain.</p>
+</div>
+
+<div class="exercise small" data-ex="w3-02-max">
+<h3>The largest of five</h3>
+<p>Slot 0 holds five f32s. Put their maximum into slot 1's only element. Slot 1 starts with junk, so start the running max from something no input can beat.</p>
+</div>
+
+<h2>Reset inside an outer loop</h2>
+<div class="prose">
+<p>Now sum each row of a matrix into its own <code>out[i]</code>. Every row needs its total reset to 0 first. Where does the reset store go?</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">A program has an i loop around a j loop. It also has <code>store %o 0</code> with <code>%o = shrink %acc 0 []</code>. How often does that store run?</p>
+<div class="opts">
+<button data-k="a">Once per i.</button>
+<button data-k="b">Once per (i, j).</button>
+<button data-k="c">Once, outside both loops.</button>
+<button data-k="d">It's invalid: a store next to a loop must be inside it.</button>
+</div>
+<p class="hint">What are the store's open ranges?</p>
+<div class="why"><p>The store depends on no range, so it has nothing open and runs once, outside both loops. To reset once per row, the store has to depend on <code>%i</code>, for example by storing into <code>shrink %out %i []</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>So the reset stores into a view that uses <code>%i</code>. Then the j loop accumulates into the version after the reset:</p>
 <pre><code>%i    = range 3
 %o    = shrink %out %i []
 %z    = store %o 0              # reset out[i]: runs once per i
@@ -146,12 +300,37 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 %ej   = end %s %j
 %ei   = end %ej %i
 %out1 = after %out %ei          # the output: no open ranges</code></pre>
-<p><code>%out0</code> has <code>{i}</code> open, so it's local to one iteration of the i loop. Only an <code>after</code> with nothing open counts as the buffer's output, which is why <code>%out1</code> builds on <code>%out</code>, not on <code>%out0</code>. If the <code>after</code>'s effect is an <code>end</code>, the loop must store into the exact version the <code>after</code> names, or into a version built on it inside the loop. Here the reset is inside the i loop, so <code>%out0</code> is built inside it and <code>after %out %ei</code> is right. Now move the reset outside every loop, so that its <code>after</code>, say <code>%r = after %out %z</code>, has nothing open. The loop then stores into <code>%r</code>, so the loop's <code>after</code> must build on that version: <code>after %r %ei</code>. Writing <code>after %out %ei</code> there is invalid, because the buffer's versions would fork. The oracle says "the loop must store into the version after names, not an older one".</p>
+<p><code>%out0</code> has <code>{i}</code> open, so it is local to one iteration of the i loop: this row's box, freshly reset. Only an <code>after</code> with nothing open counts as the buffer's output. That is why the last line builds on <code>%out</code>, the version before the loops, and not on <code>%out0</code>.</p>
 </div>
 
-<div class="exercise small" data-ex="w3-02-max">
-<h3>The largest of five</h3>
-<p>Slot 0 holds five f32s. Put their maximum into slot 1's only element. Slot 1 starts with junk, so start the running max from something no input can beat.</p>
+<div class="exercise" data-ex="w3-02-rowsum">
+<h3>Row sums</h3>
+<p>Slot 0 is a 3-by-4 i32 matrix, row-major. Write each row's sum into slot 1: <code>out[i] = A[i*4+0] + ... + A[i*4+3]</code>. Slot 1 starts with junk, so every <code>out[i]</code> has to be reset before its row is summed. The starter forgets.</p>
+</div>
+
+<details class="toggle">
+<summary>Every rule for memory inside loops, for when you write the lab</summary>
+<div class="prose">
+<ul>
+<li><strong>Load placement.</strong> The rule in "Where a load runs" is the whole rule. "Every use" means every use in the program, including an <code>assert</code>. <code>render</code> emits no code for asserts, but it still counts them when it decides whether a load is pinned outside a loop, so <code>render</code> and <code>./compile</code> agree.</li>
+<li><strong>Split uses.</strong> If some uses are inside the loop and some outside, the load runs outside the loop and every use sees the contents from before the loop.</li>
+<li><strong>Afters inside loops.</strong> An <code>after</code> may sit inside loops. Only an <code>after</code> with no open ranges counts as a buffer's output version. Every range a store or <code>after</code> depends on must be closed by an <code>end</code> before any top-level output.</li>
+<li><strong>The loop's after.</strong> If the <code>after</code>'s effect is an <code>end</code>, the loop must store into the exact version the <code>after</code> names, or into a version built on it inside the loop. In the row-sum program the reset is inside the i loop, so <code>%out0</code> is built inside it and <code>after %out %ei</code> is right. Now move the reset outside every loop, so that its <code>after</code>, say <code>%r = after %out %z</code>, has nothing open. The loop then stores into <code>%r</code>, so the loop's <code>after</code> must build on that version: <code>after %r %ei</code>. Writing <code>after %out %ei</code> there is invalid, because the buffer's versions would fork.</li>
+<li><strong>Inside one iteration.</strong> The week 2 rules hold: one store per version, and loads of a version run before the store that overwrites it.</li>
+<li><strong>Bounds.</strong> A range's interval is <code>[0, n-1]</code>, so <code>i*K + k</code> is provably inside an <code>M*K</code> buffer when <code>i &lt; M</code> and <code>k &lt; K</code>.</li>
+</ul>
+</div>
+</details>
+
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Keep a running total in one box of memory and read it from the version after the loop.</li>
+<li>Say which loop a load runs in: by its open ranges, then by where all of its uses are.</li>
+<li>Spot a load that is stuck outside its loop because of a second use.</li>
+<li>Start an accumulator before a loop, or reset it inside an outer loop, and build the <code>after</code> on the right version.</li>
+</ul>
+<p>Next, lesson 3.3 uses one accumulator per output element to multiply two matrices.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -173,15 +352,8 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 <div class="why"><p>Its only use is inside the k loop, which stores into the version it reads, so it's loop-carried: 5 + 1 + 2 + 3 = 11.</p></div>
 </div>
 
-<div class="quiz" data-fill="8 5 | [8 5] | 8, 5 | [8, 5]">
-<p class="q">And the full split-use program, with the second store into b[1]. What are the final contents?</p>
-<div class="fill"><input aria-label="your answer" placeholder="e.g. 1 2"><button class="btn">Check</button></div>
-<p class="hint">Where does <code>%cur</code> run when one of its uses is outside the loop?</p>
-<div class="why"><p><code>%cur</code> runs once, before the loop, and reads 5. Each iteration stores 5 + (k + 1), so the last leaves 8. b[1] gets the pre-loop 5: [8 5].</p></div>
-</div>
-
 <div class="quiz" data-answer="b">
-<p class="q">In the accumulator example, where does <code>%tot = load %a1</code> run?</p>
+<p class="q">In the repaired accumulator program, the final load is <code>%tot = load %a1</code>, with <code>%a1</code> a view of <code>%acc1</code>. Where does it run?</p>
 <div class="opts">
 <button data-k="a">Inside the k loop, because the k loop stores into the accumulator.</button>
 <button data-k="b">Once, after the loop.</button>
@@ -190,18 +362,6 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 </div>
 <p class="hint">Which version does it read, and where is its use?</p>
 <div class="why"><p><code>%tot</code> reads <code>%acc1</code>, the version after the loop, and its use (the store into <code>%out</code>) is outside every loop. So it runs once, after the loop's closing brace.</p></div>
-</div>
-
-<div class="quiz" data-answer="c">
-<p class="q">A program has an i loop around a j loop. It also has <code>store %o 0</code> with <code>%o = shrink %acc 0 []</code>. How often does that store run?</p>
-<div class="opts">
-<button data-k="a">Once per i.</button>
-<button data-k="b">Once per (i, j).</button>
-<button data-k="c">Once, outside both loops.</button>
-<button data-k="d">It's invalid: a store next to a loop must be inside it.</button>
-</div>
-<p class="hint">What are the store's open ranges?</p>
-<div class="why"><p>The store depends on no range, so it has nothing open and runs once, outside both loops. To reset once per row, the store has to depend on <code>%i</code>, for example by storing into <code>shrink %out %i []</code>.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">
@@ -237,8 +397,8 @@ b1[0] = a4[0];               /* %tot: after the loop */</code></pre>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const { h } = CC;
-  const row = (name, vals, mark) => h('div', { class: 'row' }, h('span', { class: 'name', text: name }),
-    h('div', { class: 'mem' }, vals.map((v, i) => h('div', { class: 'cell' + (i === mark ? ' hit' : '') }, h('span', { class: 'addr', text: i }), String(v)))));
+  const row = (name, vals, mark, labs) => h('div', { class: 'row' }, h('span', { class: 'name', text: name }),
+    h('div', { class: 'mem' }, vals.map((v, i) => h('div', { class: 'cell' + (i === mark ? ' hit' : '') }, h('span', { class: 'addr', text: labs ? labs[i] : i }), String(v)))));
   const src = `%k   = range 4
 %cur = load %a          # acc[0]
 %x   = load %iv         # in[k]
@@ -246,17 +406,21 @@ document.addEventListener('DOMContentLoaded', () => {
 %s   = store %a %sum
 %e   = end %s %k`;
   const input = [1, 2, 3, 4];
-  const steps = [{ caption: 'Before the loop: <code>%acc</code> is a fresh alloc, so it holds 0.', hl: -1, acc: 0, k: -1, v: '' }];
+  const labs = ['start', 'k=0', 'k=1', 'k=2', 'k=3'];
+  const steps = [{ caption: 'Before the loop: <code>%acc</code> is a fresh alloc, so it holds 0.', hl: -1, acc: 0, k: -1, v: '', past: [0] }];
   let acc = 0;
+  const past = [0];
   for (let k = 0; k < 4; k++) {
-    steps.push({ caption: `k = ${k}: <code>%cur</code> is loaded fresh this iteration and reads ${acc}${k ? ', the previous iteration\'s store' : ''}.`, hl: 1, acc, k, v: `cur = ${acc}` });
+    steps.push({ caption: `k = ${k}: <code>%cur</code> is loaded fresh this iteration and reads ${acc}${k ? ', the previous iteration\'s store' : ''}.`, hl: 1, acc, k, v: `cur = ${acc}`, past: past.slice() });
     const sum = acc + input[k];
-    steps.push({ caption: `k = ${k}: <code>%x</code> = in[${k}] = ${input[k]}, and the store writes ${acc} + ${input[k]} = ${sum} back into acc[0].`, hl: 4, acc: sum, k, v: `cur = ${acc}, x = ${input[k]}, sum = ${sum}`, mark: true });
+    past.push(sum);
+    steps.push({ caption: `k = ${k}: <code>%x</code> = in[${k}] = ${input[k]}, and the store writes ${acc} + ${input[k]} = ${sum} back into acc[0].`, hl: 4, acc: sum, k, v: `cur = ${acc}, x = ${input[k]}, sum = ${sum}`, mark: true, past: past.slice() });
     acc = sum;
   }
-  steps.push({ caption: 'The loop is done. <code>%acc1</code>, the version after the <code>end</code>, holds 10.', hl: 5, acc: 10, k: -1, v: 'acc1 = 10' });
+  steps.push({ caption: 'The loop is done. <code>%acc1</code>, the version after the <code>end</code>, holds 10.', hl: 5, acc: 10, k: -1, v: 'acc1 = 10', past: past.slice() });
   CC.stepper(document.getElementById('run'), steps, (s, body) => body.append(h('div', { class: 'stack' }, CC.code(src, s.hl),
-    h('div', { class: 'strip' }, row('in', input, s.k), row('acc', [s.acc], s.mark ? 0 : -1), h('div', { class: 'vals', text: s.v || ' ' })))));
+    h('div', { class: 'strip' }, row('in', input, s.k), row('acc now', [s.acc], s.mark ? 0 : -1),
+      row('acc after', labs.map((_, i) => i < s.past.length ? s.past[i] : '·'), s.mark ? s.past.length - 1 : -1, labs), h('div', { class: 'vals', text: s.v || ' ' })))));
 });
 </script>
 </body>

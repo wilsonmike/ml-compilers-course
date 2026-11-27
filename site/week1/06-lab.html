@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Week 1 Lab</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Build a compiler that parses .uir, checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You&#x27;re done when...">
+<meta name="description" content="You start with a compiler that prints one fixed line and grow it one small, tested step at a time. When the lab is done, your compiler reads a .uir file...">
 <link rel="canonical" href="https://sharpterminal.com/site/week1/06-lab">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Week 1 Lab">
-<meta property="og:description" content="Build a compiler that parses .uir, checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You&#x27;re done when every week 1 test passes and you&#x27;ve...">
+<meta property="og:description" content="You start with a compiler that prints one fixed line and grow it one small, tested step at a time. When the lab is done, your compiler reads a .uir file, refuses a broken one, runs a good one and...">
 <meta property="og:url" content="https://sharpterminal.com/site/week1/06-lab">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,15 +20,9 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
-  .build { list-style: none; padding: 0; margin: var(--s5) 0; max-width: var(--col); counter-reset: st; }
-  .build > li { counter-increment: st; position: relative; padding: var(--s4) var(--s5) var(--s4) var(--s8); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); margin-bottom: var(--s3); }
-  .build > li::before { content: counter(st, decimal-leading-zero); position: absolute; left: var(--s5); top: var(--s4); font: 500 0.875rem/1.7 var(--mono); color: var(--ink-3); }
-  .build h3 { margin: 0 0 var(--s2); }
-  .build p { margin: 0 0 var(--s2); }
-  .build .check { font-size: 0.9375rem; color: var(--ink-3); margin: 0; }
   .checklist { list-style: none; padding: 0; margin: var(--s4) 0; max-width: var(--col); }
   .checklist li { border-bottom: 1px solid var(--line); }
   .checklist label { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--s3) 0; cursor: pointer; }
@@ -39,31 +33,71 @@
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 1 · Lesson 6</p>
-<h1>The week 1 lab</h1>
-<p class="lede">Build a compiler that parses .uir, checks it, runs it and simplifies it. Write it in your own repo, in the language you picked in the sidebar. You're done when every week 1 test passes and you've written 10 tests of your own.</p>
+<h1>Lab: your compiler</h1>
+<p class="lede">You start with a compiler that prints one fixed line and grow it one small, tested step at a time. When the lab is done, your compiler reads a <code>.uir</code> file, refuses a broken one, runs a good one and makes a program smaller without changing what it computes.</p>
 
-<div class="prose">
-<h2>What you're building</h2>
-<ul>
-<li><strong>A parser</strong> for the .uir tokens and grammar in <a href="../../spec/uir-week1.md">spec/uir-week1.md</a>: definitions, names, ops, decimal and hex literals, brackets and <code>key=value</code> attributes.</li>
-<li><strong>Hash-consed UOps.</strong> One constructor that returns the existing node whenever the same <code>(op, src, arg)</code>, where dtype and shape are part of the key, was built before. Everything else depends on this.</li>
-<li><strong>A validator</strong> that gives every node a dtype, a shape and bounds, checks index safety, call arguments, limits and the test-file rules, and says <code>REJECTED</code> before anything runs. Around it, the budgets: bytes, nodes and edges, and static cost, each one <code>OVERBUDGET</code>.</li>
-<li><strong>A memoized interpreter</strong> that evaluates the assert, with i32 wrapping, floor div and mod, shifts by <code>y mod 32</code> and per-call evaluation for <code>call</code>/<code>param</code>.</li>
-<li><strong>A rewrite-based simplifier</strong>: a sources-first rewrite engine run to a fixpoint, with constant folding, canonicalization, identities and bounds-powered rules.</li>
-</ul>
+<div class="note">
+<span class="label">Goal</span>
+<p>Pass all 282 week 1 tests with a compiler you wrote in your own repository, and write 10 tests of your own.</p>
+</div>
 
+<div class="note">
+<span class="label">You'll use</span>
+<p>Every lesson of the week: nodes (<a href="01-the-uop.html">1.1</a>), reading and running a file (<a href="02-uir-and-interpreting.html">1.2</a>), rewrites (<a href="03-rewrites-and-folding.html">1.3</a>), safe rules and bounds (<a href="04-symbolic.html">1.4</a>) and calls and stacks (<a href="05-call-and-param.html">1.5</a>).</p>
+<p class="only-ocaml">A dune project, reading a file and reading the command line, all from <a href="../week0/06-ocaml.html">lesson 0.6</a> and <a href="../learn/ml-06-modules-projects.html">O.6</a>.</p>
+<p class="only-python">A package with a <code>__main__.py</code>, reading a file and reading the command line, all from <a href="../week0/07-python.html">lesson 0.7</a> and <a href="../learn/py-06-files-errors-tests.html">P.6</a>.</p>
 </div>
 
 <h2>Warm up</h2>
-<p class="prose">Five minutes in .uir before the big build. It makes you use floor <code>div</code> and <code>mod</code> exactly as your interpreter will have to.</p>
-<div class="exercise small" data-ex="w1-06-trunc-div">
-<h3>C's division from floor division</h3>
-<p><code>div</code> floors, so <code>div -7 2</code> is <code>-4</code>. C's <code>/</code> truncates toward zero, so <code>-7 / 2</code> is <code>-3</code> in C. You'll render C in week 2, so it pays to know exactly where they differ. Build C's truncating division as <code>%out</code> for i32 params <code>a</code> and <code>b</code> (b is never 0) from <code>div</code>, <code>mod</code>, <code>cmplt</code>, <code>xor</code>, <code>where</code> and <code>add</code>.</p>
-<p class="muted">The two only differ when the remainder is nonzero and <code>a</code> and <code>b</code> have opposite signs. Then truncation is one higher.</p>
+<p class="prose">Two questions from this week, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="c">
+<p class="q">A test file is 5000 bytes long, and one of its lines adds an i32 to a bool. What does your compiler print for it?</p>
+<div class="opts">
+<button data-k="a"><code>REJECTED</code></button>
+<button data-k="b"><code>MISMATCH</code></button>
+<button data-k="c"><code>OVERBUDGET</code></button>
+</div>
+<p class="hint">Lesson 1.2: which check comes before parsing?</p>
+<div class="why"><p>A file over 4096 bytes is refused before it is parsed, so the type error is never seen. Your compiler has to make its checks in that same order.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%x</code> is a param with limits <code>[0 8]</code>. May a simplifier replace <code>mod %x 8</code> with <code>%x</code>?</p>
+<div class="opts">
+<button data-k="a">Yes, the limits prove it</button>
+<button data-k="b">No, one allowed value breaks it</button>
+<button data-k="c">Yes, <code>mod</code> by 8 never changes a small number</button>
+</div>
+<p class="hint">Lesson 1.4: try the largest value the limits allow.</p>
+<div class="why"><p>8 is allowed, and <code>mod 8 8</code> is 0, not 8. Limits of <code>[0 7]</code> would make the rule safe. One of the lab's tests checks exactly this.</p></div>
 </div>
 
 <div class="prose">
-<h2>The command-line contract</h2>
+<h2>What you are building</h2>
+<p>One program with two commands. The course calls it <code>compile</code>.</p>
+<ul>
+<li><code>compile FILE</code> judges a test file. It prints one line: <code>MATCH</code>, <code>MISMATCH</code>, <code>REJECTED</code> or <code>OVERBUDGET</code>, then one space, then the path exactly as it was given.</li>
+<li><code>compile simplify FILE</code> prints a smaller <code>.uir</code> program that computes the same <code>%out</code>.</li>
+</ul>
+<p>Inside are five pieces: a <strong>parser</strong>, a <strong>node table</strong> that never builds the same node twice, a <strong>validator</strong> that says <code>REJECTED</code> before anything runs, an <strong>interpreter</strong> and a <strong>simplifier</strong>.</p>
+<p>The grader reads only what your program prints on stdout, the normal output. A crash prints no outcome line, so that test fails.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The grader runs <code>compile tests/a.uir</code>, and the assert's two sides are equal. What must your compiler print?</p>
+<div class="opts">
+<button data-k="a"><code>MATCH</code></button>
+<button data-k="b"><code>MATCH tests/a.uir</code></button>
+<button data-k="c"><code>tests/a.uir: MATCH</code></button>
+</div>
+<p class="hint">The outcome word comes first, then one space, then the path.</p>
+<div class="why"><p>The path is printed back exactly as it came in. The grader copies each test to a file named <code>case.uir</code> first, so the file name tells your compiler nothing.</p></div>
+</div>
+
+<details class="toggle">
+<summary>The full command-line contract, for when the grader and you disagree about output</summary>
+<div class="prose">
 <p>The official course runs your compiler as <code>./compile FILE...</code>. Yours can have any name: the grader takes its path. What the grader reads is your stdout, one line per file. The exit code and stderr aren't graded, so print whatever diagnosis helps you on stderr. A crash is not an answer: an uncaught exception (<span class="only-ocaml"><code>Fatal error: exception ...</code></span><span class="only-python">a Python traceback</span>) prints no outcome line, and the test fails.</p>
 </div>
 <div class="tablewrap"><table>
@@ -72,69 +106,408 @@
 <tr><td><code>./compile FILE...</code></td><td>For each file, print one line to stdout: <code>MATCH</code>, <code>MISMATCH</code>, <code>REJECTED</code> or <code>OVERBUDGET</code>, one space, and the path exactly as it was given. Decide in the spec's order and stop at the first outcome: over 4096 bytes, then parse, then 100 nodes or 300 edges, then validation, then a static cost of 1,000,000, then run. The grader runs one test at a time, copied to a file named <code>case.uir</code>.</td></tr>
 <tr><td><code>./compile simplify FILE</code></td><td>Print a valid .uir program to stdout that defines <code>%out</code> with the same dtype and shape, and computes the same value for every input inside the params' limits, then exit 0. It's graded on equivalence (every edge value in every param slot, plus random values) and on an op budget, <code>max_ops</code>, counted on the op bindings you print: duplicate bindings count twice, so hash cons your output.</td></tr>
 </tbody></table></div>
+<div class="prose">
+<p>The language contract is <a href="../../spec/uir-week1.md">spec/uir-week1.md</a>. If this page and the spec disagree, the spec wins.</p>
+</div>
+</details>
 
 <div class="prose">
-<h2>Running the suite</h2>
+<h2>Plan it first</h2>
+<p>Before you type anything, decide the order.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">You have an empty folder. What should you get working first?</p>
+<div class="opts">
+<button data-k="a">A program that prints <code>MATCH</code> and the path for every file, run through the test runner</button>
+<button data-k="b">The whole parser, since everything else needs it</button>
+<button data-k="c">The simplifier, since it is the hardest part</button>
+</div>
+<p class="hint">When something goes wrong, you want as few places to look as possible.</p>
+<div class="why"><p>A three-line program can't hide a bug. If the test runner can't run it, the problem is the setup, and you fix that once.</p></div>
+</div>
+
+<p class="prose">After that the route follows the lessons, and every step ends with tests you can run. The interpreter comes before the simplifier, because folding borrows the interpreter's own arithmetic.</p>
+
+<div class="prose">
+<h2>A repository and a compile that says MATCH</h2>
+<p>Your compiler lives in its own repository, outside the course folder. You set this project up in lesson <a class="only-python" href="../week0/07-python.html">0.7</a><a class="only-ocaml" href="../week0/06-ocaml.html">0.6</a>. Run the checkpoint to make sure it still works. If it does not, or you skipped that lesson, open the steps below.</p>
+</div>
+
+<details class="toggle">
+<summary>Set up the folder, the project and git from nothing</summary>
+<div class="prose">
+<p>A <strong>repository</strong> is a folder that the tool <code>git</code> watches. Each time you <strong>commit</strong>, git saves a snapshot of the folder, so you can always get back to a version that worked.</p>
+<ol>
+<li><strong>Make the folder.</strong> In a terminal, outside the course repo:
+<pre><code>mkdir my-ml-compiler
+cd my-ml-compiler
+git init</code></pre></li>
+<li class="only-ocaml"><strong>Make the project.</strong> Run <code>dune init project mlc .</code> in that folder. The dot means "right here". You get <code>bin/main.ml</code>, <code>lib/</code> and <code>test/</code>.</li>
+<li class="only-python"><strong>Make the package.</strong> Make a folder named <code>mlc</code> inside it, with an empty file <code>mlc/__init__.py</code>.</li>
+<li><strong>Write the whole compiler, for now.</strong> <span class="only-ocaml">Replace everything in <code>bin/main.ml</code> with this.</span><span class="only-python">Save this as <code>mlc/__main__.py</code>.</span> It prints <code>MATCH</code> and the path for every file it is given, and never opens one.
+<pre class="only-ocaml"><code>let () =
+  for i = 1 to Array.length Sys.argv - 1 do
+    print_endline ("MATCH " ^ Sys.argv.(i))
+  done</code></pre>
+<pre class="only-python"><code>import sys
+
+for path in sys.argv[1:]:
+    print("MATCH", path)</code></pre></li>
+<li><strong>Tell git what to skip.</strong> Make a file named <code>.gitignore</code> with one line: <span class="only-ocaml"><code>_build/</code></span><span class="only-python"><code>__pycache__/</code></span>.</li>
+<li><strong>Copy the AI rules.</strong> Copy <code>templates/AGENTS.md</code> from the course repo into your folder. It tells an AI assistant to explain and ask questions but never write your compiler code.</li>
+<li class="only-python"><strong>Write the wrapper.</strong> On Windows, save these three lines as <code>mlc.cmd</code> in <code>my-ml-compiler</code>, next to the <code>mlc</code> folder:
+<pre><code>@echo off
+set "PYTHONPATH=%~dp0"
+python -m mlc %*</code></pre>
+On macOS and Linux, save these two lines as <code>compile</code> in the same place and run <code>chmod +x compile</code> once:
+<pre><code>#!/bin/sh
+PYTHONPATH="$(dirname "$0")" exec python3 -m mlc "$@"</code></pre></li>
+</ol>
+</div>
+</details>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p>From inside <code>my-ml-compiler</code>, run your compiler by hand<span class="only-python"> (on macOS and Linux, type <code>python3</code>)</span>:</p>
+<pre class="only-ocaml"><code>dune build
+dune exec mlc -- hello.uir</code></pre>
+<pre class="only-python"><code>python -m mlc hello.uir</code></pre>
+<p>You should see <code>MATCH hello.uir</code>. There is no such file, and that is fine. This compiler never looks.</p>
+</div>
+
+<div class="prose">
+<h2>Watch the grader run it</h2>
+<p>The test runner, <code>tools/test.py</code>, lives in the course repo. It runs your compiler on each test and reads the line it prints. On this page <code>YOURS</code> stands for the full path to your compiler, in quotes.</p>
+<p class="only-ocaml"><code>YOURS</code> is the program dune built: <code>"C:/path/to/my-ml-compiler/_build/default/bin/main.exe"</code>, or <code>~/my-ml-compiler/_build/default/bin/main.exe</code> on macOS, Linux and WSL. Run <code>dune build</code> before every test run.</p>
+<p class="only-python"><code>YOURS</code> is the wrapper from lesson 0.7 that lets Python find your package from any folder: <code>"C:/path/to/my-ml-compiler/mlc.cmd"</code> on Windows, or <code>~/my-ml-compiler/compile</code> on macOS and Linux. The setup steps above have both wrappers.</p>
+<p>From the root of the course repo, run one test. <code>-k</code> picks the tests whose path contains the text after it.</p>
+<pre><code>python tools/test.py --compiler YOURS --week 1 -k basic_add</code></pre>
+<p>You should see <code>1 / 1 passed</code>. Now leave off <code>-k</code> to run every test. The last line reads:</p>
+<pre><code>134 / 282 passed   (-v for details)</code></pre>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your compiler opens no file, and 134 tests pass. Why?</p>
+<div class="opts">
+<button data-k="a">The runner gives partial credit for printing a line</button>
+<button data-k="b">134 tests expect <code>MATCH</code>, and it says <code>MATCH</code> to everything</button>
+<button data-k="c">Those tests are skipped until later</button>
+</div>
+<p class="hint">A test's file name says what it expects. Which outcome has no prefix?</p>
+<div class="why"><p>A guess gets the <code>MATCH</code> tests right. From the next step on your total will drop, because your compiler fails on files it can't read yet. Don't chase the total. Watch the tests named in each checkpoint.</p></div>
+</div>
+
+<div class="prose">
+<p>To see why a test failed, name it and add <code>-v</code>. The runner then shows what the <strong>oracle</strong>, the course's reference compiler, says and why. Last, save this state from your own folder, and commit again after every checkpoint:</p>
+<pre><code>git add .
+git commit -m "compile prints MATCH"</code></pre>
+<p>Each checkpoint below gives the text to put after <code>-k</code> in the command above, and the last line you should see.</p>
+</div>
+
+<details class="toggle">
+<summary>If the first run does not say 1 / 1 passed</summary>
+<div class="prose">
+<ul>
+<li><strong><code>expected one line 'MATCH FILE' on stdout, got ''</code></strong> with a stderr line such as <code>[WinError 2] The system cannot find the file specified</code>: the path after <code>--compiler</code> is wrong. Check it letter by letter, and keep the quotes.</li>
+<li><strong><code>can't open file ... tools/test.py</code></strong>: you are not in the root of the course repo. <code>cd</code> there first.</li>
+<li class="only-ocaml"><strong>An old answer</strong>: you changed the code but did not run <code>dune build</code>. The runner uses the built file, not your source.</li>
+<li class="only-python"><strong><code>No module named mlc</code></strong>: the wrapper is not next to the <code>mlc</code> folder, or you are running the command from a different folder. (The macOS and Linux wrapper can't be named <code>mlc</code>, because a folder with that name is already there.)</li>
+<li><strong><code>python</code> is not found</strong>: on macOS and Linux the command is <code>python3</code>.</li>
+<li><strong>git says <code>Please tell me who you are</code></strong>: run the two <code>git config</code> lines it prints, with your own name and email, then commit again.</li>
+</ul>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Every way to run the suite, and where to read about a failing test</summary>
+<div class="prose">
+<p>With <code>-k mismatch_basic -v</code>, the first compiler on this page gets:</p>
+<pre><code>FAIL tests/week1/run/mismatch_basic.uir
+    expected MISMATCH, got MATCH
+    oracle: %t: the values differ</code></pre>
 <p>Stuck on a failing test? The <a href="../resources/tests-week1.html">week 1 test guide</a> says what each test checks and which bugs make it fail, and the <a href="../resources/week1.html">week 1 study guide</a> has a cheat sheet and a step-by-step way out.</p>
-<p>Two tools, two jobs. <code>python tools/serve.py</code> serves these lessons and grades the in-lesson exercises like the one above. <code>tools/test.py</code> grades <em>your compiler</em> against the week's suite. Run these from the root of the course repo:</p>
+<p>Two tools, two jobs. <code>python tools/serve.py</code> serves these lessons and grades the in-lesson exercises. <code>tools/test.py</code> grades <em>your compiler</em> against the week's suite. Run these from the root of the course repo:</p>
 <pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 1
 python tools/test.py --compiler "C:/path/to/your.exe" --week 1 -k div     # only tests whose name contains "div"
 python tools/test.py --compiler "C:/path/to/your.exe" --week 1 -v         # show what differed
 python tools/test.py --compiler "C:/path/to/your.exe" --week 1 --jobs 1   # one test at a time
 python _reference/uirc.py --week=1 FILE...                                 # the oracle's outcome for any file</code></pre>
 <p class="only-ocaml">Pass the built executable (for dune, <code>_build/default/bin/main.exe</code>), not <code>dune exec</code>: the suite runs tests in parallel, and parallel <code>dune exec</code> calls fight over dune's build lock.</p>
-<p class="only-python">Pass your wrapper from <a href="../week0/07-python.html">lesson 0.7</a>: <code>C:/path/to/my-ml-compiler/mlc.cmd</code> on Windows, or the executable <code>mlc</code> script on macOS and Linux. The runner calls it as <code>mlc.cmd FILE</code> and <code>mlc.cmd simplify FILE</code> from the course repo, so the wrapper must find your package from any folder.</p>
+<p class="only-python">The runner calls your wrapper as <code>YOURS FILE</code> and <code>YOURS simplify FILE</code> from the course repo, so the wrapper must find your package from any folder.</p>
 <p>Tests live in <code>tests/week1/run/</code> and <code>tests/week1/simplify/</code>, and you <em>should</em> read them. Each one is a small, readable .uir file whose first comment says what it checks.</p>
+</div>
+</details>
 
-<h2>Write your 10 tests</h2>
-<p>The official course has students hand in tests every week, and grades them on how many <em>other</em> students' compilers they catch: a test that every compiler passes earns nothing. Do the same: put 10 in <code>&lt;your compiler repo&gt;/tests/week1/</code>, one <code>.uir</code> file each, following the test-file rules from lesson 2. A test ends with one assert, its expected side is written as a literal, every node is reachable from the assert, and the file name says the outcome. Here's <code>mismatch_div_is_not_c.uir</code>:</p>
-<pre><code>%a = div -7 2
-%t = assert %a -3</code></pre>
-<p>.uir's <code>div -7 2</code> is -4, so the right answer is <code>MISMATCH</code>. A compiler that divides like C prints <code>MATCH</code>, and your test catches it. A simplify test has no assert, defines <code>%out</code>, and starts with <code># simplify: max_ops=N</code>. Then check them against the oracle. <code>--check-tests</code> confirms each file name's outcome, and for simplify tests it checks that the oracle's own simplifier reaches your <code>max_ops</code>, so you can't write an impossible target:</p>
-<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week1 --week 1</code></pre>
-<p>A good test targets one rule you think someone (maybe you) will get wrong: <code>div INT_MIN -1</code>, <code>mod</code> bounds when both ends have the same quotient, a nested call that reuses slot 0, limits that are one too wide for an <code>index</code>, a file of exactly 4096 bytes.</p>
+<div class="prose">
+<h2>Read and run a real file</h2>
+<p>Make <code>MATCH</code> mean something. Write the interpreter from <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a> and <code>parse_line</code> from <a href="02-uir-and-interpreting.html#read">lesson 1.2</a> again in your own project, and join them.</p>
+<ol>
+<li><strong>Read the file</strong> and drop each comment, from <code>#</code> to the end of its line.</li>
+<li><strong>Split each line</strong> into a name, an op and two values. Handle <code>add</code> and <code>mul</code> for now.</li>
+<li><strong>Run the lines.</strong> Keep each answer under its name, as <code>env</code> did.</li>
+<li><strong>Judge.</strong> The last line is <code>assert x y</code>. Print <code>MATCH</code> or <code>MISMATCH</code>, then the path.</li>
+</ol>
 </div>
 
-<h2>A build order that works</h2>
-<p class="prose">Start small. Your first goal is the two simplest tests: <code>tests/week1/run/basic_add.uir</code> should print <code>MATCH</code> and <code>mismatch_basic.uir</code> should print <code>MISMATCH</code>. After that, run the whole suite after every step below. Most tests fail at first, and that's expected: each checkpoint says which ones should pass by then.</p>
-<ol class="build">
-<li><h3>Set up your repo</h3><p>Make a new folder outside the course repo, then <code>git init</code> inside it. <span class="only-ocaml">Run <code>dune init project mlc</code> there (<a href="../week0/06-ocaml.html">lesson 0.6</a> shows dune).</span><span class="only-python">Add the <code>mlc</code> package and the wrapper script from <a href="../week0/07-python.html">lesson 0.7</a>.</span> Copy <code>templates/AGENTS.md</code> from the course repo into your repo's root: it tells an AI assistant to explain and ask questions but never write your compiler code.</p><p class="check only-ocaml">Checkpoint: <code>dune build</code> succeeds and <code>_build/default/bin/main.exe</code> runs.</p><p class="check only-python">Checkpoint: running the wrapper from the course repo's folder prints your usage message and exits 2.</p></li>
-<li><h3>Parse and print</h3><p>Split the file into tokens, then group them into bindings with the grammar. Remember that a newline is just whitespace and <code>%x=</code> is one token. Print each binding back in .uir form and check it matches the input, ignoring spacing and comments. Count bytes before you parse, and nodes and edges right after.</p><p class="check">Checkpoint: every file in <code>tests/week1/run/</code> parses or is <code>REJECTED</code>, none crash, and the <code>overbudget_bytes</code>, <code>overbudget_nodes</code> and <code>overbudget_edges</code> tests pass.</p></li>
-<li><h3>The hash-consed UOp</h3><p>One table keyed on (op, src, arg), with dtype and shape as part of the key. Sources are already unique, so compare them by identity. <span class="only-ocaml">In OCaml, <code>==</code> is physical equality and <code>=</code> is structural.</span><span class="only-python">In Python, <code>is</code> is identity, and <code>==</code> on a dataclass compares every field.</span> Know which one you're using. <code>[1 2]</code> and <code>stack 1 2</code> must come out as one node.</p><p class="check">Checkpoint: building <code>add x 1</code> twice returns the same physical node.</p></li>
-<li><h3>Types and test-file rules</h3><p>dtype and shape for every op, following the table in the spec. No implicit conversions. Then the test-file rules: one final assert, a literal expected side, a scalar left side, every node reachable.</p><p class="check">Checkpoint: the <code>rejected_</code> tests about dtypes, shapes, attributes and asserts pass.</p></li>
-<li><h3>Interpreter</h3><p>Evaluate the assert, with each node computed once. Look up how to do 32-bit wrapping arithmetic in your language <span class="only-ocaml">(OCaml's native <code>int</code> is 63 bits)</span><span class="only-python">(Python ints never overflow)</span>, and check your division against the floor table in lesson 2, zero divisors included.<span class="only-python"> A deep chain of nodes will hit Python's recursion limit, so walk it with your own stack or raise the limit.</span></p><p class="check">Checkpoint: the arithmetic tests pass, and <code>dag_sharing</code> finishes in milliseconds.</p></li>
-<li><h3>call and param</h3><p>Evaluate a body with an environment (a map from slot number to value for the current call). Keep the memo per call. Bodies are closed. Check that each used slot has one param node and an arg of the right dtype, and reject a param outside any call.</p><p class="check">Checkpoint: the <code>call_</code> tests pass, including the ones that reuse slot 0.</p></li>
-<li><h3>Bounds and cost</h3><p>Give every node bounds with the rules in spec section 5, exactly as written. Reject an index whose bounds don't fit its axis, and a call whose args don't fit their params' limits. Then add up the static cost.</p><p class="check">Checkpoint: the <code>bounds_</code>, <code>limits_</code>, <code>rejected_bounds_</code>, <code>rejected_limits_</code> and cost tests pass.</p></li>
-<li><h3>The rewrite engine</h3><p>A sources-first pass that tries rules at each node, repeated until nothing changes. Start with constant folding, using the <em>same</em> op semantics as the interpreter, then add canonicalization.</p><p class="check">Checkpoint: the folding simplify tests pass their <code>max_ops</code>.</p></li>
-<li><h3>Symbolic rules and bounds</h3><p>i32 identities, call inlining, then the rules that bounds and limits power.</p><p class="check">Checkpoint: every simplify test passes, including the ones designed to catch <code>(x * 2) / 2</code> and <code>x mod 8 → x</code> with limits that are one too wide.</p></li>
-<li><h3>Your 10 tests</h3><p>Write them, and check them with <code>--check-tests</code>. Then try to break your own compiler with them.</p></li>
-</ol>
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k run/basic</code> gives <code>2 / 2 passed</code> and <code>-k mismatch_basic</code> gives <code>1 / 1 passed</code>, the first test your compiler passes by computing something.</p>
+</div>
 
-<h2>Checklist</h2>
+<div class="prose">
+<h2>Every token, and one table of nodes</h2>
+<p>The real format has hex numbers, bindings that run over two lines and <code>%x=</code> with no space. Replace the line splitter with a real parser, and make it build nodes.</p>
+<ol>
+<li><strong>Cut the text into tokens</strong> from the token table in lesson 1.2's reference.</li>
+<li><strong>Group tokens into bindings.</strong> A name, then an op with its atoms and attributes, or one atom alone. Accept every op in the spec now.</li>
+<li><strong>Build every node in one place.</strong> One function looks in a table keyed on <code>(op, src, arg)</code> first and returns the node that is already there.</li>
+<li><strong>Refuse bad files.</strong> For a broken token, an unknown op, or a name used before its line or defined twice, raise your own error, catch it at the top and print <code>REJECTED</code> and the path.</li>
+<li><strong>Count.</strong> Over 4096 bytes before you parse, or 100 nodes or 300 edges right after, is <code>OVERBUDGET</code>.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k hex</code> gives <code>8 / 8 passed</code>. <code>-k bytes</code> and <code>-k overbudget_nodes</code> each give <code>2 / 2 passed</code>. Then try <code>-k run/def</code> and <code>-k one_line</code>.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread hash consing in <a href="01-the-uop.html">lesson 1.1</a> and <a href="02-uir-and-interpreting.html#reference">lesson 1.2's reference</a>.</p>
+
+<details class="toggle">
+<summary>What to watch for while you write the parser and the node table</summary>
+<div class="prose">
+<ul>
+<li>Print each binding back in .uir form and check it matches the input, ignoring spacing and comments. It is the fastest way to see what your parser understood.</li>
+<li>The table is keyed on (op, src, arg), with dtype and shape as part of the key. Sources are already unique, so compare them by identity. <span class="only-ocaml">In OCaml, <code>==</code> is physical equality and <code>=</code> is structural.</span><span class="only-python">In Python, <code>is</code> is identity, and <code>==</code> on a dataclass compares every field.</span> Know which one you're using.</li>
+<li><code>[1 2]</code> and <code>stack 1 2</code> must come out as one node. Building <code>add x 1</code> twice must return the same physical node.</li>
+<li>The node count is taken after hash consing, with literals and <code>[]</code> included, reachable or not. An edge is one source of one node.</li>
+<li>Literals: <code>-7</code>, <code>0xff</code>, <code>007</code>, <code>true</code>. Every integer must fit in an i32, and hex has no sign.</li>
+<li><code>[]</code> alone is the void marker a param uses for its shape.</li>
+<li class="only-python">If Python raises <code>RecursionError</code> on a long chain of nodes when you evaluate, walk the graph with your own stack or raise the limit.</li>
+</ul>
+</div>
+</details>
+
+<div class="prose">
+<h2>Compute like the machine</h2>
+<p><code>.uir</code> does arithmetic the way a 32-bit machine does, with one twist for division. Warm up on that twist first.</p>
+</div>
+
+<div class="exercise small" data-ex="w1-06-trunc-div">
+<h3>C's division from floor division</h3>
+<p><code>div -7 2</code> is <code>-4</code>, but C's <code>/</code> truncates toward zero and gives <code>-3</code>. Build C's division as <code>%out</code> for i32 params <code>a</code> and <code>b</code> (b is never 0) from <code>div</code>, <code>mod</code>, <code>cmplt</code>, <code>xor</code>, <code>where</code> and <code>add</code>.</p>
+</div>
+
+<div class="prose">
+<ol>
+<li><strong>Wrap.</strong> After <code>add</code>, <code>mul</code> and <code>shl</code>, keep the low 32 bits and read them as a signed number.</li>
+<li><strong>Floor.</strong> <code>div</code> and <code>mod</code> round down. <code>div x 0</code> is -1 and <code>mod x 0</code> is <code>x</code>.</li>
+<li><strong>Shift.</strong> <code>shl x y</code> shifts by <code>y mod 32</code>.</li>
+<li><strong>Compute each node once</strong> with a cache from node to value.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k run/div</code> and <code>-k run/mod</code> each give <code>9 / 9 passed</code>, <code>-k run/shl</code> gives <code>10 / 10 passed</code> and <code>-k dag_sharing</code> gives <code>1 / 1 passed</code>. The last one needs the cache: without it, it takes 2<sup>94</sup> steps.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread <a href="02-uir-and-interpreting.html#numbers">Compute like the machine</a> in lesson 1.2 and check your division against its table.</p>
+
+<div class="prose">
+<h2>Types, and files that must be refused</h2>
+<p>A compiler has to refuse a wrong program before anything is evaluated.</p>
+<ol>
+<li><strong>Give every node a dtype</strong> when it is built, from its op and its sources: <code>i32</code>, <code>bool</code> or <code>void</code>.</li>
+<li><strong>Check each op's inputs.</strong> The right number of sources, the right dtypes and the attributes it needs.</li>
+<li><strong>Finish the ops.</strong> <code>max</code>, <code>xor</code>, <code>cmplt</code>, <code>where</code>, <code>cast</code>, and the bool forms of <code>add</code>, <code>mul</code>, <code>max</code> and <code>xor</code>.</li>
+<li><strong>Check the test-file rules.</strong> One assert, as the last binding, with a literal of the left side's dtype as its expected side. Every node can be reached from it.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k run/cast</code> gives <code>6 / 6 passed</code>, <code>-k mismatch</code> gives <code>5 / 5 passed</code> and <code>-k rejected_where</code> gives <code>2 / 2 passed</code>. <code>-k run/</code> runs all 245 run tests. 132 of them need nothing from lesson 1.5, so it should say 132 or more.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread <a href="02-uir-and-interpreting.html#types">Check types</a> and <a href="02-uir-and-interpreting.html#outcomes">Judge the run</a> in lesson 1.2, and its reference.</p>
+
+<div class="prose">
+<h2>simplify: print the program back</h2>
+<p>Now the second command. <code>compile simplify FILE</code> reads a program that defines <code>%out</code>, usually over params, with no assert, and prints one that gives the same <code>%out</code> for every input. Each test sets a <code>max_ops</code>, the most op lines you may print. Start with a simplifier that changes nothing.</p>
+<ol>
+<li><strong>Read a param line</strong>, with optional limits such as <code>[0 9]</code> after the <code>[]</code>.</li>
+<li><strong>Print the graph.</strong> Walk from <code>%out</code>, sources first. Print each node once, under a fresh name, with literals in place and params as they were declared. The last line defines <code>%out</code>.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k shared_subexpr</code> gives <code>1 / 1 passed</code>: hash consing printed two equal <code>mul</code> lines as one. <code>-k simplify/</code> gives <code>9 / 37 passed</code>. The other eight are <code>trap_</code> tests, which have nothing safe to remove. They wait for a tempting rule like <code>(x * 2) / 2 → x</code>.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread <a href="02-uir-and-interpreting.html#params">Take inputs</a> in lesson 1.2 and the toggle "How simplify is graded and what to print" in <a href="04-symbolic.html">lesson 1.4</a>.</p>
+
+<div class="prose">
+<h2>The rewrite engine and folding</h2>
+<p>Now give the simplifier work.</p>
+<ol>
+<li><strong>Write the engine.</strong> Visit nodes sources first. At each node try every rule, and try again on the result until none fits. Repeat whole passes until a pass changes nothing.</li>
+<li><strong>Fold constants</strong> with the interpreter's own functions.</li>
+<li><strong>Put constants on the right</strong> for <code>add</code>, <code>mul</code>, <code>max</code> and <code>xor</code>.</li>
+<li><strong>Add the first rules.</strong> <code>add(x, 0) → x</code>, <code>mul(x, 1) → x</code>, <code>mul(x, 0) → 0</code>, <code>xor(x, x) → 0</code> and <code>add(add(x, c1), c2) → add(x, c1 + c2)</code>.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k const_fold</code> and <code>-k reassoc</code> each give <code>1 / 1 passed</code>. Then try <code>-k zero_add</code> and <code>-k xor_self</code>. When one fails, <code>-v</code> shows the program you printed.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread <a href="03-rewrites-and-folding.html">lesson 1.3</a>. Its reference has every rule and the loop to run on a shared graph.</p>
+
+<div class="prose">
+<h2>Safe rules, then bounds</h2>
+<p>Lesson 1.4 gave you two kinds of rule: some are right for every input, and others only when bounds prove it.</p>
+<ol>
+<li><strong>Add the rules that are always safe</strong> from the table in lesson 1.4, such as <code>div(x, 1) → x</code>, <code>mod(x, 1) → 0</code> and <code>where(c, a, a) → a</code>.</li>
+<li><strong>Give every node bounds.</strong> Follow the bounds column of spec section 5 exactly. A param's bounds are its limits.</li>
+<li><strong>Add the rules bounds can prove.</strong> A compare that is always true or false, a <code>mod</code> that changes nothing, a <code>div</code> that is always 0, a <code>max</code> whose winner is known.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k simplify/bounds</code> gives <code>6 / 6 passed</code> and <code>-k simplify/limits</code> gives <code>4 / 4 passed</code>. <code>-k simplify/</code> gives <code>34 / 37 passed</code>. The three left need lesson 1.5. If a <code>trap_</code> test fails now, one of your new rules is wrong for some input, and <code>-v</code> prints that input.</p>
+</div>
+
+<p class="prose muted">Stuck? <a href="04-symbolic.html">Lesson 1.4</a>'s toggles have every safe rule and the bounds rule for every op.</p>
+
+<div class="prose">
+<h2>call and param</h2>
+<p>Back to the first command, which now learns to run a function.</p>
+<ol>
+<li><strong>Evaluate with an environment.</strong> A <code>call</code> maps each slot number to an argument value and evaluates its body with that map. A <code>param</code> looks its slot up.</li>
+<li><strong>Keep the value cache per call.</strong></li>
+<li><strong>Keep bodies closed.</strong> A call inside a body gets only the arguments that call passes.</li>
+<li><strong>Check every call before running.</strong> Each slot the body uses has one param node and an argument of the same dtype, with bounds inside the param's limits. A param reached without going through a call is refused.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k run/call</code> gives <code>13 / 13 passed</code> and <code>-k limits</code> gives <code>19 / 19 passed</code>.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread <a href="05-call-and-param.html">lesson 1.5</a> up to "Limits". Its reference lists what a call checks.</p>
+
+<div class="prose">
+<h2>stack, index and the cost budget</h2>
+<p>Three pieces finish the first command.</p>
+<ol>
+<li><strong>Type a stack.</strong> Its elements share one dtype, and its shape is the number of elements. ALU ops take scalars only.</li>
+<li><strong>Prove every index.</strong> If the bounds of the index allow any position outside the stack, the file is <code>REJECTED</code>, whatever value the run would use.</li>
+<li><strong>Add up the static cost</strong> over the distinct nodes the assert can reach. A call costs 1 plus its body. A total of 1,000,000 or more is <code>OVERBUDGET</code>. Check it after validation and before running.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k index</code> gives <code>11 / 11 passed</code>, <code>-k bounds</code> gives <code>42 / 42 passed</code>, <code>-k cost</code> gives <code>5 / 5 passed</code> and <code>-k run/</code> gives <code>245 / 245 passed</code>.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread the <code>stack</code> and <code>index</code> sections of <a href="05-call-and-param.html">lesson 1.5</a> and its toggle "What a call costs".</p>
+
+<div class="prose">
+<h2>Finish simplify</h2>
+<p>The last three simplify tests need two rules.</p>
+<ol>
+<li><strong>Inline a call.</strong> Replace <code>call f a0 a1</code> with a copy of the body in which each param is swapped for its argument: the substitution from lesson 1.5. It stops at a nested call's body, because bodies are closed.</li>
+<li><strong>Index a stack by a literal.</strong> <code>index(stack(a0, a1, ...), k) → ak</code>.</li>
+</ol>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Predict what <code>%out</code> simplifies to. This is <code>trap_nested_call</code>.</p>
+<pre><code>%p0    = param [] slot=0 dtype=i32 addrspace=ALU
+%p1    = param [] slot=1 dtype=i32 addrspace=ALU
+%inner = add %p0 100
+%outer = call %inner %p1
+%out   = call %outer %p1 %p0</code></pre>
+<div class="opts">
+<button data-k="a"><code>add %p0 100</code></button>
+<button data-k="b"><code>add %p1 100</code></button>
+<button data-k="c"><code>add 100 100</code></button>
+</div>
+<p class="hint">Work from the outside in. <code>%out</code> puts <code>%p1</code> in slot 0 and <code>%p0</code> in slot 1.</p>
+<div class="why"><p><code>%outer</code> hands its slot 1 to <code>%inner</code>, and <code>%out</code> filled slot 1 with <code>%p0</code>. A simplifier that pushes <code>%out</code>'s arguments straight into <code>%inner</code> gets <code>add %p1 100</code>, and the grader finds an input where the two differ.</p></div>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p><code>-k simplify/</code> gives <code>37 / 37 passed</code>. Then run the whole suite, with no <code>-k</code>, for the line this lab is for:</p>
+<pre><code>282 / 282 passed</code></pre>
+</div>
+
+<p class="prose muted">Stuck? Reread "Two ways to run a call" and "A call inside a body" in <a href="05-call-and-param.html">lesson 1.5</a>.</p>
+
+<div class="prose">
+<h2>Write your 10 tests</h2>
+<p>The official course grades students' own tests on how many <em>other</em> compilers they catch. Put 10 in <code>&lt;your compiler repo&gt;/tests/week1/</code>, one <code>.uir</code> file each, following the test-file rules from lesson 1.2, with the outcome in the file name. Here's <code>mismatch_div_is_not_c.uir</code>:</p>
+<pre><code>%a = div -7 2
+%t = assert %a -3</code></pre>
+<p><code>div -7 2</code> is -4, so the right answer is <code>MISMATCH</code>, and a compiler that divides like C is caught. Check your tests against the oracle:</p>
+<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week1 --week 1</code></pre>
+<p>With that one file in the folder, it prints <code>1 / 1 tests agree with the oracle</code>. A good test targets one rule you think someone (maybe you) will get wrong: <code>div INT_MIN -1</code>, a nested call that reuses slot 0, limits one too wide for an <code>index</code>, a file of exactly 4096 bytes.</p>
+</div>
+
+<details class="toggle">
+<summary>Simplify tests of your own, and what --check-tests checks</summary>
+<div class="prose">
+<p>A simplify test has no assert, defines <code>%out</code>, and starts with <code># simplify: max_ops=N</code>. <code>--check-tests</code> confirms each file name's outcome, and for simplify tests it checks that the oracle's own simplifier reaches your <code>max_ops</code>, so you can't write an impossible target. Another idea for a run test: <code>mod</code> bounds when both ends have the same quotient.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>A checklist to tick off before you call the lab done</summary>
 <ul class="checklist" id="checklist">
-<li><label><input type="checkbox" data-k="parse"><span>Parser works on tokens: comments, newlines as whitespace, <code>%x=</code>, literals (<code>-7</code>, <code>0xff</code>, <code>007</code>, <code>true</code>), brackets, atom bindings and attributes</span></label></li>
+<li><label><input type="checkbox" data-k="parse"><span>Parser works on tokens: comments, newlines as whitespace, <code>%x=</code>, literals, brackets, atom bindings and attributes</span></label></li>
 <li><label><input type="checkbox" data-k="hc"><span>UOps are hash consed. Identical bindings are one node.</span></label></li>
 <li><label><input type="checkbox" data-k="types"><span>Invalid programs are <code>REJECTED</code> before anything is evaluated</span></label></li>
 <li><label><input type="checkbox" data-k="i32"><span>i32 wraps, div and mod floor, <code>div x 0</code> is -1, <code>mod x 0</code> is x, shl shifts by <code>y mod 32</code></span></label></li>
 <li><label><input type="checkbox" data-k="bounds"><span>Bounds follow the spec's rules exactly, and unsafe indexes and limits that don't fit are rejected</span></label></li>
-<li><label><input type="checkbox" data-k="memo"><span>Evaluation is memoized: shared work is done once</span></label></li>
-<li><label><input type="checkbox" data-k="call"><span>call/param with closed bodies, and the memo is kept per call</span></label></li>
+<li><label><input type="checkbox" data-k="memo"><span>Each node is evaluated once, with the cache kept per call</span></label></li>
+<li><label><input type="checkbox" data-k="call"><span>call and param work, with closed bodies</span></label></li>
 <li><label><input type="checkbox" data-k="outcome"><span>One <code>OUTCOME FILE</code> line per file, with the checks in the spec's order and every budget enforced</span></label></li>
-<li><label><input type="checkbox" data-k="rw"><span>Rewrite engine reaches a fixpoint and folds with the interpreter's own op semantics</span></label></li>
+<li><label><input type="checkbox" data-k="rw"><span>Rewrite engine reaches a fixpoint and folds with the interpreter's own functions</span></label></li>
 <li><label><input type="checkbox" data-k="sym"><span>Symbolic rules hold for every input inside the params' limits</span></label></li>
-<li><label><input type="checkbox" data-k="suite"><span><code>python tools/test.py --compiler ... --week 1</code> passes everything</span></label></li>
+<li><label><input type="checkbox" data-k="suite"><span>The whole week 1 suite passes</span></label></li>
 <li><label><input type="checkbox" data-k="mine"><span>10 tests of my own, passing <code>--check-tests</code></span></label></li>
 </ul>
+<div class="trap">
+<span class="label">Slop compounds</span>
+<p>Every later week builds on this code. A simplifier that is "mostly right" will cost you far more later than it saves now. Keep it small and readable, and delete anything you don't understand.</p>
+</div>
+</details>
 
 <div class="key">
 <span class="label">The AI policy</span>
-<p>Your compiler is yours to write. In your repo (<code>my-ml-compiler</code>), the <code>AGENTS.md</code> says an AI assistant may <strong>explain concepts, draw diagrams and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. That's in the spirit of the original course's "slop management" theme. The point is the understanding, and you only get it by typing it yourself.</p>
-<p>The reference compiler lives in <code>_reference/</code> in the course repo. The test runner uses it as the oracle, and running it is fine. <strong>Never open it.</strong> <span class="only-ocaml">It's written in Python, not OCaml, so a stray glance hands you less, but it would still spoil the puzzles.</span><span class="only-python">It's written in Python, like your compiler, so even a stray glance would hand you answers and spoil the puzzles.</span></p>
+<p>Your compiler is yours to write. In your repo, the <code>AGENTS.md</code> says an AI assistant may <strong>explain concepts, draw diagrams and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. Running the reference compiler in <code>_reference/</code> is fine. <strong>Never open it.</strong></p>
 </div>
 
-<div class="trap">
-<span class="label">Slop compounds</span>
-<p>Every later week builds on this code: loads and stores in week 2, loops in week 3, rangeify in week 4. A sloppy UOp type or a simplifier that is "mostly right" will cost you far more later than it saves now. Keep it small, keep it readable and delete anything you don't understand.</p>
+
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Grade your own project with the course's test runner.</li>
+<li>Grow a program in small steps, each checked by tests before the next begins.</li>
+<li>Parse <code>.uir</code> into hash-consed nodes and refuse a file that breaks a rule.</li>
+<li>Run a program with 32-bit arithmetic, calls and indexing, and print its outcome.</li>
+<li>Simplify a program with rules that hold for every input its params allow.</li>
+</ul>
+<p>Next, after a stop at <a href="../week0/01-c-and-pointers.html">0.1 C and pointers</a>, is <a href="../week2/01-buffers-and-views.html">week 2</a>, where your compiler meets floats and memory, and starts to print C. After that the week 1 suite scores 272 / 282, because week 2 makes some programs legal that week 1 rejects.</p>
 </div>
 
 <h2>Check yourself</h2>

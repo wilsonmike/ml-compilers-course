@@ -1,0 +1,49 @@
+{
+ "id": "lo-05n-same-node",
+ "lang": "ocaml",
+ "title": "Hand back the very same node",
+ "starter": "type node = { id : int; op : string; src : node list }\n\nlet make (tbl : (string, node) Hashtbl.t) (next : int ref) (op : string) : node =\n  match Hashtbl.find_opt tbl op with\n  | Some n -> { n with op = op }\n  | None ->\n    let n = { id = !next; op = op; src = [] } in\n    Hashtbl.replace tbl op n;\n    n\n",
+ "show": "(fun s -> s)",
+ "tests": [
+  {
+   "expr": "let t = Hashtbl.create 16 in let next = ref 0 in let a = make t next \"x\" in let b = make t next \"x\" in string_of_bool (a == b)",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "let t = Hashtbl.create 16 in let next = ref 0 in let a = make t next \"x\" in let b = make t next \"y\" in Printf.sprintf \"%d %d\" a.id b.id",
+   "expect": "0 1",
+   "sample": true
+  },
+  {
+   "expr": "let t = Hashtbl.create 16 in let next = ref 0 in let _ = make t next \"x\" in let _ = make t next \"y\" in let _ = make t next \"x\" in string_of_int (make t next \"z\").id",
+   "expect": "2"
+  },
+  {
+   "expr": "let t = Hashtbl.create 16 in let next = ref 0 in let a = make t next \"x\" in let b = make t next \"y\" in string_of_bool (a == b)",
+   "expect": "false"
+  },
+  {
+   "expr": "let t = Hashtbl.create 16 in let next = ref 0 in let _ = make t next \"x\" in let _ = make t next \"y\" in string_of_int (make t next \"x\").id",
+   "expect": "0"
+  },
+  {
+   "expr": "let t1 = Hashtbl.create 16 in let n1 = ref 0 in let t2 = Hashtbl.create 16 in let n2 = ref 0 in let _ = make t1 n1 \"a\" in string_of_int (make t2 n2 \"b\").id",
+   "expect": "0"
+  },
+  {
+   "expr": "let t = Hashtbl.create 16 in let next = ref 0 in for _ = 1 to 100 do ignore (make t next \"s\") done; Printf.sprintf \"%d %d\" (Hashtbl.length t) !next",
+   "expect": "1 1"
+  },
+  {
+   "expr": "let t = Hashtbl.create 16 in let next = ref 0 in let a = make t next \"x\" in string_of_bool (a.op = \"x\" && a.src = [])",
+   "expect": "true"
+  }
+ ],
+ "hints": [
+  "Two lines are wrong. One is on the `Some n` line, the other is something missing after the new node is built.",
+  "`{ n with op = op }` builds a copy, and a copy is not `==` to the original. Return `n` itself.",
+  "After building the new node, move the counter on with `incr next`, so the next new node gets the next number."
+ ],
+ "explain": "On a hit the reference returns the stored `n` itself, so every caller that asks for the same op holds the very same node and `==` is true. On a miss it builds the node with `id = !next`, runs `incr next` so no two nodes share a number, saves the node in the table and returns it."
+}

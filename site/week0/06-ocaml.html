@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OCaml Crash Course</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="You&#x27;re going to write your compiler in OCaml. This is the subset of the language you need to start, taught with examples that have nothing to do with...">
+<meta name="description" content="So far you have written OCaml in the exercise boxes of these lessons. Your compiler will live on your own machine. By the end of this page, the course&#x27;s test...">
 <link rel="canonical" href="https://sharpterminal.com/site/week0/06-ocaml">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="OCaml Crash Course">
-<meta property="og:description" content="You&#x27;re going to write your compiler in OCaml. This is the subset of the language you need to start, taught with examples that have nothing to do with compilers, so that every line of compiler code is...">
+<meta property="og:description" content="So far you have written OCaml in the exercise boxes of these lessons. Your compiler will live on your own machine. By the end of this page, the course&#x27;s test runner runs a program you built there and...">
 <meta property="og:url" content="https://sharpterminal.com/site/week0/06-ocaml">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,79 +20,34 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Week 0|OCaml crash course" data-root="../">
 <main>
   <p class="eyebrow">Week 0 · Lesson 6</p>
   <h1>OCaml crash course</h1>
-  <p class="lede">You're going to write your compiler in OCaml. This is the subset of the language you need to start, taught with examples that have nothing to do with compilers, so that every line of compiler code is yours.</p>
+  <p class="lede">So far you have written OCaml in the exercise boxes of these lessons. Your compiler will live on your own machine. By the end of this page, the course's test runner runs a program you built there and prints <code>1 / 1 passed</code>. You also meet three OCaml behaviors that cause real bugs in a compiler.</p>
 
   <div class="note">
-    <span class="label">Which track is this?</span>
-    <p>This lesson is for the OCaml track. If you picked Python under Language in the sidebar, <a href="07-python.html">lesson 0.7</a> is yours instead, and you can skip this one.</p>
-  </div>
-
-  <div class="note">
-    <span class="label">New to OCaml?</span>
-    <p>This lesson moves fast. If OCaml is new to you, or programming is, work through <a href="../learn/ml-01-first-steps.html">Learn OCaml</a> first. Its six lessons go slowly. Then come back to week 0.</p>
+    <span class="label">Goal</span>
+    <p>Build an OCaml project on your machine that <code>python tools/test.py --compiler ... --week 1 -k basic_add</code> can run.</p>
   </div>
 
   <div class="note">
-    <span class="label">Why the examples are cards and bank accounts</span>
-    <p>This page teaches the language, not the course. You won't find a UOp type, a parser, or an evaluator here, on purpose. Translating "deck of cards" ideas into "graph of ops" ideas is part of the learning.</p>
+    <span class="label">You'll use</span>
+    <p>A terminal, <code>let</code>, functions and <code>match</code>. This page does not teach the language again. The six Learn OCaml lessons do that slowly: <a href="../learn/ml-01-first-steps.html">O.1 first steps</a>, <a href="../learn/ml-02-functions.html">O.2 functions</a>, <a href="../learn/ml-03-lists-matching.html">O.3 lists and matching</a>, <a href="../learn/ml-04-your-own-types.html">O.4 your own types</a>, <a href="../learn/ml-05-mutation.html">O.5 mutation</a> and <a href="../learn/ml-06-modules-projects.html">O.6 modules and projects</a>.</p>
+    <p>This lesson is for the OCaml track. If you picked Python under Language in the sidebar, <a href="07-python.html">lesson 0.7</a> is yours instead.</p>
   </div>
 
+  <details class="toggle">
+    <summary>OCaml on one page, for when you know another language but not this one</summary>
+    <div class="note">
+      <span class="label">Why the examples are cards and bank accounts</span>
+      <p>This page teaches the language, not the course. You won't find a UOp type, a parser, or an evaluator here, on purpose. Translating "deck of cards" ideas into "graph of ops" ideas is part of the learning.</p>
+    </div>
   <div class="prose">
-    <h2>Install</h2>
-    <h3>Option A: native Windows</h3>
-    <p>Version 2.2 and later of opam (OCaml's package manager) support Windows directly. Do these once, in PowerShell:</p>
-  </div>
-<pre><code>winget install Git.Git OCaml.opam
-# close this terminal and open a NEW one, so opam is on your PATH
-opam init                     # take the defaults, including the "internal Cygwin" option
-opam install dune utop ocaml-lsp-server</code></pre>
-  <div class="prose">
-    <p><code>opam init</code> downloads its own small Unix environment (Cygwin) and builds the OCaml compiler from source, so expect 10 to 30 minutes. If it offers to set up your shell or profile, say yes. If <code>utop</code> fails to build, drop it from the install line. The plain <code>ocaml</code> REPL is enough.</p>
-    <p>If you said no to the shell setup, run this in <b>every new terminal</b> before using OCaml. It loads opam's PATH settings into that window:</p>
-  </div>
-<pre><code>(&amp; opam env) -split '\r?\n' | ForEach-Object { Invoke-Expression $_ }
-ocaml -version                # should print a version number</code></pre>
-  <div class="prose">
-    <h3>Option B: WSL (Ubuntu inside Windows)</h3>
-    <p>If option A fights you, use WSL. Everything in the OCaml world assumes a Unix shell, and later weeks need clang and CUDA, which also work well there.</p>
-  </div>
-<pre><code>wsl --install                 # once, then reboot and open "Ubuntu"
-sudo apt update &amp;&amp; sudo apt install -y opam clang
-opam init -y
-eval $(opam env)
-opam install -y dune utop ocaml-lsp-server</code></pre>
-<div class="note">
-    <span class="label">Running the exercises</span>
-    <p>The editors in these lessons are graded by <code>python tools/serve.py</code>, which runs <code>ocaml</code> from your PATH. Start it from a terminal where <code>ocaml -version</code> works. With WSL, OCaml lives inside Ubuntu, so run <code>python3 tools/serve.py</code> inside Ubuntu too (your Windows files are under <code>/mnt/c/...</code>). Until OCaml is installed you can borrow it from Docker (this needs Docker Desktop running): <code>python tools/serve.py --ocaml "docker run --rm -i ocaml/opam:alpine-ocaml-5.2 ocaml"</code>.</p>
-  </div>
-  <div class="prose">
-    <p>For an editor, use VS Code with the <b>OCaml Platform</b> extension. It uses <code>ocaml-lsp-server</code> to show the type of anything you hover over. Turn this on early: in OCaml, the types <em>are</em> the documentation. <code>utop</code> is a REPL where you can try every snippet on this page.</p>
-
-    <h2>A dune project</h2>
-    <p><b>dune</b> is the build system. It makes a project skeleton for you:</p>
-  </div>
-<pre><code>dune init project words
-cd words
-dune build                     # compile everything
-dune exec words                # run it: prints "Hello, World!" for now
-# the binary lands at _build/default/bin/main.exe</code></pre>
-  <div class="prose">
-    <p>You get <code>bin/main.ml</code> (the program), <code>lib/</code> (a library for the rest of your code) and <code>test/</code>. Every <code>.ml</code> file is automatically a <b>module</b>: <code>lib/deck.ml</code> becomes <code>Deck</code>. dune wraps the library in a module named after it, so from <code>bin/main.ml</code> you call <code>Words.Deck.shuffle</code>, or write <code>open Words</code> at the top and then just <code>Deck.shuffle</code>. Forgetting this is the usual cause of "Unbound module Deck". Arguments for your program go after <code>--</code>, as in <code>dune exec words -- count notes.txt</code>. The <code>count</code> example near the end of this page is what makes that one work.</p>
-  </div>
-  <div class="trap">
-    <span class="label">Warnings are errors in dev builds</span>
-    <p>dune's default profile turns some warnings into errors, including the one for an unused variable. That's annoying for the first hour and very useful after that. Prefix a name with <code>_</code> to say "unused on purpose".</p>
-  </div>
-
-  <div class="prose">
-    <h2>Values and functions</h2>
+    <h3>Values and functions</h3>
     <p><code>let</code> binds a name to a value. Names never change. Functions are values too, and you call them without parentheses or commas.</p>
   </div>
 <pre><code>let tax_rate = 0.08
@@ -124,7 +79,7 @@ let c2 = next ()</code></pre>
   </div>
   <div class="prose">
 
-    <h2>Variants and pattern matching</h2>
+    <h3>Variants and pattern matching</h3>
     <p>This is the feature you're choosing OCaml for. A <b>variant</b> type lists every shape a value can have, and each shape can carry data. <code>match</code> takes a value apart by its shape.</p>
   </div>
 <pre><code>type suit = Hearts | Diamonds | Clubs | Spades
@@ -157,9 +112,8 @@ let describe = function
     <span class="label">The catch-all hides new cases</span>
     <p>A final <code>| _ -&gt; ...</code> case matches everything, including constructors you add next month, so the exhaustiveness check can't help you there anymore. Use <code>_</code> on purpose, not by habit.</p>
   </div>
-
   <div class="prose">
-    <h2>Records, mutation, exceptions</h2>
+    <h3>Records, mutation, exceptions</h3>
     <p>A <b>record</b> is a struct with named fields. Fields are immutable unless you mark them <code>mutable</code>. An <b>exception</b> can carry data and is caught with <code>try ... with</code>, which pattern matches just like <code>match</code>.</p>
   </div>
 <pre><code>type account = { owner : string; mutable balance : int }
@@ -177,7 +131,7 @@ let () =
   <div class="prose">
     <p><code>;</code> sequences two expressions and <code>&lt;-</code> assigns a mutable field. A single mutable variable is a <code>ref</code>: <code>let count = ref 0 in incr count; !count</code>. Prefer immutable data, and reach for mutation when it actually makes the code simpler.</p>
 
-    <h2>Lists and arrays</h2>
+    <h3>Lists and arrays</h3>
     <p>Lists are immutable and singly linked, written <code>[a; b; c]</code> (semicolons, not commas). Arrays are fixed size, mutable, and indexed with <code>a.(i)</code>.</p>
   </div>
 <pre><code>type task = { title : string; finished : bool }    (* "done" is a keyword *)
@@ -195,16 +149,9 @@ let () = scores.(2) &lt;- 7; Printf.printf "%d %d\n" (Array.length scores) score
   <div class="prose">
     <p><code>|&gt;</code> pipes a value into a function: <code>x |&gt; f |&gt; g</code> is <code>g (f x)</code>. <code>x :: rest</code> is the pattern for "first element, then the rest".</p>
   </div>
-
-  <div class="exercise small" data-ex="w0-06-hand-value">
-    <h3>Blackjack hand value</h3>
-    <p>Using the <code>card</code> type above, write <code>hand_value : card list -&gt; int</code>. Numbers are worth their number, faces 10, and an Ace 11. But while the total is over 21, an Ace may count as 1 instead, one Ace at a time.</p>
-    <p class="muted">Pattern match for the points, then fold with <code>List.fold_left</code> (shown just above). Keep the types in the starter exactly as they are: the tests build cards with those constructors.</p>
-  </div>
-
   <div class="prose">
 
-    <h2>A recursive type: a tree of words</h2>
+    <h3>A recursive type: a tree of words</h3>
     <p>Variants can refer to themselves. Here's a binary search tree of strings. Smaller words go left, bigger ones go right, and you never change a tree. <code>insert</code> builds a new one that shares the untouched branches with the old one.</p>
   </div>
 <pre><code>type tree = Leaf | Node of tree * string * tree
@@ -222,9 +169,8 @@ let rec to_list = function Leaf -&gt; [] | Node (l, x, r) -&gt; to_list l @ [x] 
 let t = List.fold_left (fun t w -&gt; insert w t) Leaf ["pear"; "apple"; "zebra"; "mango"; "kiwi"]</code></pre>
 
   <div class="fig" id="bst" data-title="List.fold_left insert: one word at a time"></div>
-
   <div class="prose">
-    <h2>Hashtbl and equality</h2>
+    <h3>Hashtbl and equality</h3>
     <p><code>Hashtbl</code> is a mutable hash table. It uses structural hashing and equality by default, so it works with any key type.</p>
   </div>
 <pre><code>let counts : (string, int) Hashtbl.t = Hashtbl.create 64
@@ -240,19 +186,8 @@ let () =
     <p><code>~default:0</code> is a <b>labeled argument</b>: you pass it by name. <code>Hashtbl.find_opt</code> returns an option, and <code>Option.value ~default:0</code> turns <code>None</code> into 0.</p>
     <p>OCaml has two equalities. <code>a = b</code> is <b>structural</b>: it walks both values and compares everything inside, which can take as long as the values are big. <code>a == b</code> is <b>physical</b>: it asks whether they're the very same object in memory, which is one pointer comparison. Remember this distinction. It matters in week 1.</p>
   </div>
-  <div class="trap">
-    <span class="label">Hashtbl.hash doesn't look at everything</span>
-    <p>The default hash only looks at a limited number of nodes inside a value, about ten meaningful ones. Two big values that differ deep inside can hash the same, and they're still told apart correctly by <code>=</code>, just slowly. If you ever key a table on large nested values, think about what you're actually hashing.</p>
-  </div>
-
-  <div class="exercise" data-ex="w0-06-top-words">
-    <h3>The k most common words</h3>
-    <p>Write <code>top_words : int -&gt; string list -&gt; (string * int) list</code>. Count every word, then return the <code>k</code> most frequent as <code>(word, count)</code> pairs: higher counts first, and ties broken alphabetically (plain <code>compare</code> on strings, so <code>"A"</code> sorts before <code>"a"</code>). If there are fewer than <code>k</code> distinct words, return them all.</p>
-    <p class="muted">Tools: <code>Hashtbl</code> to count, <code>Hashtbl.fold</code> to get a list out, <code>List.sort</code> with your own comparison and <code>List.filteri</code> to take a prefix.</p>
-  </div>
-
   <div class="prose">
-    <h2>Modules</h2>
+    <h3>Modules</h3>
     <p>A module groups related types and functions. Each file is one module, and you can nest more with <code>module Name = struct ... end</code>. A <code>.mli</code> file next to a <code>.ml</code> file lists what the module exposes. Anything not listed is private.</p>
   </div>
 <pre><code>module Deck = struct
@@ -262,54 +197,239 @@ let () =
 end
 
 let () = Printf.printf "%d cards\n" (List.length Deck.full)   (* 52 cards *)</code></pre>
+  </details>
 
-  <div class="prose">
-    <h2>Integers: the trap for this course</h2>
-    <p>OCaml's plain <code>int</code> is <b>63 bits</b> on a 64-bit machine. One bit is used internally to tell integers apart from pointers. So <code>max_int</code> is 2<sup>62</sup> − 1 = 4,611,686,018,427,387,903, and <code>2147483647 + 1</code> is just <code>2147483648</code>. It does <b>not</b> wrap at 32 bits.</p>
-    <p>The language you're compiling has a 32-bit <code>i32</code> that <em>must</em> wrap. The <code>Int32</code> module gives you true 32-bit integers. Literals end in <code>l</code>.</p>
-  </div>
-<pre><code>let a = Int32.max_int                 (* 2147483647l *)
-let b = Int32.add a 1l                (* -2147483648l: wrapped *)
-let c = 2147483647 + 1                (* 2147483648: a plain int did not *)
-let () = Printf.printf "%ld %ld %d\n" a b c
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
 
-(* the other Int32 operations you'll want: *)
-(* Int32.mul  Int32.div  Int32.rem  Int32.logxor  Int32.shift_left
-   Int32.compare  Int32.of_int  Int32.to_int  Int32.to_float  Int32.of_float *)</code></pre>
-  <div class="prose">
-    <p><code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, like C, and raise <code>Division_by_zero</code> on zero. That's a trap here: the course's <code>div</code> and <code>mod</code> round down (floor), and they give an answer for a zero divisor instead of failing. <code>Int32.of_int</code> keeps the low 32 bits. <code>Int32.of_float</code> truncates, and its result is unspecified for NaN or anything out of range, so check those cases yourself when floats arrive in week 2. Read the docs for each function before you use it. The exact edge-case behavior is what the tests check.</p>
-    <p>You can also keep using plain <code>int</code> and normalize to 32 bits after every operation. Either way works. Pick one and be consistent.</p>
+  <div class="quiz" data-answer="b">
+    <p class="q">In <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a>, the line <code>%out = mul %a 4</code> arrived as <code>("out", "mul", Name "a", Lit 4)</code>. What did your <code>run</code> do with <code>Name "a"</code>?</p>
+    <div class="opts">
+      <button data-k="a">Used the letter as a number</button>
+      <button data-k="b">Looked <code>a</code> up in <code>env</code></button>
+      <button data-k="c">Skipped the line</button>
+    </div>
+    <p class="hint">An earlier line saved its answer under that name.</p>
+    <div class="why"><p>A name is looked up in <code>env</code>, the hash table that keeps each line's answer. That interpreter ran inside an exercise box. Today you set up the place where the real one will run.</p></div>
   </div>
 
-  <div class="exercise small" data-ex="w0-06-div32">
-    <h3>The course's 32-bit division</h3>
-    <p>Write <code>div32 a b</code> for i32 values held in plain ints, the way .uir's <code>div</code> works: the floor quotient, wrapped to 32 bits, and <code>-1</code> when <code>b = 0</code>. <code>div32 (-7) 2</code> is <code>-4</code>. (Lesson 1.2 has a variant that returns <code>mod</code> too.)</p>
-    <p class="muted">OCaml's <code>/</code> truncates toward zero, like C, so the starter is wrong for negative quotients that aren't exact, and it raises on 0. Exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
+  <div class="quiz" data-fill="-2147483648 | -2,147,483,648">
+    <p class="q">The language you are compiling has 32-bit whole numbers. In <code>.uir</code>, what is 2,147,483,647 + 1?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">2,147,483,647 is the largest value. One more wraps around to the smallest.</p>
+    <div class="why"><p>It wraps to -2,147,483,648. Keep that number in mind. OCaml gives a different answer, and that is the first trap on this page.</p></div>
   </div>
 
   <div class="prose">
-
-    <h2>Floats are doubles</h2>
-    <p>OCaml's <code>float</code> is a 64-bit double. The course's <code>f32</code>, which arrives in week 2, is single precision. To round a double to the nearest single, convert it to the 32-bit encoding and back:</p>
+    <h2 id="install">Install OCaml</h2>
+    <p>You need three tools. <b>opam</b> is OCaml's package manager: it downloads and installs everything else. <b>dune</b> is the build tool: it turns your files into a program. <b>git</b> saves snapshots of your work. Follow the steps for your system. These are the same commands as in lesson O.1, so if you installed OCaml there, run the checkpoint below and move on.</p>
+    <h3>Windows</h3>
+    <ol>
+      <li><strong>Install opam, git and dune.</strong> In PowerShell, run these lines one at a time. The lines that start with <code>#</code> are notes, not commands.
+<pre><code>winget install Git.Git OCaml.opam
+# close this terminal and open a NEW one, so opam is on your PATH
+opam init                     # take the defaults, including the "internal Cygwin" option
+opam install dune utop ocaml-lsp-server</code></pre>
+      <code>opam init</code> builds OCaml itself, so expect 10 to 30 minutes. If it offers to set up your shell, say yes.</li>
+      <li><strong>Open a new terminal.</strong> A new window picks up the new settings.</li>
+    </ol>
+    <h3>macOS</h3>
+    <ol>
+      <li><strong>Install opam and dune.</strong> Install <a href="https://brew.sh">Homebrew</a> first. Then, in Terminal:
+<pre><code>brew install opam
+opam init -y
+eval $(opam env)
+opam install -y dune utop ocaml-lsp-server</code></pre></li>
+    </ol>
+    <h3>Linux, or WSL on Windows</h3>
+    <ol>
+      <li><strong>Install opam, git and dune.</strong> WSL is Ubuntu running inside Windows. On Linux, skip the first line.
+<pre><code>wsl --install                 # once, then reboot and open "Ubuntu"
+sudo apt update &amp;&amp; sudo apt install -y opam clang git
+opam init -y
+eval $(opam env)
+opam install -y dune utop ocaml-lsp-server</code></pre></li>
+    </ol>
   </div>
-<pre><code>let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
-let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
-(* 0.10000000000000001
-   0.10000000149011612 *)</code></pre>
+
+  <div class="note">
+    <span class="label">Checkpoint</span>
+<pre><code>ocaml -version
+dune --version</code></pre>
+    <p>You should see two lines like these. Your numbers may be newer.</p>
+<pre><code>The OCaml toplevel, version 5.2.1
+3.24.2</code></pre>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Next week you open a new terminal, type <code>dune build</code>, and the terminal says it can't find <code>dune</code>. What is the most likely cause?</p>
+    <div class="opts">
+      <button data-k="a">dune removed itself</button>
+      <button data-k="b">This terminal has not loaded opam's settings</button>
+      <button data-k="c">OCaml has to be installed again</button>
+    </div>
+    <p class="hint">opam puts its tools in its own folder. A terminal only finds them once it is told where that folder is.</p>
+    <div class="why"><p>The tools are still there. The terminal does not know where. On macOS, Linux and WSL, run <code>eval $(opam env)</code>. On Windows, the PowerShell line is in the toggle below.</p></div>
+  </div>
+
+  <details class="toggle">
+    <summary>If the install fights you: a failed utop, loading opam by hand, and when to switch to WSL</summary>
   <div class="prose">
-    <p><code>Int32.bits_of_float</code> rounds to single precision and gives you its 32 bits. <code>Int32.float_of_bits</code> reads them back as a double holding that exact single value. Comparisons on floats follow IEEE: <code>nan = nan</code> is <code>false</code>. Test for NaN with <code>Float.is_nan</code>.</p>
+    <p><code>opam init</code> downloads its own small Unix environment (Cygwin) and builds the OCaml compiler from source, so expect 10 to 30 minutes. If it offers to set up your shell or profile, say yes. If <code>utop</code> fails to build, drop it from the install line. The plain <code>ocaml</code> REPL is enough.</p>
+    <p>If you said no to the shell setup, run this in <b>every new terminal</b> before using OCaml. It loads opam's PATH settings into that window:</p>
+  </div>
+<pre><code>(&amp; opam env) -split '\r?\n' | ForEach-Object { Invoke-Expression $_ }
+ocaml -version                # should print a version number</code></pre>
+    <div class="prose">
+      <p><b>WSL (Ubuntu inside Windows).</b> If the native Windows route fights you, use WSL. Everything in the OCaml world assumes a Unix shell, and later weeks need clang and CUDA, which also work well there.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>An editor, utop, and running the lesson exercises on your own machine</summary>
+    <div class="prose">
+        <p>For an editor, use VS Code with the <b>OCaml Platform</b> extension. It uses <code>ocaml-lsp-server</code> to show the type of anything you hover over. Turn this on early: in OCaml, the types <em>are</em> the documentation. <code>utop</code> is a REPL where you can try every snippet on this page.</p>
+    </div>
+<div class="note">
+    <span class="label">Running the exercises</span>
+    <p>The editors in these lessons are graded by <code>python tools/serve.py</code>, which runs <code>ocaml</code> from your PATH. Start it from a terminal where <code>ocaml -version</code> works. With WSL, OCaml lives inside Ubuntu, so run <code>python3 tools/serve.py</code> inside Ubuntu too (your Windows files are under <code>/mnt/c/...</code>). Until OCaml is installed you can borrow it from Docker (this needs Docker Desktop running): <code>python tools/serve.py --ocaml "docker run --rm -i ocaml/opam:alpine-ocaml-5.2 ocaml"</code>.</p>
+  </div>
+  </details>
+
+  <div class="prose">
+    <h2>Make the project</h2>
+    <p>Your compiler gets its own folder, outside the course folder. git will watch it and dune will build it. The <a href="../week1/06-lab.html">week 1 lab</a> starts from this same folder, with these same names.</p>
+    <ol>
+      <li><strong>Make the folder.</strong> In a terminal, somewhere outside the course repo:
+<pre><code>mkdir my-ml-compiler
+cd my-ml-compiler
+git init</code></pre></li>
+      <li><strong>Make the project.</strong> The dot at the end means "right here".
+<pre><code>dune init project mlc .</code></pre>
+      You should see <code>Success: initialized project component named mlc</code>. The name <code>mlc</code> is short for ML compiler.</li>
+      <li><strong>Look at what you got.</strong> <code>bin/main.ml</code> is the program. <code>lib/</code> is for code the program will use, and <code>test/</code> is for tests. <code>dune-project</code> marks the top of the project.</li>
+    </ol>
   </div>
 
-  <div class="exercise small" data-ex="w0-06-is-f32">
-    <h3>Is it already an f32?</h3>
-    <p>Write <code>is_f32 : float -&gt; bool</code>: true when the double <code>x</code> is exactly representable in single precision. NaN and the infinities count as representable.</p>
-    <p class="muted">Round it with the trick above and compare. Then check what your answer says about <code>nan</code>.</p>
+  <div class="quiz" data-answer="c">
+    <p class="q">Suppose you leave the dot off and run <code>dune init project mlc</code>. Where does <code>main.ml</code> end up?</p>
+    <div class="opts">
+      <button data-k="a"><code>my-ml-compiler/bin/main.ml</code>, the dot changes nothing</button>
+      <button data-k="b">Nowhere, dune stops and asks for a folder</button>
+      <button data-k="c"><code>my-ml-compiler/mlc/bin/main.ml</code></button>
+    </div>
+    <p class="hint">With no folder given, dune makes one and names it after the project.</p>
+    <div class="why"><p>dune makes a folder named <code>mlc</code> and puts the project inside it. Then git watches one folder and dune builds another, and every path on this page and in the lab is off by one level. If that happened, delete the inner <code>mlc</code> folder and run the command again with the dot.</p></div>
+  </div>
+
+  <div class="note">
+    <span class="label">Checkpoint</span>
+<pre><code>dune build
+dune exec mlc</code></pre>
+    <p><code>dune build</code> prints nothing when everything compiles. <code>dune exec mlc</code> runs the program, and you should see:</p>
+<pre><code>Hello, World!</code></pre>
+  </div>
+
+  <details class="toggle">
+    <summary>How dune names modules, a scratch project for trying things, and why an unused variable stops the build</summary>
+    <div class="prose">
+      <p>For a scratch project outside any repository, leave the dot off. There you want dune to make the folder:</p>
+    </div>
+<pre><code>dune init project words
+cd words
+dune build                     # compile everything
+dune exec words                # run it: prints "Hello, World!" for now
+# the binary lands at _build/default/bin/main.exe</code></pre>
+  <div class="prose">
+    <p>You get <code>bin/main.ml</code> (the program), <code>lib/</code> (a library for the rest of your code) and <code>test/</code>. Every <code>.ml</code> file is automatically a <b>module</b>: <code>lib/deck.ml</code> becomes <code>Deck</code>. dune wraps the library in a module named after it, so from <code>bin/main.ml</code> you call <code>Words.Deck.shuffle</code>, or write <code>open Words</code> at the top and then just <code>Deck.shuffle</code>. Forgetting this is the usual cause of "Unbound module Deck". Arguments for your program go after <code>--</code>, as in <code>dune exec words -- count notes.txt</code>. The <code>count</code> example near the end of this page is what makes that one work.</p>
+  </div>
+  <div class="trap">
+    <span class="label">Warnings are errors in dev builds</span>
+    <p>dune's default profile turns some warnings into errors, including the one for an unused variable. That's annoying for the first hour and very useful after that. Prefix a name with <code>_</code> to say "unused on purpose".</p>
+  </div>
+  </details>
+
+  <div class="prose">
+    <h2>A program that says MATCH</h2>
+    <p>The course calls the finished compiler <code>compile</code>. Yours can have any name. The grader runs it as <code>compile FILE</code> and reads the one line it prints: an outcome word such as <code>MATCH</code>, then one space, then the path exactly as it was given. Start with the smallest program that can be graded.</p>
+    <ol>
+      <li><strong>Write the whole compiler, for now.</strong> Replace everything in <code>bin/main.ml</code> with this.
+<pre><code>let () =
+  for i = 1 to Array.length Sys.argv - 1 do
+    print_endline ("MATCH " ^ Sys.argv.(i))
+  done</code></pre></li>
+      <li><strong>Read it.</strong> As in O.6, <code>Sys.argv.(0)</code> is the program's own name, so the loop starts at 1. Nothing here opens a file.</li>
+      <li><strong>Build it and run it.</strong> Everything after <code>--</code> goes to your program, not to dune.
+<pre><code>dune build
+dune exec mlc -- hello.uir</code></pre></li>
+    </ol>
+  </div>
+
+  <div class="note">
+    <span class="label">Checkpoint</span>
+    <p>You should see:</p>
+<pre><code>MATCH hello.uir</code></pre>
+    <p>There is no file named <code>hello.uir</code>, and that is fine. This compiler never looks.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Predict what <code>dune exec mlc -- a.uir b.uir</code> prints.</p>
+    <div class="opts">
+      <button data-k="a">One line: <code>MATCH a.uir b.uir</code></button>
+      <button data-k="b">Two lines: <code>MATCH a.uir</code>, then <code>MATCH b.uir</code></button>
+      <button data-k="c">One line: <code>MATCH a.uir</code></button>
+    </div>
+    <p class="hint">The loop runs once for each word after the program's name.</p>
+    <div class="why"><p>Two words, so the loop runs twice, and <code>print_endline</code> ends each line. One outcome line per file is what the grader expects. Run it and see.</p></div>
   </div>
 
   <div class="prose">
-
-    <h2>Files, arguments, exit codes</h2>
+    <h2>Let the grader run it</h2>
+    <p>The test runner, <code>tools/test.py</code>, lives in the course repo. It runs your program on each test and reads the line it prints. It needs the full path to the file dune built: <code>_build/default/bin/main.exe</code> inside your project. dune uses that name on every system.</p>
+    <p>In the command below, <code>YOURS</code> stands for that path. On Windows it is <code>"C:/path/to/my-ml-compiler/_build/default/bin/main.exe"</code>, in quotes. On macOS, Linux and WSL it is <code>~/my-ml-compiler/_build/default/bin/main.exe</code>.</p>
+    <ol>
+      <li><strong>Go to the course repo.</strong> <code>cd</code> to its root, the folder that holds <code>tools</code> and <code>tests</code>.</li>
+      <li><strong>Run one test.</strong> <code>-k</code> picks the tests whose path contains the text after it. On macOS, Linux and WSL, type <code>python3</code>.
+<pre><code>python tools/test.py --compiler YOURS --week 1 -k basic_add</code></pre></li>
+    </ol>
   </div>
+
+  <div class="note">
+    <span class="label">Checkpoint</span>
+    <p>You should see:</p>
+<pre><code>1 / 1 passed</code></pre>
+    <p>The runner found your program, ran it on <code>tests/week1/run/basic_add.uir</code> and read its answer. That test expects <code>MATCH</code>, so a program that always says <code>MATCH</code> passes it. The lab makes the answer mean something.</p>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">You change <code>bin/main.ml</code> to print <code>MISMATCH</code> and run the same test command right away. What does the runner report?</p>
+    <div class="opts">
+      <button data-k="a"><code>1 / 1 passed</code>, as before</button>
+      <button data-k="b"><code>0 / 1 passed</code></button>
+      <button data-k="c">An error, because the source changed</button>
+    </div>
+    <p class="hint">Which file did you give the runner: your source, or the file dune built?</p>
+    <div class="why"><p>The runner uses the built file, and nothing rebuilt it. It still holds the old program. Run <code>dune build</code> before every test run.</p></div>
+  </div>
+
+  <details class="toggle">
+    <summary>If it does not say 1 / 1 passed</summary>
+    <div class="prose">
+      <ul>
+        <li><strong><code>expected one line 'MATCH FILE' on stdout, got ''</code></strong> and, when you add <code>-v</code> to the command, a stderr line such as <code>No such file or directory</code> or <code>[WinError 2] The system cannot find the file specified</code>: the path after <code>--compiler</code> is wrong. Check it letter by letter. On Windows, keep the quotes.</li>
+        <li><strong><code>can't open file ... tools/test.py</code></strong>: you are not in the root of the course repo. <code>cd</code> there first. On WSL, your Windows files are under <code>/mnt/c/...</code>.</li>
+        <li><strong>An old answer</strong>: you changed the code but did not run <code>dune build</code>.</li>
+        <li><strong><code>python</code> is not found</strong>: on macOS, Linux and WSL the command is <code>python3</code>.</li>
+        <li><strong>The folder <code>_build/default/bin</code> is not where you expect</strong>: you may have left the dot off <code>dune init project mlc .</code>, so the project sits one folder deeper.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Reading files and arguments, exit codes, and why a crash is not an answer: for the lab</summary>
+    <div class="prose">
+      <p>This program belongs to the scratch project <code>words</code> from the dune toggle above. Run it as <code>dune exec words -- count notes.txt</code>.</p>
+    </div>
 <pre><code>let () =
   match Sys.argv with
   | [| _; "count"; path |] -&gt;
@@ -328,16 +448,210 @@ let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
     <span class="label">An uncaught exception is not a diagnosis</span>
     <p>An uncaught OCaml exception prints <code>Fatal error: exception ...</code> to stderr and prints nothing on stdout, so the grader gets no outcome line and the test fails, even one that expected <code>REJECTED</code>. When your compiler rejects a program, raise your own exception, catch it in the main function and print <code>REJECTED</code> and the file name. Let anything else crash loudly while you're developing, so you see it.</p>
   </div>
+  </details>
+
+  <div class="prose">
+    <h2>An int does not wrap at 32 bits</h2>
+    <p>Now the three traps. Each one starts with a guess.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">In OCaml, what is <code>2147483647 + 1</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>-2147483648</code>, it wraps as in the warm up</button>
+      <button data-k="b"><code>2147483648</code></button>
+      <button data-k="c">An overflow error</button>
+    </div>
+    <p class="hint">An OCaml <code>int</code> has more than 32 bits.</p>
+    <div class="why"><p><code>2147483648</code>. On a 64-bit machine an OCaml <code>int</code> has 63 bits, so this sum fits with room to spare.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>One of the 64 bits is used inside OCaml to tell integers from pointers. That leaves 63, and the largest <code>int</code>, <code>max_int</code>, is 2<sup>62</sup> − 1. The <code>i32</code> in the language you compile <em>must</em> wrap at 32 bits, so a plain <code>+</code> in your interpreter gives wrong answers for large numbers. The <code>Int32</code> module has true 32-bit integers. Its literals end in <code>l</code>.</p>
+<pre><code>let a = Int32.of_int 2147483647
+let b = Int32.add a 1l
+let c = Int32.to_int b</code></pre>
+    <ol>
+      <li><strong>Move in.</strong> <code>Int32.of_int</code> turns an <code>int</code> into an <code>int32</code>. It keeps the low 32 bits.</li>
+      <li><strong>Compute.</strong> <code>Int32.add</code> adds and wraps at 32 bits. <code>b</code> is <code>-2147483648l</code>.</li>
+      <li><strong>Move out.</strong> <code>Int32.to_int</code> turns it back into an <code>int</code>. <code>c</code> is <code>-2147483648</code>.</li>
+    </ol>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06n-add32">
+    <h3>An add that wraps at 32 bits</h3>
+    <p><code>add32 a b</code> should add two i32 values held in plain ints and wrap the way <code>.uir</code> does. The starter uses <code>+</code>, so it is wrong when the sum does not fit. Repair it with the three moves above.</p>
+  </div>
+
+  <div class="exercise" data-ex="w0-ocaml-wrap32">
+    <h3>Wrap a native int to 32 bits</h3>
+    <p>Now from an empty function. Write <code>wrap32 x</code>: the signed 32-bit value with the same low 32 bits as <code>x</code>. With it you can keep using plain ints and wrap after every operation.</p>
+    <p class="muted">Two roads: the <code>Int32</code> module, or bit operations. <code>x land 0xFFFFFFFF</code> keeps the low 32 bits, and <code>lsl</code> and <code>asr</code> shift left and right, copying the sign bit.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The other Int32 operations and their edge cases, for when you write the interpreter</summary>
+    <div class="prose">
+      <p>OCaml's plain <code>int</code> is <b>63 bits</b> on a 64-bit machine. So <code>max_int</code> is 2<sup>62</sup> − 1 = 4,611,686,018,427,387,903, and <code>2147483647 + 1</code> is just <code>2147483648</code>. It does <b>not</b> wrap at 32 bits.</p>
+    </div>
+<pre><code>let a = Int32.max_int                 (* 2147483647l *)
+let b = Int32.add a 1l                (* -2147483648l: wrapped *)
+let c = 2147483647 + 1                (* 2147483648: a plain int did not *)
+let () = Printf.printf "%ld %ld %d\n" a b c
+
+(* the other Int32 operations you'll want: *)
+(* Int32.mul  Int32.div  Int32.rem  Int32.logxor  Int32.shift_left
+   Int32.compare  Int32.of_int  Int32.to_int  Int32.to_float  Int32.of_float *)</code></pre>
+  <div class="prose">
+    <p><code>Int32.div</code> and <code>Int32.rem</code> truncate toward zero, like C, and raise <code>Division_by_zero</code> on zero. That's a trap here: the course's <code>div</code> and <code>mod</code> round down (floor), and they give an answer for a zero divisor instead of failing. <code>Int32.of_int</code> keeps the low 32 bits. <code>Int32.of_float</code> truncates, and its result is unspecified for NaN or anything out of range, so check those cases yourself when floats arrive in week 2. Read the docs for each function before you use it. The exact edge-case behavior is what the tests check.</p>
+    <p>You can also keep using plain <code>int</code> and normalize to 32 bits after every operation. Either way works. Pick one and be consistent.</p>
+  </div>
+  </details>
+
+  <div class="prose">
+    <h2>Two kinds of equal</h2>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Two strings are built the same way. What are <code>a = b</code> and <code>a == b</code>?</p>
+<pre><code>let a = "ad" ^ "d"
+let b = "ad" ^ "d"</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>true</code> and <code>false</code></button>
+      <button data-k="b"><code>true</code> and <code>true</code></button>
+      <button data-k="c"><code>false</code> and <code>false</code></button>
+    </div>
+    <p class="hint">Each <code>^</code> makes a new string. One of the two operators asks whether both names point at the very same string.</p>
+    <div class="why"><p><code>true</code> and <code>false</code>. Both hold the letters <code>add</code>, so <code>=</code> says true. They are two separate strings in memory, so <code>==</code> says false.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>You met both in O.5. Their usual names are <b>structural</b> equality for <code>=</code>, which compares what is inside, and <b>physical</b> equality for <code>==</code>, which asks whether the two are the very same object in memory. If you come from C or Python, your fingers will type <code>==</code>. In OCaml that is almost never the one you want.</p>
+    <ol>
+      <li><strong>Read a word.</strong> Your compiler cuts <code>add</code> out of a line of a file. That is a new string.</li>
+      <li><strong>Compare it.</strong> <code>word == "add"</code> is false, since the two are different objects. <code>word = "add"</code> is true.</li>
+    </ol>
+    <p>Use <code>=</code> and its opposite <code>&lt;&gt;</code> unless you mean "same object". Week 1 does mean it once, on purpose: when equal nodes are always one shared object, as in the last exercise of <a href="../learn/ml-05-mutation.html">O.5</a>, <code>==</code> is the fast and correct test.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06n-known-op">
+    <h3>Is this word an op?</h3>
+    <p><code>known_op name</code> should say whether <code>name</code> is one of the ops in the list. It answers <code>false</code> for every word cut from a line of text. Find the one character that is wrong and repair it.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>How fast each equality is, and what Hashtbl.hash looks at</summary>
+    <div class="prose">
+      <p><code>=</code> walks both values and compares everything inside, which can take as long as the values are big. <code>==</code> is one pointer comparison. Hash tables use structural hashing and structural equality by default.</p>
+    </div>
+  <div class="trap">
+    <span class="label">Hashtbl.hash doesn't look at everything</span>
+    <p>The default hash only looks at a limited number of nodes inside a value, about ten meaningful ones. Two big values that differ deep inside can hash the same, and they're still told apart correctly by <code>=</code>, just slowly. If you ever key a table on large nested values, think about what you're actually hashing.</p>
+  </div>
+  </details>
+
+  <div class="prose">
+    <h2>A match that hides a missing case</h2>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">This code builds with no warning. Then you add <code>| Div</code> to the type and rebuild. What happens?</p>
+<pre><code>type op = Add | Mul | Max
+
+let name op =
+  match op with
+  | Add -&gt; "add"
+  | Mul -&gt; "mul"
+  | _ -&gt; "max"</code></pre>
+    <div class="opts">
+      <button data-k="a">The compiler points at the <code>match</code> and says <code>Div</code> is missing</button>
+      <button data-k="b">It builds with no warning, and <code>name Div</code> is <code>"max"</code></button>
+      <button data-k="c">It builds, and <code>name Div</code> raises an exception</button>
+    </div>
+    <p class="hint">What does the last case, <code>_</code>, match?</p>
+    <div class="why"><p><code>_</code> matches anything, including a constructor added later. So the build stays quiet and <code>Div</code> is called <code>"max"</code>. That is a wrong answer with no message.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>In O.4 you saw the compiler check that every <code>match</code> is exhaustive, with a case for every constructor of its type. Leave one out and you get a warning that names it. dune turns that warning into an error, so the build stops. As your node type grows week by week, this check finds every function you forgot to update.</p>
+    <p>A catch-all case, <code>_</code>, switches the check off for that <code>match</code>. So write one case per constructor wherever a new constructor would need its own answer. Use <code>_</code> on purpose, not by habit.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06n-points">
+    <h3>Take out the catch-all</h3>
+    <p><code>points</code> was written when a deck had only number cards and face cards. Since then <code>Ace</code> (worth 11) and <code>Joker</code> (worth 0) joined the type, and no warning appeared. Replace the <code>_</code> case so every constructor is named. A number card is worth its number and a face card is worth 10.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06-hand-value">
+    <h3>Blackjack hand value</h3>
+    <p>Now a whole function. With the <code>card</code> type in the starter, write <code>hand_value : card list -&gt; int</code>. Numbers are worth their number, faces 10, and an Ace 11. But while the total is over 21, an Ace may count as 1 instead, one Ace at a time.</p>
+    <p class="muted">Pattern match for the points, then add them up with <code>List.fold_left</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>). Keep the types in the starter exactly as they are: the tests build cards with those constructors.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Division and floats, the course's way</h2>
+    <p>Two more places where OCaml's numbers and the course's numbers disagree. Both are optional drills, and both come back in week 1 and week 2.</p>
+    <p><strong>Division.</strong> OCaml's <code>/</code> rounds toward zero, as C does: <code>-7 / 2</code> is <code>-3</code>. Dividing by 0 raises <code>Division_by_zero</code>. The course's <code>div</code> rounds down, so <code>div -7 2</code> is <code>-4</code>, and it gives <code>-1</code> for a zero divisor instead of failing.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06-div32">
+    <h3>The course's 32-bit division</h3>
+    <p>Write <code>div32 a b</code> for i32 values held in plain ints, the way .uir's <code>div</code> works: the floor quotient, wrapped to 32 bits, and <code>-1</code> when <code>b = 0</code>. <code>div32 (-7) 2</code> is <code>-4</code>. (Lesson 1.2 has a variant that returns <code>mod</code> too.)</p>
+    <p class="muted">OCaml's <code>/</code> truncates toward zero, like C, so the starter is wrong for negative quotients that aren't exact, and it raises on 0. Exactly one i32 quotient doesn't fit in 32 bits. Which one?</p>
+  </div>
+
+  <div class="prose">
+    <p><strong>Floats.</strong> OCaml's <code>float</code> is a 64-bit double. The course's <code>f32</code>, which arrives in week 2, is single precision. To round a double to the nearest single, convert it to the 32-bit encoding and back:</p>
+<pre><code>let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x)</code></pre>
+    <p><code>to_f32 0.1</code> is <code>0.10000000149011612</code>, the single nearest to 0.1. Comparisons on floats follow the IEEE rules: <code>nan = nan</code> is <code>false</code>. Test for NaN with <code>Float.is_nan</code>.</p>
+  </div>
+
+  <div class="exercise small" data-ex="w0-06-is-f32">
+    <h3>Is it already an f32?</h3>
+    <p>Write <code>is_f32 : float -&gt; bool</code>: true when the double <code>x</code> is exactly representable in single precision. NaN and the infinities count as representable.</p>
+    <p class="muted">Round it with the trick above and compare. Then check what your answer says about <code>nan</code>.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>What the two conversion functions do, with the printed digits</summary>
+    <div class="prose">
+<pre><code>let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x)
+let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
+(* 0.10000000000000001
+   0.10000000149011612 *)</code></pre>
+      <p><code>Int32.bits_of_float</code> rounds to single precision and gives you its 32 bits. <code>Int32.float_of_bits</code> reads them back as a double holding that exact single value. <a href="../learn/hard-04-numbers-like-c.html">H.4 Numbers that behave like C</a> goes through wrapping, flooring and float bits slowly.</p>
+    </div>
+  </details>
 
   <h2>Capstone: the toposort from lesson 0.3</h2>
+  <p class="prose">Two longer exercises to finish, both built on a hash table (<a href="../learn/ml-05-mutation.html">O.5</a>). The second is the walk your compiler makes over its graph every week.</p>
+
+  <div class="exercise" data-ex="w0-06-top-words">
+    <h3>The k most common words</h3>
+    <p>Write <code>top_words : int -&gt; string list -&gt; (string * int) list</code>. Count every word, then return the <code>k</code> most frequent as <code>(word, count)</code> pairs: higher counts first, and ties broken alphabetically (plain <code>compare</code> on strings, so <code>"A"</code> sorts before <code>"a"</code>). If there are fewer than <code>k</code> distinct words, return them all.</p>
+    <p class="muted">Tools: <code>Hashtbl</code> to count, <code>Hashtbl.fold</code> to get a list out, <code>List.sort</code> with your own comparison and <code>List.filteri</code> to take a prefix.</p>
+  </div>
+
   <div class="exercise" data-ex="w0-03-topo">
     <h3>Toposort a tiny DAG, in OCaml</h3>
-    <p>This is lesson 0.3's toposort, now that you have the language. A graph is a list of records <code>{ name : string; srcs : string list }</code>, each name appearing once. Write <code>topo graph root</code>: every name reachable from <code>root</code>, <b>each exactly once</b>, in depth-first post-order. Visit a node's <code>srcs</code> left to right, then emit the node itself.</p>
-    <p>For <code>(a + b) * (a + b)</code> that's <code>["a"; "b"; "add"; "mul"]</code>. Nodes not reachable from <code>root</code> are left out. One hidden test is the doubling DAG from lesson 0.3's trap (<code>x0</code> to <code>x30</code>), so remember what you've visited.</p>
+    <p>This is <a href="03-compilers-and-irs.html">lesson 0.3</a>'s toposort, now in your own language. A graph is a list of records <code>{ name : string; srcs : string list }</code>, each name appearing once. Write <code>topo graph root</code>: every name reachable from <code>root</code>, <b>each exactly once</b>, in depth-first post-order. Visit a node's <code>srcs</code> left to right, then emit the node itself.</p>
+    <p>For <code>(a + b) * (a + b)</code> that's <code>["a"; "b"; "add"; "mul"]</code>. Nodes not reachable from <code>root</code> are left out. One hidden test is a doubling DAG (<code>x0</code> to <code>x30</code>), so remember what you've visited.</p>
     <details class="toggle">
       <summary>OCaml hints</summary>
       <p><code>List.find (fun n -&gt; n.name = x) graph</code> looks a node up (it raises <code>Not_found</code> if nothing matches). A <code>Hashtbl</code> remembers what you've seen. Build the output in a <code>ref</code> list with <code>out := x :: !out</code>, then <code>List.rev</code> it at the end.</p>
     </details>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Install OCaml, make a dune project in a git folder, build it and run it.</li>
+      <li>Point the course's test runner at your built program and read its result.</li>
+      <li>Wrap a number to 32 bits, since an OCaml <code>int</code> will not do it for you.</li>
+      <li>Choose between <code>=</code> and <code>==</code>, and say what each one asks.</li>
+      <li>Write a <code>match</code> that the compiler can check when the type grows.</li>
+    </ul>
+    <p>Next is <a href="../week1/01-the-uop.html">week 1</a>, where the folder you just made starts to turn into a compiler.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -367,7 +681,19 @@ let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
   </div>
 
   <div class="quiz" data-fill="Sam has 70">
-    <p class="q">In the bank account example, what does the <b>last</b> line print?</p>
+    <p class="q">What does the <b>last</b> line print?</p>
+<pre><code>type account = { owner : string; mutable balance : int }
+exception Insufficient_funds of int
+
+let withdraw acct amount =
+  if amount &gt; acct.balance then raise (Insufficient_funds (amount - acct.balance));
+  acct.balance &lt;- acct.balance - amount
+
+let () =
+  let a = { owner = "Sam"; balance = 100 } in
+  withdraw a 30;
+  (try withdraw a 500 with Insufficient_funds short -&gt; Printf.printf "short by %d\n" short);
+  Printf.printf "%s has %d\n" a.owner a.balance</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">Trace the balance through each withdrawal. Does the failing withdrawal change the balance before it raises?</p>
     <p class="hint">The last line uses <code>"%s has %d\n"</code>.</p>
@@ -391,7 +717,7 @@ let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
   </div>
 
   <div class="quiz" data-answer="b">
-    <p class="q">After inserting "pear", "apple", "zebra", "mango", "kiwi", what does <code>to_list t</code> return?</p>
+    <p class="q">A binary search tree keeps smaller words on the left of each node and larger ones on the right. You insert "pear", "apple", "zebra", "mango", "kiwi". <code>to_list t</code> walks the left branch, then the node, then the right branch. What does it return?</p>
     <div class="opts">
       <button data-k="a"><code>["pear"; "apple"; "zebra"; "mango"; "kiwi"]</code></button>
       <button data-k="b"><code>["apple"; "kiwi"; "mango"; "pear"; "zebra"]</code></button>
@@ -402,7 +728,7 @@ let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
   </div>
 
   <div class="quiz" data-answer="c">
-    <p class="q">You add <code>| Joker</code> to the <code>card</code> type and rebuild. What happens to <code>points</code>?</p>
+    <p class="q">A <code>points</code> function has one case for each constructor of <code>card</code> and no <code>_</code> case. You add <code>| Joker</code> to the type and rebuild. What happens to <code>points</code>?</p>
     <div class="opts">
       <button data-k="a">Nothing, it still compiles cleanly</button>
       <button data-k="b">It returns 0 for a Joker</button>
@@ -411,16 +737,10 @@ let () = Printf.printf "%.17g\n%.17g\n" 0.1 (to_f32 0.1)
     <p class="hint">Pattern matches are checked for exhaustiveness at compile time. What does the compiler do when a case is missing?</p>
     <div class="why"><p>This is the safety net. Every function that takes apart a <code>card</code> gets flagged.</p></div>
   </div>
-  <h2>Code it</h2>
-  <div class="exercise" data-ex="w0-ocaml-wrap32">
-    <h3>Wrap a native int to 32 bits</h3>
-    <p>OCaml's <code>int</code> is 63 bits, but your compiler's <code>i32</code> wraps at 32. Write <code>wrap32 x</code>: the signed 32-bit value with the same low 32 bits as <code>x</code>.</p>
-    <p class="muted">Two roads: the <code>Int32</code> module, or bit operations. <code>x land 0xFFFFFFFF</code> keeps the low 32 bits, and <code>lsl</code> and <code>asr</code> shift left and right, copying the sign bit.</p>
-  </div>
-
 
   <nav class="pager"><a href="05-matmul.html">← matrix multiply</a><a href="../learn/hard-01-sharing.html">H.1 Sharing nodes →</a></nav>
 </main>
+
 
 <script>
 // BST insertion stepper. Edges run parent -> child, so the root is drawn on top.

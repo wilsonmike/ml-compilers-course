@@ -1,0 +1,45 @@
+{
+ "id": "w2-04n-loads-first",
+ "lang": "ocaml",
+ "title": "Loads before the store",
+ "show": "(String.concat \" \")",
+ "starter": "type kind = Load | Store | Op\ntype node = { name : string; kind : kind; version : string; srcs : string list }\n\nlet load name version srcs = { name; kind = Load; version; srcs }\nlet store name version srcs = { name; kind = Store; version; srcs }\nlet op name srcs = { name; kind = Op; version = \"\"; srcs }\n\nlet schedule (nodes : node list) : string list =\n  let seen = Hashtbl.create 16 in\n  let out = ref [] in\n  let find name = List.find (fun n -> n.name = name) nodes in\n  let needs (n : node) : string list = n.srcs in\n  let rec visit name =\n    if not (Hashtbl.mem seen name) then begin\n      Hashtbl.add seen name ();\n      List.iter visit (needs (find name));\n      out := name :: !out\n    end\n  in\n  List.iter (fun n -> visit n.name) nodes;\n  List.rev !out\n",
+ "tests": [
+  {
+   "expr": "schedule [load \"y\" \"b\" []; store \"s0\" \"b\" [\"y\"]; load \"x\" \"b\" []; store \"s1\" \"b1\" [\"x\"; \"s0\"]]",
+   "expect": "y x s0 s1",
+   "sample": true
+  },
+  {
+   "expr": "schedule [op \"a\" []; op \"c\" [\"a\"]]",
+   "expect": "a c",
+   "sample": true
+  },
+  {
+   "expr": "schedule [store \"s0\" \"b\" [\"k\"]; op \"k\" []; load \"x\" \"b\" []]",
+   "expect": "k x s0"
+  },
+  {
+   "expr": "schedule [op \"k\" []; store \"s0\" \"b\" [\"k\"]; load \"z\" \"b1\" [\"s0\"]; store \"s1\" \"b1\" [\"z\"]]",
+   "expect": "k s0 z s1"
+  },
+  {
+   "expr": "schedule [store \"s0\" \"b\" [\"k\"]; op \"k\" []; load \"p\" \"b\" []; load \"q\" \"b\" []; load \"r\" \"b\" []]",
+   "expect": "k p q r s0"
+  },
+  {
+   "expr": "schedule [store \"s2\" \"b1\" [\"w\"]; op \"w\" [\"z\"]; load \"z\" \"b1\" [\"st\"]; store \"st\" \"b\" [\"s\"]; op \"s\" [\"x\"; \"y\"]; load \"y\" \"b\" []; load \"x\" \"b\" []]",
+   "expect": "x y s st z w s2"
+  },
+  {
+   "expr": "schedule [op \"k\" []; store \"s0\" \"b\" [\"k\"]; load \"late\" \"b\" []; op \"u\" [\"late\"]]",
+   "expect": "k late s0 u"
+  }
+ ],
+ "hints": [
+  "Only `needs` has to change. For a load or an op it is already right. For a store, the answer is its sources plus some more names.",
+  "A store overwrites the version in `n.version`. Walk over `nodes` and pick every node whose kind is `Load` and whose version is the same one.",
+  "`if n.kind = Store then n.srcs @ List.filter_map (fun m -> if m.kind = Load && m.version = n.version then Some m.name else None) nodes else n.srcs`."
+ ],
+ "explain": "`visit` prints a node only after everything in `needs`. The reference adds one thing to a store's needs: every load of the version that store overwrites. So those loads are printed first, while the old values are still in the array. Loads of other versions are left alone, which matters: a load of the new version has to come after the store."
+}

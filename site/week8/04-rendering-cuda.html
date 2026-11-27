@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rendering CUDA</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="CUDA is C++ with a few additions: a way to mark a function as a kernel, a way to declare shared memory, the thread and block numbers, and the barrier. Your...">
+<meta name="description" content="Your compiler can check and run block and thread programs, and it can print C for a CPU. It has never printed code for a GPU. Here you learn the four small...">
 <link rel="canonical" href="https://sharpterminal.com/site/week8/04-rendering-cuda">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Rendering CUDA">
-<meta property="og:description" content="CUDA is C++ with a few additions: a way to mark a function as a kernel, a way to declare shared memory, the thread and block numbers, and the barrier. Your renderer already writes C. This lesson...">
+<meta property="og:description" content="Your compiler can check and run block and thread programs, and it can print C for a CPU. It has never printed code for a GPU. Here you learn the four small changes that turn the C you already print...">
 <meta property="og:url" content="https://sharpterminal.com/site/week8/04-rendering-cuda">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,21 +20,270 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 8 · Lesson 4</p>
 <h1>Rendering CUDA</h1>
-<p class="lede">CUDA is C++ with a few additions: a way to mark a function as a kernel, a way to declare shared memory, the thread and block numbers, and the barrier. Your renderer already writes C. This lesson covers what changes when every thread runs the same function and the loops over threads disappear.</p>
+<p class="lede">Your compiler can check and run block and thread programs, and it can print C for a CPU. It has never printed code for a GPU. Here you learn the four small changes that turn the C you already print into CUDA, the language NVIDIA GPUs run.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Read a program made of <code>global</code> and <code>local</code> loops and say, line by line, the CUDA your compiler prints for it.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Outlining a thread loop into a function, from <a href="../week7/05-kernels.html">lesson 7.5</a>. <code>global</code> and <code>local</code> loops from <a href="02-global-and-local.html">lesson 8.2</a>. Shared memory, phases and the barrier from <a href="03-shared-memory.html">lesson 8.3</a>.</p>
+<p class="only-python">Building text with f-strings, from <a href="../learn/py-01-first-steps.html">P.1</a>.</p>
+<p class="only-ocaml">Building text with <code>Printf.sprintf</code>, from <a href="../learn/ml-05-mutation.html">O.5</a>.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="c">
+<p class="q">In lesson 7.5, what did <code>render</code> print for a thread loop?</p>
+<div class="opts">
+<button data-k="a">A plain <code>for</code> loop</button>
+<button data-k="b">One copy of the body for each thread</button>
+<button data-k="c">The body as its own function, and one call to <code>uir_parallel_for</code> that runs it</button>
+</div>
+<p class="hint">Threads run functions, so the body had to become one.</p>
+<div class="why"><p>The body moved into a function, <code>thread0</code>, and the harness ran it once per iteration. Today's kernel is the same move with different words.</p></div>
+</div>
+
+<div class="quiz" data-fill="8">
+<p class="q">A program has <code>%b = range 2 axis=global</code> and, inside it, <code>%t = range 4 axis=local</code>. How many threads does the GPU start in total?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">A <code>global</code> loop counts blocks. A <code>local</code> loop counts the threads in each block.</p>
+<div class="why"><p>2 blocks of 4 threads: 8 threads.</p></div>
+</div>
 
 <div class="prose">
-<h2>Kernel form</h2>
-<p><code>render-cuda</code> accepts a program in <b>kernel form</b>: every computation sits inside a global loop at the top level, and each kernel uses only buffers, literals, its own ranges and its own shared memory. A value computed outside a kernel would live on the CPU, and the GPU couldn't see it. An alloc used by two kernels is no block's shared memory, so it has nowhere to live either. A program that isn't in kernel form is still valid: <code>./compile</code> and <code>render</code> take it, and only <code>render-cuda</code> exits 2.</p>
+<h2>The same program, printed for a GPU</h2>
+<p>This program adds 1 to each of 8 numbers, with 2 blocks of 4 threads:</p>
+<pre><code>%x = buffer 8 dtype=i32 slot=0
+%o = buffer 8 dtype=i32 slot=1
+%b = range 2 axis=global
+%m = mul %b 4
+%t = range 4 axis=local
+%i = add %m %t
+%xv = shrink %x %i []
+%xe = load %xv
+%y = add %xe 1
+%ov = shrink %o %i []
+%s = store %ov %y
+%e = end %s %t
+%eb = end %e %b
+%o1 = after %o %eb</code></pre>
+<p><code>python _reference/uirc.py --week=8 render-cuda FILE</code> prints this for it (helper functions and one comment left out). One line is hidden:</p>
+<pre><code>__global__ void k0(int32_t *__restrict__ b0, int32_t *__restrict__ b1) {
+  int32_t r5 = ________;
+  int32_t v6 = (int32_t)((uint32_t)r5 * (uint32_t)4);
+  {
+    int32_t r7 = threadIdx.x;
+    int32_t v8 = (int32_t)((uint32_t)v6 + (uint32_t)r7);
+    int32_t v11 = b0[v8];
+    int32_t v12 = (int32_t)((uint32_t)v11 + (uint32_t)1);
+    b1[v8] = v12;
+  }
+  __syncthreads();
+}
 
-<h2>One loop becomes one kernel</h2>
-<p>Take a small i32 version of the reverse from lesson 3: 2 blocks of 4 threads. Here is what the reference prints for it with <code>python _reference/uirc.py --week=8 render-cuda FILE</code>, without the helper functions at the top:</p>
+void kernel(int32_t *b0, int32_t *b1) {
+  UIR_LAUNCH(k0, 2, 4, b0, b1);
+}</code></pre>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>r5</code> is the block counter <code>%b</code>. The thread counter <code>r7</code> is read from <code>threadIdx.x</code>. What is hidden?</p>
+<div class="opts">
+<button data-k="a"><code>0</code>, and a loop adds 1 to it</button>
+<button data-k="b"><code>blockIdx.x</code></button>
+<button data-k="c"><code>threadIdx.x / 4</code></button>
+</div>
+<p class="hint">There is no <code>for</code> anywhere in the function. Each thread has to be told which block it is in.</p>
+<div class="why"><p>The line is <code>int32_t r5 = blockIdx.x;</code>. The GPU starts every block and every thread itself, and tells each one its numbers.</p></div>
+</div>
+
+<div class="prose">
+<p><b>CUDA</b> is NVIDIA's language for its GPUs: C++ plus a few extra words. This page uses six of them: <code>__global__</code>, <code>blockIdx.x</code>, <code>threadIdx.x</code>, <code>blockDim.x</code>, <code>__shared__</code> and <code>__syncthreads()</code>. Every other line is C your week 7 renderer already prints.</p>
+
+<h2>A global loop becomes a function and a launch</h2>
+<p>For the CPU, <code>render</code> treats a <code>global</code> loop like week 7's thread loop. For the program above it prints:</p>
+<pre><code>static void thread0(int32_t r5, void *ctx) {
+  ...
+  { thread0_ctx k_ = { b0, b1 }; uir_parallel_for(2, thread0, &amp;k_); }</code></pre>
+<p><code>render-cuda</code> makes the same two pieces:</p>
+<pre><code>__global__ void k0(int32_t *__restrict__ b0, int32_t *__restrict__ b1) {
+  int32_t r5 = blockIdx.x;
+  ...
+  UIR_LAUNCH(k0, 2, 4, b0, b1);</code></pre>
+<ol>
+<li><strong>Mark the function.</strong> <code>__global__</code> marks a function the CPU starts and the GPU runs, once on every thread. Such a function is called a kernel. Name them <code>k0</code>, <code>k1</code> and so on.</li>
+<li><strong>Pass the buffers.</strong> There is no struct. The buffers the loop uses are plain parameters. Find them the way you found free variables in 7.5.</li>
+<li><strong>Read the counter.</strong> The counter is not a parameter. It is <code>blockIdx.x</code>, the number of the block this thread is in.</li>
+<li><strong>Launch.</strong> In the host function <code>kernel</code>, which runs on the CPU, print <code>UIR_LAUNCH(name, blocks, threads, buffers...)</code>.</li>
+</ol>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">A second global loop has 4 blocks of 2 threads and uses only buffer <code>b1</code>. What is its launch line?</p>
+<div class="opts">
+<button data-k="a"><code>UIR_LAUNCH(k1, 4, 2, b1);</code></button>
+<button data-k="b"><code>UIR_LAUNCH(k1, 2, 4, b1);</code></button>
+<button data-k="c"><code>UIR_LAUNCH(k1, 8, b0, b1);</code></button>
+</div>
+<p class="hint">Blocks come before threads, and a kernel takes only the buffers it uses.</p>
+<div class="why"><p>Name, blocks, threads, then the buffers. The reference prints exactly this line for such a loop.</p></div>
+</div>
+
+<div class="exercise small" data-ex="w8-04n-kernel-head" data-ex-py="w8-04n-kernel-head-py">
+<h3>Open a kernel and launch it</h3>
+<p><code>kernel_open k counter params</code> returns the first two lines of kernel number <code>k</code>, and <code>launch k blocks threads bufs</code> returns the line that starts it. Both are nearly written, but three places still print CPU code. Fix them so that <code>kernel_open 0 "r5" [("int32_t", "b0"); ("int32_t", "b1")]</code> gives the first two lines of the listing above and <code>launch 0 2 4 ["b0"; "b1"]</code> gives its launch line.</p>
+</div>
+
+<div class="prose">
+<h2>A local loop becomes a block of code</h2>
+<p>For the CPU, the <code>local</code> loop in the program is a plain loop:</p>
+<pre><code>  for (int32_t r7 = 0; r7 &lt; 4; r7++) {
+    ...
+    b1[v8] = v12;
+  }</code></pre>
+<p>On the GPU, each block already has 4 threads, and every one of them runs the kernel function from top to bottom.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">What should that <code>for</code> line become in CUDA?</p>
+<div class="opts">
+<button data-k="a">The same loop: each thread counts from 0 to 3</button>
+<button data-k="b">No loop. Each thread runs the body once, with <code>r7</code> set to its own thread number.</button>
+<button data-k="c">A call to <code>uir_parallel_for</code></button>
+</div>
+<p class="hint">If all 4 threads ran all 4 iterations, how many times would each element be stored?</p>
+<div class="why"><p>The threads are the iterations. A loop here would do the work 4 times over, with every thread writing every element.</p></div>
+</div>
+
+<div class="prose">
+<p>So the reference prints a pair of braces and a barrier:</p>
+<pre><code>  {
+    int32_t r7 = threadIdx.x;
+    ...
+    b1[v8] = v12;
+  }
+  __syncthreads();</code></pre>
+<ol>
+<li><strong>Open braces.</strong> They keep one phase's names apart from the next phase's.</li>
+<li><strong>Read the counter.</strong> <code>threadIdx.x</code> is this thread's number inside its block.</li>
+<li><strong>Print the body.</strong> The same lines as in the CPU loop.</li>
+<li><strong>Wait.</strong> <code>__syncthreads()</code> is the barrier from lesson 8.3: no thread goes on until every thread of the block has arrived. Print it after every <code>local</code> loop, the last one too.</li>
+</ol>
+<p>Lines outside a <code>local</code> loop, like <code>v6</code>, run on every thread. That is safe because they only compute values. It is also why lesson 8.2 forbade a store there: all 4 threads would do it.</p>
+</div>
+
+<div class="exercise small" data-ex="w8-04-phases" data-ex-py="w8-04-phases-py">
+<h3>Fuse phases into one thread body</h3>
+<p>Write <code>fuse_phases</code>: each phase becomes a block that reads its index from <code>threadIdx.x</code>, followed by a barrier. The starter prints each phase as a CPU loop. Change it.</p>
+</div>
+
+<div class="prose">
+<h2>Shared memory becomes a __shared__ array</h2>
+<p>Lesson 8.3 reversed each block through an alloc <code>sh</code>, its shared memory. In CPU C that alloc is one line inside the outlined function:</p>
+<pre><code>  int32_t a7[4] = {0};</code></pre>
+<p>Each call of the function is one block, so each block gets its own zeroed array.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">A kernel function runs once on every thread. If it kept that line as it is, what would go wrong?</p>
+<div class="opts">
+<button data-k="a">Nothing. It works the same.</button>
+<button data-k="b">All blocks would share one array</button>
+<button data-k="c">Every thread would get its own array, so phase 2 could not read what another thread stored in phase 1</button>
+</div>
+<p class="hint">A variable declared inside a function is made new for each call. Who makes the calls now?</p>
+<div class="why"><p>An ordinary array in a kernel belongs to one thread. The array has to be one per block, seen by all of its threads.</p></div>
+</div>
+
+<div class="prose">
+<p>CUDA's word for one per block is <code>__shared__</code>. Here is what the reference prints at the top of the reverse kernel, right after the block counter:</p>
+<pre><code>  __shared__ int32_t a7[4];
+  for (int32_t z_ = threadIdx.x; z_ &lt; 4; z_ += blockDim.x) a7[z_] = 0;
+  __syncthreads();</code></pre>
+<ol>
+<li><strong>Declare.</strong> <code>__shared__</code>, the element type, the name and the size.</li>
+<li><strong>Clear your share.</strong> A <code>__shared__</code> array starts with leftovers, not zeros. Each thread starts at its own number and steps by <code>blockDim.x</code>, the number of threads in a block. With 4 threads and 10 elements, thread 1 would clear elements 1, 5 and 9.</li>
+<li><strong>Wait.</strong> A barrier, so nobody reads before every element is zero.</li>
+</ol>
+<p>After that, loads and stores of <code>sh</code> are plain array accesses: <code>a7[r9] = v13;</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w8-04n-shared" data-ex-py="w8-04n-shared-py">
+<h3>Declare and clear shared memory</h3>
+<p>Write <code>shared_lines ty name n</code>. It returns the three lines that open a kernel's shared memory: the <code>__shared__</code> array of <code>n</code> elements of C type <code>ty</code>, the loop in which each thread clears its share, and the barrier. <code>shared_lines "int32_t" "a7" 4</code> gives exactly the three lines above.</p>
+</div>
+
+<div class="prose">
+<h2>Kernel form: what render-cuda accepts</h2>
+<p>Not every valid program can be printed this way.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Two <code>global</code> loops, one after the other, both store into the same alloc. <code>./compile</code> runs the program fine. What does <code>render-cuda</code> do?</p>
+<div class="opts">
+<button data-k="a">Makes the alloc a <code>__shared__</code> array in both kernels</button>
+<button data-k="b">Prints an <code>invalid:</code> line and exits 2</button>
+<button data-k="c">Passes the alloc to both kernels as a buffer</button>
+</div>
+<p class="hint">A <code>__shared__</code> array belongs to one block of one kernel, and it is gone when the block ends.</p>
+<div class="why"><p>The second kernel could never see what the first one stored. The alloc has nowhere to live on the GPU, so the program is refused.</p></div>
+</div>
+
+<div class="prose">
+<p>A program is in <b>kernel form</b> when both of these hold:</p>
+<ol>
+<li><strong>All work is inside kernels.</strong> Every computation sits inside a <code>global</code> loop, and every <code>global</code> loop is at the top level. A value computed outside would live on the CPU, where the GPU can't see it.</li>
+<li><strong>Each kernel is self-contained.</strong> It uses only buffers, literals, its own ranges and its own shared memory.</li>
+</ol>
+<p>For anything else, <code>render-cuda</code> prints one line to stderr and exits 2. For the program in the quiz, the reference prints:</p>
+<pre><code>invalid: render-cuda: an alloc used outside a single global loop has nowhere to live on the GPU</code></pre>
+<p>The program itself is still valid. <code>./compile</code> runs it and <code>render</code> prints CPU C for it. Only <code>render-cuda</code> says no.</p>
+
+<h2>The same file runs with no GPU</h2>
+<p>Real CUDA launches a kernel with <code>k0&lt;&lt;&lt;2, 4&gt;&gt;&gt;(b0, b1)</code>. Your output never prints that. It prints <code>UIR_LAUNCH</code>, and the harness says what that means. That one choice lets the same file run in two places:</p>
+<ul>
+<li><strong>With a GPU.</strong> The harness defines <code>UIR_LAUNCH</code> as the <code>&lt;&lt;&lt; &gt;&gt;&gt;</code> launch and builds your file with <code>nvcc</code>, NVIDIA's compiler. It copies the buffers to the GPU, calls your <code>kernel</code> and copies them back.</li>
+<li><strong>Without one.</strong> An <b>emulator</b> is a program that stands in for hardware you don't have. The harness builds your file as plain C++ and defines the CUDA words itself. <code>UIR_LAUNCH</code> is a loop over blocks, one after another. Each block's threads are real threads, a <code>__shared__</code> array is one array they all see, and <code>__syncthreads()</code> is a real barrier.</li>
+</ul>
+<p>So a missing barrier is a real race in the emulator too, and you can do the whole week on a laptop.</p>
+</div>
+
+<div class="quiz" data-fill="4">
+<p class="q">The emulator runs <code>UIR_LAUNCH(k0, 2, 4, b0, b1)</code>. What is the largest number of kernel threads running at the same moment?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The emulator runs blocks one after another.</p>
+<div class="why"><p>4: one block's threads. Block 1 starts only after block 0 has finished. A real GPU may run both blocks at once, which is why lesson 8.2 proved that blocks never touch the same element.</p></div>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say what CUDA is: C++ plus a few words for kernels, counters, shared memory and the barrier.</li>
+<li>Turn a <code>global</code> loop into a <code>__global__</code> function that reads <code>blockIdx.x</code>, plus a <code>UIR_LAUNCH</code> line.</li>
+<li>Turn a <code>local</code> loop into braces that read <code>threadIdx.x</code>, followed by <code>__syncthreads()</code>.</li>
+<li>Turn shared memory into a <code>__shared__</code> array that the threads clear.</li>
+<li>Say what kernel form is, and that <code>render-cuda</code> exits 2 without it.</li>
+<li>Explain how <code>UIR_LAUNCH</code> lets one file run on a GPU or in the emulator.</li>
+</ul>
+<p>Next, lesson 8.5 shows how to get a real GPU to run your kernels on.</p>
+</div>
+
+<details class="toggle">
+<summary>The whole reverse kernel, line by line, for when you write the lab</summary>
+<div class="prose">
+<p>An i32 version of the reverse from lesson 8.3, 2 blocks of 4 threads. This is what the reference prints for it, without the helper functions at the top and one comment:</p>
 <pre><code>__global__ void k0(int32_t *__restrict__ b0, int32_t *__restrict__ b1) {
   int32_t r6 = blockIdx.x;
   __shared__ int32_t a7[4];
@@ -50,7 +299,9 @@
   __syncthreads();
   {
     int32_t r16 = threadIdx.x;
-    ...
+    int32_t v17 = (int32_t)((uint32_t)v8 + (uint32_t)r16);
+    int32_t v19 = (int32_t)((uint32_t)r16 * (uint32_t)-1);
+    int32_t v20 = (int32_t)((uint32_t)3 + (uint32_t)v19);
     int32_t v22 = a7[v20];
     b1[v17] = v22;
   }
@@ -60,7 +311,6 @@
 void kernel(int32_t *b0, int32_t *b1) {
   UIR_LAUNCH(k0, 2, 4, b0, b1);
 }</code></pre>
-<p>Line by line:</p>
 <ul>
 <li><code>__global__</code> marks a function the CPU launches and the GPU runs, once per thread. Its parameters are the buffers the kernel uses, which you find the same way as week 7's free names.</li>
 <li>The global loop's index is <code>blockIdx.x</code>. There's no loop: the GPU starts every block.</li>
@@ -71,27 +321,47 @@ void kernel(int32_t *b0, int32_t *b1) {
 </ul>
 <p>Helpers like <code>f32_max</code> get <code>__device__</code>, so GPU code can call them. Everything between the braces is the C your week 7 renderer already writes for a loop body.</p>
 </div>
+</details>
 
-<div class="exercise small" data-ex="w8-04-phases" data-ex-py="w8-04-phases-py">
-<h3>Fuse phases into one thread body</h3>
-<p>Write <code>fuse_phases</code>: each phase becomes a block that reads its index from <code>threadIdx.x</code>, followed by a barrier.</p>
-</div>
-
+<details class="toggle">
+<summary>A program with several global loops: several kernels, launched in order</summary>
 <div class="prose">
-<h2>UIR_LAUNCH</h2>
-<p>Your output never writes the <code>&lt;&lt;&lt;blocks, threads&gt;&gt;&gt;</code> launch syntax itself. <code>UIR_LAUNCH</code> comes from the grader, and that one choice is what lets the same file run in two places:</p>
-<ul>
-<li>With real CUDA, it's <code>k0&lt;&lt;&lt;2, 4&gt;&gt;&gt;(b0, b1)</code>. The grader builds with <code>nvcc</code>, copies the buffers to the GPU, calls your <code>kernel</code>, and copies them back.</li>
-<li>In the emulator, it's a loop over blocks. Each block's threads run as real threads, <code>__shared__</code> becomes a static array they share, and <code>__syncthreads()</code> is a real barrier.</li>
-</ul>
-<p>A program with several global loops launches several kernels, one after another. Each launch finishes before the next starts, so a later kernel may read anything an earlier one wrote. That's the barrier between blocks that lesson 1 said a kernel doesn't have. <code>c_two_kernels</code> checks it.</p>
+<p>A program with several global loops launches several kernels, one after another. Each kernel takes only the buffers it uses. Here is the end of the reference's output, one comment left out, for a program with two global loops, the second of 4 blocks of 2 threads using only <code>b1</code>:</p>
+<pre><code>void kernel(float *b0, float *b1) {
+  UIR_LAUNCH(k0, 2, 4, b0, b1);
+  UIR_LAUNCH(k1, 4, 2, b1);
+}</code></pre>
+<p>Each launch finishes before the next starts, so a later kernel may read anything an earlier one wrote. That's the barrier between blocks that lesson 8.1 said a kernel doesn't have. <code>c_two_kernels</code> checks it.</p>
+</div>
+</details>
 
-<h2>For the CPU, nothing new</h2>
+<details class="toggle">
+<summary>Every way to fall out of kernel form, with the reference's messages</summary>
+<div class="prose">
+<p>The <code># cuda: invalid</code> tests are valid programs that <code>render-cuda</code> must refuse with exit code 2. The grader checks the exit code. Your wording may differ, as long as the line on stderr starts with <code>invalid:</code>.</p>
+<div class="tablewrap"><table>
+<tr><th>test</th><th>what the program does</th><th>the reference's line</th></tr>
+<tr><td><code>c_err_work_outside_kernel</code></td><td>loads a value at the top level</td><td><code>invalid: render-cuda: load outside a global loop: every bit of work must be inside a kernel</code></td></tr>
+<tr><td><code>c_err_kernel_uses_outer_loop</code></td><td>puts a global loop inside a plain loop and uses that loop's counter</td><td><code>invalid: render-cuda: kernel %b uses values computed outside it (r3): a kernel may only use buffers, literals and its own ranges</code></td></tr>
+<tr><td><code>c_err_alloc_in_two_kernels</code></td><td>uses one alloc in two global loops</td><td><code>invalid: render-cuda: an alloc used outside a single global loop has nowhere to live on the GPU</code></td></tr>
+<tr><td><code>c_err_thread_loop</code></td><td>has a week 7 <code>thread</code> loop</td><td><code>invalid: render-cuda: thread loops are CPU threads, use a global loop</code></td></tr>
+</table></div>
+</div>
+</details>
+
+<details class="toggle">
+<summary>What render prints for the CPU, and the tests that check it</summary>
+<div class="prose">
 <p><code>render</code> still has to accept these programs. A global loop renders like week 7's thread loop: an outlined function run by <code>uir_parallel_for</code>, with the shared memory declared inside it so each block gets its own, zeroed. Local loops are plain loops, so phases are consecutive loops and need no barrier. The tests <code>r_reverse_shared_cpu</code> and <code>r_gemm_tile_per_block_cpu</code> check that.</p>
+</div>
+</details>
 
-<h2>Bits</h2>
+<details class="toggle">
+<summary>Why the GPU's results match the CPU's bit for bit</summary>
+<div class="prose">
 <p>Every thread does the same operations, in the same order, as the interpreter does for that iteration. The C you emit is unchanged. Two compiler flags keep the GPU's arithmetic exact: <code>-fmad=false</code> stops <code>nvcc</code> from fusing a multiply and an add, and <code>-prec-div=true</code> keeps division correctly rounded. The math helpers from week 6 are written with <code>+</code>, <code>*</code>, <code>/</code> and comparisons, so they come out the same too.</p>
 </div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>

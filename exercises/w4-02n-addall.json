@@ -1,0 +1,108 @@
+{
+ "id": "w4-02n-addall",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "Add one number to every element",
+ "starter": "%x  = buffer 5 dtype=f32 slot=0\n%b  = buffer 1 dtype=f32 slot=1\n%y  = buffer 5 dtype=f32 slot=2\n%v  = load %x\n%bv = shrink %b 0 []\n%s  = load %bv\n%st = store %y %v\n%y1 = after %y %st\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0
+    ],
+    "1": [
+     10.0
+    ]
+   },
+   "expect": "[11.0 12.0 13.0 14.0 15.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     0.5,
+     -0.5,
+     0.0,
+     2.0,
+     -2.0
+    ],
+    "1": [
+     -1.5
+    ]
+   },
+   "expect": "[-1.0 -2.0 -1.5 0.5 -3.5]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     16777216.0,
+     1.0,
+     0.0,
+     -1.0,
+     2.0
+    ],
+    "1": [
+     1.0
+    ]
+   },
+   "expect": "[16777216.0 2.0 1.0 0.0 3.0]"
+  },
+  {
+   "data": {
+    "0": [
+     -0.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0
+    ],
+    "1": [
+     0.0
+    ]
+   },
+   "expect": "[0.0 1.0 2.0 3.0 4.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     "-inf",
+     0.0,
+     "nan",
+     2.0
+    ],
+    "1": [
+     "inf"
+    ]
+   },
+   "expect": "[inf nan inf nan inf]"
+  },
+  {
+   "data": {
+    "0": [
+     0.1,
+     0.3,
+     0.0,
+     1.0,
+     -0.2
+    ],
+    "1": [
+     0.2
+    ]
+   },
+   "expect": "[0.30000001192092896 0.5 0.20000000298023224 1.2000000476837158 0.0]"
+  }
+ ],
+ "hints": [
+  "`%s` is one number, shape `()`. `%v` has shape `(5,)`. An `add` needs both operands to have the same shape.",
+  "Stretch the scalar first: `%e = expand %s [5]` is a vector of five copies of `b`.",
+  "Add `%z = add %v %e`, then change the store to `store %y %z`."
+ ],
+ "explain": "`expand %s [5]` turns the scalar `b` into a `(5,)` vector of five copies, so `add %v %e` has two operands of one shape and works elementwise. Each element is one f32 add that rounds on its own, which is why `16777216.0 + 1.0` stays `16777216.0`. The copies are never stored anywhere: the compiled loop reads `b` once and reuses it."
+}

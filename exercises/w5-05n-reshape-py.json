@@ -1,0 +1,58 @@
+{
+ "id": "w5-05n-reshape-py",
+ "lang": "python",
+ "title": "Flatten, then split",
+ "show": "lambda v: ' '.join(map(str, v))",
+ "prompt": "<p>Write the two halves of the reshape rule. <code>flatten(shape, idx)</code> is the row-major position of index <code>idx</code> in <code>shape</code>. <code>unflatten(shape, f)</code> goes the other way: the index, one entry per axis, of position <code>f</code>. <code>reshape_src</code> is written and joins them: flatten in the new shape, unflatten in the old one.</p>",
+ "starter": "def flatten(shape: list[int], idx: list[int]) -> int:\n    return 0\n\n\ndef unflatten(shape: list[int], f: int) -> list[int]:\n    return []\n\n\ndef reshape_src(new_shape: list[int], old_shape: list[int], idx: list[int]) -> list[int]:\n    return unflatten(old_shape, flatten(new_shape, idx))\n",
+ "tests": [
+  {
+   "expr": "reshape_src([2, 3], [6], [1, 2])",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "reshape_src([3, 2], [2, 3], [1, 0])",
+   "expect": "0 2",
+   "sample": true
+  },
+  {
+   "expr": "[flatten([2, 3, 4], [1, 2, 3])]",
+   "expect": "23"
+  },
+  {
+   "expr": "unflatten([2, 3, 4], 23)",
+   "expect": "1 2 3"
+  },
+  {
+   "expr": "unflatten([2, 3, 4], 0)",
+   "expect": "0 0 0"
+  },
+  {
+   "expr": "reshape_src([6], [2, 3], [4])",
+   "expect": "1 1"
+  },
+  {
+   "expr": "reshape_src([2, 2, 3], [4, 3], [1, 0, 2])",
+   "expect": "2 2"
+  },
+  {
+   "expr": "unflatten([4, 1, 5], 13)",
+   "expect": "2 0 3"
+  },
+  {
+   "expr": "[flatten([5], [3])]",
+   "expect": "3"
+  },
+  {
+   "expr": "reshape_src([3, 2], [2, 3], [2, 1])",
+   "expect": "1 2"
+  }
+ ],
+ "hints": [
+  "For flatten, work out <code>[2, 3, 4]</code> with index <code>[1, 2, 3]</code> by hand first: 1·12 + 2·4 + 3·1 = 23. Each stride is the product of the sizes after that axis.",
+  "You can skip the strides. Flatten: start at 0 and, for each axis from the left, multiply by the size and add the index. Unflatten: from the last axis, the coordinate is <code>f % size</code>, then carry <code>f // size</code> to the axis before.",
+  "Flatten: <code>f = f * s + i</code> for each <code>s, i</code> in <code>zip(shape, idx)</code>. Unflatten: for each <code>s</code> in <code>reversed(shape)</code>, put <code>f % s</code> at the front of the result and set <code>f = f // s</code>."
+ ],
+ "explain": "Reshape keeps every element at the same row-major position, so the position is the one thing both shapes agree on. Flatten turns the index into that position using the new shape, and unflatten splits the position back into one coordinate per axis of the old shape. In a compiler the same steps become mul, add, div and mod ops on the loop counter."
+}

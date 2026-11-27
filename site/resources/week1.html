@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
@@ -40,7 +40,7 @@
   <h3><a href="../week1/05-call-and-param.html">1.5 call, param, stack and index</a></h3>
   <p>A param is <code>param [] [l h] slot=k dtype=t addrspace=ALU</code>, with optional limits. A call binds argument i to slot i in its body, and each argument's bounds must fit the limits. Bodies are closed: substitution stops at a nested call's body but goes into its arguments. A param outside any call is rejected.</p>
   <h3><a href="../week1/06-lab.html">1.6 Lab</a></h3>
-  <p>Your compiler takes <code>FILE...</code> (print one <code>OUTCOME FILE</code> line each) and <code>simplify FILE</code> (print a smaller equivalent <code>%out</code>). The suite has 282 tests, and every bug planted in the reference compiler to test them fails at least one.</p>
+  <p>Your compiler takes <code>FILE...</code> (print one <code>OUTCOME FILE</code> line each) and <code>simplify FILE</code> (print a smaller equivalent <code>%out</code>). The suite has 282 tests, and every bug planted in the reference compiler to test them fails at least one. Once your compiler reaches week 2 it scores 272 / 282 here, because week 2 makes ten of these programs legal.</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -122,12 +122,12 @@ python tools/test.py --check-tests DIR --week 1                  # check your ow
   <ol>
     <li><strong>Parse and print.</strong> Done when you can print every binding back in .uir form. Check: <code>%a = add 2 3</code> / <code>%t = assert %a 5</code> should print <code>MATCH</code>. If a later test is <code>REJECTED</code> when it shouldn't be, look at tokens first: <code>%a=add</code> with no spaces, a binding split across lines, <code>0xff</code> and <code>007</code> are all valid, but <code>+1</code>, <code>-0x10</code>, <code>0X10</code> and <code>1.5</code> are not.</li>
     <li><strong>The hash-consed UOp.</strong> Done when building the same node twice gives back the identical node. Check: the suite's <code>dag_sharing</code> runs in milliseconds. If it hangs, your table key hashes or compares whole subtrees instead of child ids or identities.</li>
-    <li><strong>Types.</strong> Done when every type error is reported before anything runs. Check: <code>%a = add 1 true</code> / <code>%t = assert %a 2</code> must print <code>REJECTED</code>.</li>
     <li><strong>Interpreter.</strong> Done when values come out right. Check: <code>%a = div -7 2</code> / <code>%t = assert %a -4</code> prints <code>MATCH</code>. If it prints <code>MISMATCH</code>, your division truncates.</li>
-    <li><strong>call and param.</strong> Done when bodies are closed and values are cached per call. Check: <code>%p0 = param [] slot=0 dtype=i32 addrspace=ALU</code>, <code>%p1 = param [] slot=1 dtype=i32 addrspace=ALU</code>, <code>%inner = add %p0 100</code>, <code>%outer = call %inner %p1</code>, <code>%r = call %outer 1 2</code>, <code>%t = assert %r 102</code> prints <code>MATCH</code>. If you get 101, substitution went into the nested body.</li>
-    <li><strong>Bounds.</strong> Done when unsafe indexes are rejected. Check: <code>%i = param [] [0 3] slot=0 dtype=i32 addrspace=ALU</code>, <code>%v = index [10 20 30] %i</code>, <code>%r = call %v 1</code>, <code>%t = assert %r 20</code> prints <code>REJECTED</code>, and with limits <code>[0 2]</code> it prints <code>MATCH</code>.</li>
+    <li><strong>Types.</strong> Done when every type error is reported before anything runs. Check: <code>%a = add 1 true</code> / <code>%t = assert %a 2</code> must print <code>REJECTED</code>.</li>
     <li><strong>The rewrite engine.</strong> Done when <code>simplify</code> folds constants. Check: <code>%x = param [] slot=0 dtype=i32 addrspace=ALU</code>, <code>%k = mul 3 4</code>, <code>%out = add %k %x</code> should print a program whose <code>%out</code> is <code>add</code> of the param and 12, one op.</li>
     <li><strong>Symbolic rules and bounds.</strong> Done when <code>cmplt (mod (max %x 0) 10) 10</code> simplifies to <code>true</code> but <code>cmplt (mod (max %x 0) 10) 9</code> does not (written as separate bindings). If the second also folds, your comparison is off by one.</li>
+    <li><strong>call and param.</strong> Done when bodies are closed and values are cached per call. Check: <code>%p0 = param [] slot=0 dtype=i32 addrspace=ALU</code>, <code>%p1 = param [] slot=1 dtype=i32 addrspace=ALU</code>, <code>%inner = add %p0 100</code>, <code>%outer = call %inner %p1</code>, <code>%r = call %outer 1 2</code>, <code>%t = assert %r 102</code> prints <code>MATCH</code>. If you get 101, substitution went into the nested body.</li>
+    <li><strong>stack and index.</strong> Done when unsafe indexes are rejected. Check: <code>%i = param [] [0 3] slot=0 dtype=i32 addrspace=ALU</code>, <code>%v = index [10 20 30] %i</code>, <code>%r = call %v 1</code>, <code>%t = assert %r 20</code> prints <code>REJECTED</code>, and with limits <code>[0 2]</code> it prints <code>MATCH</code>.</li>
   </ol>
   <div class="trap"><span class="label">When a test fails and none of this fits</span>
     <p>Rerun it alone with <code>-k NAME -v</code>, copy the test file, delete lines as long as it still fails and compare with the oracle on the smallest version. The <a href="debugging.html">debugging guide</a> walks through it.</p>

@@ -1,0 +1,54 @@
+{
+ "id": "w5-01n-offset-py",
+ "lang": "python",
+ "title": "Repair: index to offset, any rank",
+ "show": "str",
+ "prompt": "<p><code>offset(shape, index)</code> returns where an element sits in the flat buffer. <code>offset([2, 3, 4], [1, 2, 3])</code> should be 23. The loop walks the axes from last to first and is nearly right, but the stride never grows, so it returns 6. Fix the one line that updates <code>stride</code>.</p>",
+ "starter": "def offset(shape, index):\n    off = 0\n    stride = 1\n    for axis in reversed(range(len(shape))):\n        off = off + index[axis] * stride\n        stride = stride * 1\n    return off\n",
+ "tests": [
+  {
+   "expr": "offset([2, 3, 4], [1, 2, 3])",
+   "expect": "23",
+   "sample": true
+  },
+  {
+   "expr": "offset([2, 3], [1, 0])",
+   "expect": "3",
+   "sample": true
+  },
+  {
+   "expr": "offset([5], [4])",
+   "expect": "4"
+  },
+  {
+   "expr": "offset([], [])",
+   "expect": "0"
+  },
+  {
+   "expr": "offset([2, 3, 4], [0, 0, 0])",
+   "expect": "0"
+  },
+  {
+   "expr": "offset([2, 3, 4], [1, 0, 0])",
+   "expect": "12"
+  },
+  {
+   "expr": "offset([2, 3, 4], [0, 1, 0])",
+   "expect": "4"
+  },
+  {
+   "expr": "offset([3, 4], [2, 1])",
+   "expect": "9"
+  },
+  {
+   "expr": "offset([2, 3, 4, 5], [1, 2, 3, 4])",
+   "expect": "119"
+  }
+ ],
+ "hints": [
+  "The loop walks the axes from the last one to the first. The last axis has stride 1, and that part is right. What should the stride be for the next axis to the left?",
+  "A step along an axis skips everything to its right. So each time you move one axis left, the stride grows by the size of the axis you just left.",
+  "Change the line to `stride = stride * shape[axis]`."
+ ],
+ "explain": "The stride of an axis is the product of the sizes to its right. Walking from the last axis, the stride starts at 1 and is multiplied by each size on the way left: `stride = stride * shape[axis]`. For shape `[2 3 4]` that gives strides 1, 4 and 12, so index (1, 2, 3) is `3*1 + 2*4 + 1*12 = 23`. The starter kept the stride at 1, which just added the index up."
+}

@@ -1,0 +1,41 @@
+{
+ "id": "lp-04n-shared",
+ "lang": "python",
+ "title": "Equal, or the same node?",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass\nclass Node:\n    op: str\n    src: list\n    arg: int | None = None\n\n\ndef lit(v):\n    return Node(\"const\", [], v)\n\n\ndef square(a):\n    return Node(\"mul\", [a, a])\n\n\ndef shared(n):\n    return n.src[0] == n.src[1]\n",
+ "show": "str",
+ "tests": [
+  {
+   "expr": "shared(square(lit(3)))",
+   "expect": "True",
+   "sample": true
+  },
+  {
+   "expr": "shared(Node(\"mul\", [lit(3), lit(3)]))",
+   "expect": "False",
+   "sample": true
+  },
+  {
+   "expr": "shared(Node(\"add\", [lit(1), lit(2)]))",
+   "expect": "False"
+  },
+  {
+   "expr": "shared(square(square(lit(2))))",
+   "expect": "True"
+  },
+  {
+   "expr": "shared(Node(\"add\", [square(lit(2)), square(lit(2))]))",
+   "expect": "False"
+  },
+  {
+   "expr": "shared(Node(\"add\", [lit(0), lit(0)]))",
+   "expect": "False"
+  }
+ ],
+ "hints": [
+  "`square(lit(3))` puts one node in the list twice. `Node(\"mul\", [lit(3), lit(3)])` calls `lit` twice, so it holds two nodes. Which question tells those apart?",
+  "`==` on a dataclass compares the fields, so two separate nodes with the same fields are equal. You want the question \"is this the very same object?\"",
+  "Change `==` to `is`: `return n.src[0] is n.src[1]`."
+ ],
+ "explain": "The reference returns `n.src[0] is n.src[1]`. `is` is true only when both places in the list hold the very same object, which is what `square` builds. With `==`, two separate nodes that were built the same way also count, because a dataclass compares fields."
+}

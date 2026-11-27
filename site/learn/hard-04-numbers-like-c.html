@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Numbers That Behave Like C</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="The programs your compiler runs use 32-bit integers that wrap around, a division with its own exact rules, and, from week 2, 32-bit floats. Python and OCaml do...">
+<meta name="description" content="The numbers in your compiler must behave like a machine&#x27;s numbers, not like the numbers of the language you write it in. This page goes through that one idea...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/hard-04-numbers-like-c">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Numbers That Behave Like C">
-<meta property="og:description" content="The programs your compiler runs use 32-bit integers that wrap around, a division with its own exact rules, and, from week 2, 32-bit floats. Python and OCaml do none of these by default. This page...">
+<meta property="og:description" content="The numbers in your compiler must behave like a machine&#x27;s numbers, not like the numbers of the language you write it in. This page goes through that one idea slowly, with pictures. After it you can...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/hard-04-numbers-like-c">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,115 +20,165 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Hard ideas|Numbers that behave like C" data-root="../">
 <main>
   <p class="eyebrow">Hard ideas · 4</p>
   <h1>Numbers that behave like C</h1>
-  <p class="lede">The programs your compiler runs use 32-bit integers that wrap around, a division with its own exact rules, and, from week 2, 32-bit floats. Python and OCaml do none of these by default. This page builds each one up from a picture, so you can make your language compute exactly what the course's ops and C would.</p>
+  <p class="lede">The numbers in your compiler must behave like a machine's numbers, not like the numbers of the language you write it in. This page goes through that one idea slowly, with pictures. After it you can predict what the machine gives and make your own code give the same.</p>
 
   <div class="note">
-    <span class="label">Before you start</span>
-    <p>You need whole numbers and floats in your language (<span class="only-python"><a href="py-01-first-steps.html">P.1</a></span><span class="only-ocaml"><a href="ml-01-first-steps.html">O.1</a></span>). <a href="../week0/01-c-and-pointers.html">Lesson 0.1</a> shows the same ideas from C's side, and has a bit viewer you can play with.</p>
+    <span class="label">Goal</span>
+    <p>Predict what a 32-bit machine computes, and make <span class="only-python">Python</span><span class="only-ocaml">OCaml</span> compute the same thing.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p class="only-python">Whole numbers, floats, functions and <code>if</code> (<a href="py-01-first-steps.html">P.1</a>, <a href="py-02-decisions-loops.html">P.2</a>), and the <code>apply</code> function from <a href="../start/02-build-a-calculator.html">Start step 2</a>.</p>
+    <p class="only-ocaml">Whole numbers, floats, functions and <code>if</code> (<a href="ml-01-first-steps.html">O.1</a>, <a href="ml-02-functions.html">O.2</a>), and the <code>apply</code> function from <a href="../start/02-build-a-calculator.html">Start step 2</a>.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">Two halves</span>
+    <p>The first half is about whole numbers. It is all you need for week 1. The second half is about floats, and you need it in week 2. Each half ends by sending you back to the lesson you came from.</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from the start steps, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="27">
+    <p class="q">What is <code>%out</code>?</p>
+<pre><code>%a   = add 4 5
+%out = mul %a 3</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Work out the first line, then use its answer in the second.</p>
+    <div class="why"><p><code>%a</code> is 9, and 9 × 3 is 27.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">In your step 2 interpreter, which part turns an op and two numbers into one answer?</p>
+    <div class="opts">
+      <button data-k="a"><code>env</code></button>
+      <button data-k="b"><code>apply</code></button>
+      <button data-k="c">the loop in <code>run</code></button>
+    </div>
+    <p class="hint">It has one branch per op.</p>
+    <div class="why"><p><code>apply</code> does the math. Everything on this page is about making that math come out the way a machine's does.</p></div>
   </div>
 
   <div class="prose">
-    <h2>A fixed number of digits</h2>
-    <p>A car's odometer has a fixed number of wheels. Four wheels count from 0000 to 9999, and one more mile shows 0000 again: the carry has nowhere to go, so it falls off. Nothing breaks. The count <b>wraps around</b>.</p>
-    <p>A computer stores whole numbers the same way, with a fixed number of <b>bits</b>. A bit is a single binary digit, 0 or 1. With 4 bits, each place is worth twice the one to its right: 8, 4, 2, 1. So <code>1011</code> is 8 + 2 + 1 = 11. Four bits count from 0 to 15, and then wrap. Step through a 4-bit odometer.</p>
+    <h2>Whole numbers: one more than the biggest</h2>
+    <p>Whole numbers in the course's language are of a kind called <b>i32</b>. An i32 is stored in 32 <b>bits</b>. A bit is one switch that is 0 or 1. Thirty-two switches can't hold every number, so there is a biggest i32: 2,147,483,647.</p>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Predict. What does <code>add 2147483647 1</code> give?</p>
+    <div class="opts">
+      <button data-k="a">2,147,483,648</button>
+      <button data-k="b">An error</button>
+      <button data-k="c">−2,147,483,648</button>
+      <button data-k="d">0</button>
+    </div>
+    <p class="hint">There is no bigger i32 to move to, and nothing in the course's language fails while running.</p>
+    <div class="why"><p>It gives −2,147,483,648, the smallest i32. The count went past the top and came back in at the bottom. The next two sections show why.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Start with a car's odometer, the counter that shows miles driven. It has a fixed number of wheels. Four wheels count from 0000 to 9999, and one more mile shows 0000. The carry has nowhere to go, so it falls off. Nothing breaks. The count <b>wraps around</b>.</p>
+    <p>A machine's counter has bits where the odometer has wheels. Each place is worth twice the one to its right: 8, 4, 2, 1. So <code>1011</code> is 8 + 2 + 1 = 11. Step through a counter with 4 bits and watch it wrap.</p>
   </div>
 
   <div class="fig" id="odo" data-title="a 4-bit odometer"></div>
 
   <div class="prose">
-    <p>The machines you'll compile for use 32 bits for an <code>i32</code>. Read as plain counts, 32 bits go from 0 to 2<sup>32</sup> − 1, which is 4,294,967,295, and one more wraps to 0, exactly like the 4-bit wheel. Hex digits are a short way to write bits: each hex digit is 4 bits, so 32 bits are 8 hex digits, and <code>0xffffffff</code> is all 32 bits set.</p>
+    <p>Four bits wrap after 15. Thirty-two bits wrap the same way, after 4,294,967,295.</p>
 
-    <h2>Negative numbers on a wheel</h2>
-    <p>Where do negative numbers go? Bend the odometer into a circle. Going one step back from 0000 lands on 1111. So call 1111 "−1". One more step back, 1110, is "−2". Do that for the whole bottom half of the circle and you get <b>two's complement</b>, the way every modern machine stores signed integers.</p>
-    <p>The rule in one line: <b>the top bit is worth minus its usual value.</b> In 4 bits the top bit is worth −8 instead of 8. So <code>1011</code> is −8 + 2 + 1 = −5, and <code>0111</code> is still 7. Step around the wheel.</p>
+    <h2>Whole numbers: where the negatives live</h2>
+    <p>An odometer has no negative numbers. A machine gets them by bending the counter into a circle. One step back from <code>0000</code> is <code>1111</code>, so <code>1111</code> is called −1. One more step back, <code>1110</code>, is −2. Half the circle goes to the negative numbers. This layout is called <b>two's complement</b>, and every modern machine uses it.</p>
+    <p>The rule in one line: <b>the top bit is worth minus its usual value.</b> In 4 bits the top bit is worth −8, so <code>1011</code> is −8 + 2 + 1 = −5. Step around the wheel.</p>
   </div>
 
   <div class="fig" id="wheel" data-title="4-bit two's complement: bits, then the value"></div>
 
-  <div class="tablewrap"><table>
-    <thead><tr><th>bits</th><th>as a plain count</th><th>as two's complement</th></tr></thead>
-    <tbody>
-      <tr><td><code>0000</code></td><td>0</td><td>0</td></tr>
-      <tr><td><code>0001</code></td><td>1</td><td>1</td></tr>
-      <tr><td><code>0111</code></td><td>7</td><td>7, the largest</td></tr>
-      <tr><td><code>1000</code></td><td>8</td><td>−8, the smallest</td></tr>
-      <tr><td><code>1011</code></td><td>11</td><td>−5</td></tr>
-      <tr><td><code>1111</code></td><td>15</td><td>−1</td></tr>
-    </tbody>
-  </table></div>
-  <div class="prose">
-    <p>Two things fall out of the wheel. A number is negative exactly when its top bit is 1. And a signed value and a plain count with the same bits differ by exactly 16, the size of the wheel: 11 and −5, 15 and −1.</p>
-    <p>For 32 bits the top bit is worth −2<sup>31</sup>. The smallest <code>i32</code> is −2,147,483,648 (called <code>INT_MIN</code>), the largest is 2,147,483,647 (<code>INT_MAX</code>), and −1 is all ones, <code>0xffffffff</code>. The two readings now differ by 2<sup>32</sup>.</p>
+  <div class="quiz" data-fill="-7">
+    <p class="q">On the 4-bit wheel, what is 7 + 2?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+    <p class="hint">Adding 1 is one step clockwise. Start at 7 and take two steps.</p>
+    <div class="why"><p>One step past 7 is −8, and one more is −7. School math says 9, and 9 − 16 is −7. The wheel has 16 positions, so a wrapped answer is always off by 16.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Overflow wraps</h2>
-    <p>Add 1 to the largest <code>i32</code> and the wheel turns past the top: <code>2147483647 + 1</code> is <code>-2147483648</code>. This is called <b>overflow</b>. The language your compiler runs defines <code>add</code> and <code>mul</code> to wrap exactly like this. (C itself makes signed overflow undefined, which <a href="../week0/01-c-and-pointers.html">lesson 0.1</a> explains. Your compiler's own arithmetic must still wrap.)</p>
-    <p>Neither of your languages wraps at 32 bits.</p>
+    <p>An i32 is the same wheel with 2<sup>32</sup> positions, which is 4,294,967,296. The biggest value is 2,147,483,647, called <code>INT_MAX</code>. One step past it is the smallest, −2,147,483,648, called <code>INT_MIN</code>. That is the answer you predicted a moment ago.</p>
   </div>
-<div class="only-python">
-<pre><code>&gt;&gt;&gt; 2147483647 + 1
-2147483648
-&gt;&gt;&gt; 2 ** 100
-1267650600228229401496703205376</code></pre>
+
+  <details class="toggle">
+    <summary>A table of 4-bit patterns, for when you read bits by hand</summary>
+    <div class="prose">
+      <div class="tablewrap"><table>
+        <thead><tr><th>bits</th><th>as a plain count</th><th>as two's complement</th></tr></thead>
+        <tbody>
+          <tr><td><code>0000</code></td><td>0</td><td>0</td></tr>
+          <tr><td><code>0001</code></td><td>1</td><td>1</td></tr>
+          <tr><td><code>0111</code></td><td>7</td><td>7, the largest</td></tr>
+          <tr><td><code>1000</code></td><td>8</td><td>−8, the smallest</td></tr>
+          <tr><td><code>1011</code></td><td>11</td><td>−5</td></tr>
+          <tr><td><code>1111</code></td><td>15</td><td>−1</td></tr>
+        </tbody>
+      </table></div>
+      <p>A number is negative exactly when its top bit is 1. A signed value and a plain count with the same bits differ by exactly 16, the size of the wheel: 11 and −5, 15 and −1. For 32 bits the top bit is worth −2<sup>31</sup>, −1 is all ones, and the two readings differ by 2<sup>32</sup>.</p>
+      <p>C itself makes signed overflow undefined, which <a href="../week0/01-c-and-pointers.html">lesson 0.1</a> explains. The course's <code>add</code>, <code>mul</code> and <code>shl</code> are defined to wrap, so your compiler's own arithmetic must wrap.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>A Python <code>int</code> grows as large as it needs to. It never overflows, so you wrap by hand: keep the low 32 bits, then read the top bit as the sign. <code>x &amp; 0xFFFFFFFF</code> keeps the low 32 bits as a plain count, even for a negative <code>x</code>. A count of 2<sup>31</sup> or more has its top bit set, so it stands for a negative number: subtract 2<sup>32</sup>.</p>
+    <h2>Whole numbers: wrap by hand</h2>
+    <p>Your language does not wrap at 32 bits:</p>
+<pre class="only-python"><code>&gt;&gt;&gt; 2147483647 + 1
+2147483648</code></pre>
+<pre class="only-ocaml"><code># 2147483647 + 1;;
+- : int = 2147483648</code></pre>
+    <p><span class="only-python">A Python <code>int</code> grows as large as it needs to and never wraps.</span><span class="only-ocaml">An OCaml <code>int</code> has 63 bits, so it wraps far too late.</span> So your interpreter wraps by hand. Take 1,500,000,000 + 1,500,000,000:</p>
+    <ol>
+      <li><strong>Do the math with no limit.</strong> The sum is 3,000,000,000.</li>
+      <li><strong>Check the range.</strong> That is past <code>INT_MAX</code>.</li>
+      <li><strong>Come around.</strong> Subtract the size of the wheel, 4,294,967,296. The result is −1,294,967,296. (Subtract again if the number is still too big. A number below <code>INT_MIN</code> gets the wheel size added.)</li>
+    </ol>
+    <p>Code does it in two moves. First find where the number lands on the wheel, as a count from 0. <span class="only-python"><code>x % 2**32</code> does that: it is the remainder after dividing by the wheel size.</span><span class="only-ocaml"><code>x land 0xFFFFFFFF</code> does that: it keeps the lowest 32 bits of <code>x</code> and clears the rest.</span> Then read the top half of the wheel as negative: a count of 2<sup>31</sup> (2,147,483,648) or more has the wheel size subtracted.</p>
   </div>
-<pre><code>&gt;&gt;&gt; def wrap32(x):
-...     x = x &amp; 0xFFFFFFFF
-...     return x - 2**32 if x &gt;= 2**31 else x
-...
-&gt;&gt;&gt; wrap32(2147483647 + 1)
--2147483648
-&gt;&gt;&gt; wrap32(-1)
--1
-&gt;&gt;&gt; wrap32(2**32 + 5)
-5</code></pre>
-</div>
-<div class="only-ocaml">
-<pre><code># max_int;;
-- : int = 4611686018427387903
-# 2147483647 + 1;;
-- : int = 2147483648
-# max_int + 1 = min_int;;
-- : bool = true</code></pre>
+
+  <div class="exercise" data-ex="hi-04n-wrap32" data-ex-py="hi-04n-wrap32-py">
+    <h3>Finish the wrap</h3>
+    <p><code>wrap32 x</code> should turn any whole number into the i32 it wraps to. The first move is written: <code>count</code> is where <code>x</code> lands on the wheel, as a count from 0 to 2<sup>32</sup> − 1. The second move is missing, so the positions that stand for negative numbers come out as large positive counts. Add it.</p>
+  </div>
+
   <div class="prose">
-    <p>OCaml's <code>int</code> has 63 bits on a 64-bit machine (one bit is used to tell numbers from pointers). It does wrap, but at 63 bits, far past where an <code>i32</code> wraps. The <code>Int32</code> module has true 32-bit integers, with literals ending in <code>l</code>, and <code>Int32.of_int</code> keeps the low 32 bits of an <code>int</code>:</p>
+    <p><a href="../week1/02-uir-and-interpreting.html#numbers">Lesson 1.2</a> writes the same two moves in one line:</p>
+<pre class="only-python"><code>def wrap(x):
+    return (x + 2**31) % 2**32 - 2**31</code></pre>
+<pre class="only-ocaml"><code>let wrap x = Int32.to_int (Int32.of_int x)</code></pre>
   </div>
-<pre><code># Int32.add 2147483647l 1l;;
-- : int32 = -2147483648l
-# let wrap32 x = Int32.to_int (Int32.of_int x);;
-val wrap32 : int -&gt; int = &lt;fun&gt;
-# wrap32 2147483648;;
-- : int = -2147483648
-# wrap32 (4294967296 + 5);;
-- : int = 5</code></pre>
-  <div class="prose">
-    <p>You can also wrap a plain <code>int</code> with bit operations: <code>x land 0xFFFFFFFF</code> keeps the low 32 bits as a count, and a count of <code>0x80000000</code> or more stands for a negative number, so subtract <code>0x100000000</code>.</p>
-  </div>
-</div>
-  <div class="prose">
-    <p>Here's the hand method as a trace table, one row per input:</p>
-  </div>
-  <div class="tablewrap"><table>
-    <thead><tr><th>x</th><th>low 32 bits, as a count</th><th>top bit set (count ≥ 2<sup>31</sup>)?</th><th>wrapped</th></tr></thead>
-    <tbody>
-      <tr><td>2,147,483,648</td><td>2,147,483,648</td><td>yes, subtract 2<sup>32</sup></td><td>−2,147,483,648</td></tr>
-      <tr><td>−1</td><td>4,294,967,295</td><td>yes, subtract 2<sup>32</sup></td><td>−1</td></tr>
-      <tr><td>4,294,967,301 (2<sup>32</sup> + 5)</td><td>5</td><td>no</td><td>5</td></tr>
-      <tr><td>100</td><td>100</td><td>no</td><td>100</td></tr>
-    </tbody>
-  </table></div>
   <div class="trap">
     <span class="label">Wrap after every operation</span>
-    <p>Wrapping once at the end is not enough, because later operations can depend on an intermediate value. Make one helper and call it every time an <code>i32</code> is produced: add, subtract, multiply, negate, shift left, and even division (one quotient overflows, see below). <span class="only-python">Python is the risky one here: a missed wrap gives a correct-looking big number, not an error.</span><span class="only-ocaml">In OCaml, doing the arithmetic in <code>Int32</code> makes a missed wrap impossible, at the cost of converting at the edges.</span></p>
+    <p>Wrapping once at the end is not enough, because a later op can depend on a wrapped value. Call the helper every time an i32 is produced. <span class="only-python">A missed wrap in Python gives a correct-looking big number, not an error.</span><span class="only-ocaml">A missed wrap in OCaml gives a correct-looking big number, not an error.</span></p>
+  </div>
+
+  <div class="prose">
+    <h2>Whole numbers: see the 32 bits</h2>
+    <p>Writing 32 ones and zeros is slow, so people write bits in <b>hex</b>. One hex digit stands for 4 bits. The digits are 0 to 9, then <code>a</code> to <code>f</code> for 10 to 15. Eight hex digits show all 32 bits, and <code>0x</code> in front marks a number as hex.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>i32</th><th>its 32 bits in hex</th><th>why</th></tr></thead>
+    <tbody>
+      <tr><td>255</td><td><code>000000ff</code></td><td>the low 8 bits are on</td></tr>
+      <tr><td>2,147,483,647</td><td><code>7fffffff</code></td><td>every bit but the top one</td></tr>
+      <tr><td>−2,147,483,648</td><td><code>80000000</code></td><td>only the top bit</td></tr>
+      <tr><td>−1</td><td><code>ffffffff</code></td><td>all 32 bits</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>When a test fails on a number near either end of the range, print the bits. <span class="only-python">In Python, <code>x &amp; 0xFFFFFFFF</code> keeps the lowest 32 bits of <code>x</code> as a count from 0, the same as <code>x % 2**32</code>.</span><span class="only-ocaml"><code>x land 0xFFFFFFFF</code> from the last section gives the count to print.</span></p>
   </div>
 
   <div class="exercise small" data-ex="hi-04-hex32" data-ex-py="hi-04-hex32-py">
@@ -138,19 +188,36 @@ val wrap32 : int -&gt; int = &lt;fun&gt;
   </div>
 
   <div class="prose">
-    <h2>Division: toward zero, or down?</h2>
-    <p>Divide 7 by 2 and the true answer is 3.5. A whole-number division has to pick 3 or 4. For positive numbers everyone picks 3. The trouble is −7 / 2 = −3.5. There are two reasonable rules:</p>
+    <h2>Whole numbers: two kinds of division</h2>
+    <p>Divide 7 by 2 and the exact answer is 3.5. An i32 can't hold 3.5, so a whole-number division has to pick 3 or 4, and everyone picks 3. Now try a negative number. The exact answer to −7 ÷ 2 is −3.5.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Predict. What does the course's <code>div -7 2</code> give?</p>
+    <div class="opts">
+      <button data-k="a">−3, the whole number nearer to zero</button>
+      <button data-k="b">−4, the whole number below −3.5</button>
+      <button data-k="c">An error, because the answer is not whole</button>
+    </div>
+    <p class="hint">The course's <code>div</code> always moves the same direction on the number line, for positive and negative answers.</p>
+    <div class="why"><p>It gives −4. The course's <code>div</code> always rounds down, toward the more negative number. C would say −3. Both rules are in use, and you need to tell them apart.</p></div>
+  </div>
+
+  <div class="prose">
     <ul>
-      <li><b>Truncate</b>: round toward zero, so −3.5 becomes −3. C does this, and so does OCaml's <code>/</code>.</li>
-      <li><b>Floor</b>: round down, toward minus infinity, so −3.5 becomes −4. Python's <code>//</code> does this, and so does the course's <code>div</code>.</li>
+      <li><b>Truncate</b>: drop the fraction, which moves toward zero. −3.5 becomes −3. C does this, and so does OCaml's <code>/</code>.</li>
+      <li><b>Floor</b>: round down, toward the more negative number. −3.5 becomes −4. Python's <code>//</code> does this, and so does the course's <code>div</code>.</li>
     </ul>
-    <p>The remainder follows the quotient, so that <code>a = b × q + r</code> always holds. With truncation the remainder has the sign of <code>a</code>. With flooring it has the sign of <code>b</code>. Step through the four sign cases on a number line.</p>
+    <p>Step through the four sign cases on a number line.</p>
   </div>
 
   <div class="fig" id="divline" data-title="truncate (C, OCaml) versus floor (Python, .uir)"></div>
 
+  <div class="prose">
+    <p>The remainder is what is left over. Call the quotient <code>q</code> and the remainder <code>r</code>. Then <code>r = a − b × q</code>, so a different <code>q</code> gives a different <code>r</code>. Flooring −7 by 2: −7 − 2 × (−4) = 1. Truncating: −7 − 2 × (−3) = −1.</p>
+  </div>
   <div class="tablewrap"><table>
-    <thead><tr><th>a, b</th><th>true a / b</th><th>truncate: q, r</th><th>floor: q, r</th></tr></thead>
+    <thead><tr><th>a, b</th><th>exact a ÷ b</th><th>truncate: q, r</th><th>floor: q, r</th></tr></thead>
     <tbody>
       <tr><td>7, 2</td><td>3.5</td><td>3, 1</td><td>3, 1</td></tr>
       <tr><td>−7, 2</td><td>−3.5</td><td>−3, −1</td><td>−4, 1</td></tr>
@@ -159,27 +226,30 @@ val wrap32 : int -&gt; int = &lt;fun&gt;
     </tbody>
   </table></div>
   <div class="prose">
-    <p>Check a row with <code>a = b × q + r</code>. Truncating −7 by 2: 2 × −3 + −1 = −7. Flooring: 2 × −4 + 1 = −7. Both are correct. They're different conventions. They only disagree when the signs differ and the division isn't exact.</p>
-  </div>
+    <p>The two rules disagree only when the signs differ and the division isn't exact. A floored remainder has the sign of <code>b</code>. A truncated one has the sign of <code>a</code>.</p>
+
+    <h2>Whole numbers: divide both ways in your language</h2>
+    <p>Your language picked one rule. You will need both: the course's <code>div</code> and <code>mod</code> floor, and the C your compiler prints from week 2 on truncates.</p>
 <pre class="only-python"><code>&gt;&gt;&gt; -7 // 2
 -4
 &gt;&gt;&gt; -7 % 2
-1
-&gt;&gt;&gt; int(-7 / 2)
--3</code></pre>
+1</code></pre>
 <pre class="only-ocaml"><code># (-7) / 2;;
 - : int = -3
 # (-7) mod 2;;
-- : int = -1
-# 7 mod (-2);;
-- : int = 1</code></pre>
-  <div class="prose">
-    <p class="only-python">Python's <code>//</code> and <code>%</code> already floor, the same as the course's <code>div</code> and <code>mod</code>. You still need C's rule from week 2 on, because the C your compiler prints truncates. <code>int(-7 / 2)</code> truncates, but it goes through a float, and a float can't hold every large integer exactly. For C-style division, divide the absolute values with <code>//</code>, then make the quotient negative when exactly one of <code>a</code> and <code>b</code> is negative. The remainder is then <code>a - b * q</code>.</p>
-    <p class="only-ocaml">OCaml's <code>/</code> and <code>mod</code> truncate, like C. That's the trap: the course's <code>div</code> and <code>mod</code> floor. Fix up the truncated result: when the remainder isn't zero and its sign differs from <code>b</code>'s, subtract 1 from the quotient and add <code>b</code> to the remainder. Keep C's rule in mind too, because from week 2 your compiler prints C, and C's <code>/</code> truncates.</p>
-  </div>
-  <div class="trap">
-    <span class="label">One quotient doesn't fit</span>
-    <p><code>INT_MIN / -1</code> should be 2,147,483,648, which is one more than <code>INT_MAX</code>. It wraps back to <code>INT_MIN</code>. That's why division needs the wrap too. Dividing by zero has no true answer, so the course defines one: <code>div x 0</code> is −1 and <code>mod x 0</code> is <code>x</code>. <span class="only-python">Python raises an error</span><span class="only-ocaml">OCaml raises <code>Division_by_zero</code></span> there, and C leaves it undefined, so both need a check first. <a href="../week0/07-python.html">Lesson 0.7</a> and <a href="../week0/06-ocaml.html">lesson 0.6</a> each have an exercise on this.</p>
+- : int = -1</code></pre>
+    <p class="only-python">Python's <code>//</code> and <code>%</code> floor, the same as the course's <code>div</code> and <code>mod</code>. To get C's rule from them:</p>
+    <ol class="only-python">
+      <li><strong>Divide the sizes.</strong> <code>abs(a) // abs(b)</code> is the quotient without its sign. For −7 and 2 that is 3.</li>
+      <li><strong>Put the sign back.</strong> Make it negative when exactly one of <code>a</code> and <code>b</code> is negative: −3.</li>
+      <li><strong>Find what is left.</strong> <code>r = a - b * q</code>, here −7 − 2 × (−3) = −1.</li>
+    </ol>
+    <p class="only-ocaml">OCaml's <code>/</code> and <code>mod</code> truncate, like C. That is the trap, because the course floors. To get the floored pair from them:</p>
+    <ol class="only-ocaml">
+      <li><strong>Divide the usual way.</strong> For −7 and 2, <code>/</code> gives −3 and <code>mod</code> gives −1.</li>
+      <li><strong>Check the remainder.</strong> If it is not 0 and its sign differs from <code>b</code>'s, the quotient was rounded the wrong way. Here −1 and 2 differ in sign.</li>
+      <li><strong>Fix both.</strong> Subtract 1 from the quotient and add <code>b</code> to the remainder: −4 and 1.</li>
+    </ol>
   </div>
 
   <div class="exercise small" data-ex="hi-04-divs" data-ex-py="hi-04-divs-py">
@@ -188,51 +258,129 @@ val wrap32 : int -&gt; int = &lt;fun&gt;
     <p class="muted"><code>/</code> and <code>mod</code> give you the first two. Get the floored pair from them with the fix-up described above.</p>
   </div>
 
-  <div class="prose">
-    <h2>Floats: f64 and f32</h2>
-    <p>Week 1 has only integers and booleans. Floats arrive in week 2, and this part is ready for them. A float is a number in scientific notation, written in binary. In decimal, 6.02 × 10<sup>23</sup> has a sign, some digits (6.02) and an exponent (23). A float stores the same three parts as bits: a <b>sign</b> bit, an <b>exponent</b>, and a <b>fraction</b> that holds the digits. A fixed number of bits for the fraction means a fixed number of significant digits, so most numbers get rounded to the nearest one that fits.</p>
+  <div class="trap">
+    <span class="label">Two divisions with no natural answer</span>
+    <p>Dividing by zero has no exact answer, so the course defines one: <code>div x 0</code> is −1 and <code>mod x 0</code> is <code>x</code>. <span class="only-python">Python raises an error there</span><span class="only-ocaml">OCaml raises <code>Division_by_zero</code> there</span>, so check for 0 first. And <code>div INT_MIN -1</code> should be 2,147,483,648, which is one past <code>INT_MAX</code>. It wraps back to <code>INT_MIN</code>, so division needs the wrap too.</p>
   </div>
-  <div class="tablewrap"><table>
-    <thead><tr><th>type</th><th>bits: sign, exponent, fraction</th><th>about this many decimal digits</th><th>who uses it</th></tr></thead>
-    <tbody>
-      <tr><td>f64 (double)</td><td>1, 11, 52</td><td>15 to 17</td><td>Python's <code>float</code>, OCaml's <code>float</code></td></tr>
-      <tr><td>f32 (single)</td><td>1, 8, 23</td><td>6 to 9</td><td>the course's <code>f32</code> (from week 2), C's <code>float</code>, most ML models</td></tr>
-    </tbody>
-  </table></div>
+
+  <details class="toggle">
+    <summary>Why not divide with floats, and what C does in the two odd cases</summary>
+    <div class="prose">
+      <p class="only-python"><code>int(-7 / 2)</code> truncates and gives −3, but it goes through a float, and a float can't hold every large integer exactly. Stay in whole numbers.</p>
+      <p>In C, dividing by zero and <code>INT_MIN / -1</code> are both undefined, which means a C compiler may do anything at all. The C your compiler prints has to check for both. <a href="../week0/07-python.html">Lesson 0.7</a> and <a href="../week0/06-ocaml.html">lesson 0.6</a> each have an exercise on this, and <a href="../week2/04-rendering-c.html">lesson 2.4</a> prints the C.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>Your language gives you f64. To compute like f32, you <b>round to f32</b> after every operation: take the f64 result and replace it with the nearest value that fits in 32 bits. The standard way is to convert to the 32-bit form and back.</p>
+    <h2>Whole numbers: rules that look true</h2>
+    <p>A <b>rewrite rule</b> swaps a piece of a program for a simpler piece that gives the same answer. In school math, (x × 2) ÷ 2 is always x, so swapping it for plain <code>x</code> looks safe. Step through this program, where x is 1,073,741,824. Guess each value first.</p>
   </div>
+
+  <div class="fig" id="rule"></div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Is the rule <code>(x * 2) / 2 → x</code> safe for i32 numbers?</p>
+    <div class="opts">
+      <button data-k="a">Yes, it is plain algebra</button>
+      <button data-k="b">No. It gives a different answer whenever <code>x * 2</code> wraps</button>
+      <button data-k="c">No. It fails for every negative <code>x</code></button>
+    </div>
+    <p class="hint">Compare <code>%out</code> in the figure with the x you started from.</p>
+    <div class="why"><p>1,073,741,824 × 2 is 2,147,483,648, which wraps to <code>INT_MIN</code>. Dividing that by 2 gives −1,073,741,824, not x. Press Edit and change the first number to 5: the rule works there, so small tests don't catch it.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The same thing breaks "x + 1 is greater than x": at <code>INT_MAX</code>, x + 1 is <code>INT_MIN</code>. Before you trust a rule, try it at the ends of the range, where wrapping happens.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">End of the first half</span>
+    <p>That is everything week 1 needs. Go back to the lesson that sent you: <a href="../week1/02-uir-and-interpreting.html#numbers">lesson 1.2</a> for wrapping and flooring in your interpreter, or <a href="../week1/04-symbolic.html">lesson 1.4</a> for rules that have to stay true when numbers wrap. Come back for the second half when week 2 brings floats.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Floats (week 2): a fixed number of digits</h2>
+  </div>
+  <div class="note">
+    <span class="label">Come back in week 2</span>
+    <p>Week 1 has only whole numbers and booleans. Read on from here when <a href="../week2/01-buffers-and-views.html">lesson 2.1</a> sends you.</p>
+  </div>
+  <div class="prose">
+    <p>A <b>float</b> is how a machine stores a number with a decimal point. Picture a calculator that keeps only 3 digits, plus a note of where the decimal point goes. It can hold 123, and 1.23, and 1,230,000. It can't hold 1,234. The fourth digit has no place to go, so the calculator stores the nearest number it can hold, 1,230.</p>
+    <p>Ask that calculator for 1,230 + 1. The exact answer is 1,231, and it stores 1,230. The 1 is gone.</p>
+    <p>The course's float is called <b>f32</b>. It works the same way in binary: it keeps 24 binary digits and the place of the point. That is enough for every whole number up to 2<sup>24</sup>, which is 16,777,216.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Predict. In f32, what is 16,777,216 + 1?</p>
+    <div class="opts">
+      <button data-k="a">16,777,217</button>
+      <button data-k="b">16,777,216</button>
+      <button data-k="c">An error</button>
+    </div>
+    <p class="hint">16,777,217 needs 25 binary digits. Think of the calculator at 1,230 + 1.</p>
+    <div class="why"><p>The 1 disappears. An f32 can't hold 16,777,217, so the answer moves to a nearby number it can hold.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Past 16,777,216 an f32 can hold only every second whole number. A filled box is a number f32 can hold:</p>
+  </div>
+  <div class="fig"><div class="head"><span class="title">Whole numbers near 16,777,216</span></div><div class="body"><div class="mem"><div class="cell on">16777214</div><div class="cell on">16777215</div><div class="cell on">16777216</div><div class="cell">16777217</div><div class="cell on">16777218</div><div class="cell">16777219</div><div class="cell on">16777220</div></div></div></div>
+  <div class="prose">
+    <p>So every f32 operation takes these moves:</p>
+    <ol>
+      <li><strong>Compute exactly.</strong> 16,777,216 + 1 is 16,777,217.</li>
+      <li><strong>Find the neighbors.</strong> The nearest numbers f32 can hold are 16,777,216 and 16,777,218.</li>
+      <li><strong>Pick the nearest.</strong> Both are 1 away. A tie goes to the neighbor whose last kept bit is 0, here 16,777,216. This rule is called <b>ties to even</b>.</li>
+    </ol>
+
+    <h2>Floats (week 2): round after every operation</h2>
+    <p><span class="only-python">Python's <code>float</code></span><span class="only-ocaml">OCaml's <code>float</code></span> is a bigger kind called <b>f64</b>. It keeps 53 binary digits where f32 keeps 24, so it holds 16,777,217 with no trouble. To compute like an f32 machine, do the operation in your own floats, then <b>round to f32</b>: replace the result with the nearest value an f32 can hold. This helper does the rounding:</p>
 <pre class="only-python"><code>&gt;&gt;&gt; import struct
 &gt;&gt;&gt; def to_f32(x):
 ...     return struct.unpack("&lt;f", struct.pack("&lt;f", x))[0]
 ...
-&gt;&gt;&gt; to_f32(0.1)
-0.10000000149011612
 &gt;&gt;&gt; to_f32(16777217.0)
 16777216.0</code></pre>
-<pre class="only-ocaml"><code># Int32.float_of_bits (Int32.bits_of_float 0.1);;
-- : float = 0.100000001490116119
-# Int32.float_of_bits (Int32.bits_of_float 16777217.0);;
+<pre class="only-ocaml"><code># let to_f32 x = Int32.float_of_bits (Int32.bits_of_float x);;
+val to_f32 : float -&gt; float = &lt;fun&gt;
+# to_f32 16777217.0;;
 - : float = 16777216.</code></pre>
-  <div class="prose">
-    <p class="only-python"><code>struct.pack("&lt;f", x)</code> stores <code>x</code> as the 4 bytes of an f32, rounding to the nearest, and <code>struct.unpack</code> reads those bytes back as a Python float, exactly. One catch: for a value too big for f32, like <code>1e39</code>, <code>struct.pack</code> raises <code>OverflowError</code> where C would give infinity. <a href="../week0/07-python.html">Lesson 0.7</a> shows the fix.</p>
-    <p class="only-ocaml"><code>Int32.bits_of_float x</code> rounds <code>x</code> to the nearest f32 and gives its 32 bits. <code>Int32.float_of_bits</code> reads those bits back as an OCaml float holding exactly that f32 value. Too-big values become infinity, as in C.</p>
-    <p>16,777,217 is 2<sup>24</sup> + 1. An f32 has 24 bits of precision, so it can't hold 16,777,217. That value sits exactly halfway between 16,777,216 and 16,777,218, and a tie rounds to the neighbor whose last bit is 0.</p>
+    <p class="only-python"><code>struct.pack("&lt;f", x)</code> stores <code>x</code> in the 4 bytes of an f32, rounding to the nearest. <code>struct.unpack</code> reads those bytes back as a Python float.</p>
+    <p class="only-ocaml"><code>Int32.bits_of_float x</code> rounds <code>x</code> to the nearest f32 and gives its 32 bits. <code>Int32.float_of_bits</code> reads those bits back as an OCaml float.</p>
+    <p>Round after <em>every</em> operation, not once at the end. Take 16,777,216 + 1 + 1:</p>
+    <ol>
+      <li><strong>Add and round.</strong> 16,777,216 + 1 is 16,777,217, which rounds to 16,777,216.</li>
+      <li><strong>Add and round again.</strong> 16,777,216 + 1 rounds to 16,777,216 again.</li>
+    </ol>
+    <p>An f32 machine ends at 16,777,216. Rounding once at the end gives 16,777,218, a different answer.</p>
+  </div>
 
-    <h2>Why 0.1 + 0.2 is not 0.3</h2>
-    <p>In decimal, 1/3 never ends: 0.3333... If you only keep four digits, 1/3 is 0.3333, and three of them add to 0.9999, not 1. Nothing went wrong in the adding. The numbers were rounded before you started.</p>
+  <div class="exercise" data-ex="hi-04n-f32-sum" data-ex-py="hi-04n-f32-sum-py">
+    <h3>Round after every add</h3>
+    <p><code>sum3 a b c</code> should add three f32 values the way an f32 machine does: <code>a + b</code> first, then <code>+ c</code>, rounding to f32 after each addition. <code>to_f32</code> is written. The starter rounds only once, at the end, so <code>sum3 16777216.0 1.0 1.0</code> gives 16777218 where an f32 machine gives 16777216. Repair it.</p>
   </div>
-  <div class="tablewrap"><table>
-    <thead><tr><th>step</th><th>exact</th><th>with 4 decimal digits</th></tr></thead>
-    <tbody>
-      <tr><td>1/3</td><td>0.3333...</td><td>0.3333</td></tr>
-      <tr><td>1/3 + 1/3</td><td>0.6666...</td><td>0.6666</td></tr>
-      <tr><td>1/3 + 1/3 + 1/3</td><td>1</td><td>0.9999</td></tr>
-    </tbody>
-  </table></div>
+
+  <details class="toggle">
+    <summary>f64 and f32 side by side, and a value too big for f32</summary>
+    <div class="prose">
+      <div class="tablewrap"><table>
+        <thead><tr><th>type</th><th>bits: sign, exponent, fraction</th><th>about this many decimal digits</th><th>who uses it</th></tr></thead>
+        <tbody>
+          <tr><td>f64 (double)</td><td>1, 11, 52</td><td>15 to 17</td><td>Python's <code>float</code>, OCaml's <code>float</code></td></tr>
+          <tr><td>f32 (single)</td><td>1, 8, 23</td><td>6 to 9</td><td>the course's <code>f32</code> (from week 2), C's <code>float</code>, most ML models</td></tr>
+        </tbody>
+      </table></div>
+      <p>The fraction bits plus one implied leading 1 give the 53 and 24 binary digits.</p>
+      <p class="only-python">One catch: for a value too big for f32, like <code>1e39</code>, <code>struct.pack</code> raises <code>OverflowError</code> where C would give infinity. <a href="../week0/07-python.html">Lesson 0.7</a> shows the fix.</p>
+      <p class="only-ocaml">A value too big for f32, like <code>1e39</code>, becomes infinity, as in C.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>Binary has the same problem with tenths. 1/10 in binary is 0.000110011001100... forever, so <code>0.1</code> is stored as the nearest f64, which is a tiny bit off. So is <code>0.2</code>, and so is <code>0.3</code>, and the errors don't cancel:</p>
-  </div>
+    <h2>Floats (week 2): why 0.1 is not exactly 0.1</h2>
+    <p>In decimal, 1/3 never ends: 0.3333... Keep only four digits and 1/3 is 0.3333. Three of them add to 0.9999, not 1. Nothing went wrong in the adding. The numbers were rounded before you started.</p>
+    <p>Binary has the same trouble with tenths. 1/10 in binary goes on forever, so <code>0.1</code> is stored as the nearest float, which is a tiny bit off. As an f32 it is 0.10000000149011612. Your own f64 floats show the effect:</p>
 <pre class="only-python"><code>&gt;&gt;&gt; 0.1 + 0.2
 0.30000000000000004
 &gt;&gt;&gt; 0.1 + 0.2 == 0.3
@@ -241,32 +389,47 @@ False</code></pre>
 - : float = 0.300000000000000044
 # 0.1 +. 0.2 = 0.3;;
 - : bool = false</code></pre>
-  <div class="prose">
-    <p>The lesson isn't "floats are random". Float arithmetic is exact and repeatable: the same operations in the same order on the same values give the same bits every time. That's why your interpreter and the C your compiler prints can agree to the last bit, as long as both round at the same moments. What you can't do is expect a float to equal the decimal you typed.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Why is <code>0.1 + 0.2 == 0.3</code> false with f64 floats?</p>
+    <div class="opts">
+      <button data-k="a">Float addition is not exact and can give a different answer each time</button>
+      <button data-k="b">None of the three numbers can be stored exactly, and the rounding errors don't cancel</button>
+      <button data-k="c">The comparison should use a different operator for floats</button>
+    </div>
+    <p class="hint">Is 1/10 a finite fraction in binary?</p>
+    <div class="why"><p>0.1, 0.2 and 0.3 are each rounded to the nearest f64. The sum of the first two rounds to a different f64 than 0.3 does. The arithmetic itself is exact and repeatable.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Looking at a float's bits</h2>
-    <p>Decimal printing can hide the difference between two floats. The bits never do. Here are the 32 bits of a few f32 values, split into the three parts. Step through them.</p>
+    <p>Floats are not random. The same operations in the same order on the same values give the same bits every time. That is why your interpreter and the C your compiler prints can agree to the last bit, as long as both round at the same moments. In f32, the rounded sum of <code>0.1</code> and <code>0.2</code> happens to land exactly on the rounded <code>0.3</code>. You can't guess that. You round and look.</p>
+
+    <h2>Floats (week 2): read a float's bits</h2>
+    <p>Decimal printing can hide the difference between two floats. The bits never do. An f32 has three parts: a <b>sign</b> bit, an <b>exponent</b> that says where the point goes, and a <b>fraction</b> that holds the digits. Step through a few values. Three of them are special: <code>inf</code> is infinity, a result too big for f32. <code>nan</code>, "not a number", is the result of something like 0 ÷ 0. And <code>-0.0</code> is zero with the sign bit set.</p>
   </div>
 
   <div class="fig" id="fbits" data-title="f32 values, bit by bit"></div>
 
-<pre class="only-python"><code>&gt;&gt;&gt; (0.1).hex()
-'0x1.999999999999ap-4'
-&gt;&gt;&gt; hex(struct.unpack("&lt;I", struct.pack("&lt;f", 0.1))[0])
-'0x3dcccccd'</code></pre>
-<pre class="only-ocaml"><code># Printf.sprintf "%h" 0.1;;
-- : string = "0x1.999999999999ap-4"
-# Printf.sprintf "%08lx" (Int32.bits_of_float 0.1);;
-- : string = "3dcccccd"</code></pre>
   <div class="prose">
-    <p><span class="only-python"><code>float.hex</code></span><span class="only-ocaml">The <code>%h</code> format</span> writes the f64 in hex scientific notation: <code>0x1.999...ap-4</code> means 1.999...a (in hex) times 2<sup>−4</sup>. The second line gives the 32 bits of the f32 in hex. <span class="only-python"><code>"&lt;I"</code> reads the same 4 bytes as an unsigned 32-bit int. Leading zeros are left off, so a value with zeros at the front prints fewer than 8 digits.</span><span class="only-ocaml"><code>%lx</code> prints an <code>int32</code> in hex.</span> When two floats look the same in decimal but your tests disagree, print the bits.</p>
-
-    <h2>Two odd values: nan and −0.0</h2>
-    <p><b>nan</b> ("not a number") is the result of an undefined operation, like 0 / 0 or infinity minus infinity. It compares unequal to everything, itself included. So <span class="only-python"><code>x == x</code></span><span class="only-ocaml"><code>x = x</code></span> is false exactly when <code>x</code> is nan, and you test for it with a function, not with equality.</p>
-    <p><b>−0.0</b> is zero with the sign bit set. It compares equal to <code>0.0</code>, but it's a different value: dividing by it gives minus infinity, and its bits are <code>80000000</code> instead of <code>00000000</code>.</p>
+    <p>Here is how to print the 32 bits of an f32 as hex:</p>
+<pre class="only-python"><code>&gt;&gt;&gt; hex(struct.unpack("&lt;I", struct.pack("&lt;f", 0.1))[0])
+'0x3dcccccd'</code></pre>
+<pre class="only-ocaml"><code># Printf.sprintf "%08lx" (Int32.bits_of_float 0.1);;
+- : string = "3dcccccd"</code></pre>
+    <p><span class="only-python"><code>"&lt;I"</code> reads the same 4 bytes as a whole number from 0 to 2<sup>32</sup> − 1.</span><span class="only-ocaml"><code>%lx</code> prints an <code>int32</code> in hex.</span> When two floats look the same in decimal but your tests disagree, print the bits.</p>
+    <p>Two of the special values break ordinary comparing. <code>nan</code> is unequal to everything, itself included, so you test for it with <span class="only-python"><code>math.isnan</code></span><span class="only-ocaml"><code>Float.is_nan</code></span>. And <code>-0.0</code> compares equal to <code>0.0</code>, but its bits are <code>80000000</code>, not <code>00000000</code>.</p>
   </div>
+
+  <div class="exercise small" data-ex="hi-04-f32-bits" data-ex-py="hi-04-f32-bits-py">
+    <h3>An f32's bits</h3>
+    <p>Write <code>f32_bits x</code>: round the float <code>x</code> to f32 and return its 32 bits as a non-negative <code>int</code> (from 0 to 2<sup>32</sup> − 1). The tests print it as 8 hex digits: <code>f32_bits 1.0</code> shows as <code>3f800000</code>, and <code>f32_bits (-0.0)</code> as <code>80000000</code>.</p>
+    <p class="muted"><code>Int32.bits_of_float</code> gives the bits, but as a signed <code>int32</code>. Turn it into an <code>int</code> and keep the low 32 bits, so the sign bit counts as 2<sup>31</sup>.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>nan and −0.0 in your language, and where they bite</summary>
+    <div class="prose">
 <pre class="only-python"><code>&gt;&gt;&gt; import math
 &gt;&gt;&gt; nan = float("nan")
 &gt;&gt;&gt; nan == nan
@@ -280,7 +443,9 @@ True
 &gt;&gt;&gt; 1.0 / -0.0
 Traceback (most recent call last):
   ...
-ZeroDivisionError: float division by zero</code></pre>
+ZeroDivisionError: float division by zero
+&gt;&gt;&gt; (0.1).hex()
+'0x1.999999999999ap-4'</code></pre>
 <pre class="only-ocaml"><code># nan = nan;;
 - : bool = false
 # Float.is_nan nan;;
@@ -290,41 +455,45 @@ ZeroDivisionError: float division by zero</code></pre>
 # Float.sign_bit (-0.0);;
 - : bool = true
 # 1.0 /. (-0.0);;
-- : float = neg_infinity</code></pre>
+- : float = neg_infinity
+# Printf.sprintf "%h" 0.1;;
+- : string = "0x1.999999999999ap-4"</code></pre>
+      <p class="only-python">Python refuses to divide a float by zero, where C gives an infinity. Your interpreter has to produce C's answer, so it checks for a zero divisor and returns the right infinity (or nan, for 0 / 0) itself.</p>
+      <p class="only-ocaml">OCaml's float division follows IEEE, like C, so <code>1.0 /. (-0.0)</code> is already minus infinity.</p>
+      <p>The last line writes the f64 in hex scientific notation: <code>0x1.999...ap-4</code> means 1.999...a (in hex) times 2<sup>−4</sup>.</p>
+      <p>In a lookup table these two values break keys (<a href="hard-01-sharing.html">H.1</a>: key floats by their bits). In rewrite rules they break "obvious" laws: <code>x * 0 → 0</code> is wrong when <code>x</code> is nan, infinity or negative (a negative <code>x</code> gives −0.0), and <code>x + 0.0 → x</code> is wrong when <code>x</code> is −0.0 (<a href="hard-03-rewriting.html">H.3</a>, <a href="../week0/03-compilers-and-irs.html">lesson 0.3</a>). <a href="../week2/01-buffers-and-views.html">Lesson 2.1</a> has the full table of special values.</p>
+    </div>
+  </details>
+
+  <div class="note">
+    <span class="label">End of the second half</span>
+    <p>Go back to <a href="../week2/01-buffers-and-views.html">lesson 2.1</a>, where your interpreter gets f32.</p>
+  </div>
+
   <div class="prose">
-    <p class="only-python">Python refuses to divide a float by zero, where C gives an infinity. Your interpreter has to produce C's answer, so it checks for a zero divisor and returns the right infinity (or nan, for 0 / 0) itself.</p>
-    <p class="only-ocaml">OCaml's float division follows IEEE, like C, so <code>1.0 /. (-0.0)</code> is already minus infinity.</p>
-  </div>
-  <div class="trap">
-    <span class="label">Where these two bite</span>
-    <p>In a lookup table they break keys (<a href="hard-01-sharing.html">H.1</a>: key floats by their bits). In rewrite rules they break "obvious" laws: <code>x * 0 → 0</code> is wrong when <code>x</code> is nan, infinity or negative (a negative <code>x</code> gives −0.0), and <code>x + 0.0 → x</code> is wrong when <code>x</code> is −0.0 (<a href="hard-03-rewriting.html">H.3</a>, <a href="../week0/03-compilers-and-irs.html">lesson 0.3</a>). <a href="../week2/01-buffers-and-views.html">Week 2</a> has the full table of special values.</p>
-  </div>
-
-  <div class="exercise small" data-ex="hi-04-f32-bits" data-ex-py="hi-04-f32-bits-py">
-    <h3>An f32's bits</h3>
-    <p>Write <code>f32_bits x</code>: round the float <code>x</code> to f32 and return its 32 bits as a non-negative <code>int</code> (from 0 to 2<sup>32</sup> − 1). The tests print it as 8 hex digits: <code>f32_bits 1.0</code> shows as <code>3f800000</code>, and <code>f32_bits (-0.0)</code> as <code>80000000</code>.</p>
-    <p class="muted"><code>Int32.bits_of_float</code> gives the bits, but as a signed <code>int32</code>. Turn it into an <code>int</code> and keep the low 32 bits, so the sign bit counts as 2<sup>31</sup>.</p>
-  </div>
-
-  <div class="prose">
-    <h2>Where this shows up in the course</h2>
-    <ul>
-      <li><a href="../week1/02-uir-and-interpreting.html">Lesson 1.2</a>: your interpreter computes <code>i32</code> exactly: wrap, and <code>div</code> and <code>mod</code> that floor, with −1 and <code>x</code> for a zero divisor, and <code>shl</code> by <code>y mod 32</code>.</li>
-      <li><a href="../week1/03-rewrites-and-folding.html">Lesson 1.3</a>: constant folding must give the interpreter's answer, wrap included.</li>
-      <li><a href="../week2/01-buffers-and-views.html">Week 2</a>: <code>f32</code> arrives, rounded to f32 after every operation, with the special values.</li>
-      <li><a href="../week2/04-rendering-c.html">Lesson 2.4</a>: the C you print must wrap and floor without undefined behavior, even though C's <code>/</code> truncates, and float constants are written exactly, from their bits.</li>
-      <li><a href="../week2/05-the-runtime.html">Lesson 2.5</a>: results come back from C as hex bits, and you compare bits.</li>
-    </ul>
-
     <h2>What you can do now</h2>
     <ul>
-      <li>Read 4-bit and 32-bit values in two's complement, and say why the top bit decides the sign.</li>
-      <li>Wrap any integer to 32 bits in your language, and know to do it after every operation.</li>
-      <li>Tell truncating division from flooring, for all four sign cases, know the course floors, and check a result with <code>a = b × q + r</code>.</li>
-      <li>Round an f64 to f32, and explain why 0.1 + 0.2 isn't 0.3.</li>
+      <li>Say why <code>INT_MAX</code> + 1 is <code>INT_MIN</code>, using the wheel, and wrap any whole number to 32 bits in your language.</li>
+      <li>Tell truncating division from flooring for all four sign cases, and get either one in your language.</li>
+      <li>Test a rule at the ends of the range before you trust it.</li>
+      <li>Round to f32 after every operation, and explain why 16,777,216 + 1 is 16,777,216.</li>
       <li>Print a float's bits in hex, and test for nan and −0.0 correctly.</li>
     </ul>
+    <p>Next, return to the lesson that sent you here and put these helpers into your interpreter.</p>
   </div>
+
+  <details class="toggle">
+    <summary>Where each idea shows up in the course</summary>
+    <div class="prose">
+      <ul>
+        <li><a href="../week1/02-uir-and-interpreting.html">Lesson 1.2</a>: your interpreter computes <code>i32</code> exactly: wrap, and <code>div</code> and <code>mod</code> that floor, with −1 and <code>x</code> for a zero divisor, and <code>shl</code> by <code>y mod 32</code>.</li>
+        <li><a href="../week1/03-rewrites-and-folding.html">Lesson 1.3</a>: constant folding must give the interpreter's answer, wrap included.</li>
+        <li><a href="../week2/01-buffers-and-views.html">Week 2</a>: <code>f32</code> arrives, rounded to f32 after every operation, with the special values.</li>
+        <li><a href="../week2/04-rendering-c.html">Lesson 2.4</a>: the C you print must wrap and floor without undefined behavior, even though C's <code>/</code> truncates, and float constants are written exactly, from their bits.</li>
+        <li><a href="../week2/05-the-runtime.html">Lesson 2.5</a>: results come back from C as hex bits, and you compare bits.</li>
+      </ul>
+    </div>
+  </details>
 
   <h2>Check yourself</h2>
   <p class="score"></p>
@@ -362,17 +531,6 @@ ZeroDivisionError: float division by zero</code></pre>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">Nothing in the course fails at run time, so a zero divisor needs a defined answer.</p>
     <div class="why"><p>The course defines <code>div x 0</code> as −1, and <code>mod x 0</code> as <code>x</code>. Python and OCaml would raise, and in C it's undefined, so your code checks for 0 first.</p></div>
-  </div>
-
-  <div class="quiz" data-answer="b">
-    <p class="q">Why is <code>0.1 + 0.2 == 0.3</code> false with f64 floats?</p>
-    <div class="opts">
-      <button data-k="a">Float addition is not exact and can give a different answer each time</button>
-      <button data-k="b">None of the three numbers can be stored exactly, and the rounding errors don't cancel</button>
-      <button data-k="c">The comparison should use a different operator for floats</button>
-    </div>
-    <p class="hint">Is 1/10 a finite fraction in binary?</p>
-    <div class="why"><p>0.1, 0.2 and 0.3 are each rounded to the nearest f64. The sum of the first two rounds to a different f64 than 0.3 does. The arithmetic itself is exact and repeatable.</p></div>
   </div>
 
   <div class="quiz" data-fill="80000000 | 0x80000000">
@@ -418,7 +576,7 @@ ZeroDivisionError: float division by zero</code></pre>
   });
 
   const wheel = (hl, prev) => {
-    const C = 215, R = 170, W = 58, H = 46;
+    const C = 215, R = 184, W = 58, H = 46;
     const svg = h('svg', { class: 'g', viewBox: '0 0 430 430', width: 430, role: 'img' });
     const g = h('g');
     g.append(h('g', { class: 'node' }, h('text', { x: C, y: C - 4, 'text-anchor': 'middle', text: 'top bit' }), h('text', { class: 'sub', x: C, y: C + 16, 'text-anchor': 'middle', text: 'worth −8' })));
@@ -477,6 +635,8 @@ ZeroDivisionError: float division by zero</code></pre>
     [-7, -2, '−7 / −2 = 3.5. Positive, so both rules agree on 3. They only disagree when the signs differ and there is a remainder.'],
   ];
   stepper(document.getElementById('divline'), dv.map(([a, b, caption]) => ({ a, b, caption })), (s, body) => body.append(line(s.a, s.b)));
+
+  CC.trace(document.getElementById('rule'), '%a = mul 1073741824 2\n%out = div %a 2', { title: 'Multiply by 2, then divide by 2', edit: true });
 
   const F = [
     ['1.0', '0', '01111111', '00000000000000000000000', '3f800000', 'Exponent 127 means 2<sup>0</sup> (the stored exponent is offset by 127). The fraction is all zeros, and there is an implied 1 in front, so the value is 1.0 × 2<sup>0</sup> = 1.'],

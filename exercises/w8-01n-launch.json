@@ -1,0 +1,45 @@
+{
+ "id": "w8-01n-launch",
+ "lang": "ocaml",
+ "title": "Give every thread its own element",
+ "show": "(fun a -> String.concat \" \" (List.map string_of_int (Array.to_list a)))",
+ "starter": "let launch (blocks : int) (size : int) (x : int array) : int array =\n  let out = Array.make (Array.length x) 0 in\n  for b = 0 to blocks - 1 do\n    for t = 0 to size - 1 do\n      let i = t in\n      out.(i) <- x.(i) * 2\n    done\n  done;\n  out\n",
+ "tests": [
+  {
+   "expr": "launch 3 4 [|0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11|]",
+   "expect": "0 2 4 6 8 10 12 14 16 18 20 22",
+   "sample": true
+  },
+  {
+   "expr": "launch 2 2 [|5; (-1); 7; 3|]",
+   "expect": "10 -2 14 6",
+   "sample": true
+  },
+  {
+   "expr": "launch 1 4 [|1; 2; 3; 4|]",
+   "expect": "2 4 6 8"
+  },
+  {
+   "expr": "launch 4 1 [|9; 8; 7; 6|]",
+   "expect": "18 16 14 12"
+  },
+  {
+   "expr": "launch 2 3 [|1; 1; 1; 2; 2; 2|]",
+   "expect": "2 2 2 4 4 4"
+  },
+  {
+   "expr": "launch 0 8 [||]",
+   "expect": ""
+  },
+  {
+   "expr": "launch 2 4 [|(-3); 0; 3; 6; 9; 12; 15; 18|]",
+   "expect": "-6 0 6 12 18 24 30 36"
+  }
+ ],
+ "hints": [
+  "Look at the line that sets `i`. Block 0 gets the right elements. Which elements does block 1 get?",
+  "Block `b` starts where the blocks before it end. Each of them covers `size` elements.",
+  "Write `let i = size * b + t in`."
+ ],
+ "explain": "A thread is told two numbers, its block and its place in the block. Block b starts at element size * b, so thread t of block b handles element size * b + t. With t alone, every block handles the first size elements again and the rest are never written."
+}

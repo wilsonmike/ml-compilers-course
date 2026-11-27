@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kernels and Outlining</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A thread loop can&#x27;t stay a for loop in C. Its body has to become a function that a thread can call. Moving a block of code into its own function is called...">
+<meta name="description" content="Lesson 7.4 proved that a thread loop&#x27;s iterations can run at the same time. C has no way to say that about a for loop. Here you turn the loop&#x27;s body into a...">
 <link rel="canonical" href="https://sharpterminal.com/site/week7/05-kernels">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Kernels and Outlining">
-<meta property="og:description" content="A thread loop can&#x27;t stay a for loop in C. Its body has to become a function that a thread can call. Moving a block of code into its own function is called outlining, and the hard part is everything...">
+<meta property="og:description" content="Lesson 7.4 proved that a thread loop&#x27;s iterations can run at the same time. C has no way to say that about a for loop. Here you turn the loop&#x27;s body into a function that any core can call, and you...">
 <meta property="og:url" content="https://sharpterminal.com/site/week7/05-kernels">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,39 +20,248 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 7 · Lesson 5</p>
 <h1>Kernels and outlining: rendering a thread loop</h1>
-<p class="lede">A thread loop can't stay a <code>for</code> loop in C. Its body has to become a function that a thread can call. Moving a block of code into its own function is called outlining, and the hard part is everything the block uses from outside it.</p>
+<p class="lede">Lesson 7.4 proved that a thread loop's iterations can run at the same time. C has no way to say that about a <code>for</code> loop. Here you turn the loop's body into a function that any core can call, and you hand that function everything it needs.</p>
 
-<div class="prose">
-<h2>Kernels</h2>
-<p>A <b>kernel</b> is a loop nest that runs as one unit: the code between one materialization and the next. Week 4's rangeify already produces them: each <code>stage</code>, each store of a whole value, becomes its own loop nest at the top of the C function. Fusing ops puts more work in one kernel. Materializing splits it.</p>
-<p>On a CPU, kernels run one after another. Threads split one kernel's outer loop across cores. On a GPU, which the course reaches next week, each kernel is a separate launch. The thread loop you render this week is the same idea at a smaller scale: hand one loop's iterations to many workers.</p>
-
-<h2>Outlining</h2>
-<p>To run iteration <code>r</code> of a thread loop on another thread, the body becomes a function <code>body(r, ctx)</code>. The harness provides one function that runs it:</p>
+<div class="note">
+<span class="label">Goal</span>
+<p>Render a thread loop as its own C function, a struct of the values it needs and one call to <code>uir_parallel_for</code>.</p>
 </div>
 
+<div class="note">
+<span class="label">You'll use</span>
+<p>C pointers, structs and <code>-&gt;</code> from <a href="../week0/01-c-and-pointers.html">lesson 0.1</a>. Thread loops and private allocs from <a href="04-threads.html">lesson 7.4</a>.</p>
+<p class="only-python">Closures, from "Functions that make functions" in <a href="../learn/py-05-recursion.html">P.5</a>.</p>
+<p class="only-ocaml">Functions as values and partial application, from <a href="../learn/ml-02-functions.html">O.2</a>.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">An alloc is used only inside a thread loop. What does each iteration find in it when it starts?</p>
+<div class="opts">
+<button data-k="a">Whatever the iteration before it left there</button>
+<button data-k="b">Its own copy, all zeros</button>
+<button data-k="c">The same memory every other iteration is writing</button>
+</div>
+<p class="hint">Lesson 7.4 called this kind of alloc private.</p>
+<div class="why"><p>A private alloc is fresh and zeroed for every iteration, so no two threads share it. Today you see what that looks like in C.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">After <code>int x = 7; int *p = &amp;x;</code>, what does <code>p</code> hold?</p>
+<div class="opts">
+<button data-k="a">7</button>
+<button data-k="b">The address of <code>x</code></button>
+<button data-k="c">A second copy of <code>x</code></button>
+</div>
+<p class="hint"><code>&amp;x</code> reads as "the address of x".</p>
+<div class="why"><p>A pointer holds an address, so a function that receives <code>p</code> can reach memory it does not own. Today one pointer carries a whole bundle of values into a function.</p></div>
+</div>
+
+<div class="prose">
+<h2>A for loop stays on one core</h2>
+<p>Here is the C your <code>render</code> prints today for a small program. Three times over, it adds <code>r + k</code> to every element of a 64-element buffer. The program wants the inner loop, the one over <code>r4</code>, spread across cores.</p>
+<pre><code>void kernel(int32_t *restrict b0) {
+  for (int32_t r3 = 0; r3 &lt; 3; r3++) {
+    for (int32_t r4 = 0; r4 &lt; 64; r4++) {
+      int32_t v6 = b0[r4];
+      int32_t v7 = (int32_t)((uint32_t)r4 + (uint32_t)r3);
+      int32_t v8 = (int32_t)((uint32_t)v6 + (uint32_t)v7);
+      b0[r4] = v8;
+    }
+  }
+}</code></pre>
+<p>The casts are week 2's wrapping add. Read <code>v7</code> as <code>r4 + r3</code>.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">You want a second core to run iteration <code>r4 = 3</code> while the first core runs <code>r4 = 0</code>. What has to change in this C?</p>
+<div class="opts">
+<button data-k="a">Nothing. The C compiler spreads a <code>for</code> loop over cores when that is safe.</button>
+<button data-k="b">The four body lines have to become a function, because a thread is started by giving it a function to run.</button>
+<button data-k="c">The loop has to count down as well as up, so two cores meet in the middle.</button>
+</div>
+<p class="hint">A thread library has one basic move: "run this function". What can you give it?</p>
+<div class="why"><p>A <code>for</code> loop is one core walking through the iterations in order, and C has no words for "run this iteration somewhere else". Threads come from a library, and a library can only be handed things C can name. A loop body has no name. A function does.</p></div>
+</div>
+
+<div class="prose">
+<p>Moving a block of code into its own function is called <b>outlining</b>. It is the reverse of inlining, where a call is replaced by the function's body. Once the body is a function, iteration 3 is one call with 3 as its argument, and any core can make that call.</p>
+
+<h2>The body uses names it does not own</h2>
+<p>Cut the four body lines out of the loop. Paste them into a new function whose one argument is the counter <code>r4</code>.</p>
+<pre><code>      int32_t v6 = b0[r4];
+      int32_t v7 = (int32_t)((uint32_t)r4 + (uint32_t)r3);
+      int32_t v8 = (int32_t)((uint32_t)v6 + (uint32_t)v7);
+      b0[r4] = v8;</code></pre>
+<p>The C compiler now reads that function alone. Every name in it has to be an argument or be declared inside it.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Which names does the new function still need handed in from outside?</p>
+<div class="opts">
+<button data-k="a"><code>b0</code> and <code>r3</code></button>
+<button data-k="b"><code>b0</code>, <code>r3</code>, <code>v6</code>, <code>v7</code> and <code>v8</code></button>
+<button data-k="c">Only <code>b0</code></button>
+</div>
+<p class="hint">For each name, find where it is declared: in these four lines, or above them?</p>
+<div class="why"><p>The four lines declare <code>v6</code>, <code>v7</code> and <code>v8</code> themselves, and <code>r4</code> is the argument. <code>b0</code> is a parameter of <code>kernel</code> and <code>r3</code> is the outer loop's counter. Both live in <code>kernel</code>, which the new function can't see.</p></div>
+</div>
+
+<div class="prose">
+<p>Names a block uses but does not define are called its <b>free variables</b>. The outlined function needs each of them handed in.</p>
+<p class="only-python">You have met this before. In <a href="../learn/py-05-recursion.html">P.5</a>, <code>make_counter</code> returned <code>next_number</code>, and that inner function kept using <code>count</code> from the function around it. Python bundled <code>count</code> with the function for you. The bundle is called a closure.</p>
+<p class="only-ocaml">You have met this before. In <a href="../learn/ml-02-functions.html">O.2</a>, <code>add 10</code> gave back a function that still held the 10. OCaml bundled that value with the function for you. The bundle is called a closure.</p>
+<p>C bundles nothing. Your compiler has to build the bundle by hand and pass it to the function. That job is called <b>closure conversion</b>.</p>
+
+<h2>Pack the free variables in a struct</h2>
+<p>The harness will call your function with exactly two arguments: the counter and one pointer. So every free variable has to travel behind that one pointer. A <b>struct</b> is a C type that groups several named values, called fields, into one block of memory. Pack the free variables into a struct and pass its address.</p>
+<ol>
+<li><strong>List the uses.</strong> <code>b0</code>, <code>r4</code>, <code>r3</code>, <code>v6</code>, <code>v7</code>, <code>v8</code>.</li>
+<li><strong>Cross off what the body declares.</strong> <code>v6</code>, <code>v7</code> and <code>v8</code> go.</li>
+<li><strong>Cross off the loop counter.</strong> <code>r4</code> arrives as the argument.</li>
+<li><strong>Pack the rest.</strong> <code>b0</code> and <code>r3</code> become the fields.</li>
+</ol>
+<p>This is what the reference compiler prints when the inner loop says <code>axis=thread</code>:</p>
+<pre><code>typedef struct { int32_t *b0; int32_t r3; } thread0_ctx;
+static void thread0(int32_t r4, void *ctx) {
+  thread0_ctx *k_ = ctx;
+  int32_t *restrict b0 = k_-&gt;b0;
+  int32_t r3 = k_-&gt;r3;
+  int32_t v6 = b0[r4];
+  int32_t v7 = (int32_t)((uint32_t)r4 + (uint32_t)r3);
+  int32_t v8 = (int32_t)((uint32_t)v6 + (uint32_t)v7);
+  b0[r4] = v8;
+}
+
+void kernel(int32_t *restrict b0) {
+  for (int32_t r3 = 0; r3 &lt; 3; r3++) {
+    { thread0_ctx k_ = { b0, r3 }; uir_parallel_for(64, thread0, &amp;k_); }
+  }
+}</code></pre>
+<p>The <code>typedef</code> line names the struct type <code>thread0_ctx</code>. Inside <code>thread0</code>, <code>k_-&gt;r3</code> reads the field <code>r3</code> through the pointer <code>k_</code>. The first three lines unpack the struct into locals with their old names, so the four body lines are the same text as before.</p>
+</div>
+
+<div class="exercise small" data-ex="w7-05-free-vars" data-ex-py="w7-05-free-vars-py">
+<h3>What the thread body needs</h3>
+<p>A body is a list of <code>(name, uses)</code> statements. The starter returns every name the body uses. Repair it so it returns only the names the body uses but doesn't define, leaving out its loop variable: the fields of the context struct.</p>
+</div>
+
+<div class="prose">
+<h2>What goes in and what stays out</h2>
+<p>Try the four moves on a bigger kernel. The loop over <code>r10</code> is about to become a thread loop.</p>
+<pre><code>void kernel(float *restrict b0, float *restrict b1, float *restrict b2) {
+  float v7 = b1[0];
+  for (int32_t r8 = 0; r8 &lt; 2; r8++) {
+    float v9 = ((float)r8);
+    for (int32_t r10 = 0; r10 &lt; 64; r10++) {
+      int32_t v11 = (int32_t)((uint32_t)r10 * (uint32_t)2);
+      int32_t v12 = (int32_t)((uint32_t)v11 + (uint32_t)r8);
+      float v15 = b0[r10];
+      float v16 = (v15 * v7);
+      float v17 = (v16 + v9);
+      b2[v12] = v17;
+    }
+  }
+}</code></pre>
+</div>
+
+<div class="quiz" data-fill="5">
+<p class="q">How many fields does the context struct for the <code>r10</code> loop have?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">List every name the six body lines use. Cross off the ones they declare, then <code>r10</code>.</p>
+<div class="why"><p>Five: <code>b0</code>, <code>b2</code>, <code>r8</code>, <code>v7</code> and <code>v9</code>. The reference prints <code>typedef struct { float *b0; float *b2; int32_t r8; float v7; float v9; } thread0_ctx;</code>. The body never touches <code>b1</code>, so it stays out.</p></div>
+</div>
+
+<div class="prose">
+<p>So three kinds of name go in: buffer pointers, values computed before the loop, and counters of enclosing loops. A buffer the body doesn't use stays out.</p>
+<p>One more thing stays out: a private alloc. It is declared inside the function, as in this line from the test <code>r_thread_private_alloc</code>:</p>
+<pre><code>  int32_t a5[1] = {0};</code></pre>
+<p>A variable declared inside a function is made new on every call. So each iteration gets its own zeros, which is what lesson 7.4 promised.</p>
+
+<h2>The harness runs the function</h2>
+<p>Your C never starts a thread itself. The harness, the C file your kernel is linked with, provides one function for that:</p>
 <pre><code>void uir_parallel_for(int32_t n, void (*body)(int32_t, void *), void *ctx);</code></pre>
-
-<div class="prose">
-<p>It calls <code>body(r, ctx)</code> once for every <code>r</code> in <code>0 .. n-1</code>, spread across threads, and returns when all are done. <code>ctx</code> is whatever pointer you pass: your way of getting values into the function.</p>
-<p>What does the body need from outside? The names it uses but doesn't define: buffer pointers, values computed before the loop, and the counters of enclosing loops. Finding them is <b>closure conversion</b>: collect every name the body uses, remove the ones it defines and the loop variable itself, and what's left goes in a struct. Private allocs aren't in the struct. They're declared inside the function, so each call gets its own zeros.</p>
-<p>Here is the reference compiler's C for the threaded row sum from the tests, <code>out[r] = sum of row r</code>:</p>
+<p>Its arguments are a trip count <code>n</code>, a function <code>body</code> that takes a counter and a pointer, and a pointer <code>ctx</code>. It calls <code>body(r, ctx)</code> once for every <code>r</code> from 0 to <code>n - 1</code>, spread across threads. <code>void *</code> means "a pointer to something", so the harness can carry your struct without knowing what is in it. Print this prototype line in your C. The harness defines the function.</p>
+<p>The thread loop in <code>kernel</code> becomes one line:</p>
+<pre><code>    { thread0_ctx k_ = { b0, r3 }; uir_parallel_for(64, thread0, &amp;k_); }</code></pre>
+<ol>
+<li><strong>Fill the struct.</strong> Give the current values, in the order of the fields.</li>
+<li><strong>Call the harness.</strong> Pass the trip count, the function's name and the struct's address.</li>
+<li><strong>Wait.</strong> The call returns only when every iteration is done, so the next line may read what the loop wrote.</li>
+</ol>
+<p>The struct is filled again at every pass of the <code>r3</code> loop. That is how each pass hands the body its own <code>r3</code>.</p>
 </div>
 
+<div class="quiz" data-fill="192">
+<p class="q">In the <code>kernel</code> with <code>thread0_ctx k_ = { b0, r3 }</code>, how many times does <code>thread0</code> run in total?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Each pass of the outer loop makes one call to <code>uir_parallel_for</code>. How many times does each call run the body?</p>
+<div class="why"><p>The outer loop makes 3 calls to <code>uir_parallel_for</code>, and each call runs <code>thread0</code> 64 times: 192. The threads are also started 3 times, which is why lesson 7.4 said to thread the outermost loop the slice rule allows.</p></div>
+</div>
+
+<div class="exercise small" data-ex="w7-05n-call-site" data-ex-py="w7-05n-call-site-py">
+<h3>Write the call that starts the threads</h3>
+<p>Write <code>call_site id n fields</code>. It returns the one line of C that replaces a thread loop in the kernel: fill a context struct with the values named in <code>fields</code>, then call <code>uir_parallel_for</code> with the trip count <code>n</code>, the function <code>thread&lt;id&gt;</code> and the struct's address. For <code>call_site 0 64 ["b0"; "r3"]</code> the answer is exactly <code>{ thread0_ctx k_ = { b0, r3 }; uir_parallel_for(64, thread0, &amp;k_); }</code>.</p>
+</div>
+
+<div class="prose">
+<h2>Kernels and restrict</h2>
+<p>A <b>kernel</b> is a loop nest that runs as one unit: the code between one materialization and the next. Week 4's rangeify already produces them. Each <code>stage</code>, each store of a whole value, becomes its own loop nest at the top of the C function. Fusing ops puts more work in one kernel. Materializing splits it.</p>
+<p>On a CPU, kernels run one after another, and threads split one kernel's outer loop across cores. On a GPU, which the course reaches next week, each kernel is a separate launch. The thread loop you render this week is the same idea at a smaller scale: hand one loop's iterations to many workers.</p>
+<p>Every listing above declares its buffer pointers <code>restrict</code>. Buffers never overlap in .uir, but C doesn't know that. When a kernel writes through one pointer and reads through another, the C compiler has to assume the write might change what the read sees, so it loads the value again after every store. <code>restrict</code> promises the pointers don't overlap. The compiler can then keep loaded values in registers across stores, and that matters in tight loops.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">The outlined function gets its buffers from the struct, not from parameters. Where does the reference put <code>restrict</code> there?</p>
+<div class="opts">
+<button data-k="a">On the struct's fields</button>
+<button data-k="b">Nowhere. The promise is lost in an outlined function.</button>
+<button data-k="c">On the local pointers it unpacks: <code>int32_t *restrict b0 = k_-&gt;b0;</code></button>
+</div>
+<p class="hint">Look at the first lines of <code>thread0</code> in the listing with the struct.</p>
+<div class="why"><p>The fields are plain pointers. The promise is made again on the locals, so a hot loop inside the thread function gets the same benefit as a loop in <code>kernel</code>.</p></div>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say why a thread loop can't stay a <code>for</code> loop: threads run functions, so the body is outlined into one.</li>
+<li>Find a body's free variables: its uses, minus what it declares, minus its own counter.</li>
+<li>Pack them in a struct, unpack them in the function, and keep private allocs inside.</li>
+<li>Write the line that fills the struct and calls <code>uir_parallel_for</code>.</li>
+<li>Say what a kernel is and what <code>restrict</code> promises.</li>
+</ul>
+<p>Next is the week 7 lab, where your own <code>render</code> learns upcast and thread loops and is timed against the reference.</p>
+</div>
+
+<details class="toggle">
+<summary>One way to build it, for when you write the lab</summary>
+<div class="prose">
+<p>Render the body into a separate list of lines with your normal emitter, record the names it declares as it goes, then scan the lines for the names they reference. Uses minus declarations minus the loop variable is the struct. Keep a map from every name you emit to its C type, so you can declare the struct's fields.</p>
+<p>Number the functions <code>thread0</code>, <code>thread1</code> and so on, and print each struct and function above <code>kernel</code>. The braces around the call line keep <code>k_</code> local to it, so two thread loops in one kernel can both use the name. A thread loop with zero iterations needs no special case: the reference prints <code>uir_parallel_for(0, thread0, &amp;k_)</code> and the body never runs.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>A second full example: the threaded row sum, with a loop inside the thread body</summary>
+<div class="prose">
+<p>Here is the reference compiler's C for the test <code>r_thread_rowsum</code>, <code>out[r] = sum of row r</code>:</p>
 <pre><code>void uir_parallel_for(int32_t n, void (*body)(int32_t, void *), void *ctx);
 
 typedef struct { int32_t *b0; int32_t *b1; } thread0_ctx;
 static void thread0(int32_t r5, void *ctx) {
   thread0_ctx *k_ = ctx;
-  int32_t *restrict b0 = k_->b0;
-  int32_t *restrict b1 = k_->b1;
+  int32_t *restrict b0 = k_-&gt;b0;
+  int32_t *restrict b1 = k_-&gt;b1;
   b1[r5] = 0;
   int32_t v10 = (int32_t)((uint32_t)r5 * (uint32_t)3);
   for (int32_t r11 = 0; r11 &lt; 3; r11++) {
@@ -67,23 +276,16 @@ static void thread0(int32_t r5, void *ctx) {
 void kernel(int32_t *restrict b0, int32_t *restrict b1) {
   { thread0_ctx k_ = { b0, b1 }; uir_parallel_for(4, thread0, &amp;k_); }
 }</code></pre>
+<p>The loop variable <code>r5</code> is the function's argument. The two buffers it uses travel in <code>thread0_ctx</code>. Everything the body defines (<code>v10</code> to <code>v16</code>, the inner loop and its counter <code>r11</code>) stays inside. In the GEMM, the struct holds just the three buffers: the tile's accumulators are a private alloc, declared in the function.</p>
+</div>
+</details>
 
+<details class="toggle">
+<summary>Why the harness's prototype for kernel doesn't say restrict</summary>
 <div class="prose">
-<p>The loop variable <code>r5</code> is the function's argument. The two buffers it uses travel in <code>thread0_ctx</code>. Everything the body defines (<code>v10</code> to <code>v16</code>, the inner loop) stays inside. In the GEMM, the struct holds just the three buffers: the tile's accumulators are a private alloc, declared in the function.</p>
-
-<h2>restrict</h2>
-<p>Buffers never alias in .uir, but C doesn't know that. When a kernel writes through one pointer and reads through another, the C compiler must assume the write might change what the read sees, so it reloads after every store. Declaring the pointers <code>restrict</code> promises they don't overlap. The compiler can then keep loaded values in registers across stores, and that matters in tight loops. The harness's prototype for <code>kernel</code> doesn't say <code>restrict</code>, and that's fine: qualifiers on parameters don't change a function's type.</p>
+<p>The harness declares <code>kernel</code> with plain pointers, and your C defines it with <code>restrict</code> ones. That's fine: qualifiers on parameters don't change a function's type, so the two declarations match.</p>
 </div>
-
-<div class="exercise small" data-ex="w7-05-free-vars" data-ex-py="w7-05-free-vars-py">
-<h3>What the thread body needs</h3>
-<p>Given a body as a list of <code>(name, uses)</code> statements, return the names it uses but doesn't define (other than its loop variable): the fields of the context struct.</p>
-</div>
-
-<div class="key">
-<span class="label">One way to build it</span>
-<p>Render the body into a separate list of lines with your normal emitter, record the names it declares as it goes, then scan the lines for the names they reference. Uses minus declarations minus the loop variable is the struct. Keep a map from every name you emit to its C type, so you can declare the struct's fields.</p>
-</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>

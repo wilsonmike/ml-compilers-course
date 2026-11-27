@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Convolutions</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A convolution slides a small filter over an image. Image models from LeNet to ResNet are mostly convolutions, and on a GPU they&#x27;re computed the same way as a...">
+<meta name="description" content="You spent two weeks making matrix multiply fast. A convolution is the other operation image models spend their time in. This lesson shows that a convolution is...">
 <link rel="canonical" href="https://sharpterminal.com/site/week9/04-convolutions">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Convolutions">
-<meta property="og:description" content="A convolution slides a small filter over an image. Image models from LeNet to ResNet are mostly convolutions, and on a GPU they&#x27;re computed the same way as a GEMM: tiles in shared memory, sums in...">
+<meta property="og:description" content="You spent two weeks making matrix multiply fast. A convolution is the other operation image models spend their time in. This lesson shows that a convolution is a matrix multiply in disguise, so your...">
 <meta property="og:url" content="https://sharpterminal.com/site/week9/04-convolutions">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,49 +20,223 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .img { display: grid; grid-template-columns: repeat(5, minmax(0, 2.6rem)); gap: 3px; }
+  .img.n6 { grid-template-columns: repeat(6, minmax(0, 2.6rem)); }
+  .img.n3 { grid-template-columns: repeat(3, minmax(0, 2.6rem)); }
+  .img.n9 { grid-template-columns: repeat(9, minmax(0, 1.9rem)); }
   .img .s { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 1.9rem; }
   .img .s.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .img .s.pad { color: var(--ink-3); }
   .rowv { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s2); overflow-wrap: anywhere; }
+  .mrow { display: flex; align-items: center; gap: 0.75rem; margin-top: 3px; }
+  .pair { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
 </style>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 9 · Lesson 4</p>
 <h1>Convolutions</h1>
-<p class="lede">A convolution slides a small filter over an image. Image models from LeNet to ResNet are mostly convolutions, and on a GPU they're computed the same way as a GEMM: tiles in shared memory, sums in registers. This lesson shows why a convolution is a GEMM in disguise, and walks through the kernel in the tests.</p>
+<p class="lede">You spent two weeks making matrix multiply fast. A convolution is the other operation image models spend their time in. This lesson shows that a convolution is a matrix multiply in disguise, so your fast GEMM already covers it, and then how real kernels avoid the one cost of that disguise.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Turn a convolution into a matrix multiply, count what that costs in memory, and say how implicit GEMM and a direct kernel avoid the cost.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>The window sum from <a href="../week3/04-conv.html">lesson 3.4</a> and its movement op form from <a href="../week5/04-matmul-conv.html">lesson 5.4</a>. Shared memory tiles and sums in registers from <a href="01-registers.html">lesson 9.1</a> and <a href="02-fast-gemm.html">lesson 9.2</a>, and tensor cores from <a href="03-tensor-cores.html">lesson 9.3</a>.</p>
+<p class="only-python">The exercises use loops and lists (<a href="../learn/py-02-decisions-loops.html">P.2</a>, <a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">The exercises use lists and arrays (<a href="../learn/ml-03-lists-matching.html">O.3</a>, <a href="../learn/ml-05-mutation.html">O.5</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two ideas from earlier lessons that this one joins together. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="6">
+<p class="q">From lesson 3.4: <code>x = [2 2 2 8 8 8]</code> and the kernel is <code>w = [-1 0 1]</code>. What is <code>y[2] = x[2]*w[0] + x[3]*w[1] + x[4]*w[2]</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The window is <code>x[2], x[3], x[4]</code>, which is 2, 8, 8.</p>
+<div class="why"><p>2*(-1) + 8*0 + 8*1 = 6. One window, times the kernel, summed.</p></div>
+</div>
+
+<div class="quiz" data-fill="32">
+<p class="q">In a matrix multiply, each output is one row times one column, summed. What is row <code>[1 2 3]</code> times column <code>[4 5 6]</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Multiply the pairs in order, then add the three products.</p>
+<div class="why"><p>1*4 + 2*5 + 3*6 = 32. A GEMM is nothing but sums like this one.</p></div>
+</div>
+
+<h2>Do you have to start over?</h2>
+<div class="prose">
+<p>Your GEMM kernel now copies tiles into shared memory, keeps its sums in registers and can run on tensor cores. A convolution looks like a different loop nest: a window sliding over an image.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Guess first. To make a convolution fast on the GPU, how much of weeks 8 and 9 do you have to redo?</p>
+<div class="opts">
+<button data-k="a">All of it. A sliding window needs its own tricks</button>
+<button data-k="b">Almost none. A convolution can be rewritten as a matrix multiply</button>
+<button data-k="c">None. A convolution is fast as plain loops</button>
+</div>
+<p class="hint">Look at the two warm up answers. Both are a list of numbers times a list of weights, summed.</p>
+<div class="why"><p>Each output of a convolution is a window times the kernel, summed. Each output of a matrix multiply is a row times a column, summed. Make every window a row and they are the same thing.</p></div>
+</div>
 
 <div class="prose">
-<h2>What a convolution computes</h2>
-<p>The input is an image with <code>C</code> channels, <code>X[c][y][x]</code>. A filter is a 3×3 window of weights for every input channel, and there are <code>K</code> filters, <code>W[k][c][dy][dx]</code>. Output channel <code>k</code> at pixel <code>(y, x)</code> is the sum, over all channels and the 3×3 window, of input times weight:</p>
+<p>So the answer is no. The rest of this lesson is three ideas: the rewrite, what the rewrite costs and how fast kernels keep the rewrite but skip the cost.</p>
+
+<h2>Lay each window out as a row</h2>
+<p>Take the warm up's <code>x = [2 2 2 8 8 8]</code> and <code>w = [-1 0 1]</code>.</p>
+<ol>
+<li><strong>Cut out the windows.</strong> Six numbers hold four windows of three: <code>[2 2 2]</code>, <code>[2 2 8]</code>, <code>[2 8 8]</code> and <code>[8 8 8]</code>.</li>
+<li><strong>Stack them as rows.</strong> That gives a matrix <code>M</code> with 4 rows and 3 columns.</li>
+<li><strong>Multiply by the kernel.</strong> Row <code>i</code> of <code>M</code> times <code>w</code> is exactly <code>y[i]</code>. So <code>M·w = [0 6 6 0]</code>, the whole convolution.</li>
+</ol>
+<p>Laying each window out as a row of a matrix is called <b>im2col</b>, short for image to columns. Step through it:</p>
+</div>
+
+<div class="fig" id="rows1d" data-title="im2col in one dimension: each window becomes a row, then the matrix meets the kernel"></div>
+
+<div class="quiz" data-fill="8">
+<p class="q">A row of 10 numbers and a 3-tap kernel. How many rows does the im2col matrix have?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">One row per window. The last window starts at <code>x[7]</code>.</p>
+<div class="why"><p>10 - 3 + 1 = 8 windows, starting at <code>x[0]</code> through <code>x[7]</code>. Each is a row of 3.</p></div>
+</div>
+
+<div class="exercise small" data-ex="w9-04n-windows" data-ex-py="w9-04n-windows-py">
+<h3>Lay the windows out as rows</h3>
+<p><code>im2col x k</code> should return one row per window of <code>x</code>: row <code>i</code> holds the <code>k</code> numbers starting at <code>x.(i)</code>. The code is nearly right, but every row comes out the same. Fix the one index that is wrong.</p>
+</div>
+
+<h2>The same rewrite on an image</h2>
+<div class="prose">
+<p>A real convolution has more of everything. The input is an image with <code>C</code> channels, <code>X[c][y][x]</code>. A filter is a 3×3 window of weights for every input channel, and there are <code>K</code> filters, <code>W[k][c][dy][dx]</code>. Output channel <code>k</code> at pixel <code>(y, x)</code> is the sum, over all channels and the 3×3 window, of input times weight:</p>
 <pre><code>Y[k][y][x] = sum over c, dy, dx of  X[c][y + dy][x + dx] · W[k][c][dy][dx]</code></pre>
-<p>Near the edge the window hangs over, so the input gets a border of zeros, one pixel wide. The tests' inputs come already padded: an <code>H×W</code> output reads an <code>(H+2)×(W+2)</code> input. The convolution does <code>K·H·W·C·9</code> multiply-adds: for the speed test's 32 input channels, 64 output channels and an image of <code>H = 256</code> rows by <code>W = 64</code> columns, 302 million.</p>
-<p>The letters here are the convolution's own. <code>C</code> counts channels, not the GEMM's output matrix. <code>K</code> counts filters, not attention's keys or a GEMM's <code>k</code> loop. <code>W</code> is both the weights and the image's width.</p>
+<p>Near the edge the window hangs over, so the input gets a border of zeros, one pixel wide. The tests' inputs come already padded: an <code>H×W</code> output reads an <code>(H+2)×(W+2)</code> input.</p>
+<p>The rewrite is the same three steps:</p>
+<ol>
+<li><strong>Cut out the windows.</strong> One per output pixel: its 9 input values from every channel, <code>C·9</code> numbers.</li>
+<li><strong>Stack them as rows.</strong> All <code>H·W</code> pixels give an <code>(H·W) × (C·9)</code> matrix, the <b>patch matrix</b>.</li>
+<li><strong>Multiply by the filters.</strong> Lay the filters out as a <code>(C·9) × K</code> matrix, one column per filter. The product is an <code>(H·W) × K</code> matrix whose row <code>(y, x)</code> holds every output channel at that pixel.</li>
+</ol>
+<p>That product is a GEMM, so block tiles, register tiles and tensor cores all apply. The speed test has 32 input channels, 64 output channels and an image of <code>H = 256</code> rows by <code>W = 64</code> columns. That is <code>K·H·W·C·9</code> multiply-adds, 302 million.</p>
+</div>
+
+<div class="note"><span class="label">The letters</span>
+<p>The letters here are the convolution's own. <code>C</code> counts channels, not the GEMM's output matrix. <code>K</code> counts filters, not attention's keys or a GEMM's <code>k</code> loop. <code>W</code> is both the weights and the image's width.</p></div>
+
+<div class="quiz" data-fill="288">
+<p class="q">The speed test has 32 input channels and 3×3 filters. How long is each row of its patch matrix?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">One row is one pixel's whole window: 9 values from each channel.</p>
+<div class="why"><p><code>32·9 = 288</code>. With <code>256·64 = 16,384</code> output pixels, the patch matrix is 16,384 × 288 and the filter matrix is 288 × 64.</p></div>
+</div>
+
+<h2>The cost: every number, many times</h2>
+<div class="prose">
+<p>Here is a 3×3 image, values 1 to 9, padded with zeros. It has 9 output pixels, so its patch matrix has 9 rows. Before you step through, count.</p>
+</div>
+
+<div class="quiz" data-fill="9">
+<p class="q">The value 5 sits in the center of the image. How many of the 9 windows contain it, so how many times does im2col copy it?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">A 3×3 window centered on any of the 9 pixels reaches the center.</p>
+<div class="why"><p>All 9. Windows overlap, so im2col stores a value once for each window that covers it, up to 9 times for a 3×3 filter. A corner value such as 1 is in 4 windows.</p></div>
 </div>
 
 <div class="fig" id="conv" data-title="One channel, padded: the 3×3 window of each output pixel, and its im2col row"></div>
 
 <div class="prose">
-<h2>A GEMM in disguise</h2>
-<p>Write each output pixel's window out as a row: its 9 input values from every channel, <code>C·9</code> numbers. Stack the rows of all <code>H·W</code> pixels into a matrix. That's called <b>im2col</b>, image to columns. Lay the filters out as a <code>C·9 × K</code> matrix. Then the convolution is exactly their product, an <code>(H·W) × K</code> matrix whose row <code>(y, x)</code> holds every output channel at that pixel.</p>
-<p>So everything about fast GEMMs applies. The catch is that im2col copies every input value up to 9 times, once into each window that covers it. Writing that matrix out to memory costs more traffic than the convolution itself needs. The fast way is <b>implicit GEMM</b>: run a GEMM kernel, but when it copies a tile of the patch matrix into shared memory, compute where each element comes from in the image, and never store the big matrix at all. Many library convolutions work this way, on tensor cores.</p>
+<p>At full size this adds up. The speed test's padded input <code>X</code> is 544,896 floats. Its patch matrix would be <code>16,384 × 288 = 4,718,592</code> floats, almost 9 times as much. Lesson 9.2 showed that a kernel is limited by its arithmetic or by its memory traffic. Writing the patch matrix out and reading it back is traffic the convolution itself never needed.</p>
+
+<h2>Compute the address, skip the copy</h2>
+<p>A fast GEMM never reads its input matrix whole. It copies one tile at a time into shared memory. So the patch matrix never has to exist: when the kernel wants element <code>(row, col)</code> of it, compute where that number lives in the image and read it from there. That is <b>implicit GEMM</b>. Many library convolutions work this way, on tensor cores.</p>
+<p>For one channel and outputs <code>W</code> wide:</p>
+<ol>
+<li><strong>Split the row into a pixel.</strong> <code>y = row div W</code> and <code>x = row mod W</code>.</li>
+<li><strong>Split the column into a tap.</strong> <code>dy = col div 3</code> and <code>dx = col mod 3</code>.</li>
+<li><strong>Add them.</strong> The number is input <code>(y + dy, x + dx)</code>, at offset <code>(y + dy)·(W + 2) + x + dx</code> in the padded image.</li>
+</ol>
+</div>
+
+<div class="fig" id="addr" data-title="Implicit GEMM: an element of the patch matrix is read from its address in the image"></div>
+
+<div class="exercise small" data-ex="w9-04n-patch-addr" data-ex-py="w9-04n-patch-addr-py">
+<h3>Where does a patch element live?</h3>
+<p>A one-channel image has outputs <code>w</code> pixels wide, so its padded input is <code>w + 2</code> wide and stored row-major. Write <code>patch_addr row col w</code>: the offset in the padded input of element <code>(row, col)</code> of the patch matrix. Row <code>y*w + x</code> is output pixel <code>(y, x)</code>, and column <code>dy*3 + dx</code> is tap <code>(dy, dx)</code> of the 3×3 window.</p>
+</div>
+
+<details class="toggle">
+<summary>The address with channels, and where the name im2col comes from</summary>
+<div class="prose">
+<p>With <code>C</code> channels a column is <code>c·9 + dy·3 + dx</code>, so first <code>c = col div 9</code>, then split the remainder into <code>dy</code> and <code>dx</code>. A channel of the padded image is <code>(H+2)·(W+2)</code> elements, so the offset gains a term <code>c·(H+2)·(W+2)</code>.</p>
+<p>The first im2col routines stacked each window as a column, not a row, which is where "image to columns" comes from. Rows or columns, it is the same matrix turned on its side.</p>
+</div>
+</details>
 
 <h2>The kernel in the tests</h2>
-<p><code>c_conv3x3</code> and <code>s_cuda_conv3x3</code> use a simpler direct kernel, with the same ideas:</p>
+<div class="prose">
+<p><code>c_conv3x3</code> and <code>s_cuda_conv3x3</code> use a simpler <b>direct kernel</b>. It has no patch matrix at all, stored or implicit, and keeps the same two ideas from the GEMM: stage inputs in shared memory, keep sums in registers.</p>
 <ul>
 <li>A block makes one output row <code>y</code> for 8 output channels. Thread <code>x</code> makes those 8 outputs at pixel <code>(y, x)</code>.</li>
+<li>The block copies the input rows it needs, from every channel, and its 8 filters into shared memory.</li>
+<li>Each thread then adds into 8 sums of its own, which live in registers.</li>
+</ul>
+<p>The overlap that made im2col expensive now pays off. Each input value in shared memory is read by up to 3 threads (the window's 3 columns), and each read serves all 8 output channels. Each weight is read by every thread of the block.</p>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">A block makes output row <code>y</code> with 3×3 windows. How many rows of each input channel must it copy into shared memory?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The window reads rows <code>y + dy</code> for every <code>dy</code>.</p>
+<div class="why"><p>Three: padded rows <code>y</code> to <code>y + 2</code>. In the speed test that is <code>32·3·66 = 6,336</code> floats of input per block.</p></div>
+</div>
+
+<details class="toggle">
+<summary>The kernel's three phases, for when you read the test in the lab</summary>
+<div class="prose">
+<ul>
 <li>Phase 1 copies the three input rows the block needs, <code>y</code> to <code>y + 2</code> of every channel, and the 8 filters into shared memory. Every thread copies a few elements, chosen so neighboring threads read neighboring addresses.</li>
 <li>Phase 2 loops over the channels, and for each channel over the 3×3 window and the 8 output channels, with the last three loops upcast. Each thread adds into its 8 sums at <code>acc[x·8 + o]</code>, a per-thread alloc, so they live in registers.</li>
 <li>Phase 3 writes the 8 outputs.</li>
 </ul>
-<p>Each input value in shared memory is read by up to 3 threads (the window's 3 columns), and each read serves all 8 output channels. Each weight is read by every thread of the block.</p>
+<p>In <code>s_cuda_conv3x3</code> there are 2,048 blocks of 64 threads: 8 groups of output channels times 256 rows. The shared allocs are 6,336 floats of input rows and <code>8·288 = 2,304</code> floats of filters, and <code>acc</code> is <code>64·8 = 512</code>.</p>
+</div>
+</details>
 
 <h2>Not every kernel is limited by the same thing</h2>
-<p>On the 4060 Ti the speed test's convolution takes 0.41 ms, 1.5 TFLOP/s. Keeping the 8 sums in shared memory instead of registers makes almost no difference: 0.42 ms. Unlike the GEMM, this kernel isn't waiting on its sums. Its blocks are small (64 threads), and its copy phase computes a <code>div</code> and a <code>mod</code> per element it moves. Before you optimize a kernel, find out what it's waiting for. Making the wrong part faster changes nothing. The speed test asks for half the reference's speed.</p>
+<div class="prose">
+<p>On the 4060 Ti the speed test's convolution takes 0.41 ms, 1.5 TFLOP/s. That is with its 8 sums in registers. In lesson 9.1, moving the GEMM's sums from shared memory into registers made it 1.5 times faster.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Guess first. Put the convolution's 8 sums back in shared memory. How long does it take now?</p>
+<div class="opts">
+<button data-k="a">About 0.62 ms, 1.5 times slower like the GEMM</button>
+<button data-k="b">0.42 ms, almost no change</button>
+<button data-k="c">About 4 ms</button>
+</div>
+<p class="hint">Registers only help a kernel that is waiting on its sums.</p>
+<div class="why"><p>0.42 ms against 0.41 ms. Unlike the GEMM, this kernel isn't waiting on its sums.</p></div>
+</div>
+
+<div class="prose">
+<p>Its blocks are small (64 threads), and its copy phase computes a <code>div</code> and a <code>mod</code> per element it moves, the same kind of address arithmetic you just wrote. Before you optimize a kernel, find out what it's waiting for. Making the wrong part faster changes nothing. The speed test asks for half the reference's speed.</p>
+
+<h2>What you can do now</h2>
+<ul>
+<li>Rewrite a convolution as a matrix multiply by laying each window out as a row (im2col).</li>
+<li>Give the shapes: an <code>(H·W) × (C·9)</code> patch matrix times a <code>(C·9) × K</code> filter matrix.</li>
+<li>Count what storing the patch matrix costs: each input value up to 9 times.</li>
+<li>Compute a patch element's address in the image, which is what implicit GEMM does while it copies a tile.</li>
+<li>Describe the direct kernel in the tests, and say why registers barely change its speed.</li>
+</ul>
+<p>Next, <a href="05-flash-attention.html">lesson 9.5</a> gives attention the same treatment: tiles in shared memory, sums in registers.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -136,6 +310,51 @@ document.addEventListener('DOMContentLoaded', () => {
     { caption: 'Output <code>(1, 1)</code>: the center. Value 5 is in all 9 windows, so im2col stores it 9 times. A direct or implicit-GEMM kernel reads it from shared memory instead.', draw: () => draw(1, 1) },
   ];
   CC.stepper(document.getElementById('conv'), steps, (s, body) => body.append(s.draw()));
+
+  const xs = [2, 2, 2, 8, 8, 8], ws = [-1, 0, 1];
+  const cells = (cls, vals, on) => h('div', { class: 'img ' + cls }, vals.map((v, k) => h('div', { class: 's' + (on(k) ? ' on' : ''), text: String(v) })));
+  const draw1 = (n, done) => h('div', {}, [
+    h('div', { class: 'rowv', text: 'x' }),
+    cells('n6', xs, k => !done && n > 0 && k >= n - 1 && k < n + 2),
+    h('div', { class: 'rowv', text: n === 0 ? 'M: no rows yet' : done ? 'M, and each row times w = [-1 0 1]' : 'M' }),
+    ...Array.from({ length: n }, (_, i) => {
+      const row = xs.slice(i, i + 3);
+      return h('div', { class: 'mrow' }, [cells('n3', row, () => !done && i === n - 1),
+        h('span', { class: 'rowv', text: done ? `y[${i}] = ${row.reduce((a, v, j) => a + v * ws[j], 0)}` : `window ${i}` })]);
+    }),
+  ]);
+  const steps1 = [
+    { caption: 'The input <code>x</code>. A 3-tap kernel fits in four places.', n: 0 },
+    { caption: 'Window 0 is <code>x[0..2]</code>. Copy it out as row 0 of <code>M</code>.', n: 1 },
+    { caption: 'Window 1 is <code>x[1..3]</code>. Two of its three numbers were already in row 0.', n: 2 },
+    { caption: 'Window 2 is <code>x[2..4]</code>.', n: 3 },
+    { caption: 'Window 3 is <code>x[3..5]</code>, the last one. <code>M</code> has 4 rows of 3.', n: 4 },
+    { caption: 'Multiply: each row times <code>w</code>, summed, is one output. <code>M·w = [0 6 6 0]</code>, the same <code>y</code> the sliding window gives.', n: 4, done: true },
+  ];
+  CC.stepper(document.getElementById('rows1d'), steps1, (s, body) => body.append(draw1(s.n, !!s.done)));
+
+  const draw3 = (row, col) => {
+    const y = Math.floor(row / 3), x = row % 3, dy = Math.floor(col / 3), dx = col % 3, at = (y + dy) * 5 + x + dx;
+    const patch = h('div', { class: 'img n9' }, Array.from({ length: 81 }, (_, k) => {
+      const r = Math.floor(k / 9), c = k % 9, v = val(Math.floor(r / 3) + Math.floor(c / 3), r % 3 + c % 3);
+      return h('div', { class: 's' + (r === row && c === col ? ' on' : v === 0 ? ' pad' : ''), text: String(v) });
+    }));
+    const image = h('div', { class: 'img' }, Array.from({ length: 25 }, (_, k) => {
+      const v = val(Math.floor(k / 5), k % 5);
+      return h('div', { class: 's' + (k === at ? ' on' : v === 0 ? ' pad' : ''), text: String(v) });
+    }));
+    return h('div', { class: 'pair' }, [
+      h('div', {}, [h('div', { class: 'rowv', text: `patch matrix, element (${row}, ${col}): never stored` }), patch]),
+      h('div', {}, [h('div', { class: 'rowv', text: `padded image, offset ${at}: in memory` }), image]),
+    ]);
+  };
+  const steps3 = [
+    { caption: 'The 3×3 image again, so <code>W = 3</code>. Its patch matrix is 9 × 9. Element <code>(0, 0)</code>: pixel <code>(0, 0)</code>, tap <code>(0, 0)</code>, offset <code>(0 + 0)·5 + 0 + 0 = 0</code>, a padding zero.', row: 0, col: 0 },
+    { caption: 'Element <code>(4, 4)</code>: <code>y = 4 div 3 = 1</code>, <code>x = 4 mod 3 = 1</code>, <code>dy = 1</code>, <code>dx = 1</code>. Offset <code>(1 + 1)·5 + 1 + 1 = 12</code>, the value 5.', row: 4, col: 4 },
+    { caption: 'Element <code>(7, 2)</code>: <code>y = 2</code>, <code>x = 1</code>, <code>dy = 0</code>, <code>dx = 2</code>. Offset <code>(2 + 0)·5 + 1 + 2 = 13</code>, the value 6.', row: 7, col: 2 },
+    { caption: 'Element <code>(8, 0)</code> is also offset 12. Nine elements of the patch matrix read this one address. The image holds 25 numbers where the patch matrix would hold 81.', row: 8, col: 0 },
+  ];
+  CC.stepper(document.getElementById('addr'), steps3, (s, body) => body.append(draw3(s.row, s.col)));
 });
 </script>
 </body>

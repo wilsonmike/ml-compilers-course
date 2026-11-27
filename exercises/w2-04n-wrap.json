@@ -1,0 +1,57 @@
+{
+ "id": "w2-04n-wrap",
+ "lang": "c",
+ "title": "Make mul and shl wrap",
+ "show": "%d",
+ "starter": "int32_t uir_add(int32_t a, int32_t b) {\n  return (int32_t)((uint32_t)a + (uint32_t)b);\n}\n\nint32_t uir_mul(int32_t a, int32_t b) {\n  return a * b;\n}\n\nint32_t uir_shl(int32_t a, int32_t b) {\n  return a << b;\n}\n",
+ "tests": [
+  {
+   "expr": "({ volatile int32_t a = INT32_MAX, b = 2; uir_mul(a, b); })",
+   "expect": "-2",
+   "sample": true
+  },
+  {
+   "expr": "({ volatile int32_t a = 1, b = 31; uir_shl(a, b); })",
+   "expect": "-2147483648",
+   "sample": true
+  },
+  {
+   "expr": "({ volatile int32_t a = INT32_MAX, b = 1; uir_add(a, b); })",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "({ volatile int32_t a = 6, b = 7; uir_mul(a, b); })",
+   "expect": "42"
+  },
+  {
+   "expr": "({ volatile int32_t a = 65536, b = 65536; uir_mul(a, b); })",
+   "expect": "0"
+  },
+  {
+   "expr": "({ volatile int32_t a = INT32_MIN, b = -1; uir_mul(a, b); })",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "({ volatile int32_t a = 3, b = 2; uir_shl(a, b); })",
+   "expect": "12"
+  },
+  {
+   "expr": "({ volatile int32_t a = -1, b = 1; uir_shl(a, b); })",
+   "expect": "-2"
+  },
+  {
+   "expr": "({ volatile int32_t a = 5, b = 32; uir_shl(a, b); })",
+   "expect": "5"
+  },
+  {
+   "expr": "({ volatile int32_t a = 1, b = -1; uir_shl(a, b); })",
+   "expect": "-2147483648"
+  }
+ ],
+ "hints": [
+  "`uir_add` is the pattern. Copy its shape into `uir_mul` and change the `+` to `*`.",
+  "For `uir_shl`, convert `a` to `uint32_t` before shifting and convert the answer back to `int32_t`. The shift amount also needs care: C does not define a shift by 32 or more, or by a negative amount.",
+  "`return (int32_t)((uint32_t)a << ((uint32_t)b & 31u));` keeps only the low 5 bits of `b`, so the amount is always 0 to 31."
+ ],
+ "explain": "Unsigned 32-bit math in C wraps by definition, so the reference converts both sides to `uint32_t`, does the multiply or the shift there, and converts the answer back to `int32_t`. For `shl` it also masks the amount with `& 31`, which is .uir's rule of shifting by `b mod 32` and keeps the amount in the range C defines. The tests use `volatile` operands so the compiler cannot work the answer out early, and the runner traps undefined behavior, so the plain `a * b` and `a << b` fail."
+}

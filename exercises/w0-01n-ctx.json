@@ -1,0 +1,45 @@
+{
+ "id": "w0-01n-ctx",
+ "lang": "c",
+ "title": "Run a function over a struct",
+ "starter": "#include <stdint.h>\n\ntypedef struct { int32_t *b0; int32_t r3; } ctx_t;\n\nvoid body(int32_t r, void *ctx) {\n  ctx_t *k = ctx;\n  k->b0[r] = r;\n}\n\nvoid run(int32_t n, void (*f)(int32_t, void *), void *ctx) {\n  f(0, ctx);\n}\n",
+ "show": "%d",
+ "tests": [
+  {
+   "expr": "({ int32_t a[3] = {0, 0, 0}; ctx_t k = { a, 10 }; run(3, body, &k); a[2]; })",
+   "expect": "12",
+   "sample": true
+  },
+  {
+   "expr": "({ int32_t a[3] = {0, 0, 0}; ctx_t k = { a, 10 }; run(3, body, &k); a[0]; })",
+   "expect": "10",
+   "sample": true
+  },
+  {
+   "expr": "({ int32_t a[3] = {0, 0, 0}; ctx_t k = { a, 10 }; run(3, body, &k); a[1]; })",
+   "expect": "11"
+  },
+  {
+   "expr": "({ int32_t a[2] = {7, 7}; ctx_t k = { a, -5 }; run(2, body, &k); a[0] * 100 + a[1]; })",
+   "expect": "-504"
+  },
+  {
+   "expr": "({ int32_t a[2] = {7, 7}; ctx_t k = { a, 3 }; run(0, body, &k); a[0] + a[1]; })",
+   "expect": "14"
+  },
+  {
+   "expr": "({ int32_t a[4] = {1, 1, 1, 1}; ctx_t k = { a, 0 }; run(3, body, &k); a[3]; })",
+   "expect": "1"
+  },
+  {
+   "expr": "({ int32_t a[1] = {0}; ctx_t k = { a, 99 }; body(0, &k); a[0]; })",
+   "expect": "99"
+  }
+ ],
+ "hints": [
+  "There are two repairs. `body` never reads the field `r3`, and `run` calls `f` only once.",
+  "In `body`, the value to store is `k->r3 + r`. In `run`, you need a `for` loop whose counter goes from 0 to `n - 1`.",
+  "`run` becomes `for (int32_t r = 0; r < n; r++) { f(r, ctx); }`. When `n` is 0 the loop never calls `f`."
+ ],
+ "explain": "`k->r3` reads the field `r3` through the pointer `k`, so `body` stores `k->r3 + r` into box `r` of the array. `run` calls the function it was handed once for each `r` below `n` and passes the same `ctx` pointer every time. With `n` equal to 0 nothing is called."
+}

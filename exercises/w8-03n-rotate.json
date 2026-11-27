@@ -1,0 +1,166 @@
+{
+ "id": "w8-03n-rotate",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 1,
+ "title": "Write the second phase",
+ "require": [
+  [
+   "axis=local[\\s\\S]*axis=local",
+   "phase 2 is a second local loop: <code>%u = range 4 axis=local</code>"
+  ],
+  [
+   "^(?![\\s\\S]*shrink %x[\\s\\S]*shrink %x)",
+   "in phase 2, load from shared memory (<code>%sh1</code>), not from <code>%x</code> again"
+  ]
+ ],
+ "starter": "%x = buffer 16 dtype=f32 slot=0\n%o = buffer 16 dtype=f32 slot=1\n%sh = alloc 4 dtype=f32\n%b = range 4 axis=global\n%m = mul %b 4\n%t = range 4 axis=local\n%i = add %m %t\n%xv = shrink %x %i []\n%xe = load %xv\n%sv = shrink %sh %t []\n%s1 = store %sv %xe\n%e1 = end %s1 %t\n%sh1 = after %sh %e1\n%eb = end %e1 %b\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     0.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0,
+     7.0,
+     8.0,
+     9.0,
+     10.0,
+     11.0,
+     12.0,
+     13.0,
+     14.0,
+     15.0
+    ]
+   },
+   "expect": "[1.0 2.0 3.0 0.0 5.0 6.0 7.0 4.0 9.0 10.0 11.0 8.0 13.0 14.0 15.0 12.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     1.0,
+     2.0,
+     3.0,
+     4.0
+    ]
+   },
+   "expect": "[2.0 3.0 4.0 1.0 2.0 3.0 4.0 1.0 2.0 3.0 4.0 1.0 2.0 3.0 4.0 1.0]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     15.0,
+     14.0,
+     13.0,
+     12.0,
+     11.0,
+     10.0,
+     9.0,
+     8.0,
+     7.0,
+     6.0,
+     5.0,
+     4.0,
+     3.0,
+     2.0,
+     1.0,
+     0.0
+    ]
+   },
+   "expect": "[14.0 13.0 12.0 15.0 10.0 9.0 8.0 11.0 6.0 5.0 4.0 7.0 2.0 1.0 0.0 3.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     -1.0,
+     -2.0,
+     -3.0,
+     -4.0,
+     -5.0,
+     -6.0,
+     -7.0,
+     -8.0,
+     -9.0,
+     -10.0,
+     -11.0,
+     -12.0,
+     -13.0,
+     -14.0,
+     -15.0
+    ]
+   },
+   "expect": "[-1.0 -2.0 -3.0 0.0 -5.0 -6.0 -7.0 -4.0 -9.0 -10.0 -11.0 -8.0 -13.0 -14.0 -15.0 -12.0]"
+  },
+  {
+   "data": {
+    "0": [
+     -2.0,
+     9.0,
+     8.0,
+     -5.0,
+     2.0,
+     6.0,
+     9.0,
+     -7.0,
+     -9.0,
+     6.0,
+     -1.0,
+     8.0,
+     -2.0,
+     -3.0,
+     6.0,
+     8.0
+    ]
+   },
+   "expect": "[9.0 8.0 -5.0 -2.0 6.0 9.0 -7.0 2.0 6.0 -1.0 8.0 -9.0 -3.0 6.0 8.0 -2.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     0.5,
+     1.0,
+     1.5,
+     2.0,
+     2.5,
+     3.0,
+     3.5,
+     4.0,
+     4.5,
+     5.0,
+     5.5,
+     6.0,
+     6.5,
+     7.0,
+     7.5
+    ]
+   },
+   "expect": "[0.5 1.0 1.5 0.0 2.5 3.0 3.5 2.0 4.5 5.0 5.5 4.0 6.5 7.0 7.5 6.0]"
+  }
+ ],
+ "hints": [
+  "Phase 2 is a new loop <code>%u = range 4 axis=local</code>. The slot to read is <code>(u + 1) mod 4</code>: an <code>add</code>, then a <code>mod</code>.",
+  "Load through <code>%sh1</code>, the shared memory after phase 1: <code>%rv = shrink %sh1 %r []</code>, then <code>%re = load %rv</code>. Store it at <code>%o</code>, offset <code>%m</code> plus <code>%u</code>.",
+  "Close the phase with <code>%e2 = end %s2 %u</code>, and change the block's last line to <code>%eb = end %e1 %e2 %b</code> so the block contains both phases. Finish with <code>%o1 = after %o %eb</code>."
+ ],
+ "explain": "Phase 2 is a second <code>local</code> loop. Thread <code>u</code> loads <code>sh[(u + 1) mod 4]</code>, a slot its neighbor stored in phase 1, and stores it at <code>o[4b + u]</code>. Reading a neighbor's slot is safe because the two loops are two phases, with a barrier between them. The block's <code>end</code> lists both phases."
+}

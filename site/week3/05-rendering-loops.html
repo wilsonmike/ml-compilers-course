@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rendering Loops</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A program with ranges is still a graph: nothing in it says &quot;this line goes inside that loop&quot;. Your renderer has to work that out. Every value gets a depth from...">
+<meta name="description" content="Your render command prints one flat list of C lines. A program with ranges needs for loops, and the graph never says which line goes inside which loop. In this...">
 <link rel="canonical" href="https://sharpterminal.com/site/week3/05-rendering-loops">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Rendering Loops">
-<meta property="og:description" content="A program with ranges is still a graph: nothing in it says &quot;this line goes inside that loop&quot;. Your renderer has to work that out. Every value gets a depth from the ranges it depends on, every end...">
+<meta property="og:description" content="Your render command prints one flat list of C lines. A program with ranges needs for loops, and the graph never says which line goes inside which loop. In this lesson you work that out: every value...">
 <meta property="og:url" content="https://sharpterminal.com/site/week3/05-rendering-loops">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,67 +20,136 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 3 · Lesson 5</p>
 <h1>Rendering loops</h1>
-<p class="lede">A program with ranges is still a graph: nothing in it says "this line goes inside that loop". Your renderer has to work that out. Every value gets a depth from the ranges it depends on, every <code>end</code> becomes a <code>for</code> loop, and the result is a nest of blocks you can print top to bottom.</p>
+<p class="lede">Your <code>render</code> command prints one flat list of C lines. A program with ranges needs <code>for</code> loops, and the graph never says which line goes inside which loop. In this lesson you work that out: every value gets a depth, and the depths become nested blocks of C.</p>
 
-<div class="prose">
-<h2>Where does a value live?</h2>
-<p>Week 2's renderer printed one flat list. Now each value has to land inside the right loops. The rule from the spec is short:</p>
-<ul>
-<li><strong>A value is computed inside every loop whose range it depends on, and no deeper.</strong> Its depth is the deepest of its open ranges. A constant, or anything built only from constants and buffers, lives outside every loop.</li>
-<li><strong>A load is placed the same way, with one exception.</strong> First place it by its own open ranges. Then find the innermost loop holding every use of it. If that loop is deeper, and it stores into the version the load reads, the load moves into it and sees the current contents on every iteration. A use counts as inside a loop only if it's placed there itself. That's the accumulator from lesson 3.2.</li>
-<li><strong>An <code>end</code> is a loop.</strong> It sits in the block around its loop, and its loop body is a new block holding everything whose deepest range is the one it closes.</li>
-</ul>
-<p>Those three rules turn the graph into nested blocks. Inside every block the week 2 order still applies: sources first, and loads of a version before the store that overwrites it. Step through the valid 1D convolution from lesson 4.</p>
-</div>
-
-<div class="fig bleed" id="emit" data-title="render: the graph becomes a loop nest"></div>
-
-<div class="prose">
-<h2>Hoisting comes for free</h2>
-<p>Because a value lives at the depth of its deepest range and no deeper, anything that doesn't change inside a loop is computed outside it. In the 2D convolution from lesson 4, <code>oi*3</code> depends only on the outermost range, so it's computed once per <code>oi</code>, not once per tap:</p>
-<pre><code>for (int32_t r7 = 0; r7 &lt; 3; r7++) {                    // oi
-  int32_t v8 = (int32_t)((uint32_t)r7 * (uint32_t)3);    // oi*3: depends on oi only
-  for (int32_t r9 = 0; r9 &lt; 3; r9++) {                  // oj
-    int32_t v10 = (int32_t)((uint32_t)v8 + (uint32_t)r9);// oi*3 + oj
-    b2[v10] = 0x0.0p+0f;                                 // the reset: depends on oi, oj
-    for (int32_t r15 = 0; r15 &lt; 2; r15++) {             // ki
-      int32_t v16 = (int32_t)((uint32_t)r7 + (uint32_t)r15);
-      int32_t v17 = (int32_t)((uint32_t)v16 * (uint32_t)4);  // (oi + ki)*4: no kj
-      int32_t v18 = (int32_t)((uint32_t)r15 * (uint32_t)2);  // ki*2: no kj
-      for (int32_t r19 = 0; r19 &lt; 2; r19++) {           // kj
-        float v20 = b2[v10];                             // the accumulator: placed by its use
-        ...</code></pre>
-<p>A C compiler would hoist these too, at <code>-O2</code>. You still want to do it yourself: it's free once you have depths, it makes the C readable, and from week 6 your kernels get timed with your own code doing the work.</p>
-
-<h2>Which loop is outside?</h2>
-<p>The graph never says "loop <code>oi</code> is outside loop <code>oj</code>". You read it off the <code>end</code>s. <code>%eoj = end %eki %oj</code> closes <code>oj</code>, but its effect still depends on <code>oi</code>, so <code>%eoj</code> has <code>oi</code> open. Then <code>%eoi = end %eoj %oi</code> repeats that whole <code>oj</code> loop for every <code>oi</code>. In general, the ranges an <code>end</code> still has open after closing its own are exactly the loops around it.</p>
-<p>So the loop order is a property you compute by walking the graph, and the placement of every node follows from it. The syllabus says this is the first week you'll likely want a <strong>rewrite engine</strong> to "order the ranges properly": a pass that, rule by rule, pushes each node into the loop where it belongs and pulls loop-invariant work out. You can also do it directly, by computing depths and building blocks as in the stepper. Either way, keep it in its own pass. Week 4's rangeify will create ranges for you, and a renderer that knows how to place nodes is what turns those into loops.</p>
+<div class="note">
+<span class="label">Goal</span>
+<p>Decide which loops each node's C line sits inside, then print the loop nest.</p>
 </div>
 
 <div class="note">
-<span class="label">What the grader allows now</span>
-<p>The render grader still removes comments and strings, then looks for loops. For a program that contains a <code>range</code>, <code>for</code> is allowed and <code>while</code>, <code>do</code> and <code>goto</code> are not. For a program with no ranges (every week 2 test), any loop at all fails the test, exactly as before.</p>
+<span class="label">You'll use</span>
+<p>Open ranges and <code>end</code> from <a href="01-ranges.html">lesson 3.1</a>, the accumulator from <a href="02-memory-in-loops.html">lesson 3.2</a>, the convolution from <a href="04-conv.html">lesson 3.4</a> and the week 2 renderer from <a href="../week2/04-rendering-c.html">lesson 2.4</a>.</p>
+<p class="only-python">In the exercises: a loop over a list (<a href="../learn/py-03-collections.html">P.3</a>), a small class (<a href="../learn/py-04-your-own-types.html">P.4</a>) and a function that calls itself (<a href="../learn/py-05-recursion.html">P.5</a>).</p>
+<p class="only-ocaml">In the exercises: <code>match</code> on a list (<a href="../learn/ml-03-lists-matching.html">O.3</a>) and your own types (<a href="../learn/ml-04-your-own-types.html">O.4</a>).</p>
 </div>
 
-<div class="exercise" data-ex="w3-05-depths" data-ex-py="w3-05-depths-py">
-<h3>Which loop does a node live in?</h3>
-<p>A toy graph has two kinds of node: <span class="only-ocaml"><code>Range (d, name)</code></span><span class="only-python"><code>Range(depth, name)</code></span>, a loop counter at nesting depth <span class="only-ocaml"><code>d</code></span><span class="only-python"><code>depth</code></span> (1 is the outermost loop), and <span class="only-ocaml"><code>Op (name, srcs)</code></span><span class="only-python"><code>Op(name, srcs)</code></span>. Write <span class="only-ocaml"><code>depth : node -> int</code></span><span class="only-python"><code>depth(n: Node) -> int</code></span>: the loop depth a node must be computed at, which is the deepest range it can reach through its sources, or 0 if it reaches none. Keep the type and the function name as given.</p>
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Which ranges are open in <code>%a</code>?</p>
+<pre><code>%i = range 4
+%j = range 3
+%a = mul %i 5
+%b = add %a %j</code></pre>
+<div class="opts">
+<button data-k="a">None</button>
+<button data-k="b">Only <code>i</code></button>
+<button data-k="c"><code>i</code> and <code>j</code></button>
+</div>
+<p class="hint">A value's open ranges are the ranges it is built from. Follow the sources of <code>%a</code>.</p>
+<div class="why"><p>Only <code>i</code>. <code>%a</code> is built from <code>%i</code> and a constant. <code>%b</code> uses <code>%j</code> too, so it has both open.</p></div>
 </div>
 
-<div class="exercise small" data-ex="w3-05-skeleton" data-ex-py="w3-05-skeleton-py">
-<h3>Print a loop nest</h3>
-<p>Write <span class="only-ocaml"><code>skeleton : (string * string) list -> string -> string</code></span><span class="only-python"><code>skeleton(loops: list[tuple[str, str]], body: str) -> str</code></span>. Given loops outermost first, each a variable and a bound, return C with one <code>for (int32_t v = 0; v &lt; bound; v++) {</code> per loop, the body innermost, and a <code>}</code> per loop. Indent two spaces per level. Join lines with <code>"\n"</code>, with no trailing newline. With no loops, return the body unchanged. The examples print each line break as <code>\n</code>.</p>
+<div class="quiz" data-answer="c">
+<p class="q">Two loads read buffer version <code>%b</code>, and one store overwrites it. In the C from lesson 2.4, where does the store go?</p>
+<div class="opts">
+<button data-k="a">First, so the loads see the new value</button>
+<button data-k="b">Between the two loads</button>
+<button data-k="c">After both loads</button>
+</div>
+<p class="hint">C has one array. What is left of the old version once the store has run?</p>
+<div class="why"><p>The store changes the array in place, so every load of the old version has to run first.</p></div>
 </div>
 
-<h2>Check yourself</h2>
-<p class="score"></p>
+<div class="prose">
+<h2>Which lines go inside the for?</h2>
+<p>This program multiplies every element of <code>x</code> by <code>g[0]</code> squared and writes the results to <code>y</code>.</p>
+<pre><code>%x  = buffer 4 dtype=i32 slot=0
+%g  = buffer 1 dtype=i32 slot=1
+%y  = buffer 4 dtype=i32 slot=2
+%i  = range 4
+%gv = shrink %g 0 []
+%k  = load %gv
+%k2 = mul %k %k
+%xv = shrink %x %i []
+%xe = load %xv
+%p  = mul %xe %k2
+%yv = shrink %y %i []
+%s  = store %yv %p
+%e  = end %s %i
+%y1 = after %y %e</code></pre>
+<p>Here it is as a graph, with views drawn as their offsets. The <code>end</code> will become a <code>for</code> loop, and two loads, two multiplies and a store each become one line of C. Nothing in the graph says which of those five lines go inside the braces.</p>
+</div>
+
+<div class="fig bleed" id="lead" data-title="one loop, five lines of C to place"></div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Where should the C line for <code>%k2 = mul %k %k</code> go?</p>
+<div class="opts">
+<button data-k="a">Inside the loop, because <code>%p</code> uses it there</button>
+<button data-k="b">Before the loop, because it does not depend on <code>%i</code></button>
+<button data-k="c">After the loop</button>
+</div>
+<p class="hint">Would its value be different on the second trip through the loop?</p>
+<div class="why"><p>Before the loop. Nothing it is built from changes with <code>i</code>, so one computation is enough. Inside the loop it would give the same answer four times.</p></div>
+</div>
+
+<div class="prose">
+<p>The reference compiler prints this:</p>
+<pre><code>void kernel(int32_t *restrict b0, int32_t *restrict b1, int32_t *restrict b2) {
+  int32_t v6 = b1[0];
+  int32_t v7 = (int32_t)((uint32_t)v6 * (uint32_t)v6);
+  for (int32_t r8 = 0; r8 &lt; 4; r8++) {
+    int32_t v11 = b0[r8];
+    int32_t v12 = (int32_t)((uint32_t)v11 * (uint32_t)v7);
+    b2[r8] = v12;
+  }
+}</code></pre>
+<p>Two lines come before the <code>for</code>: the load of <code>g[0]</code> and its square. Three go inside, because they depend on <code>%i</code>. The renderer sorted them with one question: which ranges does this value depend on?</p>
+
+<h2>Every value has a depth</h2>
+<p>The <strong>depth</strong> of a value is the number of loops its C line sits inside. Depth 0 means before every loop. The rule that sets it:</p>
+<p><strong>A value is computed inside every loop whose range it depends on, and no deeper.</strong></p>
+<p>You already know what a value depends on: its open ranges from lesson 3.1. This program fills a 2 by 3 table with <code>i*10 + j</code>.</p>
+<pre><code>%y  = buffer 6 dtype=i32 slot=0
+%i  = range 2
+%j  = range 3
+%r  = mul %i 3
+%o  = add %r %j
+%t  = mul %i 10
+%v  = add %t %j
+%yv = shrink %y %o []
+%s  = store %yv %v
+%ej = end %s %j
+%ei = end %ej %i
+%y1 = after %y %ei</code></pre>
+<ol>
+<li><strong>Number the loops.</strong> <code>i</code> is the outer loop, depth 1. <code>j</code> is inside it, depth 2.</li>
+<li><strong>List the open ranges.</strong> <code>%r</code> and <code>%t</code> have <code>{i}</code>. <code>%o</code>, <code>%v</code> and the store have <code>{i, j}</code>.</li>
+<li><strong>Take the deepest one.</strong> <code>%r</code> and <code>%t</code> get depth 1. The other three get depth 2.</li>
+</ol>
+<pre><code>void kernel(int32_t *restrict b0) {
+  for (int32_t r4 = 0; r4 &lt; 2; r4++) {
+    int32_t v5 = (int32_t)((uint32_t)r4 * (uint32_t)3);
+    int32_t v6 = (int32_t)((uint32_t)r4 * (uint32_t)10);
+    for (int32_t r7 = 0; r7 &lt; 3; r7++) {
+      int32_t v8 = (int32_t)((uint32_t)v5 + (uint32_t)r7);
+      int32_t v10 = (int32_t)((uint32_t)v6 + (uint32_t)r7);
+      b0[v8] = v10;
+    }
+  }
+}</code></pre>
+<p><code>v5</code> and <code>v6</code> run twice, not six times. Moving work out of a loop is called <strong>hoisting</strong>. Here it needs no extra code: it is what "and no deeper" means.</p>
+</div>
 
 <div class="quiz" data-answer="c">
 <p class="q">Loops nest <code>i</code> (outermost), then <code>j</code>, then <code>k</code>. A value is <code>add %i %k</code>. Where is it computed?</p>
@@ -94,15 +163,64 @@
 <div class="why"><p>It depends on <code>k</code>, the innermost range, so it's computed every <code>k</code> iteration, even though it doesn't use <code>j</code>.</p></div>
 </div>
 
-<div class="quiz" data-answer="a">
-<p class="q">Same nest. Where is <code>mul %i 3</code> computed?</p>
-<div class="opts">
-<button data-k="a">In the <code>i</code> loop, once per <code>i</code></button>
-<button data-k="b">In the <code>k</code> loop, where it's used</button>
-<button data-k="c">Outside every loop</button>
+<div class="exercise small" data-ex="w3-05n-depth-fix" data-ex-py="w3-05n-depth-fix-py">
+<h3>Fix the depth</h3>
+<p><code>depth_in order opens</code> takes the loops of a nest, outermost first, and the ranges a value depends on. It should return the position of the deepest loop the value depends on, counting from 1, or 0 for none. The function is written, but it gives 0 for a value that uses <code>i</code> and not <code>k</code>. Find the bug and fix it.</p>
 </div>
-<p class="hint">What's the deepest range it depends on?</p>
-<div class="why"><p>Its only range is <code>i</code>, so it's hoisted out of <code>j</code> and <code>k</code>. Ordinary values stay at the depth of their ranges. Only a load whose uses sit in a deeper loop that writes the version it reads moves toward those uses.</p></div>
+
+<div class="exercise" data-ex="w3-05-depths" data-ex-py="w3-05-depths-py">
+<h3>Which loop does a node live in?</h3>
+<p>Now from the graph. A toy graph has two kinds of node: <span class="only-ocaml"><code>Range (d, name)</code></span><span class="only-python"><code>Range(depth, name)</code></span>, a loop counter at nesting depth <span class="only-ocaml"><code>d</code></span><span class="only-python"><code>depth</code></span> (1 is the outermost loop), and <span class="only-ocaml"><code>Op (name, srcs)</code></span><span class="only-python"><code>Op(name, srcs)</code></span>. Write <span class="only-ocaml"><code>depth : node -> int</code></span><span class="only-python"><code>depth(n: Node) -> int</code></span>: the loop depth a node must be computed at, which is the deepest range it can reach through its sources, or 0 if it reaches none. Keep the type and the function name as given.</p>
+</div>
+
+<div class="prose">
+<h2>Find the loop order first</h2>
+<p>The last section took <code>i</code> as the outer loop. No line of the program says that. Change only the two <code>end</code> lines:</p>
+<pre><code>%ei = end %s %i
+%ej = end %ei %j
+%y1 = after %y %ej</code></pre>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">The store still depends on <code>i</code> and <code>j</code>. With these <code>end</code>s, which loop is the outer one?</p>
+<div class="opts">
+<button data-k="a"><code>j</code></button>
+<button data-k="b"><code>i</code>, because <code>%i</code> is defined first</button>
+<button data-k="c">It is not decided</button>
+</div>
+<p class="hint"><code>%ei</code> repeats the store for every <code>i</code>. What does <code>%ej</code> repeat?</p>
+<div class="why"><p><code>j</code>. <code>%ej</code> repeats the whole <code>i</code> loop once for each <code>j</code>, so the <code>i</code> loop is inside it.</p></div>
+</div>
+
+<div class="prose">
+<p>Now <code>mul %i 3</code> sits at depth 2 and runs six times:</p>
+<pre><code>void kernel(int32_t *restrict b0) {
+  for (int32_t r4 = 0; r4 &lt; 3; r4++) {
+    for (int32_t r5 = 0; r5 &lt; 2; r5++) {
+      int32_t v6 = (int32_t)((uint32_t)r5 * (uint32_t)3);
+      int32_t v7 = (int32_t)((uint32_t)v6 + (uint32_t)r4);
+      int32_t v9 = (int32_t)((uint32_t)r5 * (uint32_t)10);
+      int32_t v10 = (int32_t)((uint32_t)v9 + (uint32_t)r4);
+      b0[v7] = v10;
+    }
+  }
+}</code></pre>
+<p>The same node got a different depth. So depths mean nothing until the loops are in order, and the order comes from the <code>end</code>s:</p>
+<ol>
+<li><strong>Look at an <code>end</code>.</strong> <code>%ei = end %s %i</code> closes <code>i</code>.</li>
+<li><strong>Read what is still open.</strong> Its effect also depends on <code>j</code>, so <code>%ei</code> has <code>{j}</code> open.</li>
+<li><strong>Those are the loops around it.</strong> The <code>i</code> loop sits inside the <code>j</code> loop.</li>
+</ol>
+<p>A value then goes inside every loop around its deepest range, even one it does not use. In the convolution, <code>w[k]</code> depends only on <code>k</code>, but the <code>k</code> loop is inside the <code>i</code> loop, so the load is inside both.</p>
+<p>This is why a loop program needs reshaping before it can be printed. The syllabus calls it ordering the ranges, and suggests a <strong>rewrite engine</strong> like week 1's: rules that push each node into the loop it belongs to and pull everything else out. You can also compute the order and the depths directly. Either way, make it a pass of its own, separate from printing. Week 4 creates ranges for you and reuses it.</p>
+
+<h2>One load has to move</h2>
+<p>There is one case where the depth rule alone prints a wrong program. It is the accumulator from lesson 3.2, here as the inner loop of the convolution:</p>
+<pre><code>%cur = load %yv0
+%sum = add %cur %p
+%s   = store %yv0 %sum
+%ek  = end %s %k</code></pre>
+<p><code>%yv0</code> is the view of <code>y[i]</code>, and <code>%p</code> is this tap's product, which depends on <code>k</code>.</p>
 </div>
 
 <div class="quiz" data-answer="b">
@@ -114,6 +232,133 @@
 </div>
 <p class="hint">This is the one placement rule that isn't about open ranges.</p>
 <div class="why"><p>A load runs in the innermost loop holding all its uses, and because that loop stores into the version it reads, it reloads every iteration and sees the running sum. Anywhere else, every iteration would add to the same starting value.</p></div>
+</div>
+
+<div class="prose">
+<p>By its ranges, <code>%cur</code> has depth 1: before the <code>k</code> loop. There it would be read once, and every trip would add its product to the same starting value. So loads get one more rule:</p>
+<ol>
+<li><strong>Place the load by its ranges.</strong> <code>%cur</code>: the <code>i</code> loop.</li>
+<li><strong>Find the innermost loop that holds every use.</strong> Its only use is <code>%sum</code>, in the <code>k</code> loop.</li>
+<li><strong>Move it if that loop is deeper and writes what the load reads.</strong> The <code>k</code> loop stores into <code>y[i]</code>, so the load moves in and runs on every trip.</li>
+</ol>
+<p>Only loads ever move.</p>
+</div>
+
+<details class="toggle">
+<summary>When a load must not move: split uses, for when a lab test surprises you</summary>
+<div class="prose">
+<p>"Every use" means every use in the program, including an <code>assert</code>. A use counts as inside a loop only if it is placed there itself: because it depends on the loop's range, or because it is a load that this same rule moved there.</p>
+<p>If a load has one use inside the loop and one outside, the innermost loop holding all its uses is the outer block. The load runs once, before the loop, and every use sees the contents from before the loop. In <code>tests/week3/run/pinned_load_outside.uir</code> the load's use <code>add %x 1</code> depends on no range, so the reference prints both before the loop:</p>
+<pre><code>void kernel(int32_t *restrict b0) {
+  int32_t v4 = b0[0];
+  int32_t v6 = (int32_t)((uint32_t)v4 + (uint32_t)1);
+  for (int32_t r7 = 0; r7 &lt; 3; r7++) {
+    int32_t v8 = (int32_t)((uint32_t)r7 * (uint32_t)0);
+    b0[v8] = v6;
+  }
+}</code></pre>
+<p>Place loads on the graph as written. If your builder folds <code>mul %k 0</code> to <code>0</code> first, lesson 3.2's two views of one element merge into one and the loads change places.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>The shape of the C</h2>
+<p>With an order and a depth for every node, printing is week 2's renderer run once per block. A <strong>block</strong> is the list of lines between one pair of braces.</p>
+<ul>
+<li><strong>Depth 0 is the function body.</strong> Buffers are parameters.</li>
+<li><strong>An <code>end</code> is a loop.</strong> It prints <code>for (int32_t rN = 0; rN &lt; bound; rN++) {</code> in the block of the loops around it, then a new block, then <code>}</code>. The range becomes the counter <code>rN</code>.</li>
+<li><strong>The new block holds every node whose deepest loop is the one that <code>end</code> closes.</strong></li>
+<li><strong>Inside a block, week 2's order holds.</strong> Sources first, and loads of a version before the store that overwrites it.</li>
+</ul>
+<p>Step through lesson 3.4's valid 1D convolution.</p>
+</div>
+
+<div class="fig bleed" id="emit" data-title="render: the graph becomes a loop nest"></div>
+
+<div class="exercise small" data-ex="w3-05-skeleton" data-ex-py="w3-05-skeleton-py">
+<h3>Print a loop nest</h3>
+<p>Write <span class="only-ocaml"><code>skeleton : (string * string) list -> string -> string</code></span><span class="only-python"><code>skeleton(loops: list[tuple[str, str]], body: str) -> str</code></span>. Given loops outermost first, each a variable and a bound, return C with one <code>for (int32_t v = 0; v &lt; bound; v++) {</code> per loop, the body innermost, and a <code>}</code> per loop. Indent two spaces per level. Join lines with <code>"\n"</code>, with no trailing newline. With no loops, return the body unchanged. The examples print each line break as <code>\n</code>.</p>
+</div>
+
+<div class="note">
+<span class="label">What the grader allows now</span>
+<p>The render grader still removes comments and strings, then looks for loops. For a program that contains a <code>range</code>, <code>for</code> is allowed and <code>while</code>, <code>do</code> and <code>goto</code> are not. For a program with no ranges (every week 2 test), any loop at all fails the test.</p>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Give every value a depth: its deepest open range, in the order the loops nest.</li>
+<li>Read the loop order off the <code>end</code>s before placing anything.</li>
+<li>Move an accumulator load into the loop that writes what it reads.</li>
+<li>Print each <code>end</code> as a <code>for</code> with its own block.</li>
+</ul>
+<p>Next is the week 3 lab, where you add all of this to your own <code>render</code>.</p>
+</div>
+
+<details class="toggle">
+<summary>The placement rules in the spec's words, for when you write the pass</summary>
+<div class="prose">
+<ul>
+<li><strong>A value is computed inside every loop whose range it depends on, and no deeper.</strong> Its depth is the deepest of its open ranges. A constant, or anything built only from constants and buffers, lives outside every loop.</li>
+<li><strong>A load is placed the same way, with one exception.</strong> First place it by its own open ranges. Then find the innermost loop holding every use of it. If that loop is deeper, and it stores into the version the load reads, the load moves into it and sees the current contents on every iteration. A use counts as inside a loop only if it's placed there itself. That's the accumulator from lesson 3.2.</li>
+<li><strong>An <code>end</code> is a loop.</strong> It sits in the block around its loop, and its loop body is a new block holding everything whose deepest range is the one it closes.</li>
+</ul>
+<p>The ranges an <code>end</code> still has open after closing its own are exactly the loops around it. Each range is closed by exactly one <code>end</code>, so the nesting is always well defined. If a value depends on two loops that are not nested in each other, the program is invalid.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>A bigger example: the four loops of the 2D convolution, for checking your output</summary>
+<div class="prose">
+<p>This is the reference's C for the 2D convolution program in lesson 3.4. The loops are <code>oy</code>, <code>ox</code>, <code>ky</code> and <code>kx</code>, outermost first.</p>
+<pre><code>void kernel(float *restrict b0, float *restrict b1, float *restrict b2) {
+  for (int32_t r7 = 0; r7 &lt; 3; r7++) {
+    int32_t v8 = (int32_t)((uint32_t)r7 * (uint32_t)3);
+    for (int32_t r9 = 0; r9 &lt; 3; r9++) {
+      int32_t v10 = (int32_t)((uint32_t)v8 + (uint32_t)r9);
+      b2[v10] = 0x0.0p+0f;
+      for (int32_t r15 = 0; r15 &lt; 2; r15++) {
+        int32_t v16 = (int32_t)((uint32_t)r7 + (uint32_t)r15);
+        int32_t v17 = (int32_t)((uint32_t)v16 * (uint32_t)4);
+        int32_t v18 = (int32_t)((uint32_t)r15 * (uint32_t)2);
+        for (int32_t r19 = 0; r19 &lt; 2; r19++) {
+          float v20 = b2[v10];
+          int32_t v21 = (int32_t)((uint32_t)r9 + (uint32_t)r19);
+          int32_t v22 = (int32_t)((uint32_t)v17 + (uint32_t)v21);
+          float v24 = b0[v22];
+          int32_t v25 = (int32_t)((uint32_t)v18 + (uint32_t)r19);
+          float v27 = b1[v25];
+          float v28 = (v24 * v27);
+          float v29 = (v20 + v28);
+          b2[v10] = v29;
+        }
+      }
+    }
+  }
+}</code></pre>
+<ul>
+<li><code>v8</code> is <code>oy*3</code>. It depends on the outermost range only, so it is computed once per <code>oy</code>, not once per tap.</li>
+<li><code>v10</code> and the reset store depend on <code>oy</code> and <code>ox</code>.</li>
+<li><code>v17</code> is <code>(oy + ky)*4</code> and <code>v18</code> is <code>ky*2</code>. Neither uses <code>kx</code>, so both stay out of the innermost loop.</li>
+<li><code>v20</code> is the accumulator load, placed by its use.</li>
+</ul>
+<p>A C compiler would hoist these too, at <code>-O2</code>. You still want to do it yourself: it's free once you have depths, it makes the C readable, and from week 6 your kernels get timed with your own code doing the work.</p>
+</div>
+</details>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="a">
+<p class="q">In an <code>i</code>, <code>j</code>, <code>k</code> nest, where is <code>mul %i 3</code> computed?</p>
+<div class="opts">
+<button data-k="a">In the <code>i</code> loop, once per <code>i</code></button>
+<button data-k="b">In the <code>k</code> loop, where it's used</button>
+<button data-k="c">Outside every loop</button>
+</div>
+<p class="hint">What's the deepest range it depends on?</p>
+<div class="why"><p>Its only range is <code>i</code>, so it's hoisted out of <code>j</code> and <code>k</code>. Ordinary values stay at the depth of their ranges. Only a load whose uses sit in a deeper loop that writes the version it reads moves toward those uses.</p></div>
 </div>
 
 <div class="quiz" data-fill="REJECTED">
@@ -195,7 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
   };
   const L = [
-    'void kernel(float *b0, float *b1, float *b2) {',
+    'void kernel(float *restrict b0, float *restrict b1, float *restrict b2) {',
     '  for (int32_t r6 = 0; r6 < 4; r6++) {',
     '    b2[r6] = 0x0.0p+0f;',
     '    for (int32_t r11 = 0; r11 < 3; r11++) {',
@@ -224,6 +469,18 @@ document.addEventListener('DOMContentLoaded', () => {
     { caption: 'The store into the version the accumulator load read. In this block the load is already printed, so the overwrite is allowed.', hit: ['s'], c: code(11) },
     { caption: 'Close the blocks inner first. Every node is printed exactly once, at the depth the rules gave it.', hit: ['ek', 'ei'], c: code(14) },
   ];
+  CC.stepper(document.getElementById('lead'), [
+    { caption: 'The graph. Answer the question below before you press Next.', hit: [] },
+    { caption: 'The highlighted nodes can reach <code>%i</code> through their sources, so they have <code>i</code> open. The other two do not.', hit: ['i', 'xe', 'p', 's', 'e'] },
+  ], (s, body) => {
+    const c = id => (s.hit.includes(id) ? 'hit' : '');
+    body.append(CC.graph([
+      N('i', 'range', [], c('i'), 'i < 4'), N('k', 'load', [], c('k'), 'g[0]'),
+      N('k2', 'mul', ['k', 'k'], c('k2'), '%k2'), N('xe', 'load', ['i'], c('xe'), 'x[i]'),
+      N('p', 'mul', ['xe', 'k2'], c('p'), '%p'), N('s', 'store', ['i', 'p'], c('s'), 'y[i] = %p'),
+      N('e', 'end', ['s', 'i'], c('e'), 'closes i'),
+    ]));
+  });
   CC.stepper(document.getElementById('emit'), steps, (s, body) => {
     body.classList.add('split');
     body.append(CC.code(s.c.text, s.c.hl), CC.graph(graph(s.hit)));

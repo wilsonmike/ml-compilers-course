@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build the thing that runs it</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="In step 1 the page ran your programs. Something had to read add 2 3 and come back with 5. That something is called an interpreter, and it is the first working...">
+<link rel="canonical" href="https://sharpterminal.com/site/start/02-build-a-calculator">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Build the thing that runs it">
+<meta property="og:description" content="In step 1 the page ran your programs. Something had to read add 2 3 and come back with 5. That something is called an interpreter, and it is the first working piece of your compiler. You&#x27;ll write a...">
+<meta property="og:url" content="https://sharpterminal.com/site/start/02-build-a-calculator">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+</head>
+<body data-crumbs="Start|Build the thing that runs it" data-root="../">
+<main>
+  <p class="eyebrow">Start · Step 2 of 2</p>
+  <h1>Build the thing that runs it</h1>
+  <p class="lede">In step 1 the page ran your programs. Something had to read <code>add 2 3</code> and come back with 5. That something is called an interpreter, and it is the first working piece of your compiler. You'll write a small one now.</p>
+
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Write a function that runs a short program and returns its answer.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p class="only-python">Functions, <code>if</code>, a loop and a dict. You met them in <a href="../learn/py-02-decisions-loops.html">P.2</a> and <a href="../learn/py-03-collections.html">P.3</a>. If one is new, read that lesson and come back.</p>
+    <p class="only-ocaml">Functions, <code>match</code>, a list and a hash table. You met them in <a href="../learn/ml-02-functions.html">O.2</a>, <a href="../learn/ml-03-lists-matching.html">O.3</a>, <a href="../learn/ml-04-your-own-types.html">O.4</a> and <a href="../learn/ml-05-mutation.html">O.5</a>. If one is new, read that lesson and come back.</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from step 1, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="18">
+    <p class="q">What is <code>%out</code>?</p>
+<pre><code>%a   = add 4 5
+%out = mul %a 2</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Work out the first line, then use its answer in the second.</p>
+    <div class="why"><p><code>%a</code> is 9, and 9 × 2 is 18.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">A line can use a name only if…</p>
+    <div class="opts">
+      <button data-k="a">a line above it made that name</button>
+      <button data-k="b">the name is <code>%out</code></button>
+      <button data-k="c">the name is used exactly once</button>
+    </div>
+    <p class="hint">Think about the order the lines run in.</p>
+    <div class="why"><p>Lines run top to bottom, so a value has to exist before a later line can use it.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Part 1: one op</h2>
+    <p>Start with the smallest job. Given the name of an op and two numbers, return the answer. Here it is for <code>add</code>:</p>
+<pre class="only-python"><code>def apply(op, a, b):
+    if op == "add":
+        return a + b</code></pre>
+<pre class="only-ocaml"><code>let apply op a b =
+  match op with
+  | "add" -&gt; a + b</code></pre>
+    <p>Read it in two moves:</p>
+    <ol>
+      <li><strong>Pick the op.</strong> Look at the op's name to decide what to do.</li>
+      <li><strong>Do the math.</strong> Turn the two numbers into one.</li>
+    </ol>
+    <p>Every op you ever add to your compiler follows those two moves.</p>
+  </div>
+
+  <div class="exercise" data-ex="s2-apply" data-ex-py="s2-apply-py">
+    <h3>One op at a time</h3>
+    <p><code>add</code> is done. Fill in <code>mul</code> (multiply) and <code>max</code> (the larger of the two). Both branches return 0 right now.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Part 2: remembering names</h2>
+    <p>A program has more than one line, and later lines use earlier answers. So the interpreter needs a place to keep each answer under its name. Call it <code>env</code>, short for environment.</p>
+    <p>Follow this program by hand. After each line, one more name is in <code>env</code>:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>line</th><th>what happens</th><th><code>env</code> afterward</th></tr>
+    <tr><td><code>%a = add 2 3</code></td><td>2 and 3 are numbers. <code>apply</code> gives 5. Save it as <code>a</code>.</td><td><code>a</code> is 5</td></tr>
+    <tr><td><code>%out = mul %a 4</code></td><td>Look up <code>a</code> and get 5. 4 is a number. <code>apply</code> gives 20. Save it as <code>out</code>.</td><td><code>a</code> is 5, <code>out</code> is 20</td></tr>
+  </table></div>
+  <div class="prose">
+    <p>So each line takes three moves:</p>
+    <ol>
+      <li><strong>Find the values.</strong> A number is used as it is. A name is looked up in <code>env</code>.</li>
+      <li><strong>Apply the op.</strong> Call the <code>apply</code> you just wrote.</li>
+      <li><strong>Save the answer.</strong> Store it in <code>env</code> under the line's name.</li>
+    </ol>
+  </div>
+
+  <div class="quiz" data-fill="7">
+    <p class="q">After the second line runs, what value does <code>env</code> hold for <code>b</code>?</p>
+<pre><code>%a = add 1 2
+%b = add %a 4
+%c = mul %b %b</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Stop after line 2. Line 3 has not run yet.</p>
+    <div class="why"><p>Line 1 saves <code>a</code> as 3. Line 2 looks up <code>a</code>, adds 4, and saves <code>b</code> as 7.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>This step is about running a program, not reading text, so the program arrives already split into pieces. <span class="only-python">Each line is a tuple <code>(name, op, x, y)</code>. A number is an <code>int</code> and a name is a <code>str</code>, so <code>%out = mul %a 4</code> is <code>('out', 'mul', 'a', 4)</code>.</span><span class="only-ocaml">Each line is a tuple <code>(name, op, x, y)</code>. A number is <code>Lit 4</code> and a name is <code>Name "a"</code>, so <code>%out = mul %a 4</code> is <code>("out", "mul", Name "a", Lit 4)</code>.</span></p>
+  </div>
+
+  <div class="exercise" data-ex="s2-run" data-ex-py="s2-run-py">
+    <h3>Run a whole program</h3>
+    <p><code>run</code> returns the value of the last line. The loop and the lookup for <code>x</code> are written. Two places still say 0: find the value of <code>y</code> the same way, then compute the line's answer with <code>apply</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>What you just built</h2>
+    <p>That loop is an interpreter. It is about ten lines long, and it runs every program from step 1. The compiler you build in week 1 does the same three moves. It also reads the text form, refuses programs with mistakes in them, and stores the program as a graph so it can improve it before running it.</p>
+
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Say what an interpreter is: a program that runs another program directly.</li>
+      <li>Write one branch per op that turns two numbers into one.</li>
+      <li>Keep each line's answer under its name, and look names up when later lines use them.</li>
+    </ul>
+    <p>One weakness: your interpreter forgets each line once it has run it, so when two lines compute the same thing it does the work twice. Week 1 starts there.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Go deeper (optional)</summary>
+    <div class="prose">
+      <p><strong>Numbers that wrap.</strong> The real language uses 32-bit whole numbers. Adding 1 to 2,147,483,647 wraps around to -2,147,483,648. <span class="only-python">Python's numbers never wrap, so your week 1 interpreter has to do it by hand.</span><span class="only-ocaml">OCaml's numbers are 63 bits wide, so your week 1 interpreter has to wrap by hand.</span> <a href="../learn/hard-04-numbers-like-c.html">H.4 Numbers that behave like C</a> covers it when you get there.</p>
+
+    </div>
+  </details>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What is <code>env</code> for?</p>
+    <div class="opts">
+      <button data-k="a">It lists the ops the language has.</button>
+      <button data-k="b">It keeps each line's answer under its name, so later lines can use it.</button>
+      <button data-k="c">It holds the text of the program.</button>
+    </div>
+    <p class="hint">Think about what the second line of a program needs from the first.</p>
+    <div class="why"><p>Without <code>env</code>, the second line of a program would have no way to find what the first line computed.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">You want your language to have a new op, <code>min</code>. What do you change?</p>
+    <div class="opts">
+      <button data-k="a">The loop in <code>run</code></button>
+      <button data-k="b"><code>env</code></button>
+      <button data-k="c"><code>apply</code>: add one more branch</button>
+    </div>
+    <p class="hint">Which function looks at the op's name?</p>
+    <div class="why"><p><code>run</code> doesn't care which op a line uses. It hands the op to <code>apply</code>, so a new op is one new branch there.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">For each line, the interpreter does a fixed number of moves. How many?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Find, apply, …</p>
+    <div class="why"><p>Three: find the values, apply the op, save the answer.</p></div>
+  </div>
+
+  <nav class="pager"></nav>
+</main>
+<script src="../assets/course.js?v=013e314611"></script>
+</body>
+</html>

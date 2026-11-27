@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reduce and Expand</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Elementwise ops keep a vector a vector. Two more ops change shape: reduce collapses a vector to one number, and expand stretches one number into a vector...">
+<meta name="description" content="By the end of this lesson you can get one number out of a vector, like its sum or its largest element, and you can stretch one number so it meets every element...">
 <link rel="canonical" href="https://sharpterminal.com/site/week4/02-reduce-expand">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Reduce and Expand">
-<meta property="og:description" content="Elementwise ops keep a vector a vector. Two more ops change shape: reduce collapses a vector to one number, and expand stretches one number into a vector. Between them they cover sums, means, maxima...">
+<meta property="og:description" content="By the end of this lesson you can get one number out of a vector, like its sum or its largest element, and you can stretch one number so it meets every element of a vector. The two ops are reduce and...">
 <meta property="og:url" content="https://sharpterminal.com/site/week4/02-reduce-expand">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -33,41 +33,231 @@
 <main>
 <p class="eyebrow">Week 4 · Lesson 2</p>
 <h1>Reduce and expand</h1>
-<p class="lede">Elementwise ops keep a vector a vector. Two more ops change shape: <code>reduce</code> collapses a vector to one number, and <code>expand</code> stretches one number into a vector. Between them they cover sums, means, maxima and normalization, and they're the two halves of almost every layer in a neural network.</p>
+<p class="lede">By the end of this lesson you can get one number out of a vector, like its sum or its largest element, and you can stretch one number so it meets every element of a vector. The two ops are <code>reduce</code> and <code>expand</code>. Your compiler needs both, because sums, means and normalization are built from these two moves, and so is almost every layer of a neural network.</p>
 
-<div class="prose">
-<h2>reduce is a left fold</h2>
-<p><code>reduce %x op=add</code> takes a vector of shape <code>(n,)</code> and returns a scalar. The spec fixes the order exactly:</p>
-<pre><code>reduce x op=add  =  ((x[0] + x[1]) + x[2]) + ... + x[n-1]</code></pre>
-<p>It starts from <code>x[0]</code>, not from 0, and adds the rest left to right, rounding to f32 after every add. <code>op=mul</code> and <code>op=max</code> fold the same way. <code>reduce</code> works on i32 and f32, not bool. i32 wraps at every step, as always.</p>
+<div class="note">
+<span class="label">Goal</span>
+<p>Predict what <code>reduce</code> and <code>expand</code> give, bit for bit, and write .uir programs that use the two together.</p>
 </div>
 
-<div class="key">
-<span class="label">Why the order is in the spec</span>
-<p>Real-number addition is associative. f32 addition isn't: every add rounds, and the rounding depends on the running total. The grader compares f32 results bit for bit, so "the sum" has to mean one specific sequence of adds. A left fold from the first element is the simplest one to state, and the easiest to render as a loop.</p>
+<div class="note">
+<span class="label">You'll use</span>
+<p>f32 rounding and <code>recip</code> from <a href="../week2/01-buffers-and-views.html">lesson 2.1</a>. The accumulator loop from <a href="../week3/02-memory-in-loops.html">lesson 3.2</a>. Vectors, <code>expand</code> and the rule that shapes must match from <a href="01-vectors.html">lesson 4.1</a>.</p>
+<p class="only-python">Two exercises loop over a Python list (<a href="../learn/py-02-decisions-loops.html">P.2</a> and <a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">Two exercises fold over an OCaml list (<a href="../learn/ml-03-lists-matching.html">O.3</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier weeks, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">In f32, what is <code>add 16777216.0 1.0</code>? (16777216 is 2<sup>24</sup>.)</p>
+<div class="opts">
+<button data-k="a"><code>16777217.0</code></button>
+<button data-k="b"><code>16777216.0</code></button>
+<button data-k="c"><code>16777218.0</code></button>
+</div>
+<p class="hint">Past 2<sup>24</sup>, an f32 can hold only every second whole number.</p>
+<div class="why"><p>f32 cannot hold 16777217. Every f32 op computes the exact answer and then rounds it to the nearest number f32 can hold. Here that is a tie, and the tie goes to 16777216.</p></div>
+</div>
+
+<div class="quiz" data-fill="6">
+<p class="q">A week 3 loop sums a buffer that holds <code>5 1 2</code>. The accumulator starts at 0. On each pass the loop loads the accumulator, adds the next element and stores the total back. What does the accumulator hold after the second pass?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The first pass adds the 5. What does the second pass add?</p>
+<div class="why"><p>0, then 5, then 6, and after the third pass 8. An accumulator loop takes the elements one at a time, from first to last. Today one op will stand for that whole loop.</p></div>
+</div>
+
+<h2>Two jobs elementwise ops cannot do</h2>
+<div class="prose">
+<p>In lesson 4.1 every op was <strong>elementwise</strong>: element i of the result comes from element i of each operand. Two everyday jobs do not fit that mold. Here is the first. A buffer holds four f32s and you want their sum, which is one number.</p>
+<pre><code>%x = buffer 4 dtype=f32 slot=0
+%v = load %x</code></pre>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>%v</code> has shape <code>(4,)</code>. You may combine it with itself using any elementwise ops you like: <code>add</code>, <code>mul</code>, <code>max</code> and the rest. What shape can the result have?</p>
+<div class="opts">
+<button data-k="a">Only <code>(4,)</code></button>
+<button data-k="b"><code>(4,)</code> or a scalar, depending on the op</button>
+<button data-k="c">Any shape</button>
+</div>
+<p class="hint">What did lesson 4.1 say about the shape of an elementwise result?</p>
+<div class="why"><p>An elementwise op gives back the shape it was given. Four numbers in, four numbers out. No chain of them ever arrives at one number.</p></div>
 </div>
 
 <div class="prose">
-<p>The same four numbers, folded in two orders. In f32, the spacing between neighboring values near 1e8 is 8, so <code>1e8 + 1</code> rounds straight back to <code>1e8</code>:</p>
+<p>In week 3 you got a sum with a hand-written loop and an accumulator, about a dozen lines. Vectors were supposed to free you from writing loops, so the sum needs an op of its own.</p>
+<p>The second job runs the other way. You have one number, say <code>1.0</code>, and you want to add it to every element of <code>%v</code>. Lesson 4.1 showed that <code>add %v 1.0</code> is rejected, because the shapes <code>(4,)</code> and <code>()</code> do not match, and that <code>expand</code> turns the one number into four first.</p>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>job</th><th>op</th><th>shape in</th><th>shape out</th></tr></thead>
+<tbody>
+<tr><td>one number out of a vector</td><td><code>reduce</code></td><td><code>(n,)</code></td><td><code>()</code></td></tr>
+<tr><td>one number for every element</td><td><code>expand</code></td><td><code>()</code></td><td><code>(n,)</code></td></tr>
+</tbody>
+</table></div>
+
+<h2>reduce: one number out of a vector</h2>
+<div class="prose">
+<p><code>reduce</code> takes a vector and the name of an op. It <strong>folds</strong> the vector with that op, which means it combines the elements one after another into a single running value. The result is a scalar.</p>
+<pre><code>%x = stack 3 9 2 4
+%s = reduce %x op=add</code></pre>
+<ol>
+<li><strong>Start with the first element.</strong> The running total is 3.</li>
+<li><strong>Fold in the next element.</strong> 3 + 9 is 12.</li>
+<li><strong>Keep going to the end.</strong> 12 + 2 is 14, and 14 + 4 is 18.</li>
+<li><strong>Hand back the total.</strong> <code>%s</code> is 18, with shape <code>()</code>.</li>
+</ol>
+<p>That is the accumulator loop from the warm up, written in one line. The <code>op</code> attribute is required and has three choices:</p>
+<ul>
+<li><code>op=add</code> gives the sum.</li>
+<li><code>op=mul</code> gives the product.</li>
+<li><code>op=max</code> keeps the larger value at every step, so it gives the largest element.</li>
+</ul>
+<p>The vector must be i32 or f32. A bool vector is rejected. Each step follows the scalar rules you know: i32 wraps and f32 rounds.</p>
+</div>
+
+<div class="quiz" data-fill="9">
+<p class="q">What is <code>reduce %x op=max</code> for <code>%x = stack 3 9 2 4</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Start with 3. At each step keep the larger of the running value and the next element.</p>
+<div class="why"><p>The running value goes 3, then 9, then 9, then 9. Once the largest element is in, nothing replaces it.</p></div>
+</div>
+
+<h2>Same numbers, two orders</h2>
+<div class="prose">
+<p>The worked example added from left to right. Would another order give the same total? For i32 it would: addition that wraps gives the same answer in any order. Now try f32. Add these three numbers in two ways:</p>
+<pre><code>left to right:      (16777216.0 + 1.0) + 1.0
+small ones first:   16777216.0 + (1.0 + 1.0)</code></pre>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Each <code>+</code> is an f32 add, so it rounds. What do the two orders give?</p>
+<div class="opts">
+<button data-k="a">Both give <code>16777218.0</code></button>
+<button data-k="b">Both give <code>16777216.0</code></button>
+<button data-k="c">Left to right gives <code>16777216.0</code>. Small ones first gives <code>16777218.0</code>.</button>
+</div>
+<p class="hint">Use the warm up for the first add of the left to right order. Can f32 hold 16777218?</p>
+<div class="why"><p>Left to right, <code>16777216 + 1</code> rounds back to 16777216, and then it does so again. Small ones first, <code>1 + 1</code> is exactly 2, and <code>16777216 + 2</code> is 16777218, which f32 can hold. The same three numbers give two different answers.</p></div>
+</div>
+
+<div class="prose">
+<p>The rounding depends on the running total, so the order of the adds changes the result. Here is a second case with four numbers. Near <code>1e8</code>, which is one hundred million, an f32 holds only every eighth whole number, so <code>1e8 + 1</code> rounds straight back to <code>1e8</code>. Step through both orders.</p>
 </div>
 
 <div class="fig" id="fold" data-title="one multiset, two orders, two answers"></div>
 
 <div class="prose">
-<p>Both programs are <code>reduce op=add</code> over <code>{1e8, -1e8, 1, 1}</code>. The first folds to 0 and the second to 2. Each result is the correct left fold of its own program. A compiler that reorders the adds, for example summing pairs in a tree, would get one of them wrong.</p>
+<p>Both rows hold the same four numbers. Order A ends at 0 and order B ends at 2.</p>
 </div>
 
-<div class="trap">
-<span class="label">Starting from zero</span>
-<p>Seeding the sum with <code>0.0</code> looks harmless, and it is for almost every input. But <code>0.0 + -0.0</code> is <code>+0.0</code>, so the sum of <code>[-0.0]</code> would come out as <code>+0.0</code>. The spec's fold starts from <code>x[0]</code>, so <code>reduce [-0.0] op=add</code> is <code>-0.0</code>. <code>recip</code> tells them apart: <code>-inf</code> versus <code>inf</code>.</p>
+<h2>So the order is fixed</h2>
+<div class="prose">
+<p>If "the sum" could mean any order, two correct compilers could print different answers for the same program. The grader compares f32 results bit for bit, so the spec picks one order and every compiler follows it:</p>
+<pre><code>reduce x op=add  =  ((x[0] + x[1]) + x[2]) + ... + x[n-1]</code></pre>
+<ol>
+<li><strong>Start from <code>x[0]</code>.</strong> Not from 0. A one-element vector reduces to that element, with no op at all.</li>
+<li><strong>Go left to right.</strong> Fold in <code>x[1]</code>, then <code>x[2]</code>, up to the last element.</li>
+<li><strong>Apply the scalar rule at every step.</strong> f32 rounds after each add and i32 wraps.</li>
+</ol>
+<p>This order is called a <strong>left fold</strong>. <code>op=mul</code> and <code>op=max</code> fold the same way. A left fold is the simplest order to state, and it is the order of the accumulator loop, so it is easy to turn into C. A compiler that regroups the adds, for example by summing pairs, gets some f32 programs wrong.</p>
+<p>Why not start from 0? Because <code>0.0 + -0.0</code> is <code>+0.0</code>, so the sum of <code>[-0.0]</code> would lose its sign.</p>
 </div>
 
 <div class="exercise small" data-ex="w4-02-fold32" data-ex-py="w4-02-fold32-py">
 <h3>A left fold in f32</h3>
-<p>Write <span class="only-ocaml"><code>sum32 : float list -> float</code></span><span class="only-python"><code>sum32(xs: list[float]) -> float</code></span> for a non-empty list: start from the first element, add the rest left to right, and round to f32 after every add with the <code>f32</code> helper the starter gives you.</p>
+<p><span class="only-ocaml"><code>sum32 : float list -> float</code></span><span class="only-python"><code>sum32(xs: list[float]) -> float</code></span> should add a non-empty list the way <code>reduce op=add</code> does. The starter has two mistakes. Repair it: start from the first element, add the rest left to right, and round to f32 after every add with the <code>f32</code> helper the starter gives you.</p>
 </div>
 
-<h2>add, mul and max</h2>
+<div class="exercise small" data-ex="w4-02n-prod32" data-ex-py="w4-02n-prod32-py">
+<h3>A left fold with mul</h3>
+<p>Now from an empty function. Write <code>prod32</code> the way <code>reduce op=mul</code> works on a non-empty list of i32 values: start from the first element, multiply in the rest from left to right, and wrap to i32 after every multiply with the <code>wrap32</code> helper. The starter returns 0.</p>
+</div>
+
+<h2>expand: one number for every element</h2>
+<div class="prose">
+<p>Now the second job. This program wants to divide every element of <code>x</code> by the sum of <code>x</code>. Floats have no division op, so it multiplies by <code>recip</code> of the sum, which is 1 divided by the sum.</p>
+<pre><code>%v = load %x
+%s = reduce %v op=add
+%r = recip %s
+%y = mul %v %r</code></pre>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%v</code> has shape <code>(4,)</code>. What happens at <code>%y = mul %v %r</code>?</p>
+<div class="opts">
+<button data-k="a">Every element of <code>%v</code> is multiplied by <code>%r</code>.</button>
+<button data-k="b">The program is rejected: the shapes <code>(4,)</code> and <code>()</code> do not match.</button>
+<button data-k="c">The result is one number.</button>
+</div>
+<p class="hint"><code>%r</code> comes from a <code>reduce</code>, so it is a scalar. Does any ALU op stretch a scalar for you?</p>
+<div class="why"><p>ALU ops never stretch a scalar on their own. Both operands must have one shape, so the scalar has to become a <code>(4,)</code> vector first.</p></div>
+</div>
+
+<div class="prose">
+<p>The repair is the <code>expand</code> you met in <a href="01-vectors.html#stretch-a-value-on-purpose">lesson 4.1</a>: <code>expand %r [4]</code> is a vector of 4 copies of the scalar <code>%r</code>. It is a broadcast that you write out, and .uir has no other kind. Lesson 4.1 used it to add 1.0 to every element:</p>
+<pre><code>%one = expand 1.0 [4]
+%z   = add %v %one</code></pre>
+<p>Two facts are new here. In week 4, <code>expand</code> takes only a scalar. It never makes a vector longer: a <code>(2,)</code> vector cannot become <code>(3,)</code>. And the copies cost nothing. Lesson 4.3 shows that the compiled loop reads the one number again on each pass and never stores four of them.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-02n-addall">
+<h3>Add one number to every element</h3>
+<p>Slot 0 holds five f32s <code>x</code>, and slot 1 holds one f32 <code>b</code>. Slot 2 should get <code>y[i] = x[i] + b</code>. The starter already loads <code>x</code> as the vector <code>%v</code> and <code>b</code> as the scalar <code>%s</code>, but it stores <code>x</code> unchanged. Finish it with one <code>expand</code> and one <code>add</code>.</p>
+</div>
+
+<h2>Reduce, then expand</h2>
+<div class="prose">
+<p>The two ops are most useful as a pair: boil a vector down to one number, then spread that number back over the vector. Here is the program from the last section, repaired. It computes <code>y = x / sum(x)</code>, which is called <strong>normalization</strong> because the results add up to 1.</p>
+<pre><code>%v = load %x                   # (n,)
+%s = reduce %v op=add          # ()   the sum
+%r = recip %s                  # ()   1 / sum
+%e = expand %r [n]       # (n,) 1 / sum, n times
+%y = mul %v %e                 # (n,) each x / sum</code></pre>
+</div>
+
+<div class="quiz" data-fill="0.25 0.75 | [0.25 0.75] | 0.25, 0.75 | [0.25, 0.75] | .25 .75">
+<p class="q">For <code>x = [1.0 3.0]</code>, what is <code>%y</code>? Write the two numbers with a space between them.</p>
+<div class="fill"><input aria-label="answer" placeholder="e.g. 0.5 0.5"><button class="btn">check</button></div>
+<p class="hint">Follow the five lines in order. The sum is 4.0, so what is <code>recip</code> of it?</p>
+<div class="why"><p>The sum is 4.0 and its <code>recip</code> is 0.25. Expanded, that is <code>[0.25 0.25]</code>. Multiplied elementwise by <code>[1.0 3.0]</code> it gives <code>[0.25 0.75]</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>A mean works the same way and is even shorter: it is a sum times a constant. For eight elements, <code>reduce</code> and then <code>mul</code> by <code>0.125</code>. Both operands of that <code>mul</code> are scalars, so it needs no <code>expand</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-02-mean">
+<h3>The mean of eight</h3>
+<p>Slot 0 holds eight f32s. Store their sum times <code>0.125</code> into slot 1. The starter stores just the sum.</p>
+</div>
+
+<div class="exercise" data-ex="w4-02-maxnorm">
+<h3>Divide by the largest element</h3>
+<p>Now write the whole pattern yourself. Slot 0 holds six f32s. Store <code>y[i] = x[i] * recip(max(x))</code> into slot 1. Use <code>recip</code> and <code>mul</code>, as written: the tests check that exact rounding, including what NaN and zero maxima do.</p>
+</div>
+
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Turn a vector into one number with <code>reduce</code> and <code>op=add</code>, <code>op=mul</code> or <code>op=max</code>.</li>
+<li>Say why the order of f32 adds changes the result, and fold in the one order the spec allows: from <code>x[0]</code>, left to right.</li>
+<li>Stretch a scalar with <code>expand</code> so it can meet a vector in an elementwise op.</li>
+<li>Combine the two for normalization and means.</li>
+</ul>
+<p>Next, lesson 4.3 shows how your compiler turns <code>reduce</code> and <code>expand</code> back into loops.</p>
+</div>
+
+<h2 id="reference">Reference for the lab</h2>
+<p class="prose">You do not need these to finish the page. Open them when a test in your own compiler disagrees with you.</p>
+
+<details class="toggle">
+<summary>Edge cases of add, mul and max, for when a reduce test is off by one bit</summary>
+<div class="prose">
+<p><code>reduce %x op=add</code> takes a vector of shape <code>(n,)</code> and returns a scalar. It starts from <code>x[0]</code>, not from 0, and adds the rest left to right, rounding to f32 after every add. <code>op=mul</code> and <code>op=max</code> fold the same way. <code>reduce</code> works on i32 and f32, not bool. i32 wraps at every step, as always.</p>
+</div>
 <div class="tablewrap">
 <table>
 <thead><tr><th>op</th><th>folds with</th><th>edge cases</th></tr></thead>
@@ -79,28 +269,30 @@
 </table>
 </div>
 <p class="muted">A one-element vector reduces to that element, with no ops at all. bool vectors can't be reduced.</p>
+<div class="trap">
+<span class="label">Starting from zero</span>
+<p>Seeding the sum with <code>0.0</code> looks harmless, and it is for almost every input. But <code>0.0 + -0.0</code> is <code>+0.0</code>, so the sum of <code>[-0.0]</code> would come out as <code>+0.0</code>. The spec's fold starts from <code>x[0]</code>, so <code>reduce [-0.0] op=add</code> is <code>-0.0</code>. <code>recip</code> tells them apart: <code>-inf</code> versus <code>inf</code>.</p>
+</div>
+<div class="key">
+<span class="label">Why the order is in the spec</span>
+<p>Real-number addition is associative. f32 addition isn't: every add rounds, and the rounding depends on the running total. The grader compares f32 results bit for bit, so "the sum" has to mean one specific sequence of adds. A left fold from the first element is the simplest one to state, and the easiest to render as a loop.</p>
+</div>
+</details>
 
-<h2>expand is a broadcast</h2>
+<details class="toggle">
+<summary>Every rule for expand, for when your type checker has to accept or reject one</summary>
 <div class="prose">
-<p><code>expand %s [n]</code> takes a scalar and gives a vector of n copies. The shape is the last operand, a bracket list. It's how a scalar meets a vector, since ALU ops never broadcast on their own. Week 4 uses <code>expand</code> on scalars. Week 5 widens it to grow any size-1 axis of a value with the same rank. Growing an axis that isn't size 1 is always rejected: a <code>(2,)</code> vector can't become <code>(3,)</code>.</p>
-<p>The two ops together give the classic patterns. Here's normalization, <code>y = x / sum(x)</code>, written with <code>recip</code> because there's no f32 division op:</p>
-<pre><code>%v = load %x                   # (n,)
-%s = reduce %v op=add          # ()   the sum
-%r = recip %s                  # ()   1 / sum
-%e = expand %r [n]       # (n,) 1 / sum, n times
-%y = mul %v %e                 # (n,) each x / sum</code></pre>
-<p>For <code>x = [1.0 3.0]</code> that's <code>[0.25 0.75]</code>. A mean is a sum times a constant: <code>reduce</code>, then <code>mul</code> by <code>0.125</code> for eight elements. Note that <code>%v</code> is used twice, by the reduce and by the final <code>mul</code>. That's fine: the generated code reads <code>x</code> twice whatever you do, because the reduce has to finish before the store loop can start. The real question comes when a <em>computed</em> value (not a plain load) has two uses: should the compiler recompute it at each use, or store it once? That's the materialization question of lesson 4.4.</p>
+<p><code>expand %s [n]</code> takes a scalar and gives a vector of n copies. The shape is the last operand, a bracket list, and n must be at least 1: a size of 0 is rejected. It's how a scalar meets a vector, since ALU ops never broadcast on their own. Week 4 uses <code>expand</code> on scalars. Week 5 widens it to grow any size-1 axis of a value with the same rank. Growing an axis that isn't size 1 is always rejected: a <code>(2,)</code> vector can't become <code>(3,)</code>.</p>
+<p>Two rules from the spec apply to both ops of this lesson. A computed vector, which includes the result of <code>expand</code> and the operand of <code>reduce</code>, may not depend on an open range from a hand-written week 3 loop. And bounds analysis (lesson 2.3) treats the result of <code>expand</code> and of <code>reduce</code> as the full range of its dtype.</p>
 </div>
+</details>
 
-<div class="exercise" data-ex="w4-02-maxnorm">
-<h3>Divide by the largest element</h3>
-<p>Slot 0 holds six f32s. Store <code>y[i] = x[i] * recip(max(x))</code> into slot 1. Use <code>recip</code> and <code>mul</code>, as written: the tests check that exact rounding, including what NaN and zero maxima do.</p>
+<details class="toggle">
+<summary>A value used twice: why normalization reads x twice, for when you reach lesson 4.4</summary>
+<div class="prose">
+<p>In the normalization program, <code>%v</code> is used twice, by the reduce and by the final <code>mul</code>. That's fine: the generated code reads <code>x</code> twice whatever you do, because the reduce has to finish before the store loop can start. The real question comes when a <em>computed</em> value (not a plain load) has two uses: should the compiler recompute it at each use, or store it once? That's the materialization question of lesson 4.4.</p>
 </div>
-
-<div class="exercise small" data-ex="w4-02-mean">
-<h3>The mean of eight</h3>
-<p>Slot 0 holds eight f32s. Store their sum times <code>0.125</code> into slot 1. The starter stores just the sum.</p>
-</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>

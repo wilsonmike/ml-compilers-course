@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Any Rank, Flat Memory</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Until now every value was a scalar or a vector. From this week a value can have any number of axes: a matrix, a stack of matrices, a batch of images. Memory...">
+<meta name="description" content="In week 4 you wrote programs on whole lists and your compiler turned them into loops. But an image is a grid, and a batch of images is a stack of grids. This...">
 <link rel="canonical" href="https://sharpterminal.com/site/week5/01-shapes">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Any Rank, Flat Memory">
-<meta property="og:description" content="Until now every value was a scalar or a vector. From this week a value can have any number of axes: a matrix, a stack of matrices, a batch of images. Memory doesn&#x27;t change at all. Buffers stay one...">
+<meta property="og:description" content="In week 4 you wrote programs on whole lists and your compiler turned them into loops. But an image is a grid, and a batch of images is a stack of grids. This week your language learns values with...">
 <meta property="og:url" content="https://sharpterminal.com/site/week5/01-shapes">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .tview { display: grid; gap: var(--s5); }
   .planes { display: flex; gap: var(--s5); flex-wrap: wrap; }
@@ -38,27 +38,186 @@
 <main>
 <p class="eyebrow">Week 5 · Lesson 1</p>
 <h1>Any rank, flat memory</h1>
-<p class="lede">Until now every value was a scalar or a vector. From this week a value can have any number of axes: a matrix, a stack of matrices, a batch of images. Memory doesn't change at all. Buffers stay one long row of numbers, and the shape is just a way of reading that row.</p>
+<p class="lede">In week 4 you wrote programs on whole lists and your compiler turned them into loops. But an image is a grid, and a batch of images is a stack of grids. This week your language learns values with two, three or four dimensions. This lesson shows how such a value lives in the flat buffer you already have.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Say how many numbers a shape holds, and turn an index into a position in the flat buffer and back.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>The matrix index <code>r*cols + c</code> (<a href="../week3/03-gemm.html">lesson 3.3</a>), whole-value <code>load</code> and <code>store</code> (<a href="../week4/01-vectors.html">4.1</a>) and <code>reduce</code> (<a href="../week4/02-reduce-expand.html">4.2</a>). Shapes first showed up in <a href="../week0/04-tensors-and-shapes.html">lesson 0.4</a>.</p>
+<p class="only-python">In the exercises: a loop over a list (<a href="../learn/py-02-decisions-loops.html">P.2</a>, <a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">In the exercises: lists and <code>let rec</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from weeks 3 and 4, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="9">
+<p class="q">A matrix with 4 columns is stored row after row in a flat buffer. Which position holds row 2, column 1?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>r*cols + c</code>. Rows and columns count from 0.</p>
+<div class="why"><p><code>2*4 + 1 = 9</code>. Skip two whole rows of 4, then step 1 box along.</p></div>
+</div>
+
+<div class="quiz" data-fill="21">
+<p class="q"><code>%v</code> is a week 4 value holding <code>[1 2 3 4 5 6]</code>. What is <code>reduce %v op=add</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>reduce</code> folds a whole list into one number.</p>
+<div class="why"><p><code>1 + 2 + 3 + 4 + 5 + 6 = 21</code>. A week 4 <code>reduce</code> always eats the whole list.</p></div>
+</div>
+
+<h2>A grid that week 4 cannot describe</h2>
+<div class="prose">
+<p>Here are two grids of numbers. Each has 2 rows and 3 columns.</p>
+<pre><code>A = 1 2 3      B = 10 20 30
+    4 5 6          40 50 60</code></pre>
+<p>You want two things: the grid <code>A + B</code>, and the total of each column of A, which is <code>5 7 9</code>.</p>
+<p>Week 4 can fake the first one. Store each grid as 6 numbers, row after row, and add the two lists. The numbers come out right, but the program never says that these are grids. The second job shows why that matters.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A is loaded as the week 4 list <code>[1 2 3 4 5 6]</code>. The only week 4 op that adds up a value is <code>reduce</code>. What does <code>reduce op=add</code> give you?</p>
+<div class="opts">
+<button data-k="a"><code>[5 7 9]</code>, the column totals</button>
+<button data-k="b"><code>21</code>, one number</button>
+<button data-k="c"><code>[6 15]</code>, the row totals</button>
+</div>
+<p class="hint">Does the list know where a row ends?</p>
+<div class="why"><p>A week 4 value has one size, 6. Nothing in it says a row ends after 3 numbers, so <code>reduce</code> can only add everything.</p></div>
+</div>
 
 <div class="prose">
-<h2>A shape is a way of counting</h2>
-<p>A shape is a tuple of positive sizes. <code>()</code> is a scalar, <code>(5,)</code> a vector, <code>(3, 4)</code> a matrix with 3 rows of 4, and <code>(2, 3, 4)</code> two such matrices. The number of axes is the <b>rank</b>.</p>
-<p>The elements are laid out in <b>row-major</b> order: the last axis changes fastest. That's the rule from lesson 0.4, and it gives each axis a stride, the distance in elements between neighbors along that axis. For <code>(2, 3, 4)</code> the strides are <code>(12, 4, 1)</code>, so element <code>[i][j][k]</code> is number <code>12i + 4j + k</code> in the flat row. Step through it:</p>
+<p>Week 4 has no way to say "2 rows of 3". Week 5 adds it. A value can now have any number of dimensions, and four new ops rearrange such values: <code>reshape</code>, <code>permute</code>, <code>pad</code> and <code>shrink</code>. With them a matrix multiply or a convolution is a few lines, and by the end of the week your compiler turns all of it into loops. This lesson covers the base: what a shape is, and where each number sits in memory.</p>
+</div>
+
+<h2>A shape is a list of sizes</h2>
+<div class="quiz" data-fill="24">
+<p class="q">A value is made of 2 grids. Each grid has 3 rows, and each row has 4 numbers. How many numbers is that?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Count one row, then one grid, then both grids.</p>
+<div class="why"><p><code>2 * 3 * 4 = 24</code>. You multiply the sizes.</p></div>
+</div>
+
+<div class="prose">
+<p>You just read a shape. A <strong>shape</strong> is a list of sizes, one for each <strong>axis</strong>, which is a direction you can count along. The number of axes is the <strong>rank</strong>. Every size is at least 1.</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>shape</th><th>rank</th><th>what it is</th><th>numbers</th></tr>
+<tr><td><code>()</code></td><td>0</td><td>a scalar, one number</td><td>1</td></tr>
+<tr><td><code>(5,)</code></td><td>1</td><td>a vector, the week 4 list</td><td>5</td></tr>
+<tr><td><code>(2, 3)</code></td><td>2</td><td>a matrix: 2 rows of 3</td><td>6</td></tr>
+<tr><td><code>(2, 3, 4)</code></td><td>3</td><td>2 planes, each 3 rows of 4</td><td>24</td></tr>
+</table></div>
+<div class="prose">
+<p>To count the numbers in a shape, multiply its sizes. This page writes a shape as <code>(2, 3, 4)</code>. Inside a <code>.uir</code> program you write it as <code>[2 3 4]</code>. A value with rank 2 or more is often called a <strong>tensor</strong>.</p>
+</div>
+
+<div class="exercise small" data-ex="w5-01n-size" data-ex-py="w5-01n-size-py">
+<h3>Count the numbers in a shape</h3>
+<p>Write <code>size shape</code>: how many numbers a value of that shape holds. The shape arrives as a list of sizes, so <code>size [2; 3; 4]</code> is 24. A scalar has the empty shape <code>[]</code> and holds one number.</p>
+</div>
+
+<h2>Where one element sits in the buffer</h2>
+<div class="prose">
+<p>Memory does not change this week. A buffer is still one flat row of boxes, so a <code>(2, 3, 4)</code> tensor is 24 numbers in a row. You name one element with an <strong>index</strong>, one number per axis: <code>[1][2][3]</code> is plane 1, row 2, column 3.</p>
+</div>
+
+<div class="quiz" data-fill="23">
+<p class="q">In week 3, row r, column c of a matrix sat at <code>r*cols + c</code>. Stretch that idea to three axes. In a <code>(2, 3, 4)</code> tensor, which position in the buffer holds <code>[1][2][3]</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">A whole plane is 12 numbers and a whole row is 4. How many planes, rows and boxes do you skip?</p>
+<div class="why"><p>Skip 1 plane (12), then 2 rows (8), then 3 boxes: <code>12 + 8 + 3 = 23</code>. That is the last box, because every part of the index is as large as it can be.</p></div>
+</div>
+
+<div class="prose">
+<p>The layout is called <strong>row-major</strong>: the last axis changes fastest. Each axis has a <strong>stride</strong>, the number of boxes one step along that axis skips. A step skips everything to its right, so the stride is the product of the sizes to the right of the axis.</p>
+<p>For <code>[1][2][3]</code> in shape <code>(2, 3, 4)</code>:</p>
+<ol>
+<li><strong>Find the strides.</strong> The last axis has stride 1. Axis 1 skips a row of 4. Axis 0 skips a plane of <code>3 * 4 = 12</code>. The strides are <code>(12, 4, 1)</code>.</li>
+<li><strong>Multiply each index by its stride.</strong> <code>1*12</code>, <code>2*4</code> and <code>3*1</code>.</li>
+<li><strong>Add them up.</strong> <code>12 + 8 + 3 = 23</code>.</li>
+</ol>
+<p>Week 3's <code>r*cols + c</code> is the same rule for a matrix, whose strides are <code>(cols, 1)</code>.</p>
+</div>
+
+<h2>The rule for any rank</h2>
+<div class="prose">
+<p>Step through six elements. Guess each position before you press next.</p>
 </div>
 
 <div class="fig" id="tensor" data-title="a (2, 3, 4) tensor and the 24 numbers behind it"></div>
 
 <div class="prose">
-<p>Going the other way, from a flat position back to an index, is called <b>unflattening</b>. Divide by an axis's stride with <code>div</code> to drop the axes to its right, then take <code>mod</code> its size to drop the axes to its left. Positions are never negative, so <code>div</code> here is plain integer division. For position 23 in <code>(2, 3, 4)</code>: axis 0 is <code>23 div 12 = 1</code>, axis 1 is <code>(23 div 4) mod 3 = 5 mod 3 = 2</code>, and axis 2 is <code>23 mod 4 = 3</code>, so it's <code>[1][2][3]</code>. Lesson 5.5 builds exactly this arithmetic for every <code>reshape</code>.</p>
+<p>The rule does not care how many axes there are. Start at the last axis with stride 1. Each time you move one axis left, multiply the stride by the size of the axis you just left. The function below does exactly that, with one mistake.</p>
 </div>
 
-<h2>Memory stays rank 1</h2>
+<div class="exercise" data-ex="w5-01n-offset" data-ex-py="w5-01n-offset-py">
+<h3>Repair: index to offset, any rank</h3>
+<p><code>offset shape index</code> returns where an element sits in the flat buffer. <code>offset [2; 3; 4] [1; 2; 3]</code> should be 23. The helper <code>go</code> walks the axes from last to first and is nearly right, but the stride never grows, so it returns 6. Fix the one place that passes the next stride.</p>
+</div>
+
+<h2>From a position back to an index</h2>
 <div class="prose">
-<p>Buffers, allocs and memory views keep their week 2 shapes: a buffer is <code>(n,)</code>, a view is <code>[k]</code> or a single element. So a rank-3 value is always made the same way. Load a vector, then <code>reshape</code> it:</p>
-<pre><code>%x  = buffer 24 dtype=i32 slot=0
-%v  = load %x                      # (24,)
-%t  = reshape %v [2 3 4]     # (2, 3, 4): same numbers, new shape</code></pre>
-<p>Storing goes the other way: <code>store</code> needs a value with the view's shape, so you reshape back to <code>(24,)</code> first, with <code>reshape %t [24]</code>. Because the layout is row-major on both sides, neither reshape moves a single number.</p>
+<p>Your compiler also needs the trip back. When it changes a value's shape, it has a flat position and must find the index. That is called <strong>unflattening</strong>.</p>
+</div>
+
+<div class="quiz" data-fill="1">
+<p class="q">In a <code>(2, 3, 4)</code> tensor, which plane holds position 17?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">A plane is 12 numbers. Plane 0 holds positions 0 to 11.</p>
+<div class="why"><p><code>17 div 12 = 1</code>, so plane 1. Position 17 is <code>[1][1][1]</code>, because <code>12 + 4 + 1 = 17</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>Each axis takes two moves. Divide by the axis's stride to throw away the axes to its right. Then take <code>mod</code> the axis's size to throw away the axes to its left. For position 23:</p>
+<ol>
+<li><strong>Axis 0.</strong> <code>23 div 12 = 1</code>. Nothing is to its left, so no <code>mod</code> is needed.</li>
+<li><strong>Axis 1.</strong> <code>23 div 4 = 5</code>, the row number counted across both planes. <code>5 mod 3 = 2</code>.</li>
+<li><strong>Axis 2.</strong> The stride is 1, so only the <code>mod</code> is left: <code>23 mod 4 = 3</code>.</li>
+</ol>
+<p>So position 23 is <code>[1][2][3]</code>, as before. Positions are never negative, so <code>div</code> here is plain whole-number division. Lesson 5.5 builds this arithmetic for every <code>reshape</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w5-01-coord">
+<h3>Unflatten a flat index</h3>
+<p>Write <code>coord(f, d1, d2, axis)</code> in C: for a row-major tensor of shape <code>[d0 d1 d2]</code>, return the coordinate of flat index <code>f</code> along <code>axis</code> 0, 1 or 2. For <code>[2 3 4]</code>, flat 23 is <code>[1][2][3]</code>.</p>
+</div>
+
+<h2>Load flat, then reshape</h2>
+<div class="prose">
+<p>Buffers keep their week 2 shapes: a buffer of n numbers is <code>(n,)</code>. So a grid is always made the same way. Load a list, then give it a shape with <code>reshape</code>. Here is <code>A + B</code> from the start of the lesson, written as grids:</p>
+<pre><code>%a  = buffer 6 dtype=i32 slot=0
+%b  = buffer 6 dtype=i32 slot=1
+%y  = buffer 6 dtype=i32 slot=2
+%va = load %a
+%ta = reshape %va [2 3]
+%vb = load %b
+%tb = reshape %vb [2 3]
+%s  = add %ta %tb
+%f  = reshape %s [6]
+%st = store %y %f
+%y1 = after %y %st</code></pre>
+<ol>
+<li><strong>Load.</strong> <code>%va</code> has shape <code>(6,)</code>, as in week 4.</li>
+<li><strong>Reshape.</strong> <code>%ta</code> has shape <code>(2, 3)</code>: the same six numbers, read as 2 rows of 3.</li>
+<li><strong>Compute.</strong> <code>add</code> works element by element on any rank. Both sides must have the same shape.</li>
+<li><strong>Reshape back and store.</strong> <code>store</code> needs a value with the buffer's shape, so <code>%f</code> is <code>(6,)</code> again.</li>
+</ol>
+<p>Both sides of a <code>reshape</code> are row-major, so it never moves a number. It only changes how you count them.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q"><code>%va</code> holds 6 numbers. What does <code>reshape %va [4 2]</code> do?</p>
+<div class="opts">
+<button data-k="a">It makes 4 rows of 2 and fills the last two boxes with 0.</button>
+<button data-k="b">It makes 4 rows of 2 and repeats the first two numbers.</button>
+<button data-k="c">It is an error.</button>
+</div>
+<p class="hint">How many numbers does <code>(4, 2)</code> hold?</p>
+<div class="why"><p><code>(4, 2)</code> holds 8 numbers and <code>%va</code> has 6. A <code>reshape</code> must keep the element count, so the program is rejected.</p></div>
 </div>
 
 <div class="trap">
@@ -66,14 +225,14 @@
 <p><code>store %y %m</code> with <code>%m</code> of shape <code>(3, 4)</code> and <code>%y</code> a 12-element buffer is a type error (the oracle reports "the value must match the view's dtype and shape"). Reshape to <code>[12]</code> first. Params also keep their week 2 rule, rank 0 or 1, so <code>param [2 3] slot=0 dtype=i32 addrspace=ALU</code> is rejected. Shaped data comes from buffers.</p>
 </div>
 
-<h2>Popping leading axes</h2>
+<h2>Take axes off the front</h2>
 <div class="prose">
-<p>Two ops take axes off the front of a shape.</p>
+<p>Now the job week 4 could not do: the column totals of A. With <code>%ta</code> of shape <code>(2, 3)</code>, <code>reduce %ta op=add pop=1</code> adds row 0 and row 1 element by element. The result has shape <code>(3,)</code> and holds <code>5 7 9</code>.</p>
+<p>Two ops remove axes from the front of a shape. Take <code>%t</code> of shape <code>(2, 3, 4)</code>:</p>
 <ul>
-<li><code>index %t 1</code> picks plane 1 and drops axis 0: shape <code>(3, 4)</code>. <code>index %t 1 2</code> drops two axes, leaving row 2 of plane 1, shape <code>(4,)</code>, and <code>index %t 1 2 3</code> is one scalar.</li>
-<li><code>reduce %t op=add pop=m</code> folds the first <code>m</code> axes away. <code>pop=1</code> (the default) adds the two planes, giving <code>(3, 4)</code>. <code>pop=2</code> adds all six rows, giving <code>(4,)</code>.</li>
+<li><code>index %t 1</code> picks plane 1 and drops axis 0: shape <code>(3, 4)</code>. <code>index %t 1 2</code> drops two axes, leaving row 2 of plane 1, shape <code>(4,)</code>. <code>index %t 1 2 3</code> is one scalar.</li>
+<li><code>reduce %t op=add pop=m</code> folds the first <code>m</code> axes away. <code>pop=1</code> (the default) adds the two planes, giving <code>(3, 4)</code>. <code>pop=2</code> adds all six rows, giving <code>(4,)</code>. If <code>%t</code> holds 0 to 23, element 0 of that is <code>0 + 4 + 8 + 12 + 16 + 20 = 60</code>.</li>
 </ul>
-<p>When <code>pop</code> is more than 1, the fold visits the popped axes in row-major order, starting from the first element, exactly like week 4's left fold. For the tensor holding <code>0..23</code>, <code>reduce pop=2</code> at column 0 is <code>0 + 4 + 8 + 12 + 16 + 20 = 60</code>.</p>
 </div>
 
 <div class="key">
@@ -86,10 +245,31 @@
 <p>Slot 0 holds 24 i32s: a <code>(2, 3, 4)</code> tensor in row-major order. Store <code>y[j][k] = x[0][j][k] + x[1][j][k]</code>, a <code>(3, 4)</code> result, into slot 1 as 12 numbers. The starter stores plane 0 only.</p>
 </div>
 
-<div class="exercise small" data-ex="w5-01-coord">
-<h3>Unflatten a flat index</h3>
-<p>Write <code>coord(f, d1, d2, axis)</code>: for a row-major tensor of shape <code>[d0 d1 d2]</code>, return the coordinate of flat index <code>f</code> along <code>axis</code> 0, 1 or 2. For <code>[2 3 4]</code>, flat 23 is <code>[1][2][3]</code>.</p>
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Read a shape as a list of sizes, and count its numbers by multiplying them.</li>
+<li>Find an element's position in the flat buffer with row-major strides, and go back with <code>div</code> and <code>mod</code>.</li>
+<li>Make a tensor with <code>load</code> and <code>reshape</code>, and reshape back to rank 1 before a <code>store</code>.</li>
+<li>Remove leading axes with <code>index</code> and <code>reduce pop=m</code>.</li>
+</ul>
+<p>Next, lesson 5.2 looks closer at <code>reshape</code> and adds <code>permute</code>, which swaps axes so that any axis can be brought to the front.</p>
 </div>
+
+<details class="toggle">
+<summary>Week 5's shape rules in full, for when you write the type checker</summary>
+<div class="prose">
+<ul>
+<li>A shape is a tuple of positive ints of any length. <code>()</code> is a scalar.</li>
+<li>Buffers, allocs and memory <code>shrink</code> views stay rank 0 or 1: a buffer is <code>(n,)</code>, and a view is <code>[k]</code> or a single element. Params also stay rank 0 or 1.</li>
+<li>Elementwise ALU ops, <code>where</code>, <code>cast</code> and <code>assert</code> take operands of one shared shape, of any rank.</li>
+<li><code>reshape x [d0 d1 ...]</code> takes any value. The element counts must match, and each element keeps its row-major position.</li>
+<li><code>index x j0 ... j(m-1)</code> needs rank at least m and i32 scalar indexes, each provably in range by week 1's rule. It drops m leading axes.</li>
+<li><code>reduce x op=... pop=m</code> takes <code>op</code> of <code>add</code>, <code>mul</code> or <code>max</code>, an <code>i32</code> or <code>f32</code> value of rank at least m, and <code>m</code> of at least 1 (default 1). It drops m leading axes.</li>
+<li>When <code>pop</code> is more than 1, the fold visits the popped axes in row-major order, starting from the first element, exactly like week 4's left fold. The order matters for floats, where addition can round differently in a different order.</li>
+</ul>
+</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>

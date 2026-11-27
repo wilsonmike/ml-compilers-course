@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The UOp</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes and an argument. Programs are graphs of these. This lesson is...">
+<meta name="description" content="The interpreter you wrote runs a program one line at a time and then forgets it. A compiler has to keep the program, so it can study it and improve it before...">
 <link rel="canonical" href="https://sharpterminal.com/site/week1/01-the-uop">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="The UOp">
-<meta property="og:description" content="Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes and an argument. Programs are graphs of these. This lesson is about why that&#x27;s enough, and the trick...">
+<meta property="og:description" content="The interpreter you wrote runs a program one line at a time and then forgets it. A compiler has to keep the program, so it can study it and improve it before running it. In this lesson you decide...">
 <meta property="og:url" content="https://sharpterminal.com/site/week1/01-the-uop">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,7 +20,7 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
 <style>
   .editor textarea { width: 100%; min-height: 12rem; font: 0.875rem/1.6 var(--mono); background: var(--code-bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r); padding: var(--s3); resize: vertical; }
   .stat { font: 0.875rem var(--mono); color: var(--ink-2); margin-top: var(--s2); }
@@ -33,93 +33,171 @@
 <main>
   <p class="eyebrow">Week 1 · Lesson 1</p>
   <h1>The UOp: one node type for everything</h1>
-  <p class="lede">Your whole compiler is built from one tiny data structure: an op name, a tuple of source nodes and an argument. Programs are graphs of these. This lesson is about why that's enough, and the trick (hash consing) that makes it fast.</p>
+  <p class="lede">The interpreter you wrote runs a program one line at a time and then forgets it. A compiler has to keep the program, so it can study it and improve it before running it. In this lesson you decide what one piece of that kept program looks like, and you learn the trick that stops the same piece from being built twice.</p>
 
   <div class="note">
-    <span class="label">Want it slower?</span>
-    <p>Hash consing and walking a shared graph are the two ideas people find hardest this week. If either one feels slippery, <a href="../learn/hard-01-sharing.html">H.1 Sharing nodes</a> and <a href="../learn/hard-02-walking-graphs.html">H.2 Walking a graph once</a> go through them slowly, with pictures, in your language.</p>
+    <span class="label">Goal</span>
+    <p>Describe any program as a graph of nodes with three fields each, and build those nodes so that the same one is never made twice.</p>
   </div>
 
-  <div class="note"><span class="label">This week</span><p>By the end of week 1 you'll have your own compiler. <code>./compile FILE</code> checks and runs a .uir test and prints one line saying how it went, and <code>./compile simplify FILE</code> prints a smaller program that computes the same thing. Lessons 1 to 5 teach one piece each, with small exercises along the way, and the <a href="06-lab.html">lab</a> puts the pieces together in your own repo. Every later week builds on this core.</p></div>
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>The picture of boxes and arrows from <a href="../start/01-run-a-program.html">Run your first program</a>, and <code>apply</code>, <code>run</code> and <code>env</code> from <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a>.</p>
+    <p class="only-python">In Python: a dataclass (<a href="../learn/py-04-your-own-types.html">P.4</a>) and a function that calls itself (<a href="../learn/py-05-recursion.html">P.5</a>).</p>
+    <p class="only-ocaml">In OCaml: a record and <code>option</code> (<a href="../learn/ml-04-your-own-types.html">O.4</a>) and <code>let rec</code> (<a href="../learn/ml-02-functions.html">O.2</a>).</p>
+  </div>
+
+  <div class="note"><span class="label">This week</span><p>By the end of week 1 your own compiler runs a .uir test with <code>./compile FILE</code> and prints a smaller program that computes the same thing with <code>./compile simplify FILE</code>. Lessons 1 to 5 teach one piece each, and the <a href="06-lab.html">lab</a> puts them together.</p></div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from the start steps, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">In the picture of a program, each line is a box. What does an arrow show?</p>
+    <div class="opts">
+      <button data-k="a">The order the lines were typed in</button>
+      <button data-k="b">A value going to the line that uses it</button>
+      <button data-k="c">Which line makes the biggest number</button>
+    </div>
+    <p class="hint">Think of <code>%out = mul %a 4</code>. Where does its arrow from <code>%a</code> start?</p>
+    <div class="why"><p>An arrow runs from a value to a line that uses it. That picture is called a graph.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="9">
+    <p class="q">What does your <code>run</code> function return for this program?</p>
+<pre><code>%a   = add 1 2
+%out = mul %a %a</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Line 1 saves a number under <code>a</code>. Line 2 looks <code>a</code> up twice.</p>
+    <div class="why"><p><code>env</code> holds 3 for <code>a</code>, and 3 × 3 is 9. One value was used twice. That will matter in this lesson.</p></div>
+  </div>
 
   <div class="prose">
-    <h2>A program is a graph</h2>
-    <p>The official week 1 reference opens with this program:</p>
+    <h2>Your interpreter forgets the program</h2>
+    <p>Your <code>run</code> loop reads a line, works out a number, saves it in <code>env</code> and moves on. Try it on this program:</p>
+<pre><code>%a   = add 2 3
+%b   = add 2 3
+%out = mul %a %b</code></pre>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">Guess first. How many times does your <code>run</code> loop call <code>apply</code> for this program?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The loop calls <code>apply</code> once for each line, whatever the line says.</p>
+    <div class="why"><p>Three, once per line. Lines 1 and 2 ask for the same sum, but the loop can't tell. When it reads line 2, all it has left of line 1 is the number 5.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>A person sees at once that the sum only needs doing once. An interpreter that keeps only numbers never can. So a compiler <strong>keeps the whole program</strong>, in a form it can look over and improve, and runs it afterward.</p>
+    <p>That form is the picture from step 1. Press Next and watch what line 2 does.</p>
+  </div>
+
+  <div class="fig" id="keep"></div>
+
+  <p class="prose">Line 2 made no new box. This lesson shows how your compiler gets there: first what one box is, then how to never build the same box twice.</p>
+
+  <div class="prose">
+    <h2>One box, three fields</h2>
+    <p>A box in the graph is called a <strong>node</strong>. Your compiler has one type of node for everything, named <strong>UOp</strong> (short for micro operation). Every node has the same three fields:</p>
+<pre><code>UOp(op, src, arg)</code></pre>
+    <ul>
+      <li><strong>op</strong>: what the node does, like <code>add</code> or <code>mul</code>.</li>
+      <li><strong>src</strong> (sources): the nodes it reads, in order. These are the arrows coming into the box.</li>
+      <li><strong>arg</strong>: one piece of data that is not a node. Most nodes have none.</li>
+    </ul>
+    <p>Here is <code>%out = mul %a 4</code> turned into a node:</p>
+    <ol>
+      <li><strong>Name the op.</strong> It is <code>mul</code>.</li>
+      <li><strong>Find the sources.</strong> <code>%a</code> is the node an earlier line made. <code>4</code> is a node too: its op is <code>const</code> (a constant, a fixed number), it has no sources and its arg is 4.</li>
+      <li><strong>Fill the arg.</strong> <code>mul</code> needs no extra data, so it has none.</li>
+    </ol>
+    <p>The name <code>%out</code> is not a field. A name is a label the text uses to point at a node.</p>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">In the node for the number <code>7</code>, which field holds the 7?</p>
+    <div class="opts">
+      <button data-k="a">op</button>
+      <button data-k="b">src</button>
+      <button data-k="c">arg</button>
+    </div>
+    <p class="hint">The 7 is data, not another node, and the op says what kind of node this is.</p>
+    <div class="why"><p>The op is <code>const</code>, the sources are empty and the arg is 7. In .uir text you never write <code>const</code>. You write the number.</p></div>
+  </div>
+
+
+
+  <div class="prose">
+    <h2>Why three fields are enough</h2>
+    <p>Anything a node needs is either another node, which goes in <code>src</code>, or it isn't, and goes in <code>arg</code>. So every op fits:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>text</th><th>op</th><th>src</th><th>arg</th></tr>
+    <tr><td><code>7</code></td><td><code>const</code></td><td>none</td><td>7</td></tr>
+    <tr><td><code>add %a 3</code></td><td><code>add</code></td><td>the node <code>%a</code>, then the node for 3</td><td>none</td></tr>
+    <tr><td>the long <code>param</code> line</td><td><code>param</code></td><td>the <code>[]</code></td><td><code>slot=0</code></td></tr>
+  </table></div>
+  <div class="prose">
+    <p>The last row is the input line you have been copying. Lesson 2 explains each word of it.</p>
+    <p>One node type pays off right away: one function can walk any program, whatever ops it holds. Here is that function for running a program. To get a node's number, it first asks each source for its number, then applies the op.</p>
+  </div>
+
+  <div class="exercise" data-ex="w1-01n-value" data-ex-py="w1-01n-value-py">
+    <h3>Finish value</h3>
+    <p><code>value</code> works out the number a node stands for. It calls itself on the node's sources. Two places are wrong.</p>
+    <p><strong>The constant.</strong> A <code>const</code> node returns 0. It should return the number kept in its arg.</p>
+    <p><strong>The multiply.</strong> <code>mul</code> returns its first source and ignores the second. It should multiply the two.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The program the official week 1 reference opens with, for when you meet <code>call</code> and <code>assert</code></summary>
+    <div class="prose">
 <pre><code>%x = param [] slot=0 dtype=i32 addrspace=ALU
 %s = add %x %x
 %v = call %s 3
 %t = assert %v 6</code></pre>
-    <p>Each name is defined once and refers to the same value wherever it is used. So the text is just a way to write down a graph: one node per name, plus the literals <code>3</code> and <code>6</code> and the scalar shape marker <code>[]</code>, with arrows from each node to the nodes that read it. The call fills slot 0 with 3, so its body computes 3 + 3 = 6, and the assert checks that. Lessons 2 and 5 explain every piece.</p>
-
-    <h2>Three fields</h2>
-    <p>Every node in that graph is a <strong>UOp</strong>, a triple: the operation, its ordered sources, and data that isn't a node.</p>
-<pre><code>UOp(op, src: tuple[UOp, ...], arg)</code></pre>
-    <p class="muted">Read <code>src: tuple[UOp, ...]</code> as "src is a tuple of any number of UOps". Op names are written in capitals (<code>ADD</code>) when we talk about the compiler and in lowercase (<code>add</code>) in .uir text. They're the same op.</p>
-    <ul>
-      <li><strong>op</strong>: what this node does, like <code>ADD</code>, <code>CONST</code> or <code>WHERE</code>.</li>
-      <li><strong>src</strong>: the nodes it reads. Their order matters: <code>CMPLT a b</code> is <code>a &lt; b</code>, not <code>b &lt; a</code>.</li>
-      <li><strong>arg</strong>: a non-node payload. The value for a <code>CONST</code>, the <code>slot=0</code> for a <code>PARAM</code>, the target <code>dtype=bool</code> for a <code>CAST</code>. Most ops have none.</li>
-    </ul>
-    <p>A constant is a <code>CONST</code> node inside the compiler, but in .uir text it's always written as its literal, like <code>7</code> or <code>true</code>. Every node also carries a <strong>dtype</strong> (<code>void</code>, <code>bool</code> or <code>i32</code> this week, with floats arriving in week 2) and a <strong>shape</strong>, computed from its sources when it's built. Inside the compiler there are no variables or blocks. A program is one expression, stored as a graph.</p>
-
-    <h2>Why a graph and not a tree</h2>
-    <p>In <code>(2 + 3) * (2 + 3)</code>, the tree has the <code>2 + 3</code> part twice. In a graph it's one node with two arrows coming out. That's a <strong>DAG</strong> (directed acyclic graph): arrows only point from sources to users, with no loops. Sharing is the reason ML compilers use DAGs. In a model, one intermediate value often feeds many later ops.</p>
-  </div>
-
-  <h2>Try it: type .uir, see the graph</h2>
-  <p class="prose">A quick primer (lesson 2 has the full format): each binding names one node, written <code>%name = op operands</code>. Plain numbers are constants, and <code>assert a b</code> checks that two values are equal. This editor reads one binding per line. Edit the program and watch the graph: sources sit on top and results flow down. Identical bindings collapse into one node. Try adding <code>%e = add 2 3</code> and watch the node count stay the same.</p>
-  <div class="fig editor bleed">
-    <div class="head"><span class="title">live graph</span></div>
-    <div class="body">
-      <div class="split">
-        <div><textarea id="src" spellcheck="false" aria-label=".uir program">%a = add 2 3
-%b = add 2 3
-%c = mul %a %b
-%t = assert %c 25</textarea><div class="stat" id="stat"></div></div>
-        <div id="live"></div>
-      </div>
+      <p>Each name is defined once and refers to the same value wherever it is used. So the text is just a way to write down a graph: one node per name, plus the literals <code>3</code> and <code>6</code> and the scalar shape marker <code>[]</code>, with arrows from each node to the nodes that read it. The call fills slot 0 with 3, so its body computes 3 + 3 = 6, and the assert checks that. Lessons 2 and 5 explain every piece.</p>
+      <p>Op names are written in capitals (<code>ADD</code>) when people talk about the compiler and in lowercase (<code>add</code>) in .uir text. They're the same op. Source order matters: <code>CMPLT a b</code> is <code>a &lt; b</code>, not <code>b &lt; a</code>. Other args you'll meet: the target <code>dtype=bool</code> for a <code>CAST</code>. Inside the compiler there are no variables or blocks. A program is one expression, stored as a graph.</p>
     </div>
-  </div>
+  </details>
 
   <div class="prose">
-    <h2>Hash consing</h2>
-    <p>Hash consing means <em>never build the same node twice</em>. Every node you create goes through one cache, keyed on <code>(op, src, arg)</code>, where dtype and shape are part of the key. If the key is already there, you get the existing node back. It's the same object, not just an equal copy.</p>
-    <p>Because sources are already unique, the key can compare sources by <em>identity</em> (their address, or a unique id). Building a node is then one hash lookup, no matter how big the expression underneath is.</p>
+    <h2>A tree or a graph?</h2>
+    <p>In step 1 you wrote a program for (x + 3) × (x + 3). The value x + 3 is used twice, and there are two ways to draw that. Copy the <code>add</code> box once for each use, or draw it once with two arrows going out.</p>
   </div>
 
-  <div class="fig" id="hc" data-title="building nodes through the cache"></div>
+  <div class="quiz" data-fill="7">
+    <p class="q">Guess first. If every use gets its own copy, how many boxes does (x + 3) × (x + 3) need? Count <code>x</code> and <code>3</code> as boxes.</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">One <code>mul</code>. Under it, two copies of <code>add</code>, each with its own <code>x</code> and <code>3</code>.</p>
+    <div class="why"><p>Seven: one <code>mul</code>, two <code>add</code>, two <code>x</code> and two <code>3</code>. Drawn with sharing it is four.</p></div>
+  </div>
+
+  <div class="fig"><div class="head"><span class="title">The same program, drawn two ways</span></div>
+    <div class="body"><div class="split"><div id="tree"></div><div id="dag"></div></div></div>
+    <div class="cap">The tree has 7 boxes. The graph with sharing has 4.</div></div>
 
   <div class="prose">
-    <h3>What you get for free</h3>
-    <ul>
-      <li><strong>Equality takes one step, however big the expression.</strong> "Are these two expressions the same?" becomes "are these the same object?". Rewrite rules like <code>x xor x → 0</code> need exactly that check, and it doesn't walk any subtrees.</li>
-      <li><strong>Sharing is automatic.</strong> Write <code>2 + 3</code> a hundred times and you still have one node.</li>
-      <li><strong>Memoization has an easy key.</strong> Caching "the value of node n" by node identity means each node is computed at most once. (Once <code>call</code> arrives in lesson 5, this cache has to be per call, because the same param node means different values in different calls.)</li>
-    </ul>
+    <p>The copy-everything drawing is a <strong>tree</strong>. The shared one is a <strong>DAG</strong>, a directed acyclic graph. Directed means each arrow points one way, from a source to its user. Acyclic means the arrows never loop back, because a line can only use lines above it.</p>
+    <p>Your compiler stores the DAG. A name used twice in the text is one node with two arrows out. ML compilers work this way because in a model one value often feeds many later ops.</p>
   </div>
 
-  <div class="trap"><span class="label">Structure, not meaning</span><p>Hash consing is structural. <code>add 2 3</code> and <code>add 3 2</code> are different nodes, even though they're equal as numbers, because the src tuple is in a different order. Making them meet is the job of rewrite rules (lesson 3), which can put the operands of order-independent ops like <code>add</code> (commutative ops) into one fixed (canonical) order.</p></div>
-
-  <h3>Code it: a hash-consing table</h3>
-  <p class="prose">Build the cache yourself, on a toy node type in your language. The key is the op plus the <em>ids</em> of the sources. Each source is already unique, so its id stands for its whole subgraph, and the lookup never looks inside it.</p>
-  <div class="exercise" data-ex="w1-01-hashcons" data-ex-py="w1-01-hashcons-py">
-    <h3>Hash cons a toy node</h3>
-    <p>Write <code>create ()</code>. It returns a <code>make</code> function with its own private table. <code>make op src</code> must return the <strong>same</strong> node (the same object: <span class="only-ocaml"><code>==</code></span><span class="only-python"><code>is</code></span>) when it has already built a node with that op and those exact source nodes. Otherwise it builds a new node whose <code>id</code> is the next number: 0, 1, 2 and so on.</p>
-    <p>Two different <code>create ()</code> calls must not share a table. Source order matters: an <code>"add"</code> of <code>x</code> then <code>y</code> and an <code>"add"</code> of <code>y</code> then <code>x</code> are different nodes.</p>
-    <p class="muted only-ocaml">The shape: <code>let create () = let tbl = Hashtbl.create 16 in let next = ref 0 in fun op src -&gt; ...</code>. The table lives inside each <code>create ()</code> call, and the function it returns can see it. Key the <code>Hashtbl</code> on <code>(op, list of source ids)</code>.</p>
-    <p class="muted only-python">The shape: inside <code>create()</code>, make a dict and a counter, then define <code>make</code> and return it. Each <code>create()</code> call gets its own dict, and the <code>make</code> it returns can see it. Key the dict on <code>(op, tuple of source ids)</code>, and compare nodes with <code>is</code>, not <code>==</code>.</p>
-  </div>
-
-  <h2>The doubling DAG</h2>
+  <h2>The problem: the same work, over and over</h2>
   <div class="prose">
-    <p>Here's the shape of a program the tests really use. Each line adds the previous value to itself:</p>
+    <p>Sharing is not just tidy. In this program from the tests, each line adds the previous value to itself. (<code>%x0 = 1</code> names the number 1, and <code>#</code> starts a remark that the compiler skips.)</p>
 <pre><code>%x0 = 1
 %x1 = add %x0 %x0
 %x2 = add %x1 %x1
 %x3 = add %x2 %x2      # ... keep going to %x94</code></pre>
   </div>
+  <div class="quiz" data-fill="8">
+    <p class="q">Guess first. The <code>value</code> function you finished works out both sources of a node from scratch, every time, and never remembers an answer. To get <code>%x3</code>, how many times does it work out <code>%x0</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>%x3</code> needs <code>%x2</code> twice. Each <code>%x2</code> needs <code>%x1</code> twice.</p>
+    <div class="why"><p>Twice for each level: 2 × 2 × 2 is 8. Every extra line doubles it again. It walks the graph as if it were a tree.</p></div>
+  </div>
   <div class="fig"><div class="head"><span class="title">x0 to x3 as a DAG: 4 nodes</span></div><div class="body" id="dbl"></div>
-    <div class="cap">Both arrows into each <code>add</code> come from the same node.</div></div>
+    </div>
   <div class="tablewrap"><table>
     <tr><th>levels</th><th>nodes as a DAG</th><th>nodes if you expand it into a tree</th></tr>
     <tr><td>3</td><td>4</td><td>15</td></tr>
@@ -127,46 +205,153 @@
     <tr><td>94</td><td>95</td><td>about 4 × 10²⁸, far more steps than any computer will ever take</td></tr>
   </table></div>
   <div class="prose">
-    <p>An evaluator that recurses on sources without remembering results visits <code>%x0</code> 2⁹⁴ times. One that caches each node's value visits each node once, so 95 steps. The suite's <code>dag_sharing</code> test is this chain at 94 levels, just under week 1's limit of 100 nodes per file, so "I'll add memoization later" isn't an option.</p>
+    <p>The cure has two halves. <strong>Build each node once</strong>, so the graph stays at 95 nodes. Then <strong>work each node out once</strong>: keep its answer the first time, the way <code>env</code> kept an answer for each name, and the run takes 95 steps. The suite's <code>dag_sharing</code> test is this chain at 94 levels, so your compiler needs both.</p>
   </div>
 
+  <div class="prose">
+    <h2>Hash consing: build each node once</h2>
+    <p>The first half has an odd name. <strong>Hash consing</strong> means <em>never build the same node twice</em>. Every node you create goes through one table, called a cache. Its key is the node's three fields: <code>(op, src, arg)</code>. If the key is already there, you get the existing node back. It is the same object, not an equal copy.</p>
+    <p>Step through four lines going into the cache.</p>
+  </div>
+
+  <div class="fig" id="hc" data-title="building nodes through the cache"></div>
+
+  <div class="trap"><span class="label">Structure, not meaning</span><p>Hash consing is structural. <code>add 2 3</code> and <code>add 3 2</code> are different nodes, even though they're equal as numbers, because the sources are in a different order. Lesson 3 adds rewrite rules that make them meet.</p></div>
+
+  <details class="toggle">
+    <summary>What hash consing gives you for free, for when you write rewrite rules and your evaluator</summary>
+    <div class="prose">
+      <ul>
+        <li><strong>Equality takes one step, however big the expression.</strong> "Are these two expressions the same?" becomes "are these the same object?". Rewrite rules like <code>x xor x → 0</code> need exactly that check, and it doesn't walk any subtrees.</li>
+        <li><strong>Sharing is automatic.</strong> Write <code>2 + 3</code> a hundred times and you still have one node.</li>
+        <li><strong>Memoization has an easy key.</strong> Caching "the value of node n" by node identity means each node is computed at most once. (Once <code>call</code> arrives in lesson 5, this cache has to be per call, because the same param node means different values in different calls.)</li>
+      </ul>
+      <p>In your real compiler each node also carries a dtype and a shape (see the last section), and they are part of the key.</p>
+    </div>
+  </details>
+
+  <h2>Try it: type .uir, see the graph</h2>
+  <p class="prose">This editor builds every line through a cache. Sources sit on top and results flow down. Add the line <code>%e = add 2 3</code> and watch the node count stay the same. Then add <code>%f = add 3 2</code> and watch it go up.</p>
+  <div class="fig editor bleed">
+    <div class="head"><span class="title">live graph</span></div>
+    <div class="body">
+      <div class="split">
+        <div><textarea id="src" spellcheck="false" aria-label=".uir program">%a = add 2 3
+%b = add 2 3
+%out = mul %a %b</textarea><div class="stat" id="stat"></div></div>
+        <div id="live"></div>
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <span class="label">Want it slower?</span>
+    <p>Hash consing and walking a shared graph are the two hardest ideas this week. <a href="../learn/hard-01-sharing.html">H.1 Sharing nodes</a> and <a href="../learn/hard-02-walking-graphs.html">H.2 Walking a graph once</a> go through them slowly, with pictures, in your language.</p>
+  </div>
+
+  <h2 id="repair">Repair a hash-consing table</h2>
+  <p class="prose">Now you build the cache on a toy node type: first repair one that is nearly right, then write one from an empty function. The key is the op plus the <em>ids</em> of the sources. Each source is already unique, so its id stands for everything under it.</p>
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p class="only-python">A function that returns a function (<a href="../learn/py-05-recursion.html">P.5</a>), a dict with a tuple as its key (<a href="../learn/py-03-collections.html">P.3</a>) and <code>is</code> for "the very same object" (<a href="../learn/py-04-your-own-types.html">P.4</a>).</p>
+    <p class="only-ocaml">A function that returns a function (<a href="../learn/ml-02-functions.html">O.2</a>), a <code>Hashtbl</code> and <code>==</code> for "the very same object" (both in <a href="../learn/ml-05-mutation.html">O.5</a>).</p>
+  </div>
+  <div class="exercise" data-ex="w1-01-hashcons-fill" data-ex-py="w1-01-hashcons-fill-py">
+    <h3>Repair a node table</h3>
+    <p>This <code>make</code> is almost a hash-consing table. Two places are wrong.</p>
+    <p><strong>The key.</strong> It only looks at the op, so two <code>add</code> nodes with different sources would collide. It should be the op plus the ids of the sources.</p>
+    <p><strong>The hit.</strong> When the key is already in the table it builds a copy. It should hand back the node that is stored there.</p>
+  </div>
+
+  <h2>Write the table yourself</h2>
+  <p class="prose">Now the whole thing, from an empty function.</p>
+  <div class="exercise" data-ex="w1-01-hashcons" data-ex-py="w1-01-hashcons-py">
+    <h3>Hash cons a toy node</h3>
+    <p>Write <code>create ()</code>. It returns a <code>make</code> function with its own private table. <code>make op src</code> must return the <strong>same</strong> node (the same object: <span class="only-ocaml"><code>==</code></span><span class="only-python"><code>is</code></span>) when it has already built a node with that op and those exact source nodes. Otherwise it builds a new node whose <code>id</code> is the next number: 0, 1, 2 and so on.</p>
+    <p>Two different <code>create ()</code> calls must not share a table. Source order matters.</p>
+    <p class="muted only-ocaml">The shape: <code>let create () = let tbl = Hashtbl.create 16 in let next = ref 0 in fun op src -&gt; ...</code>. Key the <code>Hashtbl</code> on <code>(op, list of source ids)</code>.</p>
+    <p class="muted only-python">The shape: inside <code>create()</code>, make a dict and a counter, then define <code>make</code> and return it. Key the dict on <code>(op, tuple of source ids)</code>, and compare nodes with <code>is</code>.</p>
+  </div>
+
+  <h2 id="count">Count the sharing</h2>
+  <p class="prose">That was the first half of the cure. The second half is to visit each node once when you walk the graph, by remembering which nodes you have already seen. Here you use that to count nodes. Your evaluator will use it to keep answers.</p>
   <div class="exercise small" data-ex="w1-01-dag-size" data-ex-py="w1-01-dag-size-py">
     <h3>Count distinct nodes</h3>
     <p>Write <code>dag_size t</code>: the number of physically distinct nodes reachable from <code>t</code>. A node reached twice counts once. <code>dag_size (dbl 3)</code> is 4, and <code>dag_size (dbl 60)</code> has to finish, so walking the tree is out.</p>
     <p class="muted">Remember what you've visited. <span class="only-ocaml"><code>List.memq</code> tests membership with <code>==</code>.</span><span class="only-python">A set of <code>id(node)</code> values tests membership by identity.</span></p>
   </div>
 
+  <h2>Put sharing to work</h2>
+  <p class="prose">Sharing also lets you write smaller programs. This one is in .uir, like the programs you wrote in step 1.</p>
   <div class="exercise small" data-ex="w1-01-pow8">
     <h3>x to the 8th in 3 ops</h3>
     <p>The starter computes <code>x⁸</code> correctly with 7 <code>mul</code>s. Rewrite <code>%out</code> to use at most 3 ops. Sharing is the whole trick: a node can feed both sides of a <code>mul</code>. <code>%x = param [] slot=0 dtype=i32 addrspace=ALU</code> is the input the tests fill in (lesson 2 explains params), and params and literals don't count as ops.</p>
     <p class="muted">i32 wraps, so <code>16⁸</code> is <code>0</code>. Your program gets that for free.</p>
   </div>
 
-  <h2>Properties come from sources</h2>
+  <h2>What else a node knows</h2>
   <div class="prose">
-    <p>A UOp's dtype and shape aren't stored by hand. They're <em>computed</em> when the node is built, from its op and its sources. This is the type checker. A node that can't get a valid dtype (say, <code>add</code> of an <code>i32</code> and a <code>bool</code>, like <code>add 1 true</code>) is rejected right there.</p>
+    <p>Three more facts ride along with every node. The compiler works them out from the node's op and its sources when the node is built.</p>
+    <ul>
+      <li><strong>dtype</strong>: the kind of value. <code>i32</code> is a whole number that fits in 32 bits. One past the largest, 2,147,483,647, wraps around to the most negative, -2,147,483,648. <code>bool</code> is <code>true</code> or <code>false</code>. <code>cmplt a b</code> asks "is a less than b?", so its dtype is always <code>bool</code>.</li>
+      <li><strong>shape</strong>: how many values the node holds. One value has shape <code>()</code>. <code>stack 1 2 3</code> packs three values into one node, with shape <code>(3,)</code>.</li>
+      <li><strong>cost</strong>: how much work the program is, counted before it runs. Each distinct <code>add</code> or <code>mul</code> costs 1. Numbers cost 0.</li>
+    </ul>
+    <p>A node that can't get a valid dtype, such as <code>add 1 true</code>, is refused when it is built. That is the type checker, and you build it in lesson 2.</p>
+    <p>A test file ends with <code>%t = assert a b</code>, which checks that <code>a</code> equals <code>b</code>. It costs 0.</p>
   </div>
-  <div class="tablewrap"><table>
-    <tr><th>node</th><th>dtype</th><th>shape</th><th>rule</th></tr>
-    <tr><td><code>7</code>, <code>true</code></td><td>i32, bool</td><td><code>()</code></td><td>a literal is a <code>CONST</code> with no sources</td></tr>
-    <tr><td><code>add a b</code></td><td>a's</td><td><code>()</code></td><td>a and b must share a dtype and be rank 0 (no axes: a single value)</td></tr>
-    <tr><td><code>cmplt a b</code></td><td>bool</td><td><code>()</code></td><td>compares, so the result is always bool</td></tr>
-    <tr><td><code>stack a0 .. a(n-1)</code></td><td>a0's</td><td><code>(n,)</code></td><td>adds a leading axis</td></tr>
-    <tr><td><code>index x i</code></td><td>x's</td><td><code>()</code></td><td>pops x's leading axis</td></tr>
-    <tr><td><code>assert a b</code></td><td>void</td><td><code>()</code></td><td>a root, not a value</td></tr>
-  </table></div>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">What is the cost of this program?</p>
+<pre><code>%a = add 2 4
+%m = mul %a %a
+%t = assert %m 36</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Count each distinct op once, however many arrows leave it.</p>
+    <div class="why"><p>One <code>add</code> and one <code>mul</code>: 2. The add is used twice but it is one node, so it counts once.</p></div>
+  </div>
+
+  <details class="toggle">
+    <summary>The dtype and shape rule for each kind of node, and bounds, for when you write the type checker</summary>
+    <div class="prose">
+      <p>Every node carries a <strong>dtype</strong> (<code>void</code>, <code>bool</code> or <code>i32</code> this week, with floats arriving in week 2) and a <strong>shape</strong>, computed from its sources when it's built.</p>
+      <div class="tablewrap"><table>
+        <tr><th>node</th><th>dtype</th><th>shape</th><th>rule</th></tr>
+        <tr><td><code>7</code>, <code>true</code></td><td>i32, bool</td><td><code>()</code></td><td>a literal is a <code>CONST</code> with no sources</td></tr>
+        <tr><td><code>add a b</code></td><td>a's</td><td><code>()</code></td><td>a and b must share a dtype and be rank 0 (no axes: a single value)</td></tr>
+        <tr><td><code>cmplt a b</code></td><td>bool</td><td><code>()</code></td><td>compares, so the result is always bool</td></tr>
+        <tr><td><code>stack a0 .. a(n-1)</code></td><td>a0's</td><td><code>(n,)</code></td><td>adds a leading axis</td></tr>
+        <tr><td><code>index x i</code></td><td>x's</td><td><code>()</code></td><td>pops x's leading axis</td></tr>
+        <tr><td><code>assert a b</code></td><td>void</td><td><code>()</code></td><td>a root, not a value</td></tr>
+      </table></div>
+      <p>The official reference gives every node one more property, worked out the same way. <strong>Bounds</strong> are the smallest and largest value a node could ever have. For an i32 param <code>%p</code> with no limits, <code>max %p 0</code> is in <code>[0, 2³¹-1]</code>, and <code>mod</code> of that by 8 is in <code>[0, 7]</code>. They decide whether an <code>index</code> is safe, and lesson 4 covers them.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Static cost in full, for when a test comes back <code>OVERBUDGET</code></summary>
+    <div class="prose">
+      <p>Static cost says how much work a program is before you run it. Add up a cost for each <em>distinct</em> node the assert can reach, once per node however many times it's used. Literals, params and the assert cost 0. <code>[]</code> and <code>index</code> cost 1. Every other op costs its number of result elements, which is 1 for a scalar. A <code>call</code> costs 1 plus the cost of its body (lesson 5).</p>
+      <p>That makes sharing visible in the number. Here are two programs that both compute 36:</p>
+      <div class="tablewrap"><table>
+        <tr><th>program</th><th>value</th><th>cost</th><th>why</th></tr>
+        <tr><td><code>%a = add 2 4</code><br><code>%m = mul %a %a</code></td><td>36</td><td>2</td><td>one add, used twice, plus the mul</td></tr>
+        <tr><td><code>%a = add 2 4</code><br><code>%b = add 3 3</code><br><code>%m = mul %a %b</code></td><td>36</td><td>3</td><td>two distinct adds, plus the mul</td></tr>
+      </table></div>
+      <p>A week 1 test whose cost is 1,000,000 or more is never run: the answer is <code>OVERBUDGET</code> (lesson 2). Cost counts each node once, so a big shared graph can still be cheap. What costs a lot is calling the same body many times, because every call pays for its body again. The doubling chain stops at 94 levels because a week 1 file may hold fewer than 100 nodes.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>The official reference gives every node two more properties, worked out the same way. <strong>Bounds</strong> are the smallest and largest value a node could ever have. For an i32 param <code>%p</code> with no limits, <code>max %p 0</code> is in <code>[0, 2³¹-1]</code>, and <code>mod</code> of that by 8 is in <code>[0, 7]</code>. They decide whether an <code>index</code> is safe, and lesson 4 covers them. The other is <strong>cost</strong>.</p>
-    <h3>Static cost</h3>
-    <p>Static cost says how much work a program is before you run it. Add up a cost for each <em>distinct</em> node the assert can reach, once per node however many times it's used. Literals, params and the assert cost 0. <code>[]</code> and <code>index</code> cost 1. Every other op costs its number of result elements, which is 1 for a scalar. A <code>call</code> costs 1 plus the cost of its body (lesson 5).</p>
-    <p>That makes sharing visible in the number. Here are two programs that both compute 36:</p>
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Say why a compiler keeps the program as a graph and does not just run it line by line.</li>
+      <li>Turn any line into a node with an op, sources and an arg.</li>
+      <li>Tell a tree from a DAG, and say what a value used twice costs in each.</li>
+      <li>Build nodes through a cache so that the same node is never made twice.</li>
+      <li>Walk a shared graph and visit each node once.</li>
+    </ul>
+    <p>Your nodes still have to be built by hand. In the next lesson your interpreter learns to read .uir text and build them itself.</p>
   </div>
-  <div class="tablewrap"><table>
-    <tr><th>program</th><th>value</th><th>cost</th><th>why</th></tr>
-    <tr><td><code>%a = add 2 4</code><br><code>%m = mul %a %a</code></td><td>36</td><td>2</td><td>one add, used twice, plus the mul</td></tr>
-    <tr><td><code>%a = add 2 4</code><br><code>%b = add 3 3</code><br><code>%m = mul %a %b</code></td><td>36</td><td>3</td><td>two distinct adds, plus the mul</td></tr>
-  </table></div>
-  <p class="prose">A week 1 test whose cost is 1,000,000 or more is never run: the answer is <code>OVERBUDGET</code> (lesson 2). Cost counts each node once, so a big shared graph can still be cheap. What costs a lot is calling the same body many times, because every call pays for its body again.</p>
 
   <h2>Check yourself</h2>
   <p class="score"></p>
@@ -178,7 +363,7 @@
 %c = mul %a %b</code></pre>
     <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
     <p class="hint">Literals are nodes too. Two statements with the same op and the same sources collapse into one.</p>
-    <div class="why"><p>The literals <code>2</code> and <code>3</code> (two <code>CONST</code> nodes), one <code>add</code> (shared by <code>%a</code> and <code>%b</code>), and one <code>mul</code>. <code>%c</code> evaluates to 25.</p></div>
+    <div class="why"><p>The literals <code>2</code> and <code>3</code> (two <code>const</code> nodes), one <code>add</code> (shared by <code>%a</code> and <code>%b</code>), and one <code>mul</code>.</p></div>
   </div>
 
   <div class="quiz" data-answer="b">
@@ -199,16 +384,15 @@
       <button data-k="b">Two, since params are special</button>
       <button data-k="c">It's a type error to declare a param twice</button>
     </div>
-    <p class="hint">A node is keyed on (op, src, arg), with dtype and shape as part of the key. Compare each of those for <code>%p</code> and <code>%q</code>.</p>
-    <div class="why"><p>Same op, same source (the shape <code>[]</code>), same arg, same dtype: one node. What a param means depends on which <code>call</code> is evaluating it (lesson 5), so sharing it is safe.</p></div>
+    <p class="hint">Compare the op, the sources and the arg of <code>%p</code> and <code>%q</code>.</p>
+    <div class="why"><p>Same op, same source and same arg: one node. What a param means depends on which <code>call</code> is evaluating it (lesson 5), so sharing it is safe.</p></div>
   </div>
 
   <div class="quiz" data-fill="-2147483648">
     <p class="q">Start the doubling DAG at <code>%x0 = 1</code>. What is <code>%x31</code>? Remember <code>i32</code> wraps.</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint"><code>%x31</code> is 2 to the 31st. The largest i32 is 2 to the 31st minus 1.</p>
-    <p class="hint">One past <code>INT_MAX</code> wraps around to the most negative i32.</p>
-    <div class="why"><p><code>%x31</code> is 2³¹, one more than <code>INT_MAX</code>, so it wraps to <code>INT_MIN = -2147483648</code>. One more doubling gives 2³², which wraps to 0, and it stays 0 all the way to <code>%x94</code>.</p></div>
+    <div class="why"><p><code>%x31</code> is 2³¹, one more than the largest i32, so it wraps to the most negative one. One more doubling gives 2³², which wraps to 0, and it stays 0 all the way to <code>%x94</code>.</p></div>
   </div>
 
   <div class="quiz" data-answer="c">
@@ -229,8 +413,7 @@
 %m = mul %a %b
 %t = assert %m 36</code></pre>
     <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
-    <p class="hint">Literals and the assert cost 0. Each distinct scalar op costs 1.</p>
-    <p class="hint">Are <code>%a</code> and <code>%b</code> the same node? Compare their sources, not their values.</p>
+    <p class="hint">Literals and the assert cost 0. Are <code>%a</code> and <code>%b</code> the same node? Compare their sources, not their values.</p>
     <div class="why"><p>Two distinct adds and one mul: 3. With <code>mul %a %a</code> the value is the same 36, but the cost is 2, because the one shared add counts once.</p></div>
   </div>
 
@@ -238,7 +421,7 @@
     <p class="q">What dtype is <code>cmplt 1 2</code>?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
     <p class="hint">A comparison answers a yes or no question, whatever it compares.</p>
-    <div class="why"><p>Comparisons always produce <code>bool</code>, whatever their operands are. The value of <code>cmplt 1 2</code> is <code>true</code>.</p></div>
+    <div class="why"><p>A comparison always gives a <code>bool</code>. This one is <code>true</code>.</p></div>
   </div>
 
   <div class="quiz" data-answer="b">
@@ -248,13 +431,13 @@
       <button data-k="b"><code>(3,)</code></button>
       <button data-k="c"><code>(1, 3)</code></button>
     </div>
-    <p class="hint"><code>stack</code> adds one new leading axis, with one entry per source.</p>
-    <div class="why"><p><code>stack</code> adds a new leading axis with one entry per source. <code>index</code> pops it back off: <code>index (stack 1 2 3) 2</code> is <code>3</code>.</p></div>
+    <p class="hint">How many values does this one node hold?</p>
+    <div class="why"><p>Three values packed into one node have shape <code>(3,)</code>. Lesson 5 comes back to <code>stack</code>.</p></div>
   </div>
 
-  <nav class="pager"><a href="../learn/hard-04-numbers-like-c.html">← H.4 Numbers that behave like C</a><a href="02-uir-and-interpreting.html">The .uir format and interpreting →</a></nav>
+<nav class="pager"><a href="../learn/hard-04-numbers-like-c.html">← H.4 Numbers that behave like C</a><a href="02-uir-and-interpreting.html">The .uir format and interpreting →</a></nav>
 </main>
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<script src="../assets/course.js?v=013e314611"></script>
 <script>
 (() => {
   const { h, graph, parseUir, stepper } = CC;
@@ -296,7 +479,14 @@
   // doubling DAG x0..x3
   const d = parseUir('%x0 = const 1\n%x1 = add %x0 %x0\n%x2 = add %x1 %x1\n%x3 = add %x2 %x2');
   const lbl = { n0: 'x0', n1: 'x1', n2: 'x2', n3: 'x3' };
-  document.getElementById('dbl').append(graph(d.nodes.map(n => ({ ...n, sub: n.op === 'const' ? '1  ' + lbl[n.id] : lbl[n.id], val: [1, 2, 4, 8][+n.id.slice(1)] }))));
+  document.getElementById('dbl').append(graph(d.nodes.map(n => ({ ...n, sub: lbl[n.id] + ' = ' + [1, 2, 4, 8][+n.id.slice(1)] }))));
+  CC.trace(document.getElementById('keep'), '%a   = add 2 3\n%b   = add 2 3\n%out = mul %a %b', { title: 'The program, kept as a graph', edit: true });
+
+  const leaf = (id, op) => ({ id, op, src: [] });
+  document.getElementById('tree').append(graph([leaf('a', 'x'), leaf('b', '3'), { id: 'c', op: 'add', src: ['a', 'b'] },
+    leaf('d', 'x'), leaf('e', '3'), { id: 'f', op: 'add', src: ['d', 'e'] }, { id: 'g', op: 'mul', src: ['c', 'f'] }]));
+  document.getElementById('dag').append(graph([leaf('a', 'x'), leaf('b', '3'), { id: 'c', op: 'add', src: ['a', 'b'] }, { id: 'g', op: 'mul', src: ['c', 'c'] }]));
+
 })();
 </script>
 </body>

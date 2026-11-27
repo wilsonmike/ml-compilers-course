@@ -1,0 +1,59 @@
+{
+ "id": "w2-05n-same-py",
+ "lang": "python",
+ "title": "Do the two answers match?",
+ "prompt": "<p>Write <code>same_f32(want, got)</code>. Both are lists of floats that hold f32 values: <code>want</code> from the interpreter, <code>got</code> read back from the C program. Return <code>True</code> when the lists have the same length and every pair has the same 32 bits. One exception: a NaN matches any NaN. So <code>0.0</code> and <code>-0.0</code> do not match, even though <code>0.0 == -0.0</code> is <code>True</code> in Python.</p>",
+ "show": "str",
+ "starter": "import math\nimport struct\n\n\ndef same_f32(want: list[float], got: list[float]) -> bool:\n    return False\n",
+ "tests": [
+  {
+   "expr": "same_f32([1.0, 2.0], [1.0, 2.0])",
+   "expect": "True",
+   "sample": true
+  },
+  {
+   "expr": "same_f32([0.0], [-0.0])",
+   "expect": "False",
+   "sample": true
+  },
+  {
+   "expr": "same_f32([float('nan')], [float('nan')])",
+   "expect": "True",
+   "sample": true
+  },
+  {
+   "expr": "same_f32([float('nan')], [-float('nan')])",
+   "expect": "True"
+  },
+  {
+   "expr": "same_f32([1.0], [1.0, 2.0])",
+   "expect": "False"
+  },
+  {
+   "expr": "same_f32([], [])",
+   "expect": "True"
+  },
+  {
+   "expr": "same_f32([1.0], [float('nan')])",
+   "expect": "False"
+  },
+  {
+   "expr": "same_f32([float.fromhex('0x1.333334p-2')], [float.fromhex('0x1.333336p-2')])",
+   "expect": "False"
+  },
+  {
+   "expr": "same_f32([float('inf'), -0.0], [float('inf'), -0.0])",
+   "expect": "True"
+  },
+  {
+   "expr": "same_f32([float('inf')], [float('-inf')])",
+   "expect": "False"
+  }
+ ],
+ "hints": [
+  "Check the lengths first. Then walk the pairs with `zip(want, got)` and return `False` at the first pair that does not match.",
+  "`a == b` is wrong twice: it says `0.0` equals `-0.0`, and it says a NaN does not equal a NaN. Handle NaN first with `math.isnan(a) and math.isnan(b)`.",
+  "For everything else compare the bits: `struct.pack(\"<f\", a) == struct.pack(\"<f\", b)` is true only when all 32 bits agree."
+ ],
+ "explain": "Comparing with `==` asks whether two floats have the same value, which treats `0.0` and `-0.0` as equal and a NaN as unequal to everything. Packing each value into its 4 bytes compares the bits instead, and a separate `math.isnan` check lets any NaN match any NaN, which is the rule the grader uses for buffers."
+}

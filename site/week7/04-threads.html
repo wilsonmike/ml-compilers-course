@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Threads</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A desktop processor has several cores, each able to run its own loop. If the iterations of a loop don&#x27;t depend on each other, they can run on different cores...">
+<meta name="description" content="Your machine has several processor cores, and so far your compiled code has used one of them. In this lesson a loop hands its iterations to all of them with...">
 <link rel="canonical" href="https://sharpterminal.com/site/week7/04-threads">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Threads">
-<meta property="og:description" content="A desktop processor has several cores, each able to run its own loop. If the iterations of a loop don&#x27;t depend on each other, they can run on different cores at once. The hard part isn&#x27;t starting...">
+<meta property="og:description" content="Your machine has several processor cores, and so far your compiled code has used one of them. In this lesson a loop hands its iterations to all of them with axis=thread. You also learn the rule that...">
 <meta property="og:url" content="https://sharpterminal.com/site/week7/04-threads">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,39 +20,153 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
-  .slots { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; max-width: 40rem; }
-  .slots .s { font: 0.875rem var(--mono); text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+  .slots { display: flex; flex-wrap: wrap; gap: var(--s2); }
+  .slots .g { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px; background: var(--panel); }
+  .slots .lab { font: 0.875rem var(--sans); color: var(--ink-2); margin-bottom: var(--s1); }
+  .slots .cells { display: flex; flex-wrap: wrap; gap: 3px; }
+  .slots .s { font: 0.875rem var(--mono); text-align: center; width: 2rem; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 2.125rem; }
   .slots .s.two { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .slots .a { font: 0.875rem var(--mono); color: var(--ink-3); text-align: center; }
-  @media (max-width: 640px) { .slots { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
 </style>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 7 · Lesson 4</p>
 <h1>Threads: iterations at the same time</h1>
-<p class="lede">A desktop processor has several cores, each able to run its own loop. If the iterations of a loop don't depend on each other, they can run on different cores at once. The hard part isn't starting threads. It's proving that no two iterations step on each other's memory.</p>
+<p class="lede">Your machine has several processor cores, and so far your compiled code has used one of them. In this lesson a loop hands its iterations to all of them with <code>axis=thread</code>. You also learn the rule that stops two iterations from writing the same memory, because a compiler that lets them do it is broken.</p>
 
-<div class="prose">
-<h2>axis=thread</h2>
-<pre><code>%ib = range 192 axis=thread</code></pre>
-<p>Iterations of a <b>thread</b> loop may run in any order, at the same time. <code>./compile</code> still executes them in order, one after another. The program must be written so that the order doesn't matter, and the spec checks that statically.</p>
-
-<h2>What goes wrong: a race</h2>
-<p>Suppose two iterations both do <code>o[0] = o[0] + 1</code> at the same time. Each loads <code>o[0]</code>, say 5, adds 1, and stores 6. One increment is lost, and which one depends on timing. This is a <b>race</b>. Its result can change from run to run, and the bit-exact grader would catch it only sometimes. So the spec forbids it outright.</p>
-
-<h2>The slice rule</h2>
-<p>Each iteration <code>r</code> gets its own slice of memory: elements <code>r·S</code> to <code>r·S + S - 1</code>. Every store in the loop, and every load of memory the loop also stores into, must be at a flat offset of the form</p>
-<pre><code>r * S + e        S a literal (a bare r means S = 1), r in exactly one term,
-                 e doesn't depend on r, and 0 &lt;= e, e + size &lt;= S</code></pre>
-<p><code>size</code> is how many elements the access touches: 1 for a scalar load or store. Your <a href="../week1/04-symbolic.html">week 1 bounds analysis</a> proves the part about <code>e</code>: bound each of its terms on its own, then add up the lows and the highs. Every access to one buffer in the loop uses the same <code>S</code>. Memory the loop only reads, like the A and B of a GEMM, may be read anywhere: two threads reading the same float is no problem.</p>
-<p>The check looks at the shape of the offset, not its value. <code>(r·2)·4</code> equals <code>r·8</code> but isn't in the form, so it's rejected. Write offsets expanded: in the GEMM, C's offset <code>(4ib + wi)·N + 8jb + wj</code> is written as <code>ib·(4N) + wi·N + jb·8 + wj</code>, with <code>e = wi·N + jb·8 + wj</code>. For N = 768 the terms are in <code>[0, 2304]</code>, <code>[0, 760]</code> and <code>[0, 7]</code>, so e is in <code>[0, 3071]</code>, and <code>3071 + 1 &lt;= 3072 = S</code>. Each row block writes only its own 3072 elements.</p>
+<div class="note">
+<span class="label">Goal</span>
+<p>Decide whether a thread loop is safe: every iteration writes only its own slice of memory.</p>
 </div>
 
-<div class="fig" id="slices" data-title="Which elements each iteration writes"></div>
+<div class="note">
+<span class="label">You'll use</span>
+<p>Bounds proofs for views from <a href="../week2/03-bounds.html">lesson 2.3</a>. <code>alloc</code> and memory in loops from <a href="../week3/02-memory-in-loops.html">lesson 3.2</a>. Loop axes from <a href="03-upcast.html">lesson 7.3</a>.</p>
+<p class="only-python">In the exercises: lists and tuples (<a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">In the exercises: tuples in a list (<a href="../learn/ml-03-lists-matching.html">O.3</a>), arrays and <code>ref</code> (<a href="../learn/ml-05-mutation.html">O.5</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%c</code> has bounds <code>[0, 7]</code>, and <code>%o</code> is a buffer of 8 elements. Is <code>shrink %o %c [2]</code> proven in bounds?</p>
+<div class="opts">
+<button data-k="a">Yes. 7 is less than 8.</button>
+<button data-k="b">No. A window that starts at 7 covers elements 7 and 8.</button>
+</div>
+<p class="hint">The test from lesson 2.3: <code>lo ≥ 0</code> and <code>hi + k ≤ n</code>.</p>
+<div class="why"><p>7 + 2 is 9, which is more than 8. You will run this same test today on a slice of a buffer.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">You change <code>range 8</code> to <code>range 8 axis=upcast</code>. What happens to the program's result?</p>
+<div class="opts">
+<button data-k="a">Nothing. An axis says how a loop runs, not what it computes.</button>
+<button data-k="b">It is rounded differently.</button>
+<button data-k="c">The loop runs once, not 8 times.</button>
+</div>
+<p class="hint">What did <code>./compile</code> do differently for an upcast loop?</p>
+<div class="why"><p>Nothing changes, down to the last bit. Today's axis keeps that promise too, but only for programs that follow one rule.</p></div>
+</div>
+
+<div class="prose">
+<h2>Two threads, one counter</h2>
+<p>A <b>core</b> is one unit inside the processor that runs instructions, one after another. A laptop or desktop has several, often 4, 8 or more. A <b>thread</b> is one sequence of instructions in progress, and a program with several threads can keep several cores busy at once.</p>
+<p>Everything you have compiled so far is one thread. One core works and the rest sit idle. A loop of 192 iterations could give 24 to each of 8 cores and finish much sooner. First, a prediction.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">A counter starts at 0. Two threads each run <code>counter = counter + 1</code> 1,000 times, at the same time. What is the counter at the end?</p>
+<div class="opts">
+<button data-k="a">Always 2,000</button>
+<button data-k="b">Always 1,000</button>
+<button data-k="c">Some number up to 2,000, and it can change from run to run</button>
+</div>
+<p class="hint"><code>counter = counter + 1</code> is three steps: load the counter, add 1, store it back. The other thread can run between any two of them.</p>
+<div class="why"><p>Sometimes it is 2,000. Often it is less, and a different number each run. Additions get lost, and the lines below show how.</p></div>
+</div>
+
+<div class="prose">
+<p>The line <code>counter = counter + 1</code> is three steps: load, add, store. Here threads A and B take them at the same moment, with the counter at 5:</p>
+<pre><code>A loads 5            B loads 5
+A adds 1, has 6      B adds 1, has 6
+A stores 6           B stores 6</code></pre>
+<p>Two additions ran, and the counter went from 5 to 6. Whether this happens depends on timing, so the total differs from run to run. This is a <b>race</b>: two threads use the same memory at the same time, and at least one of them writes to it.</p>
+
+<h2>Lose an update yourself</h2>
+<p>In the exercise, <code>schedule</code> lists which thread takes the next step. Each thread has its own register, <code class="only-python">reg[t]</code><code class="only-ocaml">reg.(t)</code>, and takes its three steps in turn: load the counter into its register, add 1 to the register, store the register back.</p>
+</div>
+
+<div class="exercise" data-ex="w7-04n-interleave" data-ex-py="w7-04n-interleave-py">
+<h3>Run two threads by hand</h3>
+<p><code>run</code> plays a schedule and returns the counter. The load step is written. Fill in the add step and the store step. Then compare the two sample tests: when thread 0 finishes before thread 1 starts, the answer is 2. When they take turns, it is 1.</p>
+</div>
+
+<div class="prose">
+<p>Your code was the same in both tests. Only the order of the steps changed. That makes a race the worst kind of bug for a compiler: the program is right on most runs, so tests pass, and the wrong answer shows up later on someone else's machine.</p>
+<p>So <code>.uir</code> does not look for races while the program runs. It rejects, before anything runs, every program that could have one.</p>
+
+<h2>A loop that asks for threads</h2>
+<p>A range can ask for its iterations to be spread over threads:</p>
+<pre><code>%r = range 192 axis=thread</code></pre>
+<p>The iterations of a <b>thread loop</b> may run in any order, at the same time. As with upcast, the result must not change. <code>./compile</code> still runs them in order, one after another. So the program has to be written so that the order cannot matter. Which loops are like that?</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">A loop over <code>r</code> runs all its iterations at once. Which body always gives the same result as running them in order?</p>
+<div class="opts">
+<button data-k="a"><code>o[r] = x[r] * 2</code></button>
+<button data-k="b"><code>o[0] = o[0] + x[r]</code></button>
+<button data-k="c">Both</button>
+</div>
+<p class="hint">One of them is the counter again.</p>
+<div class="why"><p>In the first body, iteration <code>r</code> writes element <code>r</code> and no other iteration touches it. The second is the shared counter: every iteration loads and stores <code>o[0]</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>Two things made the first loop safe, and they become the rule:</p>
+<ul>
+<li><b>Reads are free.</b> A race needs a write. Memory the loop never stores into, like <code>x</code>, may be read anywhere by every iteration.</li>
+<li><b>Writes stay apart.</b> Each iteration stores only into elements that no other iteration loads or stores.</li>
+</ul>
+
+<h2>Each iteration owns a slice</h2>
+<p>To keep writes apart, the spec cuts every buffer the loop stores into equal <b>slices</b>, one per iteration. With a slice size of <code>S</code>, iteration <code>r</code> owns elements <code>r·S</code> to <code>r·S + S - 1</code>. Every store in the loop, and every load of memory the loop also stores into, must be at an offset of this form:</p>
+<pre><code>r * S + e        S is a literal
+                 e is the rest of the offset, proven inside [0, S)</code></pre>
+<p><code>r * S</code> picks the slice. <code>e</code> picks a place inside it and must never reach the next one. A bare <code>r</code> counts as <code>S = 1</code>. Step through three offsets for a loop over <code>r</code> in 0..3, with <code>j</code> in 0..3. Each cell shows which iterations write it.</p>
+</div>
+
+<div class="fig" id="slices" data-title="Which iterations write each element"></div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A thread loop over <code>r</code> stores into <code>o</code> and only reads <code>x</code>. Inside it, <code>c</code> runs from 0 to 7. Which access breaks the rule?</p>
+<div class="opts">
+<button data-k="a">store to <code>o[8r + c]</code></button>
+<button data-k="b">store to <code>o[8r + c + 1]</code></button>
+<button data-k="c">load of <code>x[c]</code></button>
+</div>
+<p class="hint">For each store, what is the largest <code>e</code>? The slice size is 8.</p>
+<div class="why"><p>In <code>8r + c + 1</code>, <code>e = c + 1</code> reaches 8, the first element of the next iteration's slice. In <code>8r + c</code>, <code>e</code> stops at 7. The load of <code>x[c]</code> is free, because the loop never stores into <code>x</code>.</p></div>
+</div>
+
+<div class="prose">
+<h2>The same proof as lesson 2.3</h2>
+<p>In <a href="../week2/03-bounds.html">lesson 2.3</a> you proved a view inside its buffer: find the offset's bounds <code>[lo, hi]</code>, then check <code>lo ≥ 0</code> and <code>hi + k ≤ n</code>. The slice rule is that proof again, with the slice in place of the buffer: <code>e</code> has bounds <code>[lo, hi]</code>, and the access passes when <code>lo ≥ 0</code> and <code>hi + size ≤ S</code>. <code>size</code> is how many elements the access touches: 1 for a <code>[]</code> view, k for a <code>[k]</code> view.</p>
+<p>Take a 4×8 matrix whose rows run on threads. The store is at <code>add (mul %r 8) %c</code>, with <code>%c = range 8</code>:</p>
+<ol>
+<li><strong>Find the r term.</strong> It is <code>mul %r 8</code>, so <code>S</code> is 8.</li>
+<li><strong>Collect the rest.</strong> <code>e</code> is <code>%c</code>.</li>
+<li><strong>Bound e.</strong> A range of 8 has bounds <code>[0, 7]</code>.</li>
+<li><strong>Compare.</strong> 0 ≥ 0 holds, and 7 + 1 ≤ 8 holds. The store is proven.</li>
+</ol>
+<p>Step 1 reads the offset as it is written. It looks for one term that is <code>r</code>, <code>mul r S</code> or <code>mul S r</code>. An offset written <code>(r·2)·4 + c</code> has the same value as <code>r·8 + c</code>, but it has no term of that shape, so the program is rejected.</p>
+</div>
 
 <div class="exercise" data-ex="w7-04-own-slice">
 <h3>Write the offset the checker can read</h3>
@@ -60,25 +174,84 @@
 </div>
 
 <div class="prose">
-<h2>Private allocs</h2>
-<p>The GEMM's 32 accumulators are an alloc used only inside the thread loop. Shared between threads, they'd race. So the spec makes them <b>private</b>: an alloc whose every load and store is inside one thread loop gets a fresh copy, all zeros, at the start of every iteration. In C that's an array declared inside the thread's function.</p>
-<p>That's a real semantic difference, and <code>./compile</code> implements it too. In a plain loop an alloc keeps its contents from one iteration to the next, so an accumulator keeps a running total. In a thread loop each iteration starts from zero. The tests <code>loop_alloc_carries_over</code> and <code>thread_private_alloc_fresh</code> run the same program both ways and get different answers.</p>
-<p>Any other alloc, say one that is also loaded after the loop, is <b>shared</b>, and the slice rule applies to it exactly as to a buffer. Every iteration storing to element 0 is rejected (<code>rejected_thread_alloc_shared</code>), and iteration <code>r</code> storing to element <code>r</code> is fine (<code>thread_alloc_indexed_by_r</code>).</p>
+<h2>Write the check</h2>
+<p>Often <code>e</code> is a sum of several terms. It is not one node in the program, so bound each term on its own, then add the low ends and add the high ends.</p>
+<p>Take the offset <code>r·32 + i·8 + c</code>, with <code>i</code> in 0..3 and <code>c</code> in 0..7. The term <code>i·8</code> has bounds <code>[0, 24]</code> and <code>c</code> has <code>[0, 7]</code>. So <code>e</code> has bounds <code>[0, 31]</code>, and 31 + 1 ≤ 32. The access stays in its slice. Your compiler runs this check on every such access.</p>
+</div>
 
-<h2>How the iterations are split</h2>
-<p>The harness gives each hardware thread one contiguous chunk of iterations: with 192 iterations on 8 threads, thread 0 runs 0 to 23, thread 1 runs 24 to 47, and so on. Contiguous chunks mean each thread writes one block of memory, so two threads rarely touch the same cache line. When they do, the line bounces between cores, which is slow even without a race. That's called <b>false sharing</b>.</p>
+<div class="exercise" data-ex="w7-04n-slice-ok" data-ex-py="w7-04n-slice-ok-py">
+<h3>Check one access against the slice rule</h3>
+<p>Write <code>slice_ok</code>. It takes the slice size <code>s</code>, the bounds <code>(lo, hi)</code> of each term of <code>e</code>, and the access <code>size</code>. It returns true when the access is proven to stay inside the slice. An empty list of terms means the offset is <code>r·S</code> alone, so <code>e</code> is 0.</p>
+</div>
+
+<div class="prose">
+<h2>Private memory</h2>
+<p>A loop often needs scratch memory, such as an <code>alloc</code> that holds a running sum. Here <code>acc</code> is an alloc of one element, used only inside a loop over <code>r</code> in 0..3. Each iteration does <code>acc[0] = acc[0] + r</code> and then copies <code>acc[0]</code> to <code>o[r]</code>.</p>
+</div>
+
+<div class="quiz" data-fill="0 1 3 6 | [0 1 3 6] | 0, 1, 3, 6 | [0, 1, 3, 6] | 0,1,3,6">
+<p class="q">As a plain loop, with no axis, what is <code>o</code> at the end? Write the four numbers with spaces between them.</p>
+<div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+<p class="hint">In a plain loop an alloc keeps its contents from one iteration to the next.</p>
+<div class="why"><p><code>0 1 3 6</code>, the running sums. Each iteration starts from what the one before it left in <code>acc</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>As a thread loop, that would be the shared counter again: every iteration loads and stores <code>acc[0]</code>. But scratch memory is not meant to be shared, so the spec makes it <b>private</b>. An alloc whose every load and store is inside one thread loop gets a fresh copy, all zeros, at the start of every iteration. The tiled GEMM's 32 running sums are a private alloc.</p>
+<p>This is the one place where an axis changes what a program means, and <code>./compile</code> follows it too: it sets a private alloc back to zeros at the start of each iteration.</p>
+<p>Any other alloc, such as one that is loaded after the loop, is <b>shared</b>. It follows the slice rule exactly as a buffer does.</p>
+
+<h2>Splitting the work</h2>
+<p>When the C runs, a small library called the harness hands out the iterations. Each thread gets one chunk of neighboring iterations: with 192 iterations on 8 threads, thread 0 runs 0 to 23, thread 1 runs 24 to 47, and so on. Neighboring iterations own neighboring slices, so each thread writes one solid block of memory.</p>
+<p>Thread the outermost loop the slice rule allows, so each thread gets plenty of work. Starting a thread costs tens of microseconds, and a thread loop around a tiny body is slower than a plain loop. A thread loop inside another thread loop is invalid. On the 768×768 GEMM with 24 hardware threads, threading the 192 row blocks made it about 8 times faster.</p>
 </div>
 
 <div class="exercise small" data-ex="w7-03-chunks" data-ex-py="w7-03-chunks-py">
 <h3>One chunk per thread</h3>
-<p>Write <code>chunks n t</code>: one contiguous range of iterations per thread, covering all <code>n</code> exactly once.</p>
+<p>Write <code>chunks n t</code>: one contiguous range of iterations per thread, covering all <code>n</code> exactly once. Each range is <code>(lo, hi)</code> and stops just before <code>hi</code>. Use <code>m = min t n</code> threads, but at least 1, and give thread <code>k</code> the range from <code>n·k / m</code> to <code>n·(k+1) / m</code>, with whole-number division.</p>
 </div>
 
 <div class="prose">
-<h2>What to thread, and what it's worth</h2>
-<p>Thread the outermost loop that the slice rule allows: each thread then gets plenty of work per iteration. Starting threads costs tens of microseconds, so a thread loop around a tiny body is slower than a plain loop. Only one level may be threaded. A thread loop inside another is invalid, but a thread loop inside a plain loop is fine.</p>
-<p>On the 768×768 GEMM with 24 hardware threads, threading the 192 row blocks gave about 8× on its own (98 ms to 12 ms with clang), and about 15 to 30× together with upcast. It's not 24×, because threads share the memory bus and the L3 cache, and some cores are slower than others. The speed tests with thread loops ask for half the reference's speed. A renderer that runs thread loops one iteration at a time lands around 0.13 and fails.</p>
+<h2>What you can do now</h2>
+<ul>
+<li>Say what a race is, and show one with three steps on a shared counter.</li>
+<li>Read an offset as <code>r * S + e</code> and find the slice each iteration owns.</li>
+<li>Prove <code>e</code> inside <code>[0, S)</code> with the bounds test from lesson 2.3.</li>
+<li>Tell a private alloc from a shared one, and say what each iteration finds in it.</li>
+</ul>
+<p>Next, in lesson 7.5, you render a thread loop: its body becomes a C function that each thread can call.</p>
 </div>
+
+<details class="toggle">
+<summary>Every thread-loop rule and the tests that check it, for when you write validation in the lab</summary>
+<div class="prose">
+<ul>
+<li><b>No nesting.</b> A thread loop can't be inside another thread loop. It may be inside a plain loop.</li>
+<li><b>The form.</b> Every store in the loop body, and every load of memory the body also stores into, is at a flat offset <code>r * S + e</code>. <code>r</code> is the thread range and appears in exactly one term of the offset's sum, as <code>r</code> itself (S = 1) or as <code>mul r S</code> or <code>mul S r</code> with <code>S</code> a positive literal.</li>
+<li><b>The rest.</b> <code>e</code> is the sum of the other terms. None of them depends on <code>r</code>. <code>0 ≤ e</code> and <code>e + size ≤ S</code> must be provable from bounds, where <code>size</code> is 1, or k for a <code>[k]</code> view. Bound each term on its own and add the results.</li>
+<li><b>One S per buffer.</b> Every access to one buffer in the loop uses the same <code>S</code>.</li>
+<li><b>Read-only memory is free.</b> Loads of memory the body never stores into may be anywhere.</li>
+<li><b>Private allocs.</b> An alloc whose every load and store is inside one thread loop starts every iteration as zeros. In C it is an array declared inside the thread's function. Any other alloc is shared and follows the same rules as a buffer.</li>
+</ul>
+<p>A program that breaks a rule is <code>REJECTED</code>. The tests <code>loop_alloc_carries_over</code> and <code>thread_private_alloc_fresh</code> run the same program as a plain loop and as a thread loop and get different answers, <code>0 1 3 6</code> and <code>0 1 2 3</code>. In <code>rejected_thread_alloc_shared</code> every iteration stores to element 0 of a shared alloc. In <code>thread_alloc_indexed_by_r</code> iteration <code>r</code> stores to element <code>r</code> of a shared alloc, which is fine.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>The tiled GEMM's offset written in the form, for when you thread it in the lab</summary>
+<div class="prose">
+<p>Write offsets expanded. In the GEMM, C's offset <code>(4ib + wi)·N + 8jb + wj</code> is written as <code>ib·(4N) + wi·N + jb·8 + wj</code>, with <code>e = wi·N + jb·8 + wj</code>. For N = 768 the terms are in <code>[0, 2304]</code>, <code>[0, 760]</code> and <code>[0, 7]</code>, so <code>e</code> is in <code>[0, 3071]</code>, and <code>3071 + 1 ≤ 3072 = S</code>. Each row block writes only its own 3072 elements. A and B are only read, so they may be read anywhere.</p>
+<p>The check works on shape because a shape is easy to state and to prove. Your simplifier could fold <code>(r·2)·4</code> into <code>r·8</code>, but the spec checks the program as written.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Why 24 threads do not give 24 times the speed, and what the speed tests ask for</summary>
+<div class="prose">
+<p>Threading the GEMM's row blocks took it from 98 ms to 12 ms with clang, and about 15 to 30× together with upcast. It's not 24×, because threads share the memory bus and the L3 cache, and some cores are slower than others. The speed tests with thread loops ask for half the reference's speed. A renderer that runs thread loops one iteration at a time lands around 0.13 and fails.</p>
+<p>Contiguous chunks also mean two threads rarely touch the same cache line. When they do, the line bounces between cores, which is slow even without a race. That's called <b>false sharing</b>.</p>
+</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
@@ -154,15 +327,17 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const { h } = CC;
-  const show = (n, offs) => {
-    const who = Array.from({ length: n }, () => []);
-    for (let r = 0; r < 4; r++) for (let j = 0; j < 4; j++) { const o = offs(r, j); if (o >= 0 && o < n) who[o].push(r); }
-    return h('div', { class: 'slots' }, who.map((w, k) => h('div', {}, [h('div', { class: 's' + (w.length > 1 ? ' two' : ''), text: w.length ? w.join(',') : '' }), h('div', { class: 'a', text: k })])));
+  const show = (offs, groups) => {
+    const who = Array.from({ length: 16 }, () => []);
+    for (let r = 0; r < 4; r++) for (let j = 0; j < 4; j++) who[offs(r, j)].push(r);
+    const cell = k => h('div', {}, [h('div', { class: 's' + (who[k].length > 1 ? ' two' : ''), text: who[k].length > 2 ? 'all' : who[k].join(',') }), h('div', { class: 'a', text: k })]);
+    return h('div', { class: 'slots' }, groups.map(g => h('div', { class: 'g' }, [h('div', { class: 'lab', text: g.label }), h('div', { class: 'cells' }, Array.from({ length: g.n }, (_, i) => cell(g.from + i)))])));
   };
+  const cut = S => [0, 1, 2, 3].map(r => ({ label: 'r = ' + r, from: r * S, n: S })).concat(S < 4 ? [{ label: 'no owner', from: 4 * S, n: 16 - 4 * S }] : []);
   const steps = [
-    { caption: '<code>o[4r + j]</code>: iteration r owns elements 4r to 4r + 3. Each cell shows which iteration writes it, and none is written twice.', draw: () => show(16, (r, j) => 4 * r + j) },
-    { caption: '<code>o[2r + j]</code>: the slices overlap. Dark cells are written by two iterations: a race. The rule rejects it because <code>e = j</code> can reach 3, past the stride 2.', draw: () => show(16, (r, j) => 2 * r + j) },
-    { caption: '<code>o[j]</code>: every iteration writes the same four elements. The offset has no term in r at all, so the rule rejects it.', draw: () => show(16, (r, j) => j) },
+    { caption: '<code>o[4r + j]</code>: S is 4, so the buffer is cut into four slices. Iteration r owns elements 4r to 4r + 3, and no cell is written twice. Accepted.', draw: () => show((r, j) => 4 * r + j, cut(4)) },
+    { caption: '<code>o[2r + j]</code>: S is 2, so each slice is two elements. Dark cells are written by two iterations: a race. The rule rejects it because <code>e = j</code> can reach 3, past the end of a slice of 2.', draw: () => show((r, j) => 2 * r + j, cut(2)) },
+    { caption: '<code>o[j]</code>: every iteration writes the same four elements. The offset has no term in r, so there are no slices and the rule rejects it.', draw: () => show((r, j) => j, [{ label: 'no slices', from: 0, n: 16 }]) },
   ];
   CC.stepper(document.getElementById('slices'), steps, (s, body) => body.append(s.draw()));
 });

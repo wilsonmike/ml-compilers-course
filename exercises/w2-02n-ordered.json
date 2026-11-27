@@ -1,0 +1,54 @@
+{
+ "id": "w2-02n-ordered",
+ "lang": "ocaml",
+ "title": "Check rules 1 and 2",
+ "show": "string_of_bool",
+ "starter": "let ordered (stores : (string * string) list) (afters : (string * string * string) list) : bool =\n  let versions = List.map snd stores in\n  let one_per_version =\n    List.length (List.sort_uniq compare versions) = List.length versions in\n  let sequenced (name, version) =\n    ignore (name, version, afters);\n    true in\n  one_per_version && List.for_all sequenced stores\n",
+ "tests": [
+  {
+   "expr": "ordered [(\"s\", \"b\")] [(\"b1\", \"b\", \"s\")]",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "ordered [(\"s\", \"b\")] []",
+   "expect": "false",
+   "sample": true
+  },
+  {
+   "expr": "ordered [(\"s1\", \"b\"); (\"s2\", \"b1\")] [(\"b1\", \"b\", \"s1\"); (\"b2\", \"b1\", \"s2\")]",
+   "expect": "true"
+  },
+  {
+   "expr": "ordered [(\"s1\", \"b\"); (\"s2\", \"b\")] [(\"b1\", \"b\", \"s1\"); (\"b2\", \"b\", \"s2\")]",
+   "expect": "false"
+  },
+  {
+   "expr": "ordered [(\"s\", \"b\")] [(\"b1\", \"b\", \"s\"); (\"b2\", \"b1\", \"s\")]",
+   "expect": "false"
+  },
+  {
+   "expr": "ordered [(\"s1\", \"b\"); (\"s2\", \"b1\")] [(\"b1\", \"b\", \"s1\"); (\"b2\", \"b\", \"s2\")]",
+   "expect": "false",
+   "sample": true
+  },
+  {
+   "expr": "ordered [] []",
+   "expect": "true"
+  },
+  {
+   "expr": "ordered [(\"s1\", \"b\"); (\"s2\", \"b1\")] [(\"b1\", \"b\", \"s1\")]",
+   "expect": "false"
+  },
+  {
+   "expr": "ordered [(\"s1\", \"b\"); (\"t1\", \"c\")] [(\"c1\", \"c\", \"t1\"); (\"b1\", \"b\", \"s1\")]",
+   "expect": "true"
+  }
+ ],
+ "hints": [
+  "Rule 1 is done. `sequenced` is called once per store and should say whether rule 2 holds for that store.",
+  "Use `List.filter_map` over `afters` to gather `m` from every `(_, m, s)` where `s = name`.",
+  "That list must equal `[version]`: exactly one `after`, and it names the version the store writes into."
+ ],
+ "explain": "Rule 1 fails when two stores name the same version. Rule 2 is checked one store at a time: collect the first operand of every `after` whose store is this one. That list must hold exactly one version, and it must be the version the store writes into. An empty list is a store with no `after`. Two entries is a store that two `after` lines claim. One wrong entry is an `after` that names the wrong version."
+}

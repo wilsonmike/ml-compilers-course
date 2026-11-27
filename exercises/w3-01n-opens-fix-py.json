@@ -1,0 +1,51 @@
+{
+ "id": "w3-01n-opens-fix-py",
+ "lang": "python",
+ "title": "Fix the open ranges",
+ "prompt": "<p>A toy graph has four kinds of node: <code>Range(name)</code>, <code>Lit(value)</code>, <code>Add(a, b)</code> and <code>End(effect, name)</code>, which closes the range called <code>name</code>. <code>opens(n)</code> should return the sorted names of the ranges still open at <code>n</code>. The <code>Lit</code> and <code>Add</code> cases are right. The <code>Range</code> and <code>End</code> cases are wrong. Fix those two.</p>",
+ "show": "lambda v: '[' + ' '.join(v) + ']'",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Range:\n    name: str\n\n@dataclass(frozen=True)\nclass Lit:\n    value: int\n\n@dataclass(frozen=True)\nclass Add:\n    a: \"Node\"\n    b: \"Node\"\n\n@dataclass(frozen=True)\nclass End:\n    effect: \"Node\"\n    name: str\n\nNode = Range | Lit | Add | End\n\n\ndef opens(n: Node) -> list[str]:\n    match n:\n        case Range(name):\n            return []\n        case Lit(_):\n            return []\n        case Add(a, b):\n            return sorted(set(opens(a)) | set(opens(b)))\n        case End(effect, name):\n            return opens(effect)\n",
+ "tests": [
+  {
+   "expr": "opens(Lit(3))",
+   "expect": "[]"
+  },
+  {
+   "expr": "opens(Range('i'))",
+   "expect": "[i]",
+   "sample": true
+  },
+  {
+   "expr": "opens(Add(Range('i'), Lit(1)))",
+   "expect": "[i]",
+   "sample": true
+  },
+  {
+   "expr": "opens(Add(Range('j'), Range('i')))",
+   "expect": "[i j]"
+  },
+  {
+   "expr": "opens(End(Add(Range('i'), Lit(1)), 'i'))",
+   "expect": "[]",
+   "sample": true
+  },
+  {
+   "expr": "opens(End(Add(Range('i'), Range('j')), 'j'))",
+   "expect": "[i]"
+  },
+  {
+   "expr": "opens(End(End(Add(Range('i'), Range('j')), 'j'), 'i'))",
+   "expect": "[]"
+  },
+  {
+   "expr": "opens(Add(End(Add(Range('i'), Range('j')), 'i'), Range('k')))",
+   "expect": "[j k]"
+  }
+ ],
+ "hints": [
+  "A range is open in itself, so the `Range` case should return a list holding that one name.",
+  "`End(effect, name)` closes one range: take `opens(effect)` and drop `name` from it.",
+  "`[x for x in opens(effect) if x != name]` keeps every name except the closed one."
+ ],
+ "explain": "A `Range` is open in itself, so it returns its own name. `Add` takes the union of its two sides. `End` returns what is open in its effect with the closed range left out. `Lit` depends on no range."
+}

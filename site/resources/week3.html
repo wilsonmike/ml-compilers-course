@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
@@ -35,12 +35,12 @@
   <p>A value is computed inside every loop whose range it uses, and no deeper. A load is the one exception: if the innermost loop holding every use of it stores into the version it reads, the load moves into that loop and sees the current contents on each iteration. That is the accumulator. A use counts as inside a loop only if it is placed there itself.</p>
   <h3><a href="../week3/03-gemm.html">3.3 A GEMM by hand</a></h3>
   <p>Three ranges i, j, k. Reset <code>C[i*N + j]</code> to zero with a store that depends on i and j, then let the k loop add into it. Bounds come free: a range's interval is <code>[0, n-1]</code>, so <code>i*K + k</code> is provably inside a buffer of M·K elements.</p>
-  <h3><a href="../week3/04-conv.html">3.4 Convolutions</a></h3>
+  <h3><a href="../week3/04-conv.html">3.4 A convolution by hand</a></h3>
   <p>A valid convolution sums <code>x[o + k] * w[k]</code>. Zero padding needs two things: an index taken <code>mod</code> the input length, so the read is provably in bounds, and a <code>where</code> that zeroes the taps outside the input. A 2D convolution is four loops on flat buffers.</p>
   <h3><a href="../week3/05-rendering-loops.html">3.5 Rendering loops</a></h3>
-  <p>Give every node a path of loops, outermost first, from its open ranges. Linearize into nested blocks where sources come first and loads of a version come before the store that overwrites it, then print each block as a <code>for</code> loop. Values that depend on no range end up outside the loops for free.</p>
+  <p>Give every node a path of loops, outermost first, from its open ranges. Order the nodes into nested blocks where sources come first and loads of a version come before the store that overwrites it, then print each block as a <code>for</code> loop. Values that depend on no range end up outside the loops for free.</p>
   <h3><a href="../week3/06-lab.html">3.6 Lab</a></h3>
-  <p>Running tests and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>do</code>, <code>goto</code> or recursion). The suite has 94 tests, and weeks 1 and 2 must stay green.</p>
+  <p>Running tests and <code>render</code> keep their week 2 contracts, and <code>render</code> may now print <code>for</code> loops (never <code>while</code>, <code>do</code>, <code>goto</code> or recursion). The suite has 94 tests. Week 2 must still pass in full, and week 1 stays at 272 / 282 (the ten programs week 2 made legal).</p>
 
   <h2>Cheat sheet</h2>
   <div class="tablewrap"><table>
@@ -116,8 +116,8 @@ python _reference/uirc.py render FILE                            # the oracle's 
 %r   = load %ov1
 %t   = assert %r 10</code></pre>
       If you get 4, <code>%cur</code> was loaded once before the loop: its only use, <code>%sum</code>, depends on <code>%k</code>, and the loop stores into its version, so it must move in.</li>
-    <li><strong>Linearize.</strong> Done when the suite's <code>old_version_after_loop_t0</code> and <code>old_version_after_loop_t1</code> pass: a load of the version before a loop, used after the loop, must run before the loop overwrites it.</li>
-    <li><strong>Execute the blocks.</strong> Done when every week 3 run test passes and weeks 1 and 2 still do.</li>
+    <li><strong>Build the blocks.</strong> Done when the suite's <code>old_version_after_loop_t0</code> and <code>old_version_after_loop_t1</code> pass: a load of the version before a loop, used after the loop, must run before the loop overwrites it.</li>
+    <li><strong>Execute the blocks.</strong> Done when every week 3 run test passes, week 2 still does and week 1 still says 272 / 282.</li>
     <li><strong>Render.</strong> Done when <code>python _reference/uirc.py render</code> and your <code>render</code> agree on the program from step 4 (same results, not necessarily the same text), and every render test passes.</li>
   </ol>
   <div class="trap"><span class="label">The pinned load</span>

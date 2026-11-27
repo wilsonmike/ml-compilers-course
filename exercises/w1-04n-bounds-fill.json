@@ -1,0 +1,54 @@
+{
+ "id": "w1-04n-bounds-fill",
+ "lang": "ocaml",
+ "title": "Finish two bounds rules",
+ "show": "(fun r -> Printf.sprintf \"[%d, %d]\" r.lo r.hi)",
+ "starter": "type range = { lo : int; hi : int }\n\nlet const_range (v : int) : range = { lo = v; hi = v }\n\nlet max_range (a : range) (b : range) : range =\n  { lo = max a.lo b.lo; hi = 0 }\n\nlet cmplt_range (a : range) (b : range) : range =\n  if a.hi < b.lo then { lo = 1; hi = 1 }\n  else { lo = 0; hi = 1 }\n",
+ "tests": [
+  {
+   "expr": "max_range { lo = (-2147483648); hi = 2147483647 } (const_range 0)",
+   "expect": "[0, 2147483647]",
+   "sample": true
+  },
+  {
+   "expr": "max_range { lo = (-5); hi = 3 } { lo = (-2); hi = 1 }",
+   "expect": "[-2, 3]"
+  },
+  {
+   "expr": "max_range { lo = 1; hi = 2 } { lo = 10; hi = 20 }",
+   "expect": "[10, 20]"
+  },
+  {
+   "expr": "max_range { lo = (-9); hi = (-4) } { lo = (-7); hi = (-6) }",
+   "expect": "[-7, -4]"
+  },
+  {
+   "expr": "cmplt_range { lo = 0; hi = 7 } (const_range 8)",
+   "expect": "[1, 1]",
+   "sample": true
+  },
+  {
+   "expr": "cmplt_range { lo = 8; hi = 20 } { lo = 0; hi = 8 }",
+   "expect": "[0, 0]",
+   "sample": true
+  },
+  {
+   "expr": "cmplt_range { lo = 0; hi = 8 } (const_range 8)",
+   "expect": "[0, 1]"
+  },
+  {
+   "expr": "cmplt_range (const_range 5) (const_range 5)",
+   "expect": "[0, 0]"
+  },
+  {
+   "expr": "cmplt_range { lo = (-3); hi = 2 } { lo = (-1); hi = 9 }",
+   "expect": "[0, 1]"
+  }
+ ],
+ "hints": [
+  "Each function has one end right and one case missing. For `max_range`, ask what the largest possible answer is when each input is as large as it can be.",
+  "The high end of a max is the larger of the two high ends: `max a.hi b.hi`. The 0 in the starter is a placeholder.",
+  "`cmplt_range` already handles always true. The compare is always false when even the smallest `a` is not below the largest `b`: `a.lo >= b.hi`. Only when neither test passes is the answer unknown, `[0, 1]`."
+ ],
+ "explain": "`max` can only raise a value, so each end of the result is the larger of the matching ends, and the high end is `max a.hi b.hi`. A compare is `[1, 1]` when every `a` is below every `b`, which is `a.hi < b.lo`. It is `[0, 0]` when no `a` is below any `b`: `a.lo >= b.hi`. Otherwise it could go either way, `[0, 1]`. This is the rule that turns `cmplt` of a `[0, 7]` value against 8 into `true`."
+}

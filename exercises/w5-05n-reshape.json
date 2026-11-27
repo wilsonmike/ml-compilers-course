@@ -1,0 +1,57 @@
+{
+ "id": "w5-05n-reshape",
+ "lang": "ocaml",
+ "title": "Flatten, then split",
+ "show": "(fun l -> String.concat \" \" (List.map string_of_int l))",
+ "starter": "let flatten (shape : int list) (idx : int list) : int =\n  0\n\nlet unflatten (shape : int list) (f : int) : int list =\n  []\n\nlet reshape_src (new_shape : int list) (old_shape : int list) (idx : int list) : int list =\n  unflatten old_shape (flatten new_shape idx)\n",
+ "tests": [
+  {
+   "expr": "reshape_src [2; 3] [6] [1; 2]",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "reshape_src [3; 2] [2; 3] [1; 0]",
+   "expect": "0 2",
+   "sample": true
+  },
+  {
+   "expr": "[flatten [2; 3; 4] [1; 2; 3]]",
+   "expect": "23"
+  },
+  {
+   "expr": "unflatten [2; 3; 4] 23",
+   "expect": "1 2 3"
+  },
+  {
+   "expr": "unflatten [2; 3; 4] 0",
+   "expect": "0 0 0"
+  },
+  {
+   "expr": "reshape_src [6] [2; 3] [4]",
+   "expect": "1 1"
+  },
+  {
+   "expr": "reshape_src [2; 2; 3] [4; 3] [1; 0; 2]",
+   "expect": "2 2"
+  },
+  {
+   "expr": "unflatten [4; 1; 5] 13",
+   "expect": "2 0 3"
+  },
+  {
+   "expr": "[flatten [5] [3]]",
+   "expect": "3"
+  },
+  {
+   "expr": "reshape_src [3; 2] [2; 3] [2; 1]",
+   "expect": "1 2"
+  }
+ ],
+ "hints": [
+  "For flatten, work out `[2; 3; 4]` with index `[1; 2; 3]` by hand first: 1·12 + 2·4 + 3·1 = 23. Each stride is the product of the sizes after that axis.",
+  "You can skip the strides. Flatten: start at 0 and, for each axis from the left, multiply by the size and add the index. Unflatten: from the last axis, the coordinate is `f mod size`, then carry `f / size` to the axis before.",
+  "`flatten` is `List.fold_left2 (fun acc s i -> acc * s + i) 0 shape idx`. `unflatten` is a `List.fold_right` over the shape that carries `f / s` along and puts `f mod s` on the front of the result."
+ ],
+ "explain": "Reshape keeps every element at the same row-major position, so the position is the one thing both shapes agree on. Flatten turns the index into that position using the new shape, and unflatten splits the position back into one coordinate per axis of the old shape. In a compiler the same steps become mul, add, div and mod ops on the loop counter."
+}

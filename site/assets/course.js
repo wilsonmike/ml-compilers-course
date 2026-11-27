@@ -15,24 +15,8 @@ const CC = (() => {
   // ---- the one table of contents ----
   const NAV = [
     { title: 'Start here', items: [['index.html', 'Overview']] },
-    { title: 'Resources', items: [['resources/index.html', 'All resources'], ['resources/bug-hunts.html', 'Bug hunts'], ['resources/debugging.html', 'Debugging your compiler'],
-      ['resources/review.html', 'Quiz review'], ['resources/glossary.html', 'Glossary'], ['resources/languages.html', 'Python and OCaml, deeper']] },
-    { title: 'Learn Python', track: 'python', items: [
-      ['learn/py-01-first-steps.html', 'First steps in Python', 'P.1'], ['learn/py-02-decisions-loops.html', 'Decisions, loops and functions', 'P.2'],
-      ['learn/py-03-collections.html', 'Lists, dicts and sets', 'P.3'], ['learn/py-04-your-own-types.html', 'Your own types', 'P.4'],
-      ['learn/py-05-recursion.html', 'Recursion and functions as values', 'P.5'], ['learn/py-06-files-errors-tests.html', 'Files, errors and testing', 'P.6']] },
-    { title: 'Learn OCaml', track: 'ocaml', items: [
-      ['learn/ml-01-first-steps.html', 'First steps in OCaml', 'O.1'], ['learn/ml-02-functions.html', 'Functions and types', 'O.2'],
-      ['learn/ml-03-lists-matching.html', 'Lists and pattern matching', 'O.3'], ['learn/ml-04-your-own-types.html', 'Your own types', 'O.4'],
-      ['learn/ml-05-mutation.html', 'Arrays, tables and mutation', 'O.5'], ['learn/ml-06-modules-projects.html', 'Modules, maps and projects', 'O.6']] },
-    { title: 'Week 0 · Prerequisites', items: [
-      ['week0/01-c-and-pointers.html', 'C and pointers', '0.1'], ['week0/02-memory-and-caches.html', 'Memory and caches', '0.2'],
-      ['week0/03-compilers-and-irs.html', 'Compilers and IRs', '0.3'], ['week0/04-tensors-and-shapes.html', 'Tensors and shapes', '0.4'],
-      ['week0/05-matmul.html', 'Matrix multiply', '0.5'], ['week0/06-ocaml.html', 'OCaml crash course', '0.6'],
-      ['week0/07-python.html', 'Python for this course', '0.7']] },
-    { title: 'Hard ideas, slowly', items: [
-      ['learn/hard-01-sharing.html', 'Sharing nodes', 'H.1'], ['learn/hard-02-walking-graphs.html', 'Walking a graph once', 'H.2'],
-      ['learn/hard-03-rewriting.html', 'Rewriting until nothing changes', 'H.3'], ['learn/hard-04-numbers-like-c.html', 'Numbers that behave like C', 'H.4']] },
+    { title: 'Start · Make it run', items: [
+      ['start/01-run-a-program.html', 'Run your first program', 'S.1'], ['start/02-build-a-calculator.html', 'Build the thing that runs it', 'S.2']] },
     { title: 'Week 1 · UOps and rewrites', items: [
       ['week1/01-the-uop.html', 'The UOp', '1.1'], ['week1/02-uir-and-interpreting.html', '.uir and interpreting', '1.2'],
       ['week1/03-rewrites-and-folding.html', 'Rewrites and folding', '1.3'], ['week1/04-symbolic.html', 'Symbolic simplification', '1.4'],
@@ -69,6 +53,24 @@ const CC = (() => {
       ['week9/01-registers.html', 'Registers and register tiles', '9.1'], ['week9/02-fast-gemm.html', 'Fast GEMMs', '9.2'],
       ['week9/03-tensor-cores.html', 'Tensor cores', '9.3'], ['week9/04-convolutions.html', 'Convolutions', '9.4'],
       ['week9/05-flash-attention.html', 'Flash attention', '9.5'], ['week9/06-lab.html', 'Lab: fast GPU kernels', '9.6']] },
+    { title: 'Learn Python', track: 'python', items: [
+      ['learn/py-01-first-steps.html', 'First steps in Python', 'P.1'], ['learn/py-02-decisions-loops.html', 'Decisions, loops and functions', 'P.2'],
+      ['learn/py-03-collections.html', 'Lists, dicts and sets', 'P.3'], ['learn/py-04-your-own-types.html', 'Your own types', 'P.4'],
+      ['learn/py-05-recursion.html', 'Recursion and functions as values', 'P.5'], ['learn/py-06-files-errors-tests.html', 'Files, errors and testing', 'P.6']] },
+    { title: 'Learn OCaml', track: 'ocaml', items: [
+      ['learn/ml-01-first-steps.html', 'First steps in OCaml', 'O.1'], ['learn/ml-02-functions.html', 'Functions and types', 'O.2'],
+      ['learn/ml-03-lists-matching.html', 'Lists and pattern matching', 'O.3'], ['learn/ml-04-your-own-types.html', 'Your own types', 'O.4'],
+      ['learn/ml-05-mutation.html', 'Arrays, tables and mutation', 'O.5'], ['learn/ml-06-modules-projects.html', 'Modules, maps and projects', 'O.6']] },
+    { title: 'Week 0 · Prerequisites', items: [
+      ['week0/01-c-and-pointers.html', 'C and pointers', '0.1'], ['week0/02-memory-and-caches.html', 'Memory and caches', '0.2'],
+      ['week0/03-compilers-and-irs.html', 'Compilers and IRs', '0.3'], ['week0/04-tensors-and-shapes.html', 'Tensors and shapes', '0.4'],
+      ['week0/05-matmul.html', 'Matrix multiply', '0.5'], ['week0/06-ocaml.html', 'OCaml crash course', '0.6'],
+      ['week0/07-python.html', 'Python for this course', '0.7']] },
+    { title: 'Hard ideas, slowly', items: [
+      ['learn/hard-01-sharing.html', 'Sharing nodes', 'H.1'], ['learn/hard-02-walking-graphs.html', 'Walking a graph once', 'H.2'],
+      ['learn/hard-03-rewriting.html', 'Rewriting until nothing changes', 'H.3'], ['learn/hard-04-numbers-like-c.html', 'Numbers that behave like C', 'H.4']] },
+    { title: 'Resources', items: [['resources/index.html', 'All resources'], ['resources/bug-hunts.html', 'Bug hunts'], ['resources/debugging.html', 'Debugging your compiler'],
+      ['resources/review.html', 'Quiz review'], ['resources/glossary.html', 'Glossary'], ['resources/languages.html', 'Python and OCaml, deeper']] }
   ];
   const ROOT = () => document.body.dataset.root || './';
   // The course's source, linked from the top bar of every page
@@ -156,13 +158,19 @@ const CC = (() => {
   const weeksFrom = n => NAV.filter(g => { const m = /^Week (\d+)/.exec(g.title); return m && +m[1] >= n; });
   const hardIdeas = () => NAV.find(g => g.title.startsWith('Hard ideas'));
   const langName = () => (track() === 'python' ? 'Python' : 'OCaml');
+  const startGroup = () => NAV.find(g => g.title.startsWith('Start ·'));
+  const startStep = n => ({ title: startGroup().title, items: [startGroup().items[n]] });
+  const shelf = (...hrefs) => ({ title: 'Week 0 · Prerequisites', items: hrefs.map(x => NAV.flatMap(g => g.items).find(([href]) => href === x)) });
+  const week = n => NAV.find(g => g.title.startsWith(`Week ${n} `));
+  const spine = () => [shelf(langLesson()), week(1), shelf('week0/01-c-and-pointers.html'), week(2), shelf('week0/04-tensors-and-shapes.html', 'week0/05-matmul.html'),
+    week(3), week(4), week(5), week(6), shelf('week0/02-memory-and-caches.html'), ...weeksFrom(7)];
   const PATHS = {
-    new: { name: 'I’m new to programming', short: 'new to programming', about: () => `Learn ${langName()} from scratch, then week 0, then build the compiler.`,
-      groups: () => [NAV.find(g => g.track === track()), weeksFrom(0)[0], hardIdeas(), ...weeksFrom(1)] },
-    coder: { name: 'I can already program', short: 'can already program', about: () => 'Start at week 0 with C, memory and matrix math, then build the compiler.',
-      groups: () => [weeksFrom(0)[0], hardIdeas(), ...weeksFrom(1)] },
+    new: { name: 'I’m new to programming', short: 'new to programming', about: () => `Run a program first, learn ${langName()} from scratch, then build the compiler one step at a time.`,
+      groups: () => [startStep(0), NAV.find(g => g.track === track()), startStep(1), ...spine()] },
+    coder: { name: 'I can already program', short: 'can already program', about: () => 'Run a program, write a tiny interpreter, then build the compiler. C and matrix math arrive just before the week that needs them.',
+      groups: () => [startGroup(), ...spine()] },
     expert: { name: 'I know C and compilers', short: 'know C and compilers', about: () => `Set up ${langName()} in lesson ${track() === 'python' ? '0.7' : '0.6'}, then go straight to week 1.`,
-      groups: () => [{ title: 'Week 0 · Prerequisites', items: NAV.flatMap(g => g.items).filter(([href]) => href === langLesson()) }, ...weeksFrom(1)] },
+      groups: () => [shelf(langLesson()), ...weeksFrom(1)] },
   };
   const pathId = () => (PATHS[store.get('cc-path')] ? store.get('cc-path') : null);
   const pathItems = id => PATHS[id].groups().flatMap(g => g.items.filter(onTrack).map(i => [...i, g.title]));
@@ -215,7 +223,7 @@ const CC = (() => {
         else { g.hidden = false; g.classList.toggle('closed', store.get(g.dataset.gk) === '0'); }
       }); } });
     const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Theme' });
-    const paintSeg = () => seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.t === theme()));
+    const paintSeg = () => seg.querySelectorAll('button').forEach(x => { const on = x.dataset.t === theme(); x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
     ['light', 'dark'].forEach(t => seg.append(h('button', { type: 'button', 'data-t': t, text: t[0].toUpperCase() + t.slice(1), onclick: () => {
       document.documentElement.dataset.theme = t; store.set('cc-theme', t); paintSeg(); } })));
     paintSeg();
@@ -257,6 +265,7 @@ const CC = (() => {
     document.querySelectorAll('[data-prog]').forEach(a => { const p = prog(a.dataset.prog), d = isDone(a.dataset.prog) || (p && p.t && p.s >= p.t);
       a.append(h('span', { class: 'p' + (d ? ' done' : ''), text: d ? 'Done' : p && p.s ? `${p.s}/${p.t}` : '' })); });
     if (main && cur && cur[1][2]) lessonTools(main, cur);
+    if (main && cur && cur[1][2]) stepMode(main, cur);
     // the drawer is modal on small screens: lock the page behind it, close on Escape or on navigation
     const setOpen = open => { app.classList.toggle('open', open); wrap.inert = open; menu.setAttribute('aria-expanded', String(open)); if (open) (side.querySelector('nav a.on') || side.querySelector('nav a'))?.focus(); };
     const desk = matchMedia('(min-width: 901px)');
@@ -278,7 +287,9 @@ const CC = (() => {
 
   function pagerFor(pager, href) {
     const root = ROOT(), pid = pathId(), every = NAV.flatMap(g => g.items.filter(i => i[2]).map(i => [...i, g.title]));
-    const seq = [pid && pathItems(pid), pathItems('new'), every].find(s => s && s.some(x => x[0] === href));
+    const lang = NAV.find(g => g.track && g.items.some(i => i[0] === href)), tag = (g, xs) => xs.map(i => [...i, g.title]);
+    const langSeq = lang && [...tag(startGroup(), startStep(0).items), ...tag(lang, lang.items), ...tag(startGroup(), startStep(1).items)];
+    const seq = [pid && pathItems(pid), pathItems('new'), langSeq, every].find(s => s && s.some(x => x[0] === href));
     const i = seq.findIndex(x => x[0] === href), prev = seq[i - 1], next = seq[i + 1];
     pager.replaceChildren(
       h('a', { href: root + (prev ? prev[0] : 'index.html'), text: prev ? `← ${prev[2]} ${prev[1]}` : '← Course home' }),
@@ -288,10 +299,11 @@ const CC = (() => {
   function lessonTools(main, cur) {
     const href = cur[1][0], root = ROOT();
     const pg = main.querySelector('nav.pager'); if (pg) pagerFor(pg, href);
-    const words = (main.textContent || '').split(/\s+/).filter(Boolean).length;
+    const core = main.cloneNode(true); core.querySelectorAll('details').forEach(d => d.remove());
+    const words = (core.textContent || '').split(/\s+/).filter(Boolean).length;
     const nq = [...main.querySelectorAll('.quiz')].filter(onPage).length, nx = main.querySelectorAll('.exercise[data-ex]').length;
-    const figs = main.querySelectorAll('.fig, figure, table').length, lab = /^Lab:/.test(cur[1][1]);
-    const mins = Math.max(10, Math.round((words / 140 + figs * 1.5 + nq + nx * 6) / 5) * 5);
+    const figs = core.querySelectorAll('.fig, figure, table').length, lab = /^Lab:/.test(cur[1][1]);
+    const mins = Math.max(10, Math.round((words / 160 + figs + nq * 0.5 + nx * 4) / 5) * 5);
     const state = h('span', { class: 'state' });
     const meta = h('p', { class: 'lesson-meta' }, h('span', { text: lab ? `About ${mins} min to read, then the build` : `About ${mins} min` }), nq ? h('span', { text: plural(nq, 'quiz') }) : null, nx ? h('span', { text: plural(nx, 'exercise') }) : null, state);
     (main.querySelector('.lede') || main.querySelector('h1')).after(meta);
@@ -382,6 +394,53 @@ const CC = (() => {
   }
 
   // "On this page": every h2, with the one you're reading highlighted
+  function stepMode(main, cur) {
+    const href = cur[1][0], label = `${cur[1][2]} ${cur[1][1]}`;
+    [...main.querySelectorAll(':scope > .prose')].forEach(p => {
+      const kids = [...p.children];
+      if (!kids.some((k, i) => i && k.tagName === 'H2')) return;
+      let at = p;
+      kids.forEach((k, i) => { if (i && k.tagName === 'H2') { const d = h('div', { class: p.className }); at.after(d); at = d; } if (at !== p) at.append(k); });
+    });
+    const starts = k => k.tagName === 'H2' || (k.classList.contains('prose') && k.firstElementChild && k.firstElementChild.tagName === 'H2');
+    const tail = k => k.matches('nav.pager, .finish');
+    const groups = [[]]; let seen = false;
+    [...main.children].filter(k => !tail(k)).forEach(k => { if (starts(k)) { if (seen) groups.push([]); seen = true; } groups[groups.length - 1].push(k); });
+    if (groups.length < 3) return;
+    const secs = groups.map(g => { const sec = h('section', { class: 'step', tabindex: '-1' }); g[0].before(sec); sec.append(...g); return sec; });
+    const titles = secs.map(sec => (sec.querySelector('h2') || {}).textContent || 'Start');
+    const ends = [...main.children].filter(tail);
+    const fill = h('span'), where = h('span', { class: 'sb-where' }), mode = h('button', { type: 'button', class: 'linkish' });
+    const bar = h('div', { class: 'stepbar' }, where, h('span', { class: 'sb-track', role: 'progressbar', 'aria-valuemin': '1', 'aria-valuemax': String(secs.length), 'aria-label': 'Parts of this lesson' }, fill), mode);
+    const back = h('button', { type: 'button', class: 'btn', text: '← Back' }), next = h('button', { type: 'button', class: 'btn primary lg' });
+    const nav = h('div', { class: 'stepnav' }, back, next);
+    main.prepend(bar); secs[secs.length - 1].after(nav);
+    let i = 0, all = store.get('cc-steps') === 'all';
+    const paint = () => {
+      secs.forEach((sec, j) => { sec.hidden = !all && j !== i; });
+      ends.forEach(e => { e.hidden = !all && i !== secs.length - 1; });
+      nav.hidden = all; back.disabled = i === 0; next.hidden = i === secs.length - 1;
+      next.textContent = i < secs.length - 1 ? `Next: ${titles[i + 1]} →` : '';
+      where.textContent = all ? `${label} · ${secs.length} parts on one page` : `${label} · Part ${i + 1} of ${secs.length}`;
+      fill.style.width = `${all ? 100 : (100 * (i + 1) / secs.length).toFixed(1)}%`;
+      bar.querySelector('.sb-track').setAttribute('aria-valuenow', String(i + 1));
+      mode.textContent = all ? 'Show one part at a time' : 'Show the whole lesson';
+      (all ? main : secs[i]).querySelectorAll('.CodeMirror').forEach(c => c.CodeMirror && c.CodeMirror.refresh());
+      document.dispatchEvent(new Event('cc-step'));
+    };
+    const go = (j, scroll) => { i = Math.max(0, Math.min(secs.length - 1, j)); store.set('cc-step:' + href, String(i)); paint(); if (scroll) bar.scrollIntoView({ block: 'start' }); };
+    const fromHash = () => {
+      const el = location.hash.length > 1 && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+      const sec = el && el.closest('section.step');
+      if (!sec) return false;
+      go(secs.indexOf(sec)); el.scrollIntoView({ block: 'start' }); return true;
+    };
+    const turn = (e, d) => { go(i + d, true); if (!e.detail) secs[i].focus({ preventScroll: true }); };
+    back.onclick = e => turn(e, -1); next.onclick = e => turn(e, 1);
+    mode.onclick = () => { all = !all; store.set('cc-steps', all ? 'all' : 'one'); paint(); bar.scrollIntoView({ block: 'start' }); };
+    addEventListener('hashchange', fromHash);
+    if (!fromHash()) go(isDone(href) ? 0 : +store.get('cc-step:' + href) || 0);
+  }
   function toc(main, page) {
     const hs = [...main.querySelectorAll('h2')];
     if (hs.length < 3) return;
@@ -393,10 +452,11 @@ const CC = (() => {
     page.append(h('aside', { class: 'toc', 'aria-label': 'On this page' }, h('nav', {}, h('span', { class: 'label', text: 'On this page' }), links)));
     const mark = id => links.forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
     const seen = new Map();
-    const io = new IntersectionObserver(es => { es.forEach(e => seen.set(e.target.id, e.isIntersecting));
-      const top = hs.find(x => seen.get(x.id)); if (top) mark(top.id);
-      else { const above = hs.filter(x => x.getBoundingClientRect().top < 120).pop(); mark((above || hs[0]).id); } }, { rootMargin: '-60px 0px -55% 0px' });
+    const pick = () => { const vis = hs.filter(x => x.offsetParent), top = vis.find(x => seen.get(x.id)); if (top) mark(top.id);
+      else { const above = vis.filter(x => x.getBoundingClientRect().top < 120).pop(); mark((above || vis[0] || hs[0]).id); } };
+    const io = new IntersectionObserver(es => { es.forEach(e => seen.set(e.target.id, e.isIntersecting)); pick(); }, { rootMargin: '-60px 0px -55% 0px' });
     hs.forEach(x => io.observe(x));
+    document.addEventListener('cc-step', pick);
   }
 
   // ---- DAG drawing. nodes: [{id, op, sub, src:[id], cls, val, ecls}] ; sources on top, results flow down ----
@@ -405,27 +465,43 @@ const CC = (() => {
     const d = n => { if (depth.has(n.id)) return depth.get(n.id); depth.set(n.id, 0);
       const v = (n.src || []).length ? 1 + Math.max(...n.src.map(s => d(by.get(s)))) : 0; depth.set(n.id, v); return v; };
     nodes.forEach(d);
-    const rows = []; nodes.forEach(n => (rows[depth.get(n.id)] ||= []).push(n));
-    const NW = n => Math.max(56, 9 * Math.max(n.op.length, (n.sub || '').length) + 24), NH = n => n.sub ? 50 : 34, GAP = 20, RH = 84;
+    const route = new Map(), lay = [...nodes];
+    nodes.forEach(n => (n.src || []).forEach((s, i) => { const ids = []; let prev = s;
+      for (let k = depth.get(s) + 1; k < depth.get(n.id); k++) { const id = `${n.id}~${i}~${k}`; lay.push({ id, dummy: true, op: '', src: [prev] }); depth.set(id, k); ids.push(id); prev = id; }
+      if (ids.length) route.set(n.id + '~' + i, ids); }));
+    const rows = []; lay.forEach(n => (rows[depth.get(n.id)] ||= []).push(n));
+    const NW = n => (n.dummy ? 10 : Math.max(56, 9 * Math.max(n.op.length, (n.sub || '').length) + 24)), NH = n => n.sub ? 50 : 34, GAP = 20, RH = 84;
+    const VW = n => (n.val != null ? 6 + 9 * ('= ' + n.val).length : 0);
     const x = new Map();
-    const place = row => { let cx = 0; row.forEach(n => { x.set(n.id, cx + NW(n) / 2); cx += NW(n) + GAP; }); return cx - GAP; };
+    const place = row => { let cx = 0; row.forEach(n => { x.set(n.id, cx + NW(n) / 2); cx += NW(n) + VW(n) + GAP; }); return cx - GAP; };
     rows.forEach(place);
-    const bary = n => { const s = (n.src || []).map(id => x.get(id)); return s.length ? s.reduce((a, b) => a + b) / s.length : 0; };
+    const via = (n, i) => { const r = route.get(n.id + '~' + i); return r ? r[r.length - 1] : n.src[i]; };
+    const bary = n => { const s = (n.src || []).map((_, i) => x.get(via(n, i))); return s.length ? s.reduce((a, b) => a + b) / s.length : 0; };
     for (let pass = 0; pass < 4; pass++) rows.forEach((row, i) => { if (i) { row.sort((a, b) => bary(a) - bary(b)); place(row); } });
     const W = Math.max(...rows.map(r => place(r)));
     rows.forEach(r => { const w = place(r), off = (W - w) / 2; r.forEach(n => x.set(n.id, x.get(n.id) + off)); });
     const y = n => 12 + depth.get(n.id) * RH;
     const z = parseFloat(getComputedStyle(document.documentElement).fontSize) / 16 || 1;
-    const svg = h('svg', { class: 'g', viewBox: `-8 0 ${W + 16} ${rows.length * RH}`, width: Math.round((width || W + 16) * z), role: 'img' });
+    const svg = h('svg', { class: 'g', viewBox: `-8 0 ${W + 16} ${rows.length * RH}`, width: Math.round((width || W + 16) * z), role: 'img',
+      'aria-label': 'Graph with ' + plural(nodes.length, 'box') + ': ' + nodes.map(n => n.op).join(', ') });
     const edges = h('g'), ns = h('g');
+    const mid = 'gm' + (graph.count = (graph.count || 0) + 1);
+    const tip = (id, cls) => h('marker', { id, class: cls, viewBox: '0 0 8 8', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto', markerUnits: 'userSpaceOnUse' }, h('path', { d: 'M0,0.5 L8,4 L0,7.5 z' }));
+    svg.append(h('defs', {}, tip(mid, 'tip'), tip(mid + 'h', 'tip hit')));
+    const later = n => /\blater\b/.test(n.cls || '');
     nodes.forEach(n => (n.src || []).forEach((s, i) => { const a = by.get(s);
-      const x1 = x.get(s), y1 = y(a) + NH(a), x2 = x.get(n.id) + (i - (n.src.length - 1) / 2) * 10, y2 = y(n), m = (y1 + y2) / 2;
-      edges.append(h('path', { class: 'edge' + ((n.ecls || [])[i] ? ' ' + n.ecls[i] : ''), d: `M${x1},${y1} C${x1},${m} ${x2},${m} ${x2},${y2}` })); }));
+      const x1 = x.get(s), y1 = y(a) + NH(a), x2 = x.get(n.id) + (i - (n.src.length - 1) / 2) * 10, y2 = y(n);
+      let px = x1, py = y1, path = `M${x1},${y1}`;
+      (route.get(n.id + '~' + i) || []).forEach(id => { const dx = x.get(id), top = 12 + depth.get(id) * RH - 8, bot = top + 66, c = (py + top) / 2;
+        path += ` C${px},${c} ${dx},${c} ${dx},${top} L${dx},${bot}`; px = dx; py = bot; });
+      const m = (py + y2) / 2; path += ` C${px},${m} ${x2},${m} ${x2},${y2}`;
+      const ec = (n.ecls || [])[i] || '';
+      edges.append(h('path', { class: 'edge' + (ec ? ' ' + ec : '') + (later(n) || later(a) ? ' later' : ''), 'data-to': n.id, 'data-from': s, 'marker-end': `url(#${mid}${/\bhit\b/.test(ec) ? 'h' : ''})`, d: path })); }));
     nodes.forEach(n => { const w = NW(n), X = x.get(n.id) - w / 2, Y = y(n);
-      const g = h('g', { class: 'node ' + (n.cls || '') + (n.src && n.src.length ? '' : ' const') });
+      const g = h('g', { class: 'node ' + (n.cls || '') + (n.src && n.src.length ? '' : ' const'), 'data-n': n.id });
       g.append(h('rect', { x: X, y: Y, width: w, height: NH(n), rx: 6 }));
       g.append(h('text', { x: x.get(n.id), y: Y + 22, 'text-anchor': 'middle', text: n.op }));
-      if (n.sub) g.append(h('text', { class: 'sub', x: x.get(n.id), y: Y + 40, 'text-anchor': 'middle', text: n.sub }));
+      if (n.sub) g.append(h('text', { class: 'sub' + (n.subcls ? ' ' + n.subcls : ''), x: x.get(n.id), y: Y + 40, 'text-anchor': 'middle', text: n.sub }));
       if (n.val != null) g.append(h('text', { class: 'val', x: X + w + 6, y: Y + 22, text: '= ' + n.val }));
       if (n.title) g.append(h('title', { text: n.title }));
       ns.append(g); });
@@ -443,7 +519,7 @@ const CC = (() => {
       const m = line.match(/^%(\w+)\s*=\s*(\w+)\s*(.*)$/); if (!m) continue;
       const toks = m[3].match(/\w+=\[[^\]]*\]|\[[^\]]*\]|\S+/g) || [];
       const src = [], attrs = [];
-      for (const t of toks) if (t.includes('=')) attrs.push(t); else if (t.startsWith('%')) src.push(names[t.slice(1)]);
+      for (const t of toks) if (t.includes('=')) attrs.push(t); else if (t.startsWith('%')) src.push(names[t.slice(1)] ?? node(t, null, []));
         else if (m[2] === 'const' || m[2] === 'param') attrs.unshift(t); else src.push(node(t, null, []));
       // a literal operand IS a const: "%a = const 2" and a bare "2" are the same hash-consed node
       if (m[2] === 'const' && attrs.length === 1) { names[m[1]] = node(attrs[0], null, []); continue; }
@@ -466,6 +542,94 @@ const CC = (() => {
     return { go: k => { i = k; show(); } };
   }
 
+  function trace(fig, text, { title = 'Step through the program', args = {}, edit = false } = {}) {
+    const I = x => x | 0;
+    const OPS = { add: (a, b) => I(a + b), mul: (a, b) => Math.imul(a, b), max: (a, b) => Math.max(a, b), xor: (a, b) => a ^ b,
+      div: (a, b) => (b === 0 ? -1 : I(Math.floor(a / b))), mod: (a, b) => (b === 0 ? a : I(a - Math.floor(a / b) * b)), cmplt: (a, b) => a < b };
+    const nameOf = l => (l.match(/^\s*%(\w+)\s*=/) || [])[1];
+    let src = text.replace(/\s+$/, ''), lines, full, counts, vals, k = 0, pending = false, editing = false, guess = true;
+    const parse = () => {
+      lines = src.split('\n').filter(l => nameOf(l.split('#')[0]));
+      full = parseUir(lines.join('\n'));
+      counts = lines.map((_, i) => parseUir(lines.slice(0, i + 1).join('\n')).nodes.length);
+      vals = new Map();
+      for (const n of full.nodes) {
+        const a = n.src.map(x => vals.get(x)), slot = (/slot=(\d+)/.exec(n.sub || '') || [])[1];
+        vals.set(n.id, n.op === 'param' ? args[slot] : !n.src.length ? (/^-?\d+$/.test(n.op) ? I(+n.op) : n.op === 'true' ? true : n.op === 'false' ? false : undefined)
+          : a.some(v => v === undefined) || !OPS[n.op] || a.length !== 2 ? undefined : OPS[n.op](...a));
+      }
+    };
+    const shown = i => (i < 0 ? 0 : counts[i]);
+    const own = i => full.names[nameOf(lines[i])];
+    const fresh = i => full.nodes.slice(shown(i - 1), shown(i)).map(n => n.id);
+    const prev = h('button', { class: 'btn', type: 'button', text: 'Back' }), next = h('button', { class: 'btn primary', type: 'button', text: 'Next' });
+    const count = h('span', { class: 'count' }), codeEl = h('div', { class: 'tr-code' }), pic = h('div', { class: 'tr-pic' }), cap = h('div', { class: 'cap', 'aria-live': 'polite' });
+    const box = h('input', { type: 'checkbox' }); box.checked = true; box.onchange = () => { guess = box.checked; };
+    const editB = edit ? h('button', { class: 'btn', type: 'button', text: 'Edit' }) : null;
+    fig.classList.add('trace');
+    fig.replaceChildren(h('div', { class: 'head' }, h('span', { class: 'title', text: title }),
+      h('span', { class: 'ctl' }, h('label', { class: 'tr-opt' }, box, 'Guess first'), editB, count, prev, next)),
+      h('div', { class: 'body' }, h('div', { class: 'split' }, codeEl, pic)), cap);
+    const lit = (i, on) => {
+      if (i == null || i < 0 || i >= lines.length) return;
+      const ids = new Set([own(i), ...fresh(i)]);
+      codeEl.children[i]?.classList.toggle('lit', on);
+      pic.querySelectorAll('[data-n]').forEach(g => { if (ids.has(g.dataset.n)) g.classList.toggle('lit', on); });
+      pic.querySelectorAll('[data-to]').forEach(e => { if (e.dataset.to === own(i)) e.classList.toggle('lit', on); });
+    };
+    const lineOf = id => { const i = lines.findIndex((_, j) => fresh(j).includes(id)); return i < 0 ? lines.findIndex((_, j) => own(j) === id) : i; };
+    const say = v => String(v);
+    const show = () => {
+      const n = lines.length;
+      if (editing) {
+        const ta = h('textarea', { class: 'tr-edit', spellcheck: 'false', 'aria-label': 'Program text', rows: Math.max(4, n + 1) }); ta.value = src;
+        ta.oninput = () => { src = ta.value; parse(); k = lines.length; drawPic(); };
+        codeEl.replaceChildren(ta);
+      } else {
+        codeEl.replaceChildren(...lines.map((l, i) => h('button', { type: 'button', class: 'tr-line' + (i === k - 1 ? ' cur' : i >= k ? ' later' : ''), text: l.trim(), 'aria-current': i === k - 1 ? 'step' : null,
+          onclick: () => { pending = false; k = i + 1; show(); }, onmouseenter: () => lit(i, true), onmouseleave: () => lit(i, false), onfocus: () => lit(i, true), onblur: () => lit(i, false) })));
+      }
+      drawPic();
+      count.textContent = editing ? '' : `line ${k} of ${n}`;
+      prev.disabled = editing || k === 0; next.disabled = editing || (k === n && !pending);
+      if (editB) editB.textContent = editing ? 'Done' : 'Edit';
+      if (editing) { cap.textContent = 'Type in the box. The picture follows every change.'; return; }
+      if (!k) { cap.textContent = n ? 'Press Next to run the first line.' : 'No lines yet. Press Edit to write a program.'; return; }
+      const id = own(k - 1), v = vals.get(id), made = fresh(k - 1).includes(id), line = lines[k - 1].trim();
+      if (pending) {
+        const inp = h('input', { 'aria-label': 'your guess', inputmode: 'numeric', autocomplete: 'off' });
+        const go = () => { const ok = fillMatch([say(v)], inp.value); pending = false; show(); cap.prepend(h('strong', { text: ok ? 'Yes. ' : 'Not quite. ' })); };
+        inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+        cap.replaceChildren(h('div', { class: 'tr-ask' }, h('span', {}, 'What value does ', h('code', { text: line }), ' make?'), inp,
+          h('button', { class: 'btn', type: 'button', text: 'Check', onclick: go }), h('button', { class: 'btn quiet', type: 'button', text: 'Show me', onclick: () => { pending = false; show(); } })));
+        inp.focus({ preventScroll: true });
+        return;
+      }
+      cap.replaceChildren(h('span', {}, `Line ${k}: `, h('code', { text: line }),
+        !made ? ' makes no new box. That value already exists, so this line reuses it.' : v === undefined ? ' adds a box.' : ` makes ${say(v)}.`));
+    };
+    const drawPic = () => {
+      const lim = editing ? full.nodes.length : shown(k - 1), cur = !editing && k ? own(k - 1) : null;
+      if (!full.nodes.length) { pic.replaceChildren(h('p', { class: 'muted', text: 'No lines yet.' })); return; }
+      const label = (n, i) => (i >= lim ? ' ' : n.id === cur && pending ? '= ?' : vals.get(n.id) === undefined ? (n.op === 'param' ? 'input' : ' ') : (n.op === 'param' ? 'input = ' : '= ') + say(vals.get(n.id)));
+      const svg = graph(full.nodes.map((n, i) => ({ ...n, sub: n.src.length || n.op === 'param' ? label(n, i) : n.sub, subcls: 'v',
+        cls: i >= lim ? 'later' : n.id === cur ? 'hit' : '' })));
+      svg.setAttribute('aria-label', `The program drawn as boxes and arrows, ${Math.min(lim, full.nodes.length)} of ${full.nodes.length} boxes shown`);
+      svg.querySelectorAll('[data-n]').forEach(g => { const i = lineOf(g.dataset.n); g.onmouseenter = () => lit(i, true); g.onmouseleave = () => lit(i, false); });
+      pic.replaceChildren(svg, lim === 0 ? h('p', { class: 'muted tr-hint', text: 'The picture appears here, one box at a time.' }) : '');
+    };
+    next.onclick = () => {
+      if (pending) { pending = false; show(); return; }
+      if (k >= lines.length) return;
+      k++;
+      const id = own(k - 1);
+      pending = guess && vals.get(id) !== undefined && fresh(k - 1).includes(id) && full.nodes.find(n => n.id === id).src.length > 0;
+      show();
+    };
+    prev.onclick = () => { if (k > 0) { pending = false; k--; show(); } };
+    if (editB) editB.onclick = () => { editing = !editing; pending = false; parse(); k = lines.length; show(); };
+    parse(); show();
+  }
   function code(text, hl = -1) {
     return h('div', { class: 'code' }, text.replace(/\n$/, '').split('\n').map((l, i) => h('div', { class: i === hl ? 'hl' : null, text: l || ' ' })));
   }
@@ -483,6 +647,7 @@ const CC = (() => {
   function fillMatch(accepted, typed) {
     const norm = x => x.trim().toLowerCase().replace(/\s+/g, ' ').replace(/−/g, '-');
     const num = x => {
+      if (/^[-+]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(x)) x = x.replace(/,/g, '');
       if (/^[-+]?(inf|infinity)$/.test(x)) return x.startsWith('-') ? -Infinity : Infinity;
       if (/^[-+]?0x[0-9a-f]+$/.test(x)) return (x.startsWith('-') ? -1 : 1) * parseInt(x.replace(/^[-+]/, ''), 16);
       return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/.test(x) ? Number(x) : null;
@@ -552,7 +717,8 @@ const CC = (() => {
   }
 
   // `code` in hint and explanation text becomes <code>; everything else is plain text
-  const rich = t => { const e = h('span'); String(t).split(/(`[^`]+`)/).forEach(part => e.append(part.startsWith('`') && part.endsWith('`') && part.length > 1 ? h('code', { text: part.slice(1, -1) }) : part)); return e; };
+  const plain = t => String(t).replace(/<code>([\s\S]*?)<\/code>/g, '`$1`').replace(/<\/?(?:b|strong|em|i|p)>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const rich = t => { const e = h('span'); plain(t).split(/(`[^`]+`)/).forEach(part => e.append(part.startsWith('`') && part.endsWith('`') && part.length > 1 ? h('code', { text: part.slice(1, -1) }) : part)); return e; };
 
   // ---- exercises ----
   const KEYMAPS = [['default', 'Default'], ['vim', 'Vim'], ['emacs', 'Emacs'], ['sublime', 'Sublime']];
@@ -657,9 +823,12 @@ const CC = (() => {
       // With the local runner (tools/serve.py), every language runs on your machine. On the hosted site,
       // Python and .uir exercises run right in the browser (WebAssembly); C and OCaml compare against the answer.
       const canBrowser = !r && location.protocol.startsWith('http') && typeof Worker !== 'undefined' && (ex.lang === 'python' || ex.lang === 'uir') && Array.isArray(ex.tests);
-      const canRun = !!(r || canBrowser);
+      const noTool = r && ex.lang === 'ocaml' && !r.ocaml ? 'OCaml isn’t installed on this machine (lesson 0.6 shows how), so its tests can’t run here.'
+        : r && ex.lang === 'c' && !r.cc ? 'No C compiler was found on this machine (lesson 0.1 shows how to get one), so its tests can’t run here.' : null;
+      const canRun = !!((r && !noTool) || canBrowser);
       const edDiv = h('div', { class: 'ex-editor' });
-      const out = h('div', { class: 'ex-out' }, h('span', { class: 'hint', text: r ? 'Run checks the examples. Submit runs every test.'
+      const out = h('div', { class: 'ex-out' }, h('span', { class: 'hint', text: noTool ? noTool + ' Write your answer, then compare it with the reference answer.'
+        : r ? 'Run checks the examples. Submit runs every test.'
         : canBrowser ? 'Runs right in your browser (no setup). Run checks the examples. Submit runs every test.'
         : 'Write your answer, then compare it with the reference answer. Running C or OCaml tests needs python tools/serve.py.' }));
       const mode = h('span'), keys = h('span', { text: canRun ? 'Ctrl+Enter run · Ctrl+Shift+Enter submit' : 'Ctrl+Enter compare' });
@@ -703,13 +872,14 @@ const CC = (() => {
       runB.onclick = () => run(false); subB.onclick = () => run(true);
       // Compare shows the answer's code, so the first time it asks once, as Show answer does.
       let warned = !!store.get('cc-peek:' + id);
-      function compare() {
+      async function compare() {
+        if (!ex.answer && r) try { ex.answer = await fetch(api('solution/' + id)).then(x => x.json()); } catch {}
         const ans = ex.answer && ex.answer.code;
         if (!ans) { out.replaceChildren(h('span', { class: 'hint', text: 'This exercise has no reference answer to compare with.' })); return; }
         if (!warned) { warned = true; cmpB.textContent = 'Compare anyway';
           out.replaceChildren(h('span', { class: 'hint', text: 'Comparing shows lines of the answer. Try a hint first if you want to keep the puzzle.' })); return; }
         cmpB.textContent = 'Compare again'; store.set('cc-peek:' + id, '1');
-        out.replaceChildren(...diffView(cm.getValue(), ans, ex.lang), offlineNote());
+        out.replaceChildren(...diffView(cm.getValue(), ans, ex.lang), noTool ? h('p', { class: 'ex-note', text: noTool + ' Restart python tools/serve.py once it’s installed.' }) : offlineNote());
       }
       cmpB.onclick = compare;
     }
@@ -1051,5 +1221,5 @@ const CC = (() => {
 
   document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); terms(); });
   const pathNext = () => { const pid = pathId(); return pid ? nextUp(pid) : null; };
-  return { h, graph, parseUir, stepper, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX };
+  return { h, graph, parseUir, stepper, trace, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX };
 })();

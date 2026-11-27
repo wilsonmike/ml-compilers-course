@@ -1,0 +1,144 @@
+{
+ "id": "w5-04n-matvec",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "A matrix times a vector",
+ "starter": "%Ab = buffer 6 dtype=f32 slot=0\n%vb = buffer 3 dtype=f32 slot=1\n%yb = buffer 2 dtype=f32 slot=2\n%A  = load %Ab\n%v  = load %vb\n%y  = expand 0.0 [2]\n%s  = store %yb %y\n%y1 = after %yb %s\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0
+    ],
+    "1": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "sample": true,
+   "expect": "[6.0 15.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0
+    ],
+    "1": [
+     1.0,
+     0.0,
+     0.0
+    ]
+   },
+   "sample": true,
+   "expect": "[1.0 4.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0,
+     5.0,
+     6.0
+    ],
+    "1": [
+     0.0,
+     0.0,
+     1.0
+    ]
+   },
+   "expect": "[3.0 6.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.5,
+     -1.0,
+     2.0,
+     4.0,
+     0.0,
+     -0.25
+    ],
+    "1": [
+     2.0,
+     4.0,
+     8.0
+    ]
+   },
+   "expect": "[13.0 6.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "1": [
+     7.0,
+     8.0,
+     9.0
+    ]
+   },
+   "expect": "[0.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    "1": [
+     5.0,
+     6.0,
+     7.0
+    ]
+   },
+   "expect": "[5.0 6.0]"
+  },
+  {
+   "data": {
+    "0": [
+     3.0,
+     3.0,
+     3.0,
+     -3.0,
+     -3.0,
+     -3.0
+    ],
+    "1": [
+     1.0,
+     10.0,
+     100.0
+    ]
+   },
+   "expect": "[333.0 -333.0]"
+  }
+ ],
+ "hints": [
+  "There is no n axis this time, so the lined-up value has two axes: k first, then m. Its shape is `[3 2]`.",
+  "Reshape A to `[2 3]` and `permute ... [1 0]` to put k first. Reshape v to `[3 1]` and expand it to `[3 2]`.",
+  "Multiply the two `[3 2]` values, then `reduce op=add pop=1` sums over k and leaves shape `[2]`, ready to store."
+ ],
+ "explain": "It is the matmul with the n axis left out. Put k first with a permute, give v a size-1 axis where m goes and expand it, multiply, and reduce away k. The result already has rank 1, so it can be stored as it is."
+}

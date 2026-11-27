@@ -1,0 +1,50 @@
+{
+ "id": "lp-04n-value",
+ "lang": "python",
+ "title": "Teach value two more ops",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass\nclass Node:\n    op: str\n    src: list\n    arg: int | None = None\n\n\ndef lit(v):\n    return Node(\"const\", [], v)\n\n\ndef value(n):\n    if n.op == \"const\":\n        return n.arg\n    a = value(n.src[0])\n    b = value(n.src[1])\n    if n.op == \"add\":\n        return a + b\n    if n.op == \"mul\":\n        return a * b\n    raise ValueError(n.op)\n",
+ "show": "str",
+ "tests": [
+  {
+   "expr": "value(Node(\"sub\", [lit(10), lit(3)]))",
+   "expect": "7",
+   "sample": true
+  },
+  {
+   "expr": "value(Node(\"max\", [lit(2), lit(9)]))",
+   "expect": "9",
+   "sample": true
+  },
+  {
+   "expr": "value(Node(\"mul\", [Node(\"add\", [lit(2), lit(3)]), lit(4)]))",
+   "expect": "20",
+   "sample": true
+  },
+  {
+   "expr": "value(lit(7))",
+   "expect": "7"
+  },
+  {
+   "expr": "value(Node(\"sub\", [lit(3), lit(10)]))",
+   "expect": "-7"
+  },
+  {
+   "expr": "value(Node(\"max\", [lit(-5), lit(-9)]))",
+   "expect": "-5"
+  },
+  {
+   "expr": "value(Node(\"sub\", [Node(\"mul\", [lit(3), lit(4)]), Node(\"add\", [lit(1), lit(1)])]))",
+   "expect": "10"
+  },
+  {
+   "expr": "value(Node(\"max\", [Node(\"sub\", [lit(1), lit(4)]), Node(\"mul\", [lit(2), lit(0)])]))",
+   "expect": "0"
+  }
+ ],
+ "hints": [
+  "Copy the two `mul` lines twice and change them, once for `sub` and once for `max`. Put the new lines above the `raise` line, which must stay last.",
+  "`a` and `b` are already plain numbers by the time you reach your new lines. `sub` takes the second source away from the first: `return a - b`.",
+  "Python has a built-in `max`: `if n.op == \"max\": return max(a, b)`."
+ ],
+ "explain": "The reference adds two branches above the `raise`: `sub` returns `a - b` and `max` returns `max(a, b)`. By then `a` and `b` are plain numbers, because `value` has already called itself on both sources. The order matters for `sub`: the first source is on the left."
+}

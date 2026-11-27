@@ -1,0 +1,45 @@
+{
+ "id": "w2-04n-emit-once",
+ "lang": "ocaml",
+ "title": "Print a shared node once",
+ "show": "(fun (ls, r) -> String.concat \" | \" ls ^ \" => \" ^ r)",
+ "starter": "type e = Lit of int | Var of string | Add of e * e | Mul of e * e\n\nlet emit (e : e) : string list * string =\n  let lines = ref [] in\n  let names : (e * string) list ref = ref [] in\n  let rec go e =\n    match e with\n    | Lit n -> string_of_int n\n    | Var s -> s\n    | Add (a, b) | Mul (a, b) ->\n      let x = go a in\n      let y = go b in\n      let op = match e with Add _ -> \"+\" | _ -> \"*\" in\n      let v = Printf.sprintf \"v%d\" (List.length !lines) in\n      lines := Printf.sprintf \"int32_t %s = (int32_t)((uint32_t)%s %s (uint32_t)%s);\" v x op y :: !lines;\n      v\n  in\n  let result = go e in\n  ignore names;\n  (List.rev !lines, result)\n",
+ "tests": [
+  {
+   "expr": "(let x = Add (Var \"a\", Lit 1) in emit (Mul (x, x)))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v1 = (int32_t)((uint32_t)v0 * (uint32_t)v0); => v1",
+   "sample": true
+  },
+  {
+   "expr": "emit (Add (Var \"a\", Lit 1))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); => v0",
+   "sample": true
+  },
+  {
+   "expr": "emit (Lit 5)",
+   "expect": "=> 5"
+  },
+  {
+   "expr": "(let rec dbl n e = if n = 0 then e else (let d = dbl (n - 1) e in Add (d, d)) in emit (dbl 3 (Var \"x\")))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)x + (uint32_t)x); | int32_t v1 = (int32_t)((uint32_t)v0 + (uint32_t)v0); | int32_t v2 = (int32_t)((uint32_t)v1 + (uint32_t)v1); => v2"
+  },
+  {
+   "expr": "(let s = Add (Var \"a\", Lit 1) in emit (Add (Mul (s, Lit 2), Mul (s, Lit 3))))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v1 = (int32_t)((uint32_t)v0 * (uint32_t)2); | int32_t v2 = (int32_t)((uint32_t)v0 * (uint32_t)3); | int32_t v3 = (int32_t)((uint32_t)v1 + (uint32_t)v2); => v3"
+  },
+  {
+   "expr": "(let v () = Var (String.make 1 'a') in emit (Mul (Add (v (), Lit 1), Add (v (), Lit 1))))",
+   "expect": "int32_t v0 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v1 = (int32_t)((uint32_t)a + (uint32_t)1); | int32_t v2 = (int32_t)((uint32_t)v0 * (uint32_t)v1); => v2"
+  },
+  {
+   "expr": "(let rec dbl n e = if n = 0 then e else (let d = dbl (n - 1) e in Add (d, d)) in let (ls, r) = emit (dbl 12 (Var \"x\")) in ([string_of_int (List.length ls)], r))",
+   "expect": "12 => v11"
+  }
+ ],
+ "hints": [
+  "The table `names` is there and nothing uses it yet. It should pair a node you have already printed with the C name you gave it.",
+  "`List.assq_opt e !names` looks a node up with `==`, which asks whether two values are the very same node. Two nodes that were built separately stay separate even when they look equal.",
+  "Wrap the branch: `match List.assq_opt e !names with Some v -> v | None -> ...` and, in the `None` case, add `names := (e, v) :: !names;` just before the final `v`."
+ ],
+ "explain": "The reference looks the node up in `names` with `List.assq_opt` before it walks into the sources, and returns the saved name when it is there. After printing a line it saves the pair of node and name. A node used twice is now printed once, and because the lookup comes first, its sources are not walked a second time either."
+}

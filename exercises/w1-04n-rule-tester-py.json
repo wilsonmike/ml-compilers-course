@@ -1,0 +1,51 @@
+{
+ "id": "w1-04n-rule-tester-py",
+ "lang": "python",
+ "title": "Repair a rule tester",
+ "prompt": "<p><code>breaks(before, after)</code> tests a rewrite rule. <code>before</code> and <code>after</code> are two small functions of <code>x</code>: the pattern and its replacement. It runs both on every value in <code>EDGES</code> and returns the values where they disagree. An empty list means it found no counterexample.</p><p>Right now it says the rule <code>div(mul(x, 2), 2) → x</code> is safe. Two things are wrong:</p><ul><li><strong>The multiply.</strong> <code>mul32</code> does not wrap, so it is not doing i32 math. Wrap its result with <code>wrap32</code>.</li><li><strong>The edge values.</strong> <code>EDGES</code> only holds small numbers. Add <code>2**30</code>, <code>INT_MAX</code> and <code>INT_MIN</code>.</li></ul>",
+ "show": "lambda v: ' '.join(str(x) for x in sorted(v)) or 'none'",
+ "starter": "INT_MIN = -(2**31)\nINT_MAX = 2**31 - 1\n\n\ndef wrap32(n: int) -> int:\n    return (n + 2**31) % 2**32 - 2**31\n\n\ndef add32(a: int, b: int) -> int:\n    return wrap32(a + b)\n\n\ndef mul32(a: int, b: int) -> int:\n    return a * b\n\n\ndef div32(a: int, b: int) -> int:\n    return -1 if b == 0 else wrap32(a // b)\n\n\ndef mod32(a: int, b: int) -> int:\n    return a if b == 0 else a % b\n\n\nEDGES = [0, 1, -1]\n\n\ndef breaks(before, after) -> list[int]:\n    return [x for x in EDGES if before(x) != after(x)]\n",
+ "tests": [
+  {
+   "expr": "breaks(lambda x: div32(mul32(x, 2), 2), lambda x: x)",
+   "expect": "-2147483648 1073741824 2147483647",
+   "sample": true
+  },
+  {
+   "expr": "breaks(lambda x: add32(add32(x, 3), 4), lambda x: add32(x, 7))",
+   "expect": "none",
+   "sample": true
+  },
+  {
+   "expr": "breaks(lambda x: x < add32(x, 1), lambda x: True)",
+   "expect": "2147483647",
+   "sample": true
+  },
+  {
+   "expr": "breaks(lambda x: mul32(x, 0), lambda x: 0)",
+   "expect": "none"
+  },
+  {
+   "expr": "breaks(lambda x: mod32(x, 8), lambda x: x)",
+   "expect": "-2147483648 -1 1073741824 2147483647"
+  },
+  {
+   "expr": "breaks(lambda x: mul32(mul32(x, 65536), 65536), lambda x: 0)",
+   "expect": "none"
+  },
+  {
+   "expr": "breaks(lambda x: div32(x, 1), lambda x: x)",
+   "expect": "none"
+  },
+  {
+   "expr": "breaks(lambda x: max(x, add32(x, 1)), lambda x: add32(x, 1))",
+   "expect": "2147483647"
+  }
+ ],
+ "hints": [
+  "Run the samples and look at the first one. The tester says the cancel rule never breaks. Every helper except one passes its answer through `wrap32`.",
+  "A real i32 multiply keeps only the low 32 bits. Make `mul32` return `wrap32(a * b)`, the same way `add32` wraps its sum.",
+  "A rule can be right for small numbers and wrong at the ends of the i32 range. Add 2 to the 30th, the largest i32 and the smallest i32 to the list: `[0, 1, -1, 2**30, INT_MAX, INT_MIN]`."
+ ],
+ "explain": "Two repairs. `mul32` has to wrap like the real op, so it returns `wrap32(a * b)`. Without that the tester does school arithmetic and every rule that is true in school looks safe. The edge list has to hold the values where wrapping happens, so it becomes `[0, 1, -1, 2**30, INT_MAX, INT_MIN]`. With both fixed, the cancel rule breaks at 1073741824, at the largest i32 and at the smallest i32, and the regroup rule never breaks."
+}

@@ -1,0 +1,181 @@
+{
+ "id": "w2-03n-pair",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "Two reads from one index",
+ "starter": "%d   = buffer 8 [1 2 3 4 10 20 30 40] dtype=i32 slot=0\n%ix  = buffer 1 [2] dtype=i32 slot=1\n%res = buffer 1 dtype=i32 slot=2\n%i0  = shrink %ix 0 []\n%i   = load %i0\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     10,
+     20,
+     30,
+     40
+    ],
+    "1": [
+     2
+    ]
+   },
+   "expect": "[33]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     10,
+     20,
+     30,
+     40
+    ],
+    "1": [
+     5
+    ]
+   },
+   "expect": "[22]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     10,
+     20,
+     30,
+     40
+    ],
+    "1": [
+     -1
+    ]
+   },
+   "expect": "[44]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     10,
+     20,
+     30,
+     40
+    ],
+    "1": [
+     0
+    ]
+   },
+   "expect": "[11]"
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     10,
+     20,
+     30,
+     40
+    ],
+    "1": [
+     7
+    ]
+   },
+   "expect": "[44]"
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     10,
+     20,
+     30,
+     40
+    ],
+    "1": [
+     -4
+    ]
+   },
+   "expect": "[11]"
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     10,
+     20,
+     30,
+     40
+    ],
+    "1": [
+     2147483647
+    ]
+   },
+   "expect": "[44]"
+  },
+  {
+   "data": {
+    "0": [
+     1,
+     2,
+     3,
+     4,
+     10,
+     20,
+     30,
+     40
+    ],
+    "1": [
+     -2147483648
+    ]
+   },
+   "expect": "[11]"
+  },
+  {
+   "data": {
+    "0": [
+     -1,
+     -2,
+     -3,
+     -4,
+     -5,
+     -6,
+     -7,
+     -8
+    ],
+    "1": [
+     1
+    ]
+   },
+   "expect": "[-8]"
+  }
+ ],
+ "hints": [
+  "Start by shaping the index: `%k = mod %i 4` has bounds `[0, 3]`. Every offset you need can be built from `%k`.",
+  "The first read is `shrink %d %k []`. For the second, make the offset its own line: `%o = add %k 4` has bounds `[4, 7]`, and the last allowed start of a one-element view on 8 elements is 7.",
+  "Load both views, `add` the two values, then write the sum the way lesson 2.2 did: `shrink %res 0 []`, a `store` into that view, and `after %res` with the store."
+ ],
+ "explain": "`mod %i 4` is in `[0, 3]` for every loaded `%i`, so `shrink %d %k []` is proven. `add %k 4` adds the ends: `[4, 7]`, which still fits inside `[0, 7]`, so the second view is proven too. Both proofs hold before the program runs and for any data in `ix`. The rest is a store and an `after`, as in lesson 2.2."
+}

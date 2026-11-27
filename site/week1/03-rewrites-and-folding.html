@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rewrites and Folding</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A compiler pass is mostly a list of small rules like add(x, 0) → x, applied over and over until none of them fire. This lesson shows how that loop works, one...">
+<meta name="description" content="By the end of this lesson you can write a simplifier: the part of a compiler that crosses out pointless work, like adding zero, before the program runs. It...">
 <link rel="canonical" href="https://sharpterminal.com/site/week1/03-rewrites-and-folding">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Rewrites and Folding">
-<meta property="og:description" content="A compiler pass is mostly a list of small rules like add(x, 0) → x, applied over and over until none of them fire. This lesson shows how that loop works, one rule at a time.">
+<meta property="og:description" content="By the end of this lesson you can write a simplifier: the part of a compiler that crosses out pointless work, like adding zero, before the program runs. It applies a short list of small rules over...">
 <meta property="og:url" content="https://sharpterminal.com/site/week1/03-rewrites-and-folding">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,38 +20,272 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Week 1|Rewrites and folding" data-root="../">
 <main>
 <p class="eyebrow">Week 1 · Lesson 3</p>
 <h1>Rewrites and constant folding</h1>
-<p class="lede">A compiler pass is mostly a list of small rules like <code>add(x, 0) → x</code>, applied over and over until none of them fire. This lesson shows how that loop works, one rule at a time.</p>
+<p class="lede">By the end of this lesson you can write a simplifier: the part of a compiler that crosses out pointless work, like adding zero, before the program runs. It applies a short list of small rules over and over until none fits. This is the first time your compiler changes a program, so every change has to keep the answer the same.</p>
+
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Write a function that applies a list of rewrite rules to an expression until no rule fits.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p class="only-python"><code>match</code> with class patterns on a small tree of dataclasses (<a href="../learn/py-04-your-own-types.html">P.4</a>) and a function that calls itself on a tree (<a href="../learn/py-05-recursion.html">P.5</a>). Also i32 wraparound from <a href="02-uir-and-interpreting.html">lesson 1.2</a>.</p>
+    <p class="only-ocaml"><code>match</code> on a variant type and <code>option</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a> and <a href="../learn/ml-04-your-own-types.html">O.4</a>). Also i32 wraparound from <a href="02-uir-and-interpreting.html">lesson 1.2</a>.</p>
+  </div>
 
   <div class="note">
     <span class="label">Want it slower?</span>
-    <p>If "apply the rules until none fire" feels abstract, <a href="../learn/hard-03-rewriting.html">H.3 Rewriting until nothing changes</a> walks through it on small arithmetic expressions, step by step, in your language.</p>
+    <p><a href="../learn/hard-03-rewriting.html">H.3 Rewriting until nothing changes</a> walks through "apply the rules until none fire" on small arithmetic expressions, step by step, in your language.</p>
   </div>
 
+<h2>Warm up</h2>
+<p class="prose">Two questions from the last two lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your compiler hash conses its nodes (lesson 1.1). Are <code>add 2 3</code> and <code>add 3 2</code> the same node?</p>
+<div class="opts">
+<button data-k="a">Yes, because both are 5</button>
+<button data-k="b">No, because the sources are in a different order</button>
+<button data-k="c">Yes, because both use the op <code>add</code></button>
+</div>
+<p class="hint">Hash consing compares how a node is built, not what it works out to.</p>
+<div class="why"><p>Hash consing only looks at the op and the sources, in order. This lesson gives the compiler a way to make the two meet.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">In .uir, what is <code>add 2147483647 1</code>? (2147483647 is the largest i32.)</p>
+<div class="opts">
+<button data-k="a">2147483648</button>
+<button data-k="b">An error, so the program is rejected</button>
+<button data-k="c">-2147483648</button>
+</div>
+<p class="hint">An i32 has 32 bits. What happens when the answer does not fit?</p>
+<div class="why"><p>i32 math wraps around. Your simplifier will have to wrap in exactly the same way.</p></div>
+</div>
+
+<h2>The problem: a program that does pointless work</h2>
 <div class="prose">
+<p>Here is a short program. <code>%x</code> is a param, an input the compiler does not know. In the picture it is 7. Step through it and guess each value.</p>
+</div>
+<div class="fig" id="waste"></div>
+
+<div class="quiz" data-fill="1">
+<p class="q">Guess first. Every line is correct, but you may rewrite the program any way you like, as long as <code>%out</code> is the same for every <code>%x</code>. An <strong>op</strong> is a line that computes something, like <code>add</code> or <code>mul</code>. Plain numbers and the param are free. What is the smallest number of ops you need?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Which lines hand back the value they were given?</p>
+<div class="why"><p>One. Adding 0 and multiplying by 1 change nothing, and <code>add 2 3</code> is always 5. All that is left is <code>%out = mul %x 5</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>Four ops became one, and the answer did not change. Nobody writes <code>add %x 0</code> on purpose. Lines like it show up when other parts of a compiler build programs out of pieces, so every compiler needs a part that cleans up: a <strong>simplifier</strong>. First do its job once by hand.</p>
+</div>
+
+<div class="exercise small" data-ex="w1-03-by-hand">
+<h3>Be the simplifier</h3>
+<p>The starter has five ops that compute <code>((x + 3) * 1 + 0) + 2 * 5</code>. Write a <code>%out</code> with the same value for every <code>x</code> in at most 1 op.</p>
+<p class="muted">Is <code>(x + 3) + 10</code> really <code>x + 13</code> when <code>x + 3</code> wraps? For i32, yes. Lesson 4 says why.</p>
+</div>
+
 <h2>A rule is a pattern and a replacement</h2>
-<p>A <strong>rewrite rule</strong> has two halves. The <em>pattern</em> describes a shape of graph to look for. The <em>replacement</em> says what to build instead. We'll write rules like this:</p>
-<pre><code>add(x, 0)          → x                  # adding zero does nothing (i32)
-mul(x, 1)          → x                  # multiplying by one does nothing
-add(c1, c2)        → const(c1 + c2)     # both inputs known: compute it now
-mul(c, x)          → mul(x, c)          # move the constant to the right</code></pre>
-<p><code>x</code> and <code>y</code> match <em>any</em> node. Names starting with <code>c</code> (<code>c</code>, <code>c1</code>, <code>c2</code>) match only <code>const</code> nodes. <code>add(x, 0)</code> is shorthand for the .uir node <code>add %x 0</code>, and in the exercise below the same pattern is written <span class="only-ocaml"><code>Add (x, Const 0)</code></span><span class="only-python"><code>Add(x, Const(0))</code></span>. A rule <strong>fires</strong> on a node when the pattern matches it, and then the node is replaced by whatever the right side builds.</p>
-<p>The engine itself is tiny, and you'll write one this week:</p>
+<div class="prose">
+<p>You made four small moves, and each one looked at a single line. Each move is a <strong>rewrite rule</strong>. Its <strong>pattern</strong> is the shape to look for. Its <strong>replacement</strong> is what to build in that place. We write a rule with an arrow between the two:</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>rule</th><th>in words</th></tr>
+<tr><td><code>mul(x, 1) → x</code></td><td>multiplying by one changes nothing</td></tr>
+<tr><td><code>add(x, 0) → x</code></td><td>adding zero changes nothing</td></tr>
+<tr><td><code>add(c1, c2) → c1 + c2</code><br><code>mul(c1, c2) → c1 * c2</code></td><td>both inputs are known numbers, so compute the answer now</td></tr>
+<tr><td><code>add(add(x, c1), c2) → add(x, c1 + c2)</code></td><td>adding 3 and then 10 is adding 13</td></tr>
+</table></div>
+<div class="prose">
+<p>In a pattern, <code>x</code> matches <em>any</em> node, small or large. A name that starts with <code>c</code> matches only a <strong>constant</strong>, a plain number written in the program. <code>0</code> and <code>1</code> match only those exact numbers. When the pattern matches a node, we say the rule <strong>fires</strong>, and the node is replaced. A rule is only allowed if both sides give the same answer for every input.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Which of these nodes does the rule <code>add(x, 0) → x</code> match?</p>
+<pre><code>%t = mul %y 7
+%p = add %y 0
+%q = add %t 0
+%r = add 0 %y</code></pre>
+<div class="opts">
+<button data-k="a">Only <code>%p</code></button>
+<button data-k="b"><code>%p</code> and <code>%q</code></button>
+<button data-k="c"><code>%p</code>, <code>%q</code> and <code>%r</code></button>
+</div>
+<p class="hint"><code>x</code> can stand for any node. The <code>0</code> has to be where the pattern says it is.</p>
+<div class="why"><p><code>x</code> matches <code>%y</code> in <code>%p</code> and the whole <code>mul</code> in <code>%q</code>. In <code>%r</code> the 0 is on the left, and the pattern wants it on the right. You'll fix that later in this lesson.</p></div>
+</div>
+
+<div class="prose">
+<p>In code, the rules live in one function that looks at a single node and that node's children. The exercises on this page use a small toy tree in place of real UOps: <code>Const</code> is a number, <code>Var</code> is an unknown input, and <code>Add</code> and <code>Mul</code> each have two children. Here are two rules:</p>
+<pre class="only-python"><code>def rule(e):
+    match e:
+        case Add(x, Const(0)):
+            return x
+        case Mul(x, Const(1)):
+            return x
+    return None</code></pre>
+<pre class="only-ocaml"><code>let rule e =
+  match e with
+  | Add (x, Const 0) -&gt; Some x
+  | Mul (x, Const 1) -&gt; Some x
+  | _ -&gt; None</code></pre>
+<p>Each <span class="only-python"><code>case</code></span><span class="only-ocaml">branch</span> is one rule: the pattern, then the replacement. <code>rule</code> gives back the new node<span class="only-ocaml"> in a <code>Some</code></span> when a rule fires, and <code>None</code> when no rule matches.</p>
+</div>
+
+<h2>Sources first</h2>
+<div class="prose">
+<p><code>rule</code> handles one node. A program has many. Which one do you offer to <code>rule</code> first? Try it on this program.</p>
+<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
+%a   = add 3 -3
+%out = add %x %a</code></pre>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Nothing has been simplified yet. You offer <code>%out</code> to the rule <code>add(x, 0) → x</code>. Does it fire?</p>
+<div class="opts">
+<button data-k="a">Yes, because <code>%a</code> works out to 0</button>
+<button data-k="b">No, because the second source of <code>%out</code> is an <code>add</code> node, not the constant 0</button>
+<button data-k="c">No, because <code>%x</code> is a param</button>
+</div>
+<p class="hint">A pattern looks at what a node <em>is</em> right now. It does not compute anything.</p>
+<div class="why"><p>The pattern wants the constant 0 as the second source. Right now that source is the node <code>add 3 -3</code>. Fold <code>%a</code> to 0 first, and then the rule fires on <code>%out</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>So simplify a node's sources before the node itself. This is called going <strong>sources first</strong>, or bottom up. Your interpreter evaluates in the same order (lesson 1.2), for the same reason: a node can only be dealt with once its sources are. Each node takes two moves:</p>
 <ol>
-<li><strong>Sources first.</strong> Visit nodes in topological order, sources before their users. By the time you look at a node, its sources have already been simplified.</li>
-<li><strong>Greedy.</strong> At each node, try the rules. If one fires, try them all again on the result, until nothing matches.</li>
-<li><strong>To a fixpoint.</strong> Keep running whole passes until a pass changes nothing. That graph is your answer.</li>
+<li><strong>Simplify the sources.</strong> Do this whole job on each source first.</li>
+<li><strong>Rebuild the node.</strong> Make the node again from its simplified sources, and offer that to <code>rule</code>.</li>
 </ol>
 </div>
 
+<h2>Repeat until nothing changes</h2>
+<div class="prose">
+<p>One more thing can go wrong. Watch the last rule from the table, the joining rule, work on <code>(x + 3) + -3</code>:</p>
+<pre><code>add(add(x, 3), -3)   →   add(x, 0)</code></pre>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">The simplifier offered this node to <code>rule</code> once, the rule fired, and it moved on. What is left in the program?</p>
+<div class="opts">
+<button data-k="a"><code>add(x, 0)</code>, which is still pointless work</button>
+<button data-k="b"><code>x</code></button>
+<button data-k="c"><code>add(add(x, 3), -3)</code>, unchanged</button>
+</div>
+<p class="hint">The replacement is a brand new node. Has any rule looked at it yet?</p>
+<div class="why"><p>The rule built <code>add(x, 0)</code>, a node no rule has seen. Offer it to <code>rule</code> again and <code>add(x, 0) → x</code> fires.</p></div>
+</div>
+
+<div class="prose">
+<p>A rewrite can create a new chance for another rewrite. That adds a third move to the two above:</p>
+<ol start="3">
+<li><strong>Try again.</strong> While <code>rule</code> returns a new node, offer that new node to <code>rule</code>.</li>
+</ol>
+<p>A program where no rule fires anywhere is called a <strong>fixpoint</strong> (short for fixed point): running the simplifier on it again changes nothing. Here are all three moves on a small program:</p>
+<pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
+%a   = add 1 2
+%b   = add %x %a
+%out = add %b -3</code></pre>
+<ol>
+<li><strong>Start at the sources.</strong> <code>%a</code> is <code>add 1 2</code>. Both inputs are constants, so it becomes 3.</li>
+<li><strong>Move up.</strong> <code>%b</code> is rebuilt as <code>add %x 3</code>. No rule matches it.</li>
+<li><strong>Reach the top.</strong> <code>%out</code> is now <code>add(add(x, 3), -3)</code>. The joining rule fires and builds <code>add(x, 0)</code>.</li>
+<li><strong>Try again.</strong> <code>add(x, 0) → x</code> fires on the new node.</li>
+<li><strong>Stop.</strong> No rule matches <code>x</code>. Three ops became none: <code>%out</code> is just <code>%x</code>.</li>
+</ol>
+<p>Now finish a simplifier whose <code>rule</code> has the five rules from the table.</p>
+</div>
+
+<div class="exercise" data-ex="w1-03n-finish" data-ex-py="w1-03n-finish-py">
+<h3>Finish a rewriter</h3>
+<p><code>rule</code> is complete, so leave it alone. <code>simplify</code> has two mistakes.</p>
+<p><strong>Sources first.</strong> The <code>Mul</code> <span class="only-python">case</span><span class="only-ocaml">branch</span> simplifies both children before it rebuilds the node. The <code>Add</code> <span class="only-python">case</span><span class="only-ocaml">branch</span> rebuilds the node from children nobody simplified.</p>
+<p><strong>Try again.</strong> The node is offered to <code>rule</code> one time. It should be offered again and again until <code>rule</code> answers <code>None</code>.</p>
+<p class="muted">The tests print a tree with parentheses, so <span class="only-python"><code>Add(Var("y"), Const(5))</code></span><span class="only-ocaml"><code>Add (Var "y", Const 5)</code></span> shows as <code>(y + 5)</code>.</p>
+</div>
+
+<h2>Will it ever stop?</h2>
+<div class="prose">
+<p>"Keep going until no rule fires" is a loop, and a loop can run forever. A teammate adds this rule, because addition gives the same answer in either order:</p>
+<pre><code>add(x, y) → add(y, x)        # always swap</code></pre>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Start with <code>add %a %b</code> and let this one rule fire twice. What do you have?</p>
+<div class="opts">
+<button data-k="a"><code>add %b %a</code>, and the rule no longer matches</button>
+<button data-k="b"><code>%a</code></button>
+<button data-k="c"><code>add %a %b</code>, exactly where you started</button>
+</div>
+<p class="hint">Write down the node after the first swap. Does the pattern <code>add(x, y)</code> match it?</p>
+<div class="why"><p>The first swap gives <code>add %b %a</code>, still an <code>add</code> of two things, so the rule fires again and swaps back. The loop never ends, and your compiler hangs.</p></div>
+</div>
+
+<div class="prose">
+<p>The cure: for every rule, name something that the rule makes smaller. All five rules in the table remove at least one op, and a program cannot have fewer than zero ops, so they run out. The swap rule removes nothing, and that is the warning sign. The <a href="#reference">reference</a> has the full argument.</p>
+</div>
+
+<h2>Constant folding: do the math now, and do it right</h2>
+<div class="prose">
+<p>The rules <code>add(c1, c2) → c1 + c2</code> and <code>mul(c1, c2) → c1 * c2</code> have a name. <strong>Constant folding</strong> means: every input is a constant, so compute the answer while compiling and put it in the program. There is one such rule for each op that computes on values (the spec calls these ALU ops). It is the easiest place to change a program's answer by accident.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A folder sees <code>mul 65536 65536</code>. It multiplies with <span class="only-python">Python's <code>*</code></span><span class="only-ocaml">OCaml's <code>*</code> on 63-bit ints</span>, gets 4294967296, and writes that number into the program. Your interpreter runs the original line and gets 0. Which one is right?</p>
+<div class="opts">
+<button data-k="a">The folder. 65536 × 65536 really is 4294967296.</button>
+<button data-k="b">The interpreter. The folder changed the program's answer, so the folder has a bug.</button>
+<button data-k="c">Both. They are the same value written two ways.</button>
+</div>
+<p class="hint">65536 × 65536 is 2 to the 32nd. What did the warm up say happens to an i32 that does not fit?</p>
+<div class="why"><p>i32 math wraps, so the program's answer is 0. A simplifier may never change an answer. 4294967296 is not even a value an i32 can hold.</p></div>
+</div>
+
+<div class="prose">
+<p>So folding has to compute each op exactly as your interpreter does: i32 wraps, division floors, and <code>shl</code> shifts by its amount mod 32. It must not crash either. <code>div 1 0</code> folds to <code>-1</code> and <code>mod 7 0</code> folds to <code>7</code>. But <span class="only-ocaml">OCaml's <code>/</code> raises <code>Division_by_zero</code></span><span class="only-python">Python's <code>//</code> raises <code>ZeroDivisionError</code></span>, so a folder that calls it directly crashes on a valid program. So don't write the math twice. Share one implementation of each op between folding and interpreting.</p>
+</div>
+
+<div class="exercise small" data-ex="w1-03n-fold" data-ex-py="w1-03n-fold-py">
+<h3>Fold like the interpreter</h3>
+<p><code>fold</code> takes an op name and two i32 values and returns the constant that op makes. It handles <code>add</code>, <code>mul</code> and <code>div</code>, and it uses <span class="only-python">Python's</span><span class="only-ocaml">OCaml's</span> own math directly. Repair it so every answer matches .uir.</p>
+<p><strong>Wrap.</strong> Every answer must be an i32. <code>wrap32</code> is written for you.</p>
+<p><strong>Never crash.</strong> <code>div x 0</code> is -1 in .uir.</p>
+</div>
+
+<h2>One fixed order for operands</h2>
+<div class="prose">
+<p>Back to the node that got away earlier: <code>%r = add 0 %y</code>. <code>add(x, 0) → x</code> does not match it, because the 0 is on the left.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">You want every rule to work whichever side the constant is on. Which fix costs the least?</p>
+<div class="opts">
+<button data-k="a">Write each rule twice, once for each side</button>
+<button data-k="b">Add the rule <code>add(x, y) → add(y, x)</code> and let it try both orders</button>
+<button data-k="c">Add one rule that moves a constant from the left to the right, so the other rules only have to look on the right</button>
+</div>
+<p class="hint">One of these doubles your rule list. One of them you have already seen loop forever.</p>
+<div class="why"><p>One rule that tidies the order first keeps every other rule single. Writing each rule twice works, but the list doubles and it is easy to forget one. The always-swap rule never stops.</p></div>
+</div>
+
+<div class="prose">
+<p><code>add</code> gives the same answer whichever way round its two inputs are. An op like that is called <strong>commutative</strong>. In week 1 the commutative ops are <code>add</code>, <code>mul</code>, <code>max</code> and <code>xor</code>. For each of them we add one rule:</p>
+<pre><code>op(c, x) → op(x, c)      when c is a const and x is not</code></pre>
+<p>Picking one agreed way to write a thing, out of several that mean the same, is called <strong>canonicalization</strong>. The agreed way is the <strong>canonical</strong> form. Here it is "constant on the right".</p>
+<p>This rule swaps, so why does it stop? It only fires when the constant is on the <em>left</em>, and its output has the constant on the right. What it makes smaller is the number of nodes with a constant on the left.</p>
+<p>A bonus: to the hash-consing table, <code>add 3 %x</code> and <code>add %x 3</code> are different nodes. After this rule they are the <em>same</em> node, so the work is shared.</p>
+</div>
+
 <h2>Watch it, one rule per step</h2>
-<p class="prose">This is the program being simplified. Use the buttons or the arrow keys. A bold outline means a pattern matched. Green means the rule just built that node. Faded nodes are no longer used by anything.</p>
+<p class="prose">Here are all the pieces working on one program. A bold outline means a pattern matched. Green means the rule just built that node. Faded nodes are no longer used.</p>
 <div class="split bleed">
 <pre><code>%x   = param [] slot=0 dtype=i32 addrspace=ALU
 %a   = add 2 3
@@ -62,50 +296,10 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
 </div>
 
 <div class="prose">
-<p>Notice the sources-first order doing its job. <code>add 4 %a</code> can't fold until <code>%a</code> has become the constant <code>5</code>. Because sources are visited first, that has already happened by the time the engine reaches <code>%b</code>. If you visited results before their sources, you'd need an extra pass for every level of the graph.</p>
-</div>
-
-<div class="exercise small" data-ex="w1-03-by-hand">
-<h3>Be the simplifier</h3>
-<p>The starter has five ops that compute <code>((x + 3) * 1 + 0) + 2 * 5</code>. Write a <code>%out</code> with the same value for every <code>x</code> in at most 1 op.</p>
-<p class="muted">Is <code>(x + 3) + 10</code> really <code>x + 13</code> when <code>x + 3</code> wraps? For i32, yes. Lesson 4 says why.</p>
-</div>
-
-<div class="prose">
-
-<h2>Constant folding</h2>
-<p><strong>Constant folding</strong> is the rule family "every input is a <code>const</code>, so compute the answer now." For each arithmetic or logic op (the spec calls these ALU ops) it's one rule, and it evaluates the op with <em>exactly the same semantics as your interpreter</em>: i32 wraps around, division floors, and <code>shl</code> shifts by its amount mod 32.</p>
-<p>That last part matters. If your folder computes <code>mul 1073741824 4</code> with 64-bit integers, it gets <code>4294967296</code>, which isn't an i32. The interpreter would give <code>0</code>. A simplifier that changes the answer is a bug, so share one implementation of each op between folding and interpreting.</p>
-</div>
-
-<div class="trap">
-<span class="label">Folding can't fail, so don't crash</span>
-<p><code>div 1 0</code> has two constant inputs, so the folding rule matches it. In .uir that's an ordinary value: <code>div x 0</code> is -1 and <code>mod x 0</code> is <code>x</code>, so it folds to <code>-1</code>, and <code>mod 7 0</code> folds to <code>7</code>. Every week 1 op is defined on every input, so constant folding always produces a constant. The danger is your own language. <span class="only-ocaml">OCaml's <code>/</code> raises <code>Division_by_zero</code></span><span class="only-python">Python's <code>//</code> raises <code>ZeroDivisionError</code></span>, so a folder that calls it directly crashes on a valid program. Fold with the same function your interpreter uses.</p>
-</div>
-
-<div class="prose">
-<h2>Canonicalization: one way to write it</h2>
-<p><code>add 3 %x</code> and <code>add %x 3</code> mean the same thing. Without help, every rule would need two versions, one for each side. Instead we add one <strong>canonicalization</strong> rule for each commutative op (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>):</p>
-<pre><code>op(c, x) → op(x, c)      when c is a const and x is not</code></pre>
-<p class="muted">On i32 and bool all four really are commutative. When floats arrive in week 2, <code>max</code> stays commutative only because the spec pins down its <code>-0.0</code> and NaN cases, and that lesson comes back to it.</p>
-<p>Now every other rule can assume constants sit on the right. Canonical forms also help hash consing, because two equivalent expressions are more likely to become the <em>same</em> node.</p>
-
-<h2>Why hash consing makes this cheap</h2>
-<p>In a hash-consed graph, building a node that already exists hands you back the existing one. Two statements with the same (op, src, arg), where dtype and shape are part of the key, are a single UOp. Three things follow:</p>
-<ul>
-<li><strong>Shared work is rewritten once.</strong> If <code>add %x 1</code> appears ten times, it's one node, simplified once.</li>
-<li><strong>"Did anything change?" is an identity check.</strong> If the rule returns the very same object, nothing happened. No deep comparison of trees.</li>
-<li><strong>Rules like <code>xor(x, x) → 0</code> are a pointer comparison.</strong> Equal expressions are the same node, so "are both sources the same expression?" is just "are they the same object?" (<span class="only-ocaml">OCaml's physical equality, <code>==</code></span><span class="only-python">Python's <code>is</code></span>).</li>
-</ul>
-</div>
-
-<div class="fig" id="hc" data-title="two equal statements, one node"></div>
-
-<div class="prose">
-<p>Above: <code>%a = add %x 1</code> and <code>%b = add %x 1</code> collapse into one <code>add</code>, and <code>mul %a %b</code> points at it twice. Simplifying <code>%out</code> here leaves exactly 2 ops.</p>
+<p>Notice sources first doing its job: <code>add 4 %a</code> can't fold until <code>%a</code> has become <code>5</code>, and that has already happened when the engine reaches <code>%b</code>.</p>
 
 <h2>Sandbox: drive the rewrite engine yourself</h2>
-<p>Pick a puzzle and fire one rule family at a time until you reach the par op count, or click <strong>Run to fixpoint</strong> to watch the full loop converge.</p>
+<p>Pick a puzzle and fire one rule family at a time until you reach the par op count, or click <strong>Run to fixpoint</strong>. <strong>Identities</strong> are the rules where an op changes nothing, like <code>add(x, 0) → x</code>. <strong>Reassociate</strong> is the usual name for joining two additions, or two multiplications, of constants into one.</p>
 </div>
 <div class="fig bleed" id="rw-lab" data-title="Interactive rewrite-rule sandbox">
   <div class="lab-bar">
@@ -133,16 +327,8 @@ mul(c, x)          → mul(x, c)          # move the constant to the right</code
   </div>
 </div>
 
-<div class="prose">
-
-<h2>Termination: every rule must make progress</h2>
-<p>"Repeat until nothing changes" only stops if each rule moves the graph toward something smaller or more canonical. A rule like</p>
-<pre><code>add(x, y) → add(y, x)        # always swap</code></pre>
-<p>matches its own output, so the engine swaps forever. The canonicalization rule above is safe because it only fires when the const is on the <em>left</em>, and its output has the const on the right, where the rule no longer matches. A good habit: for each rule, name what it shrinks (number of ops, number of non-const sources, constants on the left).</p>
-</div>
-
 <h2>Code it: a toy rewriter</h2>
-<p class="prose">Before rewriting UOps in your own compiler, write the loop on a toy expression type. Same engine: sources first, greedy, to a fixpoint.</p>
+<p class="prose">Now the whole thing, from an empty function: the walk and the full rule list.</p>
 <div class="exercise" data-ex="w1-03-toy-simplify" data-ex-py="w1-03-toy-simplify-py">
 <h3>A toy rewriter</h3>
 <p>Write <code>simplify e</code>. Simplify both children first, then apply these rules to the node, and keep re-applying them to the result until none fires. Integers are i32: fold with 32-bit wraparound.</p>
@@ -158,8 +344,107 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 <p class="muted">Leave everything else alone. <code>Add (Const 1, Add (Const 2, Var "y"))</code> becomes <code>(y + 3)</code>, which takes three rules in a row.</p>
 </div>
 
+<p class="prose">Your compiler runs the same loop on the hash-consed graph from lesson 1.1, where shared work is rewritten once. The reference says how.</p>
+
+<div class="key">
+<span class="label">Key idea</span>
+<p>A simplifier is a small set of local, obviously correct rules plus a dumb loop. Every rule has to give exactly the same answer as the interpreter on every input.</p>
+</div>
+
 <div class="prose">
-<h2>From a tree to a shared DAG</h2>
+<h2>What you can do now</h2>
+<ul>
+<li>Read a rewrite rule as a pattern and a replacement, and say which nodes it fires on.</li>
+<li>Apply rules sources first, and retry each node until no rule fires.</li>
+<li>Say why a rule set stops, by naming what each rule makes smaller.</li>
+<li>Fold constants so the answer matches the interpreter, wraparound and division by zero included.</li>
+<li>Use one ordering rule so that no other rule has to be written twice.</li>
+</ul>
+<p>Next, lesson 1.4 asks which rules are safe for every input, and adds rules that reason about the range of values an unknown can take.</p>
+</div>
+
+<h2 id="reference">Reference for the lab</h2>
+<p class="prose">Open these when you write the simplifier in your own compiler.</p>
+
+<details class="toggle">
+<summary>Every rule in this lesson, in one list, for when you write your rule table</summary>
+<div class="prose">
+<p>The lesson's rule notation, on four of its rules:</p>
+<pre><code>add(x, 0)          → x                  # adding zero does nothing (i32)
+mul(x, 1)          → x                  # multiplying by one does nothing
+add(c1, c2)        → const(c1 + c2)     # both inputs known: compute it now
+mul(c, x)          → mul(x, c)          # move the constant to the right</code></pre>
+<p><code>x</code> and <code>y</code> match <em>any</em> node. Names starting with <code>c</code> (<code>c</code>, <code>c1</code>, <code>c2</code>) match only <code>const</code> nodes. <code>add(x, 0)</code> is shorthand for the .uir node <code>add %x 0</code>, and in the exercises the same pattern is written <span class="only-ocaml"><code>Add (x, Const 0)</code></span><span class="only-python"><code>Add(x, Const(0))</code></span>. A rule <strong>fires</strong> on a node when the pattern matches it, and then the node is replaced by whatever the right side builds.</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>family</th><th>rules</th><th>condition</th></tr>
+<tr><td>constant folding</td><td><code>op(c1, c2) → const</code>, for every ALU op</td><td>every input is a const. Compute with the interpreter's own function.</td></tr>
+<tr><td>canonicalization</td><td><code>op(c, x) → op(x, c)</code> for <code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code></td><td><code>c</code> is a const and <code>x</code> is not</td></tr>
+<tr><td>identities</td><td><code>add(x, 0) → x</code><br><code>mul(x, 1) → x</code><br><code>mul(x, 0) → 0</code></td><td>i32</td></tr>
+<tr><td>same node twice</td><td><code>xor(x, x) → 0</code></td><td>both sources are the same node</td></tr>
+<tr><td>reassociation</td><td><code>add(add(x, c1), c2) → add(x, c1 + c2)</code><br><code>mul(mul(x, c1), c2) → mul(x, c1 * c2)</code></td><td>i32, with the new constant wrapped. Lesson 4 says why wrapping keeps this valid.</td></tr>
+</table></div>
+<div class="prose">
+<p>The engine itself is tiny, and you'll write one this week:</p>
+<ol>
+<li><strong>Sources first.</strong> Visit nodes in topological order, sources before their users. By the time you look at a node, its sources have already been simplified.</li>
+<li><strong>Greedy.</strong> At each node, try the rules. If one fires, try them all again on the result, until nothing matches.</li>
+<li><strong>To a fixpoint.</strong> Keep running whole passes until a pass changes nothing. That graph is your answer.</li>
+</ol>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Termination: the full argument that the loop stops, for when you add a rule of your own</summary>
+<div class="prose">
+<p>"Repeat until nothing changes" only stops if each rule moves the graph toward something smaller or more canonical. A rule like <code>add(x, y) → add(y, x)</code> matches its own output, so the engine swaps forever. The canonicalization rule is safe because it only fires when the const is on the <em>left</em>, and its output has the const on the right, where the rule no longer matches. A good habit: for each rule, name what it shrinks (number of ops, number of non-const sources, constants on the left).</p>
+<p>For the nine rules of the toy rewriter, two counts are enough. Write the expression out as a tree. Let <em>N</em> be the number of nodes in it, and let <em>L</em> be the number of <code>add</code> and <code>mul</code> nodes with a const on the left and a non-const on the right.</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>rule</th><th>N</th><th>L</th></tr>
+<tr><td>fold <code>op(c1, c2)</code></td><td>down by 2</td><td>may change</td></tr>
+<tr><td><code>add(x, 0) → x</code>, <code>mul(x, 1) → x</code></td><td>down by 2</td><td>may change</td></tr>
+<tr><td><code>mul(x, 0) → 0</code></td><td>down by at least 2</td><td>may change</td></tr>
+<tr><td>reassociate <code>op(op(x, c1), c2)</code></td><td>down by 2</td><td>may change</td></tr>
+<tr><td><code>op(c, x) → op(x, c)</code>, x not a const</td><td>same</td><td>down by 1</td></tr>
+<tr><td><code>add(x, y) → add(y, x)</code>, always</td><td>same</td><td>can go back up. It loops.</td></tr>
+</table></div>
+<div class="prose">
+<p>Every allowed rule either lowers <em>N</em>, or keeps <em>N</em> the same and lowers <em>L</em>. <em>N</em> cannot go below zero, so it can only drop a limited number of times. Between two drops of <em>N</em>, the swap rule is the only one firing, and each swap lowers <em>L</em>, which is never larger than <em>N</em>. So the rewrites run out. Folding is tried before the swap, so a node with two consts is folded and never swapped.</p>
+<p>Two rules can also loop as a pair when each is fine alone, for example one that moves consts right and another that moves them left in some case. When you add a rule, check its output against every other rule's pattern. While developing, give the loop a limit and raise an error past it, so a loop shows up as a message and not as a hang.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Canonical ordering: the exact rule and what it buys, for when two equal programs come out different</summary>
+<div class="prose">
+<p><code>add 3 %x</code> and <code>add %x 3</code> mean the same thing. Without help, every rule would need two versions, one for each side. Instead we add one <strong>canonicalization</strong> rule for each commutative op (<code>add</code>, <code>mul</code>, <code>max</code>, <code>xor</code>):</p>
+<pre><code>op(c, x) → op(x, c)      when c is a const and x is not</code></pre>
+<p class="muted">On i32 and bool all four really are commutative. When floats arrive in week 2, <code>max</code> stays commutative only because the spec pins down its <code>-0.0</code> and NaN cases, and that lesson comes back to it.</p>
+<p>Now every other rule can assume constants sit on the right. Canonical forms also help hash consing, because two equivalent expressions are more likely to become the <em>same</em> node.</p>
+<p>Ops where order matters are never swapped. <code>cmplt a b</code> is <code>a &lt; b</code>, and <code>div</code>, <code>mod</code> and <code>shl</code> also read their two sources differently.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Why hash consing makes rewriting cheap, for when you move from the toy tree to your graph</summary>
+<div class="prose">
+<p>In a hash-consed graph, building a node that already exists hands you back the existing one. Two statements with the same (op, src, arg), where dtype and shape are part of the key, are a single UOp. Three things follow:</p>
+<ul>
+<li><strong>Shared work is rewritten once.</strong> If <code>add %x 1</code> appears ten times, it's one node, simplified once.</li>
+<li><strong>"Did anything change?" is an identity check.</strong> If the rule returns the very same object, nothing happened. No deep comparison of trees.</li>
+<li><strong>Rules like <code>xor(x, x) → 0</code> are a pointer comparison.</strong> Equal expressions are the same node, so "are both sources the same expression?" is just "are they the same object?" (<span class="only-ocaml">OCaml's physical equality, <code>==</code></span><span class="only-python">Python's <code>is</code></span>).</li>
+</ul>
+</div>
+<div class="fig" id="hc" data-title="two equal statements, one node"></div>
+<div class="prose">
+<p>Above: <code>%a = add %x 1</code> and <code>%b = add %x 1</code> collapse into one <code>add</code>, and <code>mul %a %b</code> points at it twice. Simplifying <code>%out</code> here leaves exactly 2 ops.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>From a tree to a shared graph: the loop your lab simplifier runs, for when the toy version is too slow</summary>
+<div class="prose">
 <p>The toy works on a tree, so a shared subexpression gets simplified once per path that reaches it. On a hash-consed graph that can be exponential: the doubling chain from lesson 1, 94 lines like <code>%x2 = add %x1 %x1</code>, has 2<sup>94</sup> paths, and rebuilding it as a tree splits every shared node into copies. Instead, walk the graph sources first (the toposort from <a href="../week0/03-compilers-and-irs.html">lesson 0.3</a>) and keep a memo from each old node to its new node:</p>
 <pre><code>simplify root:
   new = empty map, keyed by node identity
@@ -172,11 +457,7 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
   return simplify(new[root])</code></pre>
 <p><code>mk</code> is your hash-cons constructor, and the rules build their results with it too. Every node is visited once per pass, and two rebuilt nodes that come out equal are the same node again, so <code>xor(x, x) → 0</code> still sees one object on both sides.</p>
 </div>
-
-<div class="key">
-<span class="label">Key idea</span>
-<p>A simplifier is a small set of local, obviously correct rules plus a dumb loop. All the cleverness lives in choosing rules, and every rule has to give exactly the same answer as the interpreter on every input.</p>
-</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
@@ -184,8 +465,8 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 <div class="quiz" data-fill="add %x 3 | add x 3">
 <p class="q">After simplifying, what does <code>%out = add 3 %x</code> become? Write it as <code>op %src %src</code>.</p>
 <div class="fill"><input aria-label="your answer" placeholder="op %a %b"><button class="btn">check</button></div>
-<p class="hint">No rule folds this, because <code>%x</code> isn't a constant. One rule still fires: where should constants sit?</p>
-<div class="why"><p>Canonicalization moves the constant to the right: <code>add %x 3</code>. Nothing else applies, so that's the fixpoint.</p></div>
+<p class="hint">No rule folds this, because <code>%x</code> isn't a constant. Where should constants sit?</p>
+<div class="why"><p>Canonicalization moves the constant to the right: <code>add %x 3</code>. Nothing else applies.</p></div>
 </div>
 
 <div class="quiz" data-fill="1">
@@ -195,15 +476,15 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 %b   = mul %a %x
 %out = add %b 0</code></pre>
 <div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">check</button></div>
-<p class="hint">Apply the rules in order: fold the all-constant node, canonicalize, then drop the identity.</p>
-<div class="why"><p><code>add 2 3</code> folds to <code>5</code>, <code>mul 5 %x</code> canonicalizes to <code>mul %x 5</code>, and <code>add(.., 0)</code> disappears. One op: <code>mul %x 5</code>.</p></div>
+<p class="hint">Fold, move the constant right, then drop the add of zero.</p>
+<div class="why"><p><code>add 2 3</code> folds to <code>5</code>, <code>mul 5 %x</code> becomes <code>mul %x 5</code>, and <code>add(.., 0)</code> disappears. One op: <code>mul %x 5</code>.</p></div>
 </div>
 
 <div class="quiz" data-fill="0">
 <p class="q">Your folder sees <code>mul 1073741824 4</code> (that's 2<sup>30</sup> × 4). What i32 constant should it produce?</p>
 <div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
-<p class="hint">1073741824 is 2 to the 30th, so the product is 2 to the 32nd. Keep only the low 32 bits.</p>
-<div class="why"><p>2<sup>32</sup> wraps around to <code>0</code> in 32-bit two's complement. Folding has to wrap exactly like the interpreter does.</p></div>
+<p class="hint">The product is 2 to the 32nd. What does an i32 do with that?</p>
+<div class="why"><p>2<sup>32</sup> wraps around to <code>0</code>. Folding has to wrap exactly like the interpreter does.</p></div>
 </div>
 
 <div class="quiz" data-answer="c">
@@ -214,15 +495,15 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 <button data-k="c">Replace it with <code>-1</code></button>
 <button data-k="d">Leave the node alone, since folding it would raise an error</button>
 </div>
-<p class="hint">Is division by zero an error in .uir at all? Look at what the spec says <code>div x 0</code> is.</p>
-<div class="why"><p><code>div x 0</code> is -1 for every <code>x</code>, so <code>div 1 0</code> is just the constant -1. Nothing in week 1 can fail at run time, so folding never has a reason to hold back.</p></div>
+<p class="hint">Is division by zero an error in .uir at all?</p>
+<div class="why"><p><code>div x 0</code> is -1 for every <code>x</code>, so <code>div 1 0</code> is just the constant -1.</p></div>
 </div>
 
 <div class="quiz" data-fill="7">
 <p class="q">What constant does the folder build for <code>mod 7 0</code>?</p>
 <div class="fill"><input aria-label="your answer"><button class="btn">check</button></div>
-<p class="hint">The spec defines <code>mod x 0</code> so that it can't fail. What's the one answer that keeps <code>x = y * (x div y) + (x mod y)</code> true when <code>y</code> is 0?</p>
-<div class="why"><p><code>mod x 0</code> is <code>x</code>, so the answer is 7. With <code>y = 0</code>, the identity <code>x = y * q + r</code> becomes <code>x = r</code>, whatever the quotient is.</p></div>
+<p class="hint">Lesson 1.2: <code>mod x 0</code> can't fail. What is it defined as?</p>
+<div class="why"><p><code>mod x 0</code> is <code>x</code>, so the answer is 7.</p></div>
 </div>
 
 <div class="quiz" data-answer="b">
@@ -233,8 +514,8 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 <button data-k="c">Top-down rewriting is not allowed to change nodes</button>
 <button data-k="d">It's the only order hash consing supports</button>
 </div>
-<p class="hint">Think about what <code>add 4 %a</code> needs before it can fold, and when <code>%a</code> becomes a constant.</p>
-<div class="why"><p>In the stepper, <code>add 4 %a</code> could only fold because <code>%a</code> had already become <code>5</code>. Top down, you'd need one extra pass per level of depth.</p></div>
+<p class="hint">What does <code>add 4 %a</code> need before it can fold?</p>
+<div class="why"><p>In the stepper, <code>add 4 %a</code> could only fold because <code>%a</code> had already become <code>5</code>. Top down, you'd need an extra pass for every level of the graph.</p></div>
 </div>
 
 <div class="quiz" data-answer="a">
@@ -246,7 +527,7 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 <button data-k="d">It only fires once per node</button>
 </div>
 <p class="hint">After the swap, does the result still match the rule's pattern?</p>
-<div class="why"><p>The output matches the pattern again, so the rule always fires. Rules must make progress. Guard it as "only when the const is on the left".</p></div>
+<div class="why"><p>The output matches the pattern again, so the rule always fires. Guard it as "only when the const is on the left".</p></div>
 </div>
 
 <div class="quiz" data-fill="2">
@@ -257,7 +538,18 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 %out = mul %a %b</code></pre>
 <div class="fill"><input aria-label="your answer" inputmode="numeric"><button class="btn">check</button></div>
 <p class="hint">Are <code>%a</code> and <code>%b</code> different nodes after hash consing?</p>
-<div class="why"><p>Two. <code>%a</code> and <code>%b</code> are the same hash-consed node, so the graph is one <code>add</code> and one <code>mul</code> that uses it twice.</p></div>
+<div class="why"><p>Two. <code>%a</code> and <code>%b</code> are the same hash-consed node, so the graph is one <code>add</code> and one <code>mul</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">A rewriter simplifies the children of a node, rebuilds the node, and offers it to <code>rule</code> exactly once. On which input does it leave work undone?</p>
+<div class="opts">
+<button data-k="a"><code>add(add(x, 0), 0)</code></button>
+<button data-k="b"><code>add(add(x, 5), -5)</code></button>
+<button data-k="c"><code>add(mul(2, 3), 4)</code></button>
+</div>
+<p class="hint">Where does a rule build a node that another rule could still shrink?</p>
+<div class="why"><p>Joining the two additions builds <code>add(x, 0)</code>, a new node that needs one more rule. In the other two, one try per node is enough.</p></div>
 </div>
 
 <nav class="pager">
@@ -268,6 +560,7 @@ Mul (Mul (x, Const a), Const b) → Mul (x, Const (a * b))</code></pre>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
+  CC.trace(document.getElementById('waste'), '%x = param [] slot=0 dtype=i32 addrspace=ALU\n%a = add %x 0\n%b = mul %a 1\n%c = add 2 3\n%out = mul %b %c', { title: 'A program that does pointless work', args: { 0: 7 } });
   const N = (id, op, src = [], cls = '', sub) => ({ id, op, src, cls, sub });
   const x = c => N('x', 'param', [], c, '0 i32');
   const steps = [

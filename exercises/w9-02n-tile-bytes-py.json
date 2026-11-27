@@ -1,0 +1,45 @@
+{
+ "id": "w9-02n-tile-bytes-py",
+ "lang": "python",
+ "title": "Bytes read by a tiled GEMM",
+ "show": "str",
+ "starter": "def tile_bytes(n: int, bm: int) -> int:\n    blocks = n // bm\n    floats_per_block = bm * n\n    return blocks * floats_per_block * 4\n",
+ "hints": [
+  "A tile of C has rows and columns. If `n // bm` tiles fit across, how many fit in the whole of C?",
+  "A block reads its rows of A and also its columns of B. The starter counts only one of the two.",
+  "The blocks are `(n // bm) * (n // bm)`, and one block reads `2 * bm * n` floats. The `return` line is already right."
+ ],
+ "explain": "C is cut into `n // bm` tiles each way, so there are `(n // bm) * (n // bm)` blocks. One block reads `bm` rows of A and `bm` columns of B, each `n` long, which is `2 * bm * n` floats of 4 bytes. For 768 with 16 by 16 tiles that is 2,304 blocks times 24,576 floats times 4, about 226 MB. With 64 by 64 tiles it is about 57 MB, a quarter as much.",
+ "tests": [
+  {
+   "expr": "tile_bytes(768, 16)",
+   "expect": "226492416",
+   "sample": true
+  },
+  {
+   "expr": "tile_bytes(768, 64)",
+   "expect": "56623104",
+   "sample": true
+  },
+  {
+   "expr": "tile_bytes(768, 768)",
+   "expect": "4718592"
+  },
+  {
+   "expr": "tile_bytes(64, 16)",
+   "expect": "131072"
+  },
+  {
+   "expr": "tile_bytes(16, 16)",
+   "expect": "2048"
+  },
+  {
+   "expr": "tile_bytes(1024, 32)",
+   "expect": "268435456"
+  },
+  {
+   "expr": "tile_bytes(768, 128)",
+   "expect": "28311552"
+  }
+ ]
+}

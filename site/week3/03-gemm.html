@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A GEMM by Hand</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="The syllabus says that with loops &quot;we can write gemms and convs in this language&quot;. This lesson writes a GEMM (general matrix multiply): C = A @ B on flat...">
+<meta name="description" content="Neural networks spend most of their time multiplying matrices. In this lesson you write a matrix multiply in .uir, called a GEMM (general matrix multiply). It...">
 <link rel="canonical" href="https://sharpterminal.com/site/week3/03-gemm">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="A GEMM by Hand">
-<meta property="og:description" content="The syllabus says that with loops &quot;we can write gemms and convs in this language&quot;. This lesson writes a GEMM (general matrix multiply): C = A @ B on flat row-major buffers, three nested ranges, and...">
+<meta property="og:description" content="Neural networks spend most of their time multiplying matrices. In this lesson you write a matrix multiply in .uir, called a GEMM (general matrix multiply). It is the first program in this course that...">
 <meta property="og:url" content="https://sharpterminal.com/site/week3/03-gemm">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,12 +20,14 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
-  .mats { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; }
+  .mats { display: flex; gap: var(--s5); flex-wrap: wrap; align-items: flex-start; margin: var(--s4) 0; }
   .mat .name { font: 500 0.875rem var(--mono); color: var(--ink-2); margin-bottom: var(--s1); }
   .mat .grid { display: grid; gap: var(--s1); }
+  .mat .grid.g2 { grid-template-columns: repeat(2, auto); }
+  .mat .grid.g3 { grid-template-columns: repeat(3, auto); }
   .mat .grid div { min-width: 2.75rem; padding: 6px var(--s2); text-align: center; font: 0.875rem var(--mono); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
   .mat .grid div.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .mat .grid div.out { border-color: var(--good); }
@@ -37,25 +39,234 @@
 <main>
 <p class="eyebrow">Week 3 · Lesson 3</p>
 <h1>A GEMM by hand</h1>
-<p class="lede">The syllabus says that with loops "we can write gemms and convs in this language". This lesson writes a GEMM (general matrix multiply): <code>C = A @ B</code> on flat row-major buffers, three nested ranges, and one accumulator per output element. Then it shows the C your renderer should produce, and why the order of the loops matters even though every order gives the same answer.</p>
+<p class="lede">Neural networks spend most of their time multiplying matrices. In this lesson you write a matrix multiply in <code>.uir</code>, called a GEMM (general matrix multiply). It is the first program in this course that matters in machine learning, and it is what three weeks of ops, memory and loops were for.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Write a matrix multiply in <code>.uir</code> with three ranges and one running total per output cell.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Dot products and the triple loop from <a href="../week0/05-matmul.html">lesson 0.5</a>. Views (<code>shrink</code>) from <a href="../week2/01-buffers-and-views.html">lesson 2.1</a>, <code>load</code>, <code>store</code> and <code>after</code> from <a href="../week2/02-load-store-after.html">lesson 2.2</a>, and the bounds proof from <a href="../week2/03-bounds.html">lesson 2.3</a>. <code>range</code> and <code>end</code> from <a href="01-ranges.html">lesson 3.1</a>, and the accumulator and its reset from <a href="02-memory-in-loops.html">lesson 3.2</a>.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="32">
+<p class="q">Lesson 0.5: a dot product multiplies the matching pairs of two vectors, then adds the products. What is <code>[1, 2, 3] · [4, 5, 6]</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Three products, then one sum: 1*4, 2*5, 3*6.</p>
+<div class="why"><p>4 + 10 + 18 = 32.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">An i loop wraps a j loop. A reset, <code>store %o 0</code>, writes through <code>%o = shrink %out %i []</code>. How often does the reset run?</p>
+<div class="opts">
+<button data-k="a">Once, before both loops</button>
+<button data-k="b">Once for every value of <code>%i</code></button>
+<button data-k="c">Once for every pair of <code>%i</code> and <code>%j</code></button>
+</div>
+<p class="hint">A store runs inside every loop whose range it depends on, and no deeper.</p>
+<div class="why"><p>The view depends on <code>%i</code> and not on <code>%j</code>. So the store sits inside the i loop and outside the j loop. That is how lesson 3.2 reset a total once per row.</p></div>
+</div>
 
 <div class="prose">
-<h2>The plan</h2>
-<p>A is M-by-K, B is K-by-N and C is M-by-N, all flat and row-major, as in lesson 0.5. Element (r, c) of a matrix with <code>cols</code> columns sits at <code>r*cols + c</code>. For every output element:</p>
-<pre><code>C[i*N + j] = sum over k of  A[i*K + k] * B[k*N + j]</code></pre>
-<p>We'll use M = 2, K = 3, N = 2, the same matrices as lesson 0.5: A = [[1 2 3] [4 5 6]], B = [[7 8] [9 10] [11 12]], so C = [[58 64] [139 154]]. Each output element needs K multiply-adds. Step through which elements one iteration touches:</p>
+<h2>Multiply two small matrices by hand</h2>
+<p>Lesson 0.5 multiplied two matrices by filling a third, one cell at a time. Do it once more, with 2 rows and 2 columns each. Rows and columns count from 0.</p>
+</div>
+
+<div class="mats">
+<div class="mat"><div class="name">A</div><div class="grid g2"><div>1</div><div>2</div><div>3</div><div>4</div></div></div>
+<div class="mat"><div class="name">B</div><div class="grid g2"><div>5</div><div>6</div><div>7</div><div>8</div></div></div>
+<div class="mat"><div class="name">C = A @ B</div><div class="grid g2"><div class="out">19</div><div>?</div><div>?</div><div>?</div></div></div>
+</div>
+
+<div class="prose">
+<p>The cell of C at row i, column j is row i of A dotted with column j of B. Here is row 0, column 0:</p>
+<ol>
+<li><strong>Pick the row.</strong> Row 0 of A is [1 2].</li>
+<li><strong>Pick the column.</strong> Column 0 of B, read downward, is [5 7].</li>
+<li><strong>Dot them.</strong> 1*5 + 2*7 = 19.</li>
+</ol>
+</div>
+
+<div class="quiz" data-fill="43">
+<p class="q">What goes in row 1, column 0 of C?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Row 1 of A is [3 4]. The column is the same one as before.</p>
+<div class="why"><p>[3 4] dotted with [5 7] is 15 + 28 = 43. The whole answer is C = [[19 22] [43 50]].</p></div>
+</div>
+
+<div class="prose">
+<p>That is all a matrix multiply is: one dot product per output cell. Make this one program fast and a whole neural network is fast. First you have to write it.</p>
+
+<h2>Where a matrix lives in memory</h2>
+<p>A buffer is one flat row of boxes, so lesson 0.4 stored a grid row after row: all of row 0, then all of row 1. It called that layout row-major. Here is a matrix with 2 rows and 3 columns, and the same six numbers in a buffer:</p>
+</div>
+
+<div class="mats">
+<div class="mat"><div class="name">as a grid</div><div class="grid g3"><div>1</div><div>2</div><div>3</div><div class="on">4</div><div>5</div><div>6</div></div></div>
+<div class="mat"><div class="name">in the buffer</div><div class="mem"><div class="cell"><span class="addr">0</span>1</div><div class="cell"><span class="addr">1</span>2</div><div class="cell"><span class="addr">2</span>3</div><div class="cell"><span class="addr">?</span>4</div><div class="cell"><span class="addr">?</span>5</div><div class="cell"><span class="addr">?</span>6</div></div></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">The dark cell is row 1, column 0. At which index of the buffer does it sit?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Row 0 comes first and takes up three boxes: 0, 1 and 2.</p>
+<div class="why"><p>Index 3. You skip one whole row of 3 boxes, then take 0 steps along the row.</p></div>
+</div>
+
+<div class="prose">
+<p>Lesson 0.4's rule: in a matrix with <code>cols</code> columns, row r, column c sits at index <code>r*cols + c</code>. Skip r whole rows, then step c boxes along. Every index in a GEMM is built this way, so practice it twice before you use it.</p>
+</div>
+
+<div class="quiz" data-fill="9">
+<p class="q">A matrix has 4 columns. At which index is row 2, column 1?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>r*cols + c</code> with r = 2, cols = 4, c = 1.</p>
+<div class="why"><p>2*4 + 1 = 9. Two whole rows are 8 boxes, then one step along.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">B has 3 rows and 2 columns. Which index holds row k, column j?</p>
+<div class="opts">
+<button data-k="a"><code>k*3 + j</code></button>
+<button data-k="b"><code>j*2 + k</code></button>
+<button data-k="c"><code>k*2 + j</code></button>
+</div>
+<p class="hint">Multiply the row number by the number of columns, not by the number of rows.</p>
+<div class="why"><p>Each row is 2 boxes wide, so skipping k rows skips <code>k*2</code> boxes. Then step j along: <code>k*2 + j</code>.</p></div>
+</div>
+
+<div class="prose">
+<h2>One dot product, one loop</h2>
+<p>You will build the GEMM in three small moves. The first is one cell of C: one dot product. Lesson 3.2's dot product kept its total in an <code>alloc</code>. A GEMM needs one total per cell, so this one keeps it in the output element, which the loop loads and stores on every turn.</p>
+</div>
+
+<div class="quiz" data-fill="132">
+<p class="q">The output element starts out holding junk, say 100. A loop adds 1*4, then 2*5, then 3*6 into it. What does it hold at the end?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The three products add up to 32. What were they added to?</p>
+<div class="why"><p>100 + 32 = 132, not 32. An output buffer can start with anything in it, so the program has to store a 0 first.</p></div>
+</div>
+
+<div class="prose">
+<p>So the program is a reset, then lesson 3.2's loop. Here it is for two vectors of three:</p>
+<pre><code>%a    = buffer 3 dtype=i32 slot=0
+%b    = buffer 3 dtype=i32 slot=1
+%out  = buffer 1 dtype=i32 slot=2
+%o    = shrink %out 0 []
+%z    = store %o 0
+%out1 = after %out %z
+%k    = range 3
+%av   = shrink %a %k []
+%x    = load %av
+%bv   = shrink %b %k []
+%y    = load %bv
+%p    = mul %x %y
+%o1   = shrink %out1 0 []
+%cur  = load %o1
+%sum  = add %cur %p
+%s    = store %o1 %sum
+%e    = end %s %k
+%out2 = after %out1 %e</code></pre>
+<ol>
+<li><strong>Reset the total.</strong> Store 0 into <code>out[0]</code>. <code>%out1</code> names the buffer after the reset.</li>
+<li><strong>Count.</strong> <code>%k</code> takes the values 0, 1 and 2.</li>
+<li><strong>Read one pair.</strong> Load <code>a[k]</code> and <code>b[k]</code> and multiply them.</li>
+<li><strong>Add it in.</strong> Load the total from <code>%out1</code>, add the product and store it back. The loop stores into the version <code>%cur</code> reads, so <code>%cur</code> sees the newest total on every turn.</li>
+<li><strong>Close the loop.</strong> <code>end</code> repeats the store for every <code>%k</code>. <code>%out2</code> is the buffer after the loop.</li>
+</ol>
+</div>
+
+<div class="exercise small" data-ex="w3-03-dot">
+<h3>Dot product</h3>
+<p>Lesson 3.2's dot product again, now with the total in the output. Put the dot product of slots 0 and 1 (four i32s each) into slot 2's only element. The starter resets the output and stops. Add the loop.</p>
+</div>
+
+<div class="prose">
+<h2>All the columns</h2>
+<p>The second move: dot one vector <code>v</code> with every column of B. That gives one whole row of C. B has 3 rows and 2 columns, so there are two totals, <code>out[0]</code> and <code>out[1]</code>.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">v is [1 2 3]. B is [[7 8] [9 10] [11 12]], so its columns are [7 9 11] and [8 10 12]. A program loops over j and k, but reads B at index <code>k*2</code>. What does <code>out</code> hold?</p>
+<div class="opts">
+<button data-k="a">[58 58]</button>
+<button data-k="b">[58 64]</button>
+<button data-k="c">[64 64]</button>
+</div>
+<p class="hint">Index <code>k*2</code> is row k, column 0, whatever j is.</p>
+<div class="why"><p>Without <code>+ j</code> both turns of the j loop read column 0, and 7 + 18 + 33 = 58 both times. The right answer is [58 64].</p></div>
+</div>
+
+<div class="prose">
+<p>Four things change from the dot product:</p>
+<ol>
+<li><strong>Add a range.</strong> <code>%j = range 2</code> counts the columns.</li>
+<li><strong>Read column j.</strong> B's offset becomes <code>k*2 + j</code>.</li>
+<li><strong>Give each column its own total.</strong> The output view is <code>shrink %out %j []</code>. The reset stores through it, so the reset depends on <code>%j</code> and runs once per column.</li>
+<li><strong>Close two loops.</strong> The inner loop first: k, then j.</li>
+</ol>
+<pre><code>%j    = range 2
+%ov   = shrink %out %j []
+%z    = store %ov 0
+%out0 = after %out %z
+%k    = range 3
+...
+%k2   = mul %k 2
+%kj   = add %k2 %j
+%bv   = shrink %B %kj []
+...
+%ek   = end %s %k
+%ej   = end %ek %j
+%out1 = after %out %ej</code></pre>
+<p>The last line builds on <code>%out</code>, not on <code>%out0</code>. The reset now runs inside the j loop, so <code>%out0</code> only exists inside one turn of that loop (lesson 3.2).</p>
+</div>
+
+<div class="exercise" data-ex="w3-03n-row">
+<h3>Repair: one row times a matrix</h3>
+<p>Slot 0 is <code>v</code>, three i32s. Slot 1 is B, 3 rows and 2 columns, row-major. Slot 2 gets the two dot products: <code>out[j]</code> is <code>v</code> dotted with column j of B. The starter has the bug from the quiz above. Fix B's offset.</p>
+</div>
+
+<div class="prose">
+<h2>All the rows</h2>
+<p>The third move does that for every row of A, and that is the whole GEMM. A has 2 rows and 3 columns, B has 3 rows and 2 columns, and C has 2 rows and 2 columns. A third range, <code>%i</code>, counts the rows of A. Two indexes start using it:</p>
+<pre><code>C[i*2 + j] = sum over k of  A[i*3 + k] * B[k*2 + j]</code></pre>
+<p>Step through what each turn reads and writes. The matrices are the ones from lesson 0.5.</p>
 </div>
 
 <div class="fig" id="touch" data-title="what iteration (i, j, k) reads and writes"></div>
 
-<h2>Building it, one piece at a time</h2>
+<div class="quiz" data-fill="12">
+<p class="q">The innermost line does one multiply and one add. How many times does it run for this GEMM?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">C has 4 cells. Each cell is a dot product of 3 pairs.</p>
+<div class="why"><p>2 * 2 * 3 = 12. Three nested ranges run their body once for every combination of i, j and k.</p></div>
+</div>
+
+<div class="exercise" data-ex="w3-03n-gemm">
+<h3>Write the GEMM</h3>
+<p>Slot 0 is A (2 rows, 3 columns), slot 1 is B (3 rows, 2 columns) and slot 2 is C (2 rows, 2 columns), all i32 and row-major. The starter is the program from the last section: it only multiplies row 0 of A. Add <code>%i = range 2</code>, read A at <code>i*3 + k</code>, keep each total at <code>i*2 + j</code> of C, and close the third loop.</p>
+</div>
+
 <div class="prose">
-<p>The accumulator is C itself. For each (i, j), reset <code>C[i*N + j]</code> to 0, then let the k loop add into it. The reset stores into a view at offset <code>i*N + j</code>, so it depends on both ranges and runs once per output element. That's the trick from lesson 3.2.</p>
+<h2>Read the finished program</h2>
+<p>Here is the same GEMM on floats, a few lines at a time. The running total is C itself. The reset's offset, <code>i*2 + j</code>, depends on two ranges, so the reset runs once per output cell.</p>
 </div>
 
 <div class="fig bleed" id="build" data-title="the GEMM in .uir"></div>
 
 <div class="prose">
+<p>The order of the <code>end</code>s picks the loop order: k is closed first, so it is the innermost loop. Swap the j and i ends and C comes out the same. Only the order the cells are filled in changes, and with it the speed.</p>
+</div>
+
+<details class="toggle">
+<summary>The C your renderer should produce for this GEMM, for lesson 3.5 and the lab</summary>
+<div class="prose">
+<p>With M rows of A, K columns of A and N columns of B, the general form is <code>C[i*N + j] = sum over k of A[i*K + k] * B[k*N + j]</code>. Here M = 2, K = 3 and N = 2.</p>
 <p>The whole program checks out with the oracle, and its C, run on real arrays, prints 58 64 139 154. Here's the rendered kernel, with the wraparound casts trimmed for reading:</p>
 <pre><code>for (int32_t r6 = 0; r6 &lt; 2; r6++) {             /* i */
   int32_t v7 = r6 * 2;                           /* i*N */
@@ -67,7 +278,8 @@
       float v16 = b2[v10];                       /* loop-carried load */
       int32_t v17 = v8 + r15;
       float v19 = b0[v17];                       /* A[i][k] */
-      int32_t v21 = r15 * 2 + r9;
+      int32_t v20 = r15 * 2;
+      int32_t v21 = v20 + r9;
       float v23 = b1[v21];                       /* B[k][j] */
       float v24 = v19 * v23;                     /* two statements, as the oracle prints them: */
       float v25 = v16 + v24;                     /* a*b + c on one line invites an FMA (lesson 2.4) */
@@ -77,22 +289,13 @@
 }</code></pre>
 <p>Every index computation sits in the loop of its deepest range: <code>i*K</code> outside the j loop, <code>i*N + j</code> outside the k loop. You get that hoisting for free from open ranges. <code>0x0.0p+0f</code> is how the oracle prints zero: the same value as lesson 2.4's <code>0x0p+0f</code>.</p>
 </div>
+</details>
 
-<div class="note">
-<span class="label">Bounds come for free too</span>
-<p>The view <code>shrink %A %ik []</code> needs <code>i*3 + k</code> to be provably in [0, 5]. With <code>i</code> in [0, 1] and <code>k</code> in [0, 2], week 1's interval rules give <code>i*3</code> in [0, 3] and <code>i*3 + k</code> in [0, 5]. Make A five elements long and the same program is rejected: "can't prove the view is in bounds: offset in [0, 5], 1 element(s), parent has 5".</p>
-</div>
-
-<div class="exercise" data-ex="w3-03-gemm-bt">
-<h3>C = A @ B transposed</h3>
-<p>A and B are both 2-by-3 i32 matrices, row-major, in slots 0 and 1. Compute <code>C = A @ B^T</code> (2-by-2) into slot 2: <code>C[i*2 + j]</code> is the dot product of row i of A and row j of B. The starter is the plain GEMM from this page, which indexes B as if it were 3-by-2.</p>
-</div>
-
-<h2>Same answer, different speed</h2>
+<details class="toggle">
+<summary>Same answer, different speed: why loop order matters, for week 7</summary>
 <div class="prose">
 <p>The order of the <code>end</code>s picks the loop order. Here's a 2-by-3 fill written two ways. Both store <code>i*3 + j</code> into element <code>i*3 + j</code>, and both leave the buffer holding 0 to 5:</p>
 </div>
-
 <div class="split">
 <pre><code>%ej = end %s %j      # j inner
 %ei = end %ej %i     # i outer
@@ -107,14 +310,48 @@ for (j ...)
   for (i ...)
     b[i*3 + j] = ...   /* 0 3 1 4 2 5 */</code></pre>
 </div>
-
 <div class="prose">
 <p>The left version walks memory in order: addresses 0, 1, 2, 3, 4, 5. The right one jumps by 3 each step. Lesson 0.2 showed what that costs: in-order access uses every byte of each cache line it loads, and strided access can miss on nearly every step once the arrays are bigger than the cache. In this GEMM, the inner k loop walks A along a row (stride 1) but B down a column (stride N). Reordering the loops so the innermost index is the one each array is contiguous in is one of the first speedups in week 7. For now, the grader only checks correctness.</p>
 </div>
+</details>
 
-<div class="exercise small" data-ex="w3-03-dot">
-<h3>Dot product</h3>
-<p>The smallest GEMM: a 1-by-4 times a 4-by-1. Put the dot product of slots 0 and 1 (four i32s each) into slot 2's only element. The starter resets the output and stops.</p>
+<div class="prose">
+<h2>Every index is proven in bounds</h2>
+<p>Lesson 2.3 said a view is only allowed when the compiler can prove its offset fits inside the parent. Loops do not change that. A <code>range n</code> has bounds <code>[0, n-1]</code>. Take A's view, <code>shrink %A %ik []</code>:</p>
+<ol>
+<li><strong>Bound the counters.</strong> <code>%i = range 2</code> is in [0, 1]. <code>%k = range 3</code> is in [0, 2].</li>
+<li><strong>Bound the offset.</strong> <code>i*3</code> is in [0, 3]. Adding <code>k</code> gives [0, 5].</li>
+<li><strong>Compare.</strong> A has 6 elements and the view is 1 wide, so the last allowed start is 5. The highest offset is 5. Proven.</li>
+</ol>
+<p>Make A five elements long and the same program is rejected: "can't prove the view is in bounds: offset in [0, 5], 1 element(s), parent has 5".</p>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">C's offset is <code>i*2 + j</code>, with <code>%i = range 2</code> and <code>%j = range 2</code>. What is the highest value it can take?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Use the highest i and the highest j. Both are 1.</p>
+<div class="why"><p>1*2 + 1 = 3. C has 4 elements, so the last allowed start is 3 and the view is proven.</p></div>
+</div>
+
+<div class="prose">
+<p>The proof only says an index lands inside the buffer, not that it is the right one. In this exercise the wrong index and the right one both pass the bounds check.</p>
+</div>
+
+<div class="exercise" data-ex="w3-03-gemm-bt">
+<h3>C = A @ B transposed</h3>
+<p>A and B are both 2-by-3 i32 matrices, row-major, in slots 0 and 1. Compute <code>C = A @ B^T</code> (2-by-2) into slot 2: <code>C[i*2 + j]</code> is the dot product of row i of A and row j of B. The starter is the plain GEMM from this page, which indexes B as if it were 3-by-2.</p>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Multiply two small matrices by hand, one dot product per cell.</li>
+<li>Find row r, column c of a flat row-major matrix at <code>r*cols + c</code>.</li>
+<li>Write a dot product in <code>.uir</code> with a reset, one range and a running total.</li>
+<li>Grow it into a GEMM with a range for columns and a range for rows.</li>
+<li>Show that each index is in bounds from the bounds of its ranges.</li>
+</ul>
+<p>Next, lesson 3.4 uses the same moves for a convolution, where a small window slides across the input.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -128,14 +365,14 @@ for (j ...)
 </div>
 
 <div class="quiz" data-fill="154">
-<p class="q">For the matrices on this page, what does <code>C[1*2 + 1]</code> end up holding?</p>
+<p class="q">For the 2-by-3 A and 3-by-2 B in the stepper on this page, what does <code>C[1*2 + 1]</code> end up holding?</p>
 <div class="fill"><input aria-label="your answer"><button class="btn">Check</button></div>
 <p class="hint">Row 1 of A is [4 5 6]. Column 1 of B is [8 10 12].</p>
-<div class="why"><p>4*8 + 5*10 + 6*12 = 32 + 50 + 72 = 154, the same answer lesson 0.5 got with the triple loop in C.</p></div>
+<div class="why"><p>4*8 + 5*10 + 6*12 = 32 + 50 + 72 = 154, the same answer as the stepper in lesson 0.5.</p></div>
 </div>
 
 <div class="quiz" data-fill="58 122 261 415 | [58 122 261 415] | 58, 122, 261, 415">
-<p class="q">Suppose the accumulator is a one-element <code>alloc</code> that's never reset, and each (i, j) copies it into C after its k loop. What does C hold?</p>
+<p class="q">Suppose the accumulator is a one-element <code>alloc</code> that's never reset, and each (i, j) copies it into C after its k loop. The right C is [58 64 139 154]. What does C hold?</p>
 <div class="fill"><input aria-label="your answer" placeholder="four numbers"><button class="btn">Check</button></div>
 <p class="hint">The alloc starts at 0 once, not once per output element.</p>
 <div class="why"><p>The sum carries over from one output element to the next: 58, then 58 + 64 = 122, then 122 + 139 = 261, then 261 + 154 = 415. That's why the reset has to depend on <code>i</code> and <code>j</code>.</p></div>
@@ -161,7 +398,7 @@ for (j ...)
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q">Swapping the order of two <code>end</code>s in the fill example changes...</p>
+<p class="q">Swapping the order of the j and i <code>end</code>s in the GEMM changes...</p>
 <div class="opts">
 <button data-k="a">the final contents of the buffer</button>
 <button data-k="b">whether the program passes the bounds check</button>
@@ -169,7 +406,7 @@ for (j ...)
 <button data-k="d">nothing at all: the renderer always picks the same order</button>
 </div>
 <p class="hint">Each element is written exactly once in both versions.</p>
-<div class="why"><p>Each element gets the same value either way, so the result is identical and the bounds don't change. What changes is the loop nest the renderer emits, and so the access pattern: stride 1 versus stride 3. That decides cache behavior, which week 7 starts measuring.</p></div>
+<div class="why"><p>Each element gets the same value either way, so the result is identical and the bounds don't change. What changes is the loop nest the renderer emits, and so the access pattern. That decides cache behavior, which week 7 starts measuring.</p></div>
 </div>
 
 <nav class="pager">

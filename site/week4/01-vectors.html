@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vectors</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Until now every ALU op took scalars, and to touch many elements you wrote a loop by hand. This week values get a shape again: an ALU op can take two vectors...">
+<meta name="description" content="In week 3 you added and multiplied lists by writing every loop yourself. This week you write what you mean, such as &quot;add these two lists&quot;, and your compiler...">
 <link rel="canonical" href="https://sharpterminal.com/site/week4/01-vectors">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Vectors">
-<meta property="og:description" content="Until now every ALU op took scalars, and to touch many elements you wrote a loop by hand. This week values get a shape again: an ALU op can take two vectors and combine them element by element. Your...">
+<meta property="og:description" content="In week 3 you added and multiplied lists by writing every loop yourself. This week you write what you mean, such as &quot;add these two lists&quot;, and your compiler writes the loop. This lesson is the first...">
 <meta property="og:url" content="https://sharpterminal.com/site/week4/01-vectors">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .strip { display: grid; gap: var(--s2); }
   .strip .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
@@ -32,32 +32,212 @@
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 4 · Lesson 1</p>
-<h1>Vectors</h1>
-<p class="lede">Until now every ALU op took scalars, and to touch many elements you wrote a loop by hand. This week values get a shape again: an ALU op can take two vectors and combine them element by element. Your compiler's job is to turn that back into loops, a pass called <em>rangeify</em> (lesson 4.3): it asks each vector for "your element at index i" and builds a loop around the answer.</p>
+<h1>Vectors and elementwise ops</h1>
+<p class="lede">In week 3 you added and multiplied lists by writing every loop yourself. This week you write what you mean, such as "add these two lists", and your compiler writes the loop. This lesson is the first piece: ops that work on a whole list at once.</p>
+
+<div class="note">
+<span class="label">What week 4 adds</span>
+<p>Writing loops by hand is slow and easy to get wrong. The GEMM in <a href="../week3/03-gemm.html">lesson 3.3</a> took 28 lines, and one wrong offset gave wrong numbers with no error. This week you write whole-list programs, and your compiler turns them into loops. That turning is called <em>rangeify</em>. You build it in <a href="03-rangeify.html">lesson 4.3</a>.</p>
+</div>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Write programs that add, multiply and compare whole lists with one op, and say why a short list is never stretched for you.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Shapes, <code>stack</code> and <code>index</code> from <a href="../week1/05-call-and-param.html">lesson 1.5</a>. Views (<code>shrink</code>) from <a href="../week2/01-buffers-and-views.html">lesson 2.1</a>, and <code>load</code>, <code>store</code> and <code>after</code> from <a href="../week2/02-load-store-after.html">lesson 2.2</a>. <code>range</code> and <code>end</code> from <a href="../week3/01-ranges.html">lesson 3.1</a>.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">What is the shape of <code>stack 10 20 30</code>?</p>
+<div class="opts">
+<button data-k="a"><code>()</code></button>
+<button data-k="b"><code>(3,)</code></button>
+<button data-k="c"><code>(1, 3)</code></button>
+</div>
+<p class="hint">A shape lists one size per axis. A stack of scalars has one axis.</p>
+<div class="why"><p>One axis of size 3, written <code>(3,)</code>. A single number has no axes, so its shape is <code>()</code>.</p></div>
+</div>
+
+<div class="quiz" data-fill="4">
+<p class="q">A loop starts with <code>%i = range 4</code>. How many times does its body run?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>%i</code> takes the values 0, 1, 2 and 3.</p>
+<div class="why"><p>Four times, once for each value of <code>%i</code> from 0 to 3.</p></div>
+</div>
 
 <div class="prose">
-<h2>Rank-1 values</h2>
-<p>A value of shape <code>(n,)</code> is a vector of n elements, all of one dtype. You've had them since week 1 (<code>stack</code> builds one) and week 2 (<code>load</code> of a whole buffer or a <code>[k]</code> view gives one). What's new is that ALU ops accept them:</p>
+<h2>The same job, two ways</h2>
+<p>Here is a small job: add two lists of four numbers, pair by pair, into a third list. The first program is the week 3 way. The second is what you would like to write.</p>
+</div>
+<div class="split">
+<pre><code>%a   = buffer 4 dtype=i32 slot=0
+%b   = buffer 4 dtype=i32 slot=1
+%out = buffer 4 dtype=i32 slot=2
+%i   = range 4
+%av  = shrink %a %i []
+%x   = load %av
+%bv  = shrink %b %i []
+%y   = load %bv
+%sum = add %x %y
+%ov  = shrink %out %i []
+%s   = store %ov %sum
+%e   = end %s %i
+%o1  = after %out %e</code></pre>
+<pre><code>%a   = buffer 4 dtype=i32 slot=0
+%b   = buffer 4 dtype=i32 slot=1
+%out = buffer 4 dtype=i32 slot=2
+%va  = load %a
+%vb  = load %b
+%sum = add %va %vb
+%s   = store %out %sum
+%o1  = after %out %s</code></pre>
+</div>
+<div class="prose">
+<p>The first program needs a counter, three views, two loads of one number each, a store and an <code>end</code>. Each one is a place to slip. The second has no counter at all. It loads all of <code>a</code>, loads all of <code>b</code> and adds them with one line: <code>add %va %vb</code>.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">The second program has no <code>range</code> and no <code>end</code>. The machine still has to do four adds. What do you think your compiler must do with <code>add %va %vb</code>?</p>
+<div class="opts">
+<button data-k="a">Add only the first number of each list.</button>
+<button data-k="b">Nothing special. C can add two arrays with one <code>+</code>.</button>
+<button data-k="c">Build the loop itself: a counter, a load from each list, an add and a store.</button>
+</div>
+<p class="hint">Think about the C your compiler prints. What does C need in order to visit four elements?</p>
+<div class="why"><p>C has no statement that adds two arrays. So the compiler has to write the loop that you left out.</p></div>
+</div>
+
+<div class="prose">
+<p>The reference compiler prints the same C for both programs. Here is the loop, with the wraparound casts trimmed for reading:</p>
+<pre><code>for (int32_t r4 = 0; r4 &lt; 4; r4++) {
+  int32_t v7 = b0[r4];
+  int32_t v9 = b1[r4];
+  int32_t v10 = v7 + v9;
+  b2[r4] = v10;
+}</code></pre>
+<p>Until now your compiler rejected the second program, because <code>add</code> only took single numbers. By the end of this week it accepts it and prints that loop.</p>
+
+<h2>Values with a shape</h2>
+<p>Lessons 0.4 and 1.5 gave you these words. Every value has a <strong>shape</strong>: a list of sizes, one for each axis. A single number is a <strong>scalar</strong>, with shape <code>()</code>. A row of n numbers of one dtype is a <strong>vector</strong>, with shape <code>(n,)</code>, also called a rank-1 value. This week stops at vectors. Grids arrive in week 5.</p>
+<p>You already know three ways to make a vector:</p>
+</div>
+<div class="tablewrap">
+<table>
+<thead><tr><th>line</th><th>what you get</th><th>shape</th></tr></thead>
+<tbody>
+<tr><td><code>stack 1 2 3</code></td><td>the three numbers</td><td><code>(3,)</code></td></tr>
+<tr><td><code>load %a</code>, where <code>%a</code> is a buffer of 4</td><td>all of the buffer</td><td><code>(4,)</code></td></tr>
+<tr><td><code>load %v</code>, where <code>%v = shrink %a 1 [3]</code></td><td>elements 1, 2 and 3 of the buffer</td><td><code>(3,)</code></td></tr>
+</tbody>
+</table>
+</div>
+<div class="prose">
+<p>And one way to put a vector back: <code>store</code> of a vector into a buffer or view of the same size writes every element.</p>
+<p>Weeks 1 to 3 could build vectors but could not compute with them. What is new this week is that the ALU ops (<code>add</code>, <code>mul</code>, <code>max</code> and the rest of the arithmetic from week 1) accept them.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q"><code>%a</code> is a buffer of 6. What is the shape of <code>%x</code>?</p>
+<pre><code>%v = shrink %a 2 [3]
+%x = load %v</code></pre>
+<div class="opts">
+<button data-k="a"><code>()</code></button>
+<button data-k="b"><code>(3,)</code></button>
+<button data-k="c"><code>(6,)</code></button>
+<button data-k="d"><code>(2,)</code></button>
+</div>
+<p class="hint">In <code>shrink %a 2 [3]</code>, 2 is where the view starts and <code>[3]</code> is how many elements it holds.</p>
+<div class="why"><p>The view holds 3 elements starting at index 2, so the load gives a vector of shape <code>(3,)</code>.</p></div>
+</div>
+
+<div class="prose">
+<h2>Elementwise: one position at a time</h2>
+<p>So what does an op do with two vectors? Predict before you read on.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">What do you think <code>%z</code> is?</p>
+<pre><code>%x = stack 1 5 3
+%y = stack 4 2 6
+%z = max %x %y</code></pre>
+<div class="opts">
+<button data-k="a"><code>[4 5 6]</code></button>
+<button data-k="b"><code>6</code>, the largest number of all</button>
+<button data-k="c"><code>[4 2 6]</code>, the list with the larger total</button>
+</div>
+<p class="hint">Line the two lists up, one above the other, and look at one column at a time.</p>
+<div class="why"><p>Each position is decided alone: max(1, 4) = 4, max(5, 2) = 5, max(3, 6) = 6.</p></div>
+</div>
+
+<div class="prose">
+<p>The rule is called <strong>elementwise</strong>: element i of the result is the op applied to element i of each operand. All operands must have the same shape, and the result has that shape too. Here it is on two buffers of floats:</p>
 <pre><code>%x = buffer 4 [1.0 2.0 3.0 4.0] dtype=f32 slot=0
 %y = buffer 4 [10.0 20.0 30.0 40.0] dtype=f32 slot=1
 %vx = load %x                # shape (4,)
 %vy = load %y                # shape (4,)
 %z  = add %vx %vy            # shape (4,): [11.0 22.0 33.0 44.0]</code></pre>
-<p>The rule is <strong>elementwise</strong>: element i of the result is the op applied to element i of each operand. Every ALU op works this way, including <code>cmplt</code> (a vector of bools), <code>where</code> (a vector condition picks per element) and <code>cast</code>. All operands must have the same shape, and the result has that shape too.</p>
+<ol>
+<li><strong>Check the shapes.</strong> Both operands are <code>(4,)</code>, so the add is allowed and <code>%z</code> is <code>(4,)</code>.</li>
+<li><strong>Take one position.</strong> Element 0 is 1.0 + 10.0 = 11.0.</li>
+<li><strong>Do the same at every position.</strong> Step through the rest:</li>
+</ol>
 </div>
 
 <div class="fig" id="ew" data-title="add, element by element"></div>
 
 <div class="prose">
-<p>Nothing about the arithmetic changes. Each element is computed with the scalar rules of weeks 1 and 2: i32 wraps, f32 rounds to nearest-even after the op, <code>max</code> propagates NaN. A vector op is just n scalar ops that happen not to depend on each other, which is exactly why they can run in any order, or all at once.</p>
+<p>Nothing about the arithmetic changes. Each element is computed with the scalar rules of weeks 1 and 2: i32 wraps, f32 rounds to nearest-even after the op, <code>max</code> propagates NaN. Every ALU op works this way, including <code>cmplt</code> (a vector of bools), <code>where</code> (a vector condition picks per element) and <code>cast</code>. No element needs any other element, which is why the compiler is free to put them all in one loop.</p>
 </div>
 
-<h2>No implicit broadcasting</h2>
+<div class="exercise small" data-ex="w4-01n-sum">
+<h3>Add two buffers, whole</h3>
+<p>Slots 0 and 1 hold four i32s each. Store <code>x[i] + y[i]</code> into slot 2. The starter loads only <code>x</code> and stores it unchanged. Load <code>y</code> as a whole value too, add the two and store the sum.</p>
+</div>
+
 <div class="prose">
-<p>NumPy and PyTorch let you write <code>x + 1.0</code> and quietly stretch the scalar to x's shape. Here it's a type error, and the program is rejected:</p>
+<h2 id="no-implicit-broadcasting">When the shapes differ</h2>
+<p>Now give <code>add</code> a list of four and a list of two.</p>
+</div>
+
+<div class="quiz" data-answer="d">
+<p class="q">What should <code>add</code> of <code>[1 2 3 4]</code> and <code>[10 20]</code> be?</p>
+<div class="opts">
+<button data-k="a"><code>[11 22 13 24]</code>: repeat the short list.</button>
+<button data-k="b"><code>[11 12 23 24]</code>: stretch each short element over two positions.</button>
+<button data-k="c"><code>[11 22 3 4]</code>: fill the missing positions with zeros.</button>
+<button data-k="d">There is no single right answer.</button>
+</div>
+<p class="hint">Can you rule out any of the first three from the two lists alone?</p>
+<div class="why"><p>All three are sensible, and they give three different lists. Nothing in the program says which one the author meant.</p></div>
+</div>
+
+<div class="prose">
+<p>Stretching a smaller value to fit a bigger shape is called <strong>broadcasting</strong>. A compiler that picked one of those answers for you would hand wrong numbers to everyone who meant another. So <code>.uir</code> never guesses. If the operands of an ALU op do not have the same shape, the program is rejected before it runs.</p>
+<p>That holds even when one operand is a scalar. NumPy and PyTorch let you write <code>x + 1.0</code> and quietly stretch the scalar to x's shape. Here it's a type error, and the program is rejected:</p>
 <pre><code>%v = load %x               # shape (4,)
 %z = add %v 1.0            # rejected: shapes (4,) and () don't match</code></pre>
-<p>To use a scalar with a vector, you <code>expand</code> it first, which lesson 4.2 covers properly:</p>
+<p>Stretching one number looks safe. Here is why it is not. The author of this program wanted to add all of <code>b</code> to all of <code>a</code>, and cut a one-element view by mistake:</p>
+<pre><code>%a   = buffer 4 [1 2 3 4] dtype=i32 slot=0
+%b   = buffer 4 [10 20 30 40] dtype=i32 slot=1
+%va  = load %a
+%bv  = shrink %b 0 []
+%vb  = load %bv
+%sum = add %va %vb</code></pre>
+<ol>
+<li><strong>Find the shapes.</strong> <code>%va</code> is <code>(4,)</code>. <code>%vb</code> is one number, 10, with shape <code>()</code>.</li>
+<li><strong>With silent stretching.</strong> The program runs and gives <code>[11 12 13 14]</code>. The author wanted <code>[11 22 33 44]</code>. No error, wrong numbers.</li>
+<li><strong>With the same-shape rule.</strong> The reference compiler stops at the last line: "add: ALU operands must share one shape (no implicit broadcast: use expand)".</li>
+</ol>
+<p>A rejected program costs a minute. A silent wrong answer inside a neural network can cost days.</p>
+
+<h2>Stretch a value on purpose</h2>
+<p>When you do want one number in every position, you say so. <code>expand x [n]</code> takes a scalar <code>x</code> and gives a vector of shape <code>(n,)</code> whose every element is <code>x</code>. The shape comes last, in square brackets, and n must be at least 1. To use a scalar with a vector, you <code>expand</code> it first:</p>
 <pre><code>%one = expand 1.0 [4]   # [1.0 1.0 1.0 1.0]
 %z   = add %v %one            # fine: both (4,)</code></pre>
 </div>
@@ -68,11 +248,42 @@
 </div>
 
 <div class="exercise" data-ex="w4-01-affine">
-<h3>An affine map, elementwise</h3>
+<h3>Repair: an affine map, elementwise</h3>
 <p>Slot 0 holds five f32s <code>x</code>, and slot 1 holds two f32s <code>a</code> and <code>b</code>. Store <code>y[i] = a * x[i] + b</code> into slot 2, multiplying first, then adding. The starter forgets <code>b</code>.</p>
 </div>
 
-<h2>Shapes the type checker enforces</h2>
+<div class="exercise" data-ex="w4-01n-relu">
+<h3>Write: clamp at zero</h3>
+<p>Slot 0 holds five f32s. Store <code>max(x[i], 0.0)</code> into slot 1 for every i, so negative numbers become zero. The starter has only the two buffers. You need a load, a vector of zeros, a <code>max</code>, a <code>store</code> and an <code>after</code>. Neural networks call this op ReLU.</p>
+</div>
+
+<div class="prose">
+<h2>Build an op the language does not have</h2>
+<p><code>.uir</code> has no subtract op. You get <code>x - y</code> by multiplying <code>y</code> by -1 and adding. With vectors the -1 has to be a vector too:</p>
+<pre><code>%m1 = expand -1 [4]
+%ny = mul %vy %m1
+%df = add %vx %ny</code></pre>
+<p>There is no absolute value op either. The absolute value of a number is its distance from zero: 4 for both 4 and -4.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">x is 3 and y is 7. So <code>x - y</code> is -4 and <code>y - x</code> is 4. Which op, given those two results, returns the distance between x and y?</p>
+<div class="opts">
+<button data-k="a"><code>add</code></button>
+<button data-k="b"><code>max</code></button>
+<button data-k="c"><code>mul</code></button>
+</div>
+<p class="hint">One of the two differences is the answer already. Which op picks it?</p>
+<div class="why"><p>One difference is the negative of the other, so the larger one is the distance. <code>max</code> of -4 and 4 is 4.</p></div>
+</div>
+
+<div class="exercise small" data-ex="w4-01-absdiff">
+<h3>Absolute difference</h3>
+<p>Slots 0 and 1 hold four i32s each. Store <code>|x[i] - y[i]|</code> into slot 2, with i32 wraparound (there's no subtract op, and no abs op either).</p>
+</div>
+
+<details class="toggle">
+<summary>Every shape rule the type checker enforces, for when you write the checker in the lab</summary>
 <div class="tablewrap">
 <table>
 <thead><tr><th>program</th><th>result</th></tr></thead>
@@ -86,15 +297,32 @@
 </tbody>
 </table>
 </div>
-
 <div class="trap">
 <span class="label">Vectors don't mix with hand-written loops</span>
 <p>A vector may not depend on an open range from a week 3 loop. "The element of a vector at iteration k" is something rangeify will build for you. Mixing the two by hand is rejected.</p>
 </div>
+<div class="prose">
+<p>That rule covers computed vectors: the result of an ALU op on vectors, an <code>expand</code>, lesson 4.2's <code>reduce</code> and lesson 4.4's <code>stage</code>. So <code>expand %i [4]</code> is rejected while <code>%i = range 4</code> is still open.</p>
+</div>
+</details>
 
-<div class="exercise small" data-ex="w4-01-absdiff">
-<h3>Absolute difference</h3>
-<p>Slots 0 and 1 hold four i32s each. Store <code>|x[i] - y[i]|</code> into slot 2, with i32 wraparound (there's no subtract op, and no abs op either).</p>
+<details class="toggle">
+<summary>How silent broadcasting goes wrong in NumPy, for readers who know NumPy</summary>
+<div class="prose">
+<p>NumPy stretches any axis of size 1, and adds missing axes on the left. Add an array of shape <code>(3,)</code> to one of shape <code>(3, 1)</code> and you might expect three sums. You get a 3 by 3 grid of nine, with no warning. It is a well-known source of bugs in machine learning code, often found only when a loss value looks odd. With explicit <code>expand</code>, the stretch is a line in the program that a reader and the compiler can both see.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say what week 4 adds: you write ops on whole lists, and the compiler builds the loops (rangeify).</li>
+<li>Give the shape of a scalar, a stack and a load of a buffer or view.</li>
+<li>Work out any elementwise op by hand, one position at a time.</li>
+<li>Explain why operands with different shapes are rejected, and fix the program with <code>expand</code>.</li>
+<li>Build subtract and absolute value from <code>mul</code>, <code>add</code> and <code>max</code> on vectors.</li>
+</ul>
+<p>Next, lesson 4.2 adds <code>reduce</code>, which collapses a vector to one number, and pairs it with <code>expand</code>.</p>
 </div>
 
 <h2>Check yourself</h2>

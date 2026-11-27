@@ -1,0 +1,50 @@
+{
+ "id": "w2-05n-bits-f32-py",
+ "lang": "python",
+ "title": "Eight hex digits back into a float",
+ "prompt": "<p><code>bits_to_f32(bits)</code> gets 8 hex digits, like <code>3f800000</code>, and must return the float those 32 bits stand for. The starter turns the digits into a whole number and then converts that number's value, so <code>3f800000</code> comes back as 1065353216.0 and not 1.0. Repair it so the bits are kept and only their meaning changes.</p><p>The tests print each value with <code>repr</code>.</p>",
+ "show": "repr",
+ "starter": "import struct\n\n\ndef bits_to_f32(bits: str) -> float:\n    n = int(bits, 16)\n    return float(n)\n",
+ "tests": [
+  {
+   "expr": "bits_to_f32('3f800000')",
+   "expect": "1.0",
+   "sample": true
+  },
+  {
+   "expr": "bits_to_f32('80000000')",
+   "expect": "-0.0",
+   "sample": true
+  },
+  {
+   "expr": "bits_to_f32('3e99999a')",
+   "expect": "0.30000001192092896"
+  },
+  {
+   "expr": "bits_to_f32('00000000')",
+   "expect": "0.0"
+  },
+  {
+   "expr": "bits_to_f32('7fc00000')",
+   "expect": "nan"
+  },
+  {
+   "expr": "bits_to_f32('ff800000')",
+   "expect": "-inf"
+  },
+  {
+   "expr": "bits_to_f32('00000001')",
+   "expect": "1.401298464324817e-45"
+  },
+  {
+   "expr": "bits_to_f32('c0490fdb')",
+   "expect": "-3.1415927410125732"
+  }
+ ],
+ "hints": [
+  "`int(bits, 16)` is fine: it gives the 32 bits as a whole number. The wrong step is `float(n)`, which makes a float with the same value as `n`.",
+  "`struct.pack(\"<I\", n)` writes `n` as 4 bytes. `struct.unpack(\"<f\", data)` reads 4 bytes as an f32 and returns a tuple with one item.",
+  "`return struct.unpack(\"<f\", struct.pack(\"<I\", n))[0]`"
+ ],
+ "explain": "`struct.pack(\"<I\", n)` lays the 32 bits out as 4 bytes, and `struct.unpack(\"<f\", ...)` reads the same 4 bytes as an f32. No arithmetic happens, so nothing is rounded: `-0.0`, `nan`, infinities and the smallest subnormal all come back exactly."
+}

@@ -243,7 +243,8 @@ def grade_render(cmd, text, base=None, h=None):
     slot, lo = h['check']; g = got.get(slot, [])
     if not g: return f"buffer {slot}: the harness read nothing"
     v = struct.unpack('<f', struct.pack('<I', int(g[0], 16)))[0] if outs[slot].dtype == 'f32' else int(g[0])
-    return None if v >= lo else f"buffer {slot}[0] is {v:g}, the target is >= {lo:g}"
+    if v >= lo: NOTES[text] = f"buffer {slot}[0] is {v:g}, the target is >= {lo:g}"; return None
+    return f"buffer {slot}[0] is {v:g}, the target is >= {lo:g}"
   for slot, (dt, data) in want.items():
     g = got.get(slot, [])
     if len(g) != len(data): return f"buffer {slot}: harness read {len(g)} values, expected {len(data)}"
@@ -537,11 +538,15 @@ def files(week, k):
   fs = sorted(glob.glob(os.path.join(ROOT, 'tests', f'week{week}', '**', '*.uir'), recursive=True))
   return [f for f in fs if not k or k.replace('\\', '/') in rel(f)]
 
+NOTES, PASS_NOTES = {}, {}
 def grade(cmd, f):
   try:
     text = O.read_text(f); h = headers(text); base = os.path.dirname(f)
     if h.get('cuda'): return grade_cuda(cmd, text, base, h)
-    if h.get('render'): return grade_render(cmd, text, base, h)
+    if h.get('render'):
+      r = grade_render(cmd, text, base, h)
+      if r is None and text in NOTES: PASS_NOTES[f] = NOTES.pop(text)
+      return r
     return grade_simplify(cmd, text, h['max_ops']) if 'max_ops' in h else grade_outcome(cmd, text, base, expected(f))
   except Exception as e:                            # one broken case fails that case, never the whole run
     return f"grader error on this test: {type(e).__name__}: {e}"
@@ -550,6 +555,9 @@ def run_suite(cmd, fs, verbose, jobs):
   with ThreadPoolExecutor(max_workers=jobs) as ex: results = list(ex.map(lambda f: grade(cmd, f), fs))
   bad = [(f, r) for f, r in zip(fs, results) if r]
   for f, r in bad: print(f"FAIL {rel(f)}\n    {r if verbose else r.splitlines()[0]}")
+  if verbose:
+    for f in fs:
+      if f in PASS_NOTES: print(f"ok   {rel(f)}\n    {PASS_NOTES[f]}")
   print(f"\n{len(fs) - len(bad)} / {len(fs)} passed" + ("" if verbose or not bad else "   (-v for details)"))
   return bad
 

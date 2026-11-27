@@ -1,0 +1,58 @@
+{
+ "id": "w1-02n-outcome",
+ "lang": "ocaml",
+ "title": "Put the checks in order",
+ "show": "(fun s -> s)",
+ "starter": "type facts = {\n  size : int; parses : bool; nodes : int; edges : int;\n  valid : bool; cost : int; got : int; want : int;\n}\n\nlet outcome (f : facts) : string =\n  if not f.parses then \"REJECTED\"\n  else if not f.valid then \"REJECTED\"\n  else if f.size > 4096 then \"OVERBUDGET\"\n  else if f.nodes >= 100 || f.edges >= 300 then \"OVERBUDGET\"\n  else if f.cost >= 1000000 then \"OVERBUDGET\"\n  else \"MATCH\"\n",
+ "tests": [
+  {
+   "expr": "outcome { size = 40; parses = true; nodes = 5; edges = 6; valid = true; cost = 3; got = 5; want = 5 }",
+   "expect": "MATCH",
+   "sample": true
+  },
+  {
+   "expr": "outcome { size = 40; parses = true; nodes = 5; edges = 6; valid = true; cost = 3; got = 4; want = 5 }",
+   "expect": "MISMATCH",
+   "sample": true
+  },
+  {
+   "expr": "outcome { size = 5000; parses = false; nodes = 5; edges = 6; valid = true; cost = 3; got = 5; want = 5 }",
+   "expect": "OVERBUDGET",
+   "sample": true
+  },
+  {
+   "expr": "outcome { size = 40; parses = false; nodes = 5; edges = 6; valid = true; cost = 3; got = 5; want = 5 }",
+   "expect": "REJECTED"
+  },
+  {
+   "expr": "outcome { size = 40; parses = true; nodes = 100; edges = 6; valid = false; cost = 3; got = 5; want = 5 }",
+   "expect": "OVERBUDGET"
+  },
+  {
+   "expr": "outcome { size = 40; parses = true; nodes = 5; edges = 300; valid = false; cost = 3; got = 5; want = 5 }",
+   "expect": "OVERBUDGET"
+  },
+  {
+   "expr": "outcome { size = 40; parses = true; nodes = 99; edges = 299; valid = false; cost = 3; got = 5; want = 5 }",
+   "expect": "REJECTED"
+  },
+  {
+   "expr": "outcome { size = 40; parses = true; nodes = 5; edges = 6; valid = false; cost = 2000000; got = 5; want = 5 }",
+   "expect": "REJECTED"
+  },
+  {
+   "expr": "outcome { size = 40; parses = true; nodes = 5; edges = 6; valid = true; cost = 1000000; got = 5; want = 5 }",
+   "expect": "OVERBUDGET"
+  },
+  {
+   "expr": "outcome { size = 4096; parses = true; nodes = 5; edges = 6; valid = true; cost = 999999; got = (-1); want = (-1) }",
+   "expect": "MATCH"
+  }
+ ],
+ "hints": [
+  "Number the six steps from the list in the lesson, then find each one in the code. Which step is first in the list and third in the code?",
+  "The order is: size, parses, nodes and edges, valid, cost, run. Move whole lines. You do not need to change any limit.",
+  "The last branch is `else if f.got = f.want then \"MATCH\" else \"MISMATCH\"`."
+ ],
+ "explain": "The six checks run in one fixed order and the first one that decides wins: the byte limit, then parsing, then the node and edge counts, then validation, then the cost limit, and only then the run. A file that is too big is `OVERBUDGET` even if it also has a typo, because nobody reads it far enough to see the typo. `MATCH` or `MISMATCH` is decided last, by comparing the two values."
+}

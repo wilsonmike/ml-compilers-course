@@ -1,0 +1,58 @@
+{
+ "id": "w2-05n-same",
+ "lang": "ocaml",
+ "title": "Do the two answers match?",
+ "show": "string_of_bool",
+ "starter": "let same_f32 (want : float list) (got : float list) : bool =\n  false\n",
+ "tests": [
+  {
+   "expr": "same_f32 [1.0; 2.0] [1.0; 2.0]",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "same_f32 [0.0] [-0.0]",
+   "expect": "false",
+   "sample": true
+  },
+  {
+   "expr": "same_f32 [nan] [nan]",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "same_f32 [nan] [Float.neg nan]",
+   "expect": "true"
+  },
+  {
+   "expr": "same_f32 [1.0] [1.0; 2.0]",
+   "expect": "false"
+  },
+  {
+   "expr": "same_f32 [] []",
+   "expect": "true"
+  },
+  {
+   "expr": "same_f32 [1.0] [nan]",
+   "expect": "false"
+  },
+  {
+   "expr": "same_f32 [0x1.333334p-2] [0x1.333336p-2]",
+   "expect": "false"
+  },
+  {
+   "expr": "same_f32 [infinity; -0.0] [infinity; -0.0]",
+   "expect": "true"
+  },
+  {
+   "expr": "same_f32 [infinity] [neg_infinity]",
+   "expect": "false"
+  }
+ ],
+ "hints": [
+  "Check the lengths first, because `List.for_all2` raises when they differ. Then `List.for_all2 (fun a b -> ...) want got` checks every pair.",
+  "`a = b` is wrong twice: it says `0.0` equals `-0.0`, and it says a NaN does not equal a NaN. Handle NaN first with `Float.is_nan a && Float.is_nan b`.",
+  "For everything else compare the bits: `Int32.bits_of_float a = Int32.bits_of_float b` is true only when all 32 bits agree."
+ ],
+ "explain": "Comparing with `=` asks whether two floats have the same value, which treats `0.0` and `-0.0` as equal and a NaN as unequal to everything. `Int32.bits_of_float` compares the 32 bits instead, and a separate `Float.is_nan` check lets any NaN match any NaN, which is the rule the grader uses for buffers."
+}

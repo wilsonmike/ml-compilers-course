@@ -1,0 +1,50 @@
+{
+ "id": "w1-04n-rule-tester",
+ "lang": "ocaml",
+ "title": "Repair a rule tester",
+ "show": "(fun l -> if l = [] then \"none\" else String.concat \" \" (List.map string_of_int (List.sort compare l)))",
+ "starter": "let int_min = -2147483648\nlet int_max = 2147483647\n\nlet wrap32 (n : int) : int =\n  let m = n land 0xFFFFFFFF in\n  if m >= 0x80000000 then m - 0x100000000 else m\n\nlet add32 (a : int) (b : int) : int = wrap32 (a + b)\n\nlet mul32 (a : int) (b : int) : int = a * b\n\nlet div32 (a : int) (b : int) : int =\n  if b = 0 then -1\n  else\n    let q = a / b in\n    wrap32 (if a mod b <> 0 && (a < 0) <> (b < 0) then q - 1 else q)\n\nlet mod32 (a : int) (b : int) : int =\n  if b = 0 then a\n  else\n    let r = a mod b in\n    if r <> 0 && (r < 0) <> (b < 0) then r + b else r\n\nlet edges = [0; 1; -1]\n\nlet breaks (before : int -> 'a) (after : int -> 'a) : int list =\n  List.filter (fun x -> before x <> after x) edges\n",
+ "tests": [
+  {
+   "expr": "breaks (fun x -> div32 (mul32 x 2) 2) (fun x -> x)",
+   "expect": "-2147483648 1073741824 2147483647",
+   "sample": true
+  },
+  {
+   "expr": "breaks (fun x -> add32 (add32 x 3) 4) (fun x -> add32 x 7)",
+   "expect": "none",
+   "sample": true
+  },
+  {
+   "expr": "breaks (fun x -> x < add32 x 1) (fun _ -> true)",
+   "expect": "2147483647",
+   "sample": true
+  },
+  {
+   "expr": "breaks (fun x -> mul32 x 0) (fun _ -> 0)",
+   "expect": "none"
+  },
+  {
+   "expr": "breaks (fun x -> mod32 x 8) (fun x -> x)",
+   "expect": "-2147483648 -1 1073741824 2147483647"
+  },
+  {
+   "expr": "breaks (fun x -> mul32 (mul32 x 65536) 65536) (fun _ -> 0)",
+   "expect": "none"
+  },
+  {
+   "expr": "breaks (fun x -> div32 x 1) (fun x -> x)",
+   "expect": "none"
+  },
+  {
+   "expr": "breaks (fun x -> max x (add32 x 1)) (fun x -> add32 x 1)",
+   "expect": "2147483647"
+  }
+ ],
+ "hints": [
+  "Run the samples and look at the first one. The tester says the cancel rule never breaks. Every helper except one passes its answer through `wrap32`.",
+  "A real i32 multiply keeps only the low 32 bits. Make `mul32` return `wrap32 (a * b)`, the same way `add32` wraps its sum.",
+  "A rule can be right for small numbers and wrong at the ends of the i32 range. Add 2 to the 30th, the largest i32 and the smallest i32 to the list: `[0; 1; -1; 1073741824; int_max; int_min]`."
+ ],
+ "explain": "Two repairs. `mul32` has to wrap like the real op, so it returns `wrap32 (a * b)`. Without that the tester does school arithmetic and every rule that is true in school looks safe. The edge list has to hold the values where wrapping happens, so it becomes `[0; 1; -1; 1073741824; int_max; int_min]`. With both fixed, the cancel rule breaks at 1073741824, at the largest i32 and at the smallest i32, and the regroup rule never breaks."
+}

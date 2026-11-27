@@ -1,0 +1,49 @@
+{
+ "id": "w7-02n-keep-order",
+ "lang": "ocaml",
+ "title": "Blocks that keep the order",
+ "show": "(Printf.sprintf \"%.17g\")",
+ "starter": "let dot (a : float array) (b : float array) : float =\n  let total = ref 0.0 in\n  for k = 0 to Array.length a - 1 do\n    total := !total +. a.(k) *. b.(k)\n  done;\n  !total\n\nlet dot_blocks (a : float array) (b : float array) (block : int) : float =\n  let n = Array.length a in\n  let total = ref 0.0 in\n  let start = ref 0 in\n  while !start < n do\n    let part = ref 0.0 in\n    for k = !start to min (!start + block) n - 1 do\n      part := !part +. a.(k) *. b.(k)\n    done;\n    total := !total +. !part;\n    start := !start + block\n  done;\n  !total\n",
+ "tests": [
+  {
+   "expr": "dot_blocks [|1e+16; 1.0; (-1e+16); 1.0|] [|1.0; 1.0; 1.0; 1.0|] 2",
+   "expect": "1",
+   "sample": true
+  },
+  {
+   "expr": "dot_blocks [|1.0; 2.0; 3.0; 4.0|] [|5.0; 6.0; 7.0; 8.0|] 2",
+   "expect": "70",
+   "sample": true
+  },
+  {
+   "expr": "dot_blocks [|0.1; 0.1; 0.1; 0.1; 0.1; 0.1; 0.1; 0.1; 0.1; 0.1|] [|1.0; 1.0; 1.0; 1.0; 1.0; 1.0; 1.0; 1.0; 1.0; 1.0|] 3",
+   "expect": "0.99999999999999989"
+  },
+  {
+   "expr": "dot_blocks [|1.0; 1e+16; (-1e+16); 1.0; 1.0|] [|1.0; 1.0; 1.0; 1.0; 1.0|] 2",
+   "expect": "2"
+  },
+  {
+   "expr": "dot_blocks [|0.1; 0.2; 0.3; 0.4; 0.5; 0.6|] [|3.0; 3.0; 3.0; 3.0; 3.0; 3.0|] 4",
+   "expect": "6.2999999999999998"
+  },
+  {
+   "expr": "dot_blocks [|2.0; 3.0|] [|4.0; 5.0|] 1",
+   "expect": "23"
+  },
+  {
+   "expr": "dot_blocks [||] [||] 2",
+   "expect": "0"
+  },
+  {
+   "expr": "dot_blocks [|1e+16; 1.0; (-1e+16); 1.0|] [|1.0; 1.0; 1.0; 1.0|] 4",
+   "expect": "1"
+  }
+ ],
+ "hints": [
+  "Each block starts a fresh `part` from zero and the parts are added together at the end. That groups the adds differently from `dot`.",
+  "The blocks are fine. What has to go is the second running sum. One running sum must carry on from block to block.",
+  "Delete `part`. Inside the inner loop, add each product straight onto `total`, and drop the line that adds `part` to `total`."
+ ],
+ "explain": "The broken version computed each block's sum on its own and then added the block sums, which regroups the adds and can round differently. The repair keeps the block loops but has one running total that every product is added to in the order `k = 0, 1, 2, ...`, exactly the adds `dot` does, so the bits match."
+}

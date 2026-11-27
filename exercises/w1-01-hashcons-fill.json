@@ -1,0 +1,53 @@
+{
+ "id": "w1-01-hashcons-fill",
+ "lang": "ocaml",
+ "title": "Repair a node table",
+ "show": "(fun s -> s)",
+ "starter": "type node = { id : int; op : string; src : node list }\n\nlet create () : string -> node list -> node =\n  let tbl = Hashtbl.create 64 and next = ref 0 in\n  fun op src ->\n    let key = (op, ([] : int list)) in\n    match Hashtbl.find_opt tbl key with\n    | Some n -> { n with src }\n    | None ->\n      let n = { id = !next; op; src } in\n      incr next; Hashtbl.add tbl key n; n\n",
+ "tests": [
+  {
+   "expr": "let mk = create () in let a = mk \"x\" [] in let b = mk \"x\" [] in string_of_bool (a == b)",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "let mk = create () in let a = mk \"x\" [] in let b = mk \"y\" [] in Printf.sprintf \"%d %d\" a.id b.id",
+   "expect": "0 1",
+   "sample": true
+  },
+  {
+   "expr": "let mk = create () in let x = mk \"x\" [] in let a = mk \"add\" [x; x] in let b = mk \"add\" [x; x] in string_of_bool (a == b)",
+   "expect": "true"
+  },
+  {
+   "expr": "let mk = create () in let x = mk \"x\" [] in let _ = mk \"add\" [x; x] in let _ = mk \"add\" [x; x] in string_of_int (mk \"z\" []).id",
+   "expect": "2"
+  },
+  {
+   "expr": "let mk = create () in let x = mk \"x\" [] in let y = mk \"y\" [] in string_of_bool (mk \"add\" [x; y] == mk \"add\" [y; x])",
+   "expect": "false"
+  },
+  {
+   "expr": "let m1 = create () in let m2 = create () in let _ = m1 \"a\" [] in string_of_int (m2 \"b\" []).id",
+   "expect": "0"
+  },
+  {
+   "expr": "let mk = create () in let x = mk \"x\" [] in string_of_bool (mk \"neg\" [x] == mk \"neg\" [x; x])",
+   "expect": "false"
+  },
+  {
+   "expr": "let mk = create () in let a = mk \"add\" [mk \"x\" []; mk \"x\" []] in let b = mk \"add\" [mk \"x\" []; mk \"x\" []] in string_of_bool (a == b && a.id = 1)",
+   "expect": "true"
+  },
+  {
+   "expr": "let mk = create () in let last = ref (mk \"c\" []) in for _ = 1 to 1000 do last := mk \"s\" [!last] done; string_of_int (mk \"s\" [mk \"c\" []]).id",
+   "expect": "1"
+  }
+ ],
+ "hints": [
+  "The key needs two parts: `op`, and something that says which sources.",
+  "`List.map (fun n -> n.id) src` turns the list of source nodes into a list of their ids.",
+  "On a hit, return `n` itself. `{ n with src }` builds a copy, and a copy is not `==` to the original."
+ ],
+ "explain": "The key `(op, List.map (fun n -> n.id) src)` says exactly which node this is: the same op on the same sources. When that key is already in the table, returning the stored `n` hands back the one node that was built the first time, so nothing is ever built twice."
+}

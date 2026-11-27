@@ -12,8 +12,9 @@ those, and puts a diagram before every idea.
 
 | week | topic | lessons | tests | spec |
 |---|---|---|---|---|
+| start | run a three-line program, then write the ten-line interpreter that runs it | 2 | exercises only | |
 | learn | Python or OCaml from the start, and four hard ideas explained slowly | 6 + 6 + 4 | exercises only | |
-| 0 | prerequisites: C, memory, IRs, tensors, matmul, Python or OCaml | 7 | exercises only | |
+| 0 | short primers, each read just before the week that needs it: C, memory, IRs, tensors, matmul, Python or OCaml setup | 7 | exercises only | |
 | 1 | UOps and rewrites | 6 | 282 | [uir-week1.md](spec/uir-week1.md) |
 | 2 | floats, memory and rendering C | 6 | 198 | [uir-week2.md](spec/uir-week2.md) |
 | 3 | loops | 6 | 94 | [uir-week3.md](spec/uir-week3.md) |
@@ -24,7 +25,7 @@ those, and puts a diagram before every idea.
 | 8 | GPUs: blocks and threads, shared memory, rendering CUDA | 6 | 42 | [uir-week8.md](spec/uir-week8.md) |
 | 9 | GPUs, part 2: registers, fast GEMMs, tensor cores, convolutions, flash attention | 6 | 52 | [uir-week9.md](spec/uir-week9.md) |
 
-509 quizzes with hints and answers, 202 graded exercises (67 of them in Python) and 1084 compiler tests. `_reference/mutants.py` plants 286 plausible bugs in the reference compiler, one at a time, and each one must
+1,128 quizzes with hints and answers, 418 graded exercises (160 of them in Python) and 1084 compiler tests. `_reference/mutants.py` plants 286 plausible bugs in the reference compiler, one at a time, and each one must
 make some test fail. A few of them, like a CUDA kernel that runs each block on a single thread, are only caught on a real GPU. With `--checks` it
 also switches off each of the reference compiler's validations and simplifier rules, one at a time: most of these are caught, and the
 rest are either backed up by a second check that rejects the same program or can't be reached by a valid one. Week 1 follows the official 10-411

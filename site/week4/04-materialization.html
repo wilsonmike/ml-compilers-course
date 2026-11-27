@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fuse or Materialize</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="The syllabus says it plainly: &quot;We have to confront questions about materialization here.&quot; Rangeify answers &quot;what is your element at index i?&quot; one loop at a...">
+<meta name="description" content="By the end of this lesson you can spot work that a rangeified program does more than once, and pick between two fixes: do the work again at each use, or do it...">
 <link rel="canonical" href="https://sharpterminal.com/site/week4/04-materialization">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Fuse or Materialize">
-<meta property="og:description" content="The syllabus says it plainly: &quot;We have to confront questions about materialization here.&quot; Rangeify answers &quot;what is your element at index i?&quot; one loop at a time. When a value is used in two loops, it...">
+<meta property="og:description" content="By the end of this lesson you can spot work that a rangeified program does more than once, and pick between two fixes: do the work again at each use, or do it once and keep the answers in memory...">
 <meta property="og:url" content="https://sharpterminal.com/site/week4/04-materialization">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .stack { display: grid; gap: var(--s4); }
   .split pre { margin: 0; font-size: 0.875rem; }
@@ -32,11 +32,81 @@
 <main>
 <p class="eyebrow">Week 4 · Lesson 4</p>
 <h1>Fuse or materialize</h1>
-<p class="lede">The syllabus says it plainly: "We have to confront questions about materialization here." Rangeify answers "what is your element at index i?" one loop at a time. When a value is used in two loops, it gets asked twice. You can let it compute the answer twice, or store the answers once and read them back. That choice is materialization.</p>
+<p class="lede">By the end of this lesson you can spot work that a rangeified program does more than once, and pick between two fixes: do the work again at each use, or do it once and keep the answers in memory. Your compiler needs this choice because lesson 4.3 asks "what is your element at index i?" at every place a value is used, and nothing there stops the same answer from being worked out again.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Count the arithmetic and the memory traffic of a value that has several uses, and use <code>stage</code> to compute it once.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p><code>reduce</code> and <code>expand</code> (<a href="02-reduce-expand.html">lesson 4.2</a>), "the element at index i" (<a href="03-rangeify.html">lesson 4.3</a>), the depth of a value (<a href="../week3/05-rendering-loops.html">lesson 3.5</a>) and the price of a trip to memory (<a href="../week0/02-memory-and-caches.html">lesson 0.2</a>). <span class="only-python">One exercise counts with a dict (<a href="../learn/py-03-collections.html">P.3</a>).</span><span class="only-ocaml">One exercise walks a list of pairs (<a href="../learn/ml-03-lists-matching.html">O.3</a>).</span></p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Rangeify asks <code>expand %s [4]</code> for its element at index <code>i</code> (lesson 4.3). What is the answer?</p>
+<div class="opts">
+<button data-k="a">A load from a 4-element buffer at <code>i</code></button>
+<button data-k="b"><code>%s</code> itself</button>
+<button data-k="c"><code>%s</code> times <code>i</code></button>
+</div>
+<p class="hint">Every element of a broadcast is the same scalar.</p>
+<div class="why"><p>The index does not matter, so the answer is <code>%s</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">A value is used inside a loop but does not depend on that loop's range (lesson 3.5). Where does the renderer put its C line?</p>
+<div class="opts">
+<button data-k="a">Before the loop, so it runs once</button>
+<button data-k="b">Inside the loop, so it runs on every pass</button>
+<button data-k="c">After the loop</button>
+</div>
+<p class="hint">A value is computed inside every loop whose range it depends on, and no deeper.</p>
+<div class="why"><p>It sits before the loop and runs once. Lesson 3.5 called this hoisting.</p></div>
+</div>
+
+<h2>A sum that every element needs</h2>
+<div class="prose">
+<p>This program adds the total of <code>x</code> to each element of <code>x</code>. Both buffers hold 4 floats.</p>
+<pre><code>%v  = load %x
+%s  = reduce %v op=add
+%e  = expand %s [4]
+%w  = add %v %e
+%st = store %y %w</code></pre>
+<p>Answer lesson 4.3's question by hand, in the most direct way. Element <code>i</code> of <code>%w</code> is <code>x[i]</code> plus element <code>i</code> of <code>%e</code>. Element <code>i</code> of <code>%e</code> is <code>%s</code>. And <code>%s</code> is a reduce, which is a loop. Write each answer down at the place where it is asked for and you get this C:</p>
+<pre><code>for (int i = 0; i &lt; 4; i++) {
+  float s = x[0];
+  for (int j = 1; j &lt; 4; j++) {
+    s = s + x[j];
+  }
+  y[i] = x[i] + s;
+}</code></pre>
+</div>
+
+<div class="quiz" data-fill="12">
+<p class="q">Guess first. How many times does the line <code>s = s + x[j]</code> run?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The inner loop makes 3 passes each time it starts. How many times does the outer loop start it?</p>
+<div class="why"><p>12. The total needs only 3 additions, but the outer loop asks for it 4 times and it is worked out from scratch each time. On 4096 floats that is 16,773,120 additions where 4,095 would do.</p></div>
+</div>
 
 <div class="prose">
-<h2>A value with two uses</h2>
-<p>Here is a sum-of-squares normalization: square every element, divide each square by the total of the squares. The squares, <code>%d</code>, have two uses.</p>
+<p>The total is the same for every <code>i</code>. So the fix is plain: work it out once before the loop, keep it, and read it back inside the loop. Your compiler already does that, with three pieces you built earlier:</p>
+<ol>
+<li><strong>One node.</strong> <code>%s</code> is a single node (hash consing, lesson 1.1). Rangeify builds its loop once, however many times it is asked.</li>
+<li><strong>Depth 0.</strong> The total does not depend on the store loop's range, so the depth rule from the warm up prints it before that loop.</li>
+<li><strong>Kept in memory.</strong> The reduce leaves its answer in a one-element <code>alloc</code> (lesson 4.3), and one load reads it back.</li>
+</ol>
+<p>So the oracle's C has two loops side by side: 3 additions for the total, then 4 for the output. Keeping the answer costs one float of memory, so it is an easy call. The rest of this lesson is about a value where the call is harder.</p>
+</div>
+
+<h2>A vector with two uses</h2>
+<div class="prose">
+<p>Here is a sum-of-squares normalization: square every element, then divide each square by the total of the squares. The squares, <code>%d</code>, have two uses.</p>
 <pre><code>%v  = load %x
 %d  = mul %v %v              # the squares
 %s  = reduce %d op=add       # use 1: the total
@@ -44,17 +114,158 @@
 %e  = expand %r [4]
 %w  = mul %d %e              # use 2: each square / total
 %st = store %y %w</code></pre>
-<p>The reduce becomes one loop and the store becomes another (lesson 4.3). Each loop asks <code>%d</code> for its element at the loop's own index, so <code>%d</code> is asked once per element in each loop. Nothing in rangeify connects the two questions.</p>
+<p>The reduce becomes one loop and the store becomes another (lesson 4.3). Each loop asks <code>%d</code> for its element at the loop's own index.</p>
+</div>
+
+<div class="quiz" data-fill="8">
+<p class="q">Guess first. Rangeify does nothing special here. With 4 elements, how many times does the C multiply an element by itself?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">How many squares does the reduce need? How many does the store need?</p>
+<div class="why"><p>8. The reduce needs all 4 squares, and the store loop needs all 4 again. Nothing in rangeify connects the two questions.</p></div>
+</div>
+
+<div class="prose">
+<p>Why don't the pieces from the last screen help? <code>%d</code> is still one node, but its element at <code>i</code> depends on <code>i</code>. Each loop has its own range, so each one asks with its own index and gets its own scalar multiply. And a value that depends on a loop's range has to sit inside that loop. Hoisting cannot move it out.</p>
+<p>To compute the squares once, you need somewhere to keep 4 floats, not 1. That is no longer free, so now there is a real choice.</p>
+</div>
+
+<h2>Two answers: fuse or materialize</h2>
+<div class="prose">
+<p>To <strong>fuse</strong> a value is to recompute it inside each loop that uses it. The work is repeated, and no extra memory is touched.</p>
+<p>To <strong>materialize</strong> a value is to compute every element once, in a loop of its own, into a <strong>temp buffer</strong>: scratch memory that exists only while the C runs. Every use then loads from the temp.</p>
+<p>The spec lets your compiler do either, and the oracle fuses. The op <code>stage</code> forces the second answer. <code>%q = stage %d</code> is the same value as <code>%d</code>, with one instruction attached: materialize me.</p>
+<ol>
+<li><strong>Wrap the value.</strong> Add the line <code>%q = stage %d</code>.</li>
+<li><strong>Point every use at it.</strong> The reduce becomes <code>reduce %q op=add</code> and the multiply becomes <code>mul %q %e</code>.</li>
+<li><strong>Rangeify fills a temp.</strong> A new loop stores each square into a 4-float temp.</li>
+<li><strong>Each use loads.</strong> Element <code>i</code> of <code>%q</code> is a load of the temp at <code>i</code>.</li>
+</ol>
 </div>
 
 <div class="fig" id="steps" data-title="two loops ask the same value"></div>
 
-<h2>Recompute or materialize</h2>
-<div class="prose">
-<p>The spec lets your compiler answer the two questions either way, and by default the oracle recomputes. Recomputing means rangeify answers each question by computing the element where it's needed. The square is <strong>fused</strong> into both loops. No temp memory, no extra pass, but the multiply happens twice per element.</p>
-<p><code>%q = stage %d</code> is the same value as <code>%d</code>, but it tells rangeify to compute every element once into a temp buffer. Put it in front of both uses, and rangeify fills a temp buffer with every element of <code>%d</code> in a loop of its own, then answers both questions with a load from that buffer. The value is <strong>materialized</strong>. One multiply per element, but a write and two reads of a 4-element temp.</p>
+<div class="fig bleed" data-title="the same program both ways, with the C shortened">
+<div class="body split">
+<div><p class="cap2">fused</p><pre><code>s = x[0] * x[0];
+for (j = 1; j &lt; 4; j++)
+  s = s + x[j] * x[j];
+r = 1.0f / s;
+for (i = 0; i &lt; 4; i++)
+  y[i] = x[i] * x[i] * r;</code></pre></div>
+<div><p class="cap2">materialized into the temp <code>t</code></p><pre><code>for (i = 0; i &lt; 4; i++)
+  t[i] = x[i] * x[i];
+s = t[0];
+for (j = 1; j &lt; 4; j++)
+  s = s + t[j];
+r = 1.0f / s;
+for (i = 0; i &lt; 4; i++)
+  y[i] = t[i] * r;</code></pre></div>
+</div>
+<div class="cap">Two loops become three. The oracle's exact C for both is in the reference section.</div>
 </div>
 
+<div class="trap">
+<span class="label"><code>stage</code> wraps a value, not a name</span>
+<p><code>%q = stage %d</code> is a new value. Uses of <code>%q</code> read the temp, and uses of <code>%d</code> still recompute. To share, every use has to go through <code>%q</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-04-two-outputs">
+<h3>Two outputs from one value</h3>
+<p>Slot 0 is <code>x</code> (4 f32). Write <code>x * x</code> into slot 1 (4 f32) and the sum of <code>x * x</code> into slot 2 (1 f32), using <code>stage</code> so both outputs read one materialized copy of the squares. The starter already writes slot 1.</p>
+</div>
+
+<h2>Count the cost</h2>
+<div class="prose">
+<p>Neither answer is free. Count what each version does to our 4 floats, leaving out the running total.</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th></th><th>fused</th><th>materialized</th></tr>
+<tr><td>multiplies <code>v * v</code></td><td>8</td><td>4</td></tr>
+<tr><td>floats read from memory</td><td>8</td><td>12</td></tr>
+<tr><td>floats written to a temp</td><td>0</td><td>4</td></tr>
+<tr><td>extra memory</td><td>none</td><td>4 floats</td></tr>
+</table></div>
+<div class="prose">
+<p>Materializing saved 4 multiplies and paid for them with 4 writes and 4 more reads. Lesson 0.2 says which side costs more. A multiply takes about a nanosecond or less, and a float fetched from main memory takes about 100. A small temp stays in the cache and is far quicker than that, but a write and a read are still not cheaper than the one multiply they replace. For a value as cheap as <code>v * v</code>, fusing wins.</p>
+<p>In general, say a value takes <code>ops</code> arithmetic steps per element, has <code>uses</code> uses and <code>n</code> elements:</p>
+<ul>
+<li><strong>Fused:</strong> <code>ops × uses × n</code> arithmetic steps.</li>
+<li><strong>Materialized:</strong> <code>ops × n</code> arithmetic steps, plus <code>n</code> writes and <code>uses × n</code> reads of the temp.</li>
+</ul>
+</div>
+
+<div class="quiz" data-fill="20">
+<p class="q">A value takes 10 arithmetic steps per element, and three loops use it. Per element, how many arithmetic steps does materializing save?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Fused, the 10 steps run once per use. Materialized, they run once.</p>
+<div class="why"><p>20: fused is 30 steps and materialized is 10. The price is 1 write and 3 reads per element. Now the saving is large, and the temp is likely worth it.</p></div>
+</div>
+
+<div class="exercise small" data-ex="w4-04n-cost" data-ex-py="w4-04n-cost-py">
+<h3>Count both costs</h3>
+<p>The starter has both formulas and <code>choose</code>, which picks the cheaper answer. <code>mem</code> is the cost of moving one float to or from the temp, counted in arithmetic steps. Each formula leaves something out. Leave <code>choose</code> alone.</p>
+<p><strong>Fused.</strong> The work repeats once per use.</p>
+<p><strong>Staged.</strong> Each element is written once, which is there, and read back once per use, which is missing.</p>
+</div>
+
+<h2>When each one wins</h2>
+<div class="prose">
+<p>The formulas boil down to a few rules of thumb.</p>
+<ul>
+<li><strong>Cheap value, few uses: fuse.</strong> The temp costs more than the arithmetic it saves.</li>
+<li><strong>Costly value, many uses: materialize.</strong> A long chain of ops that feeds several loops is worth one pass over memory.</li>
+<li><strong>One use: never stage.</strong> There is nothing to share.</li>
+<li><strong>A plain load: never stage.</strong> <code>stage (load %x)</code> copies <code>x</code> into a temp and then reads the copy instead of the original. Same reads, plus a write.</li>
+</ul>
+<p>How costly a memory move is depends on whether the temp fits in the cache, so nobody settles this by formula alone. Week 6 starts timing the C, and then you measure.</p>
+<p>A pass that decides for itself starts by listing the values with more than one use.</p>
+</div>
+
+<div class="exercise small" data-ex="w4-04-stage-set" data-ex-py="w4-04-stage-set-py">
+<h3>Which nodes are worth staging</h3>
+<p>A graph is a list of <code>(id, srcs)</code> pairs. Return, sorted, every non-leaf id that has two or more distinct consumers. A node read twice by the same consumer (like <code>mul %c %c</code>) is still one use, since rangeify builds that element once per index. That's the candidate list a materialization pass starts from.</p>
+</div>
+
+<h2>The answer is the same either way</h2>
+<div class="prose">
+<p>You can choose freely because the choice can't change the result. An elementwise op computes the same bits for the same inputs wherever it runs, and every reduce folds its elements in the same order, left to right from the first. So the recomputed square and the stored square are the same float, and both sums add the same floats in the same order.</p>
+</div>
+
+<div class="key">
+<span class="label">Materialization is a performance decision</span>
+<p>Because results can't change, <code>stage</code> never fixes a wrong answer, and leaving it out never breaks a right one. The grader in week 4 checks only bits and size. Week 6 starts timing kernels, and that's when the choice starts to cost or save you something.</p>
+</div>
+
+<p class="prose">Now write a whole program. Decide for yourself whether anything needs <code>stage</code>.</p>
+
+<div class="exercise" data-ex="w4-04-variance">
+<h3>Variance</h3>
+<p>Slot 0 is <code>x</code> (8 f32). Write its variance into the one-element buffer in slot 1, computed exactly as</p>
+<pre><code>mean = (sum of x) * 0.125
+c    = x + expand(-mean)          # -mean is mean * -1.0
+var  = (sum of c * c) * 0.125</code></pre>
+<p>Both sums are <code>reduce op=add</code>. Results are compared bit for bit.</p>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Spot a value that a rangeified program computes more than once, and count how often.</li>
+<li>Use <code>stage</code> to materialize a value, and point every use at the staged value.</li>
+<li>Compare the two answers by counting arithmetic steps, reads, writes and temp memory.</li>
+</ul>
+<p>Next, lesson 4.5 looks at the C your renderer should print for all of this, and how to check that it stays small.</p>
+</div>
+
+<h2 id="reference">Reference for the lab</h2>
+<p class="prose">You do not need these to finish the page. Open them when you build rangeify in your own compiler.</p>
+
+<details class="toggle">
+<summary>The oracle's exact C with and without stage, for when you compare your renderer's output</summary>
+<div class="prose">
+<p>The three versions of the normalization (no stage, stage on one use, stage on both) compile to kernels that, with <code>x = [1.0 2.0 3.0 4.0]</code>, leave exactly the same bits in <code>y</code>: <code>3d088889 3e088889 3e99999a 3f088889</code>, which is <code>1/30, 4/30, 9/30, 16/30</code> rounded to f32.</p>
+<p>Stage only the store's use and leave the reduce reading <code>%d</code>, and the oracle's C squares in the fill loop and again in the reduce loop: three loops, and the reduce saved nothing.</p>
+</div>
 <div class="fig bleed" data-title="the oracle's C for the same program, with and without stage">
 <div class="body split">
 <div><p class="cap2">without stage (recompute)</p><pre><code>float a3[1] = {0};
@@ -106,57 +317,21 @@ for (int32_t r34 = 0; r34 &lt; 4; r34++) {
 </div>
 <div class="cap">Two loops become three. Fusion multiplies twice per element. Materializing multiplies once but writes four floats and reads them twice. The <code>% 4</code> lines are the extra index step from lesson 4.3. Here they never change the value, and lesson 5.5 shows how a simplifier removes them.</div>
 </div>
+</details>
 
-<div class="exercise small" data-ex="w4-04-two-outputs">
-<h3>Two outputs from one value</h3>
-<p>Slot 0 is <code>x</code> (4 f32). Write <code>x * x</code> into slot 1 (4 f32) and the sum of <code>x * x</code> into slot 2 (1 f32), using <code>stage</code> so both outputs read one materialized copy of the squares.</p>
-</div>
-
-<h2>The answer is the same either way</h2>
+<details class="toggle">
+<summary>Storing into the memory you read: the one store your compiler must stage, for the lab's in-place tests</summary>
 <div class="prose">
-<p>You can choose freely because the choice can't change the result. An elementwise op computes the same bits for the same inputs wherever it runs, and every reduce folds its elements in the same order, left to right from the first. So the recomputed square and the stored square are the same float, and both sums add the same floats in the same order.</p>
-<p>The three versions of the program above (no stage, stage on one use, stage on both) compile to kernels that, with <code>x = [1.0 2.0 3.0 4.0]</code>, leave exactly the same bits in <code>y</code>: <code>3d088889 3e088889 3e99999a 3f088889</code>, which is <code>1/30, 4/30, 9/30, 16/30</code> rounded to f32.</p>
-</div>
-
-<div class="key">
-<span class="label">Materialization is a performance decision</span>
-<p>Because results can't change, <code>stage</code> never fixes a wrong answer, and leaving it out never breaks a right one. The grader in week 4 checks only bits and size. Week 6 starts timing kernels, and that's when the choice starts to cost or save you something.</p>
-</div>
-
-<h2>A cost model in words</h2>
-<div class="prose">
-<p>Recomputing costs arithmetic: every extra use repeats the whole chain that produces the value. Materializing costs memory traffic: one write of n elements, one read of n per use, and n elements of temp storage.</p>
-<p>Lesson 0.2 is the reason memory usually loses. A multiply takes about a nanosecond, and a trip to DRAM takes about 100 nanoseconds. For a value as cheap as <code>v * v</code>, recomputing it in each loop is almost always faster than writing it out and reading it back. Materializing starts to pay when the value is expensive to compute (a long chain of ops, or a reduce of its own) and has many uses.</p>
-<ul>
-<li><strong>Staging a plain load is pure loss.</strong> <code>stage (load %x)</code> copies <code>x</code> into a temp and then reads the copy instead of the original. Same reads, plus a write.</li>
-<li><strong>Two reduces over one vector</strong> already work without a temp: each reduce is its own loop reading <code>x</code>. The oracle even shares the load of <code>x[0]</code> that seeds both folds, because hash consing makes it one node.</li>
-<li><strong>A value used once</strong> is never worth staging: there's nothing to share.</li>
-</ul>
-</div>
-
-<div class="trap">
-<span class="label"><code>stage</code> wraps a value, not a name</span>
-<p><code>%q = stage %d</code> is a new value. Uses of <code>%q</code> read the temp, and uses of <code>%d</code> still recompute. Stage only the store's use and leave the reduce reading <code>%d</code>, and the oracle's C squares in the fill loop and again in the reduce loop: three loops, and the reduce saved nothing. To share, every use has to go through the staged value.</p>
-</div>
-
-<div class="trap">
-<span class="label">Storing into the memory you read</span>
 <p>A program may store a value back into the buffer it was loaded from. The test <code>r_inplace_scale_by_sum</code> multiplies <code>x</code> by its own sum and stores the result into <code>x</code>. The value is defined by the old contents, but a fused store loop overwrites memory while it still reads it. Here that happens to be safe, since iteration <code>i</code> reads only <code>x[i]</code>. In week 5's <code>r_inplace_transpose</code> it isn't: a later iteration would read an element an earlier one already overwrote. So the oracle never fuses such a store. When any <code>load</code> in the stored value's graph reads the memory the store writes (the same buffer or alloc, through any view or <code>after</code>), it stages the value: one loop fills a temp, and a second loop copies the temp in.</p>
 </div>
+</details>
 
-<div class="exercise" data-ex="w4-04-variance">
-<h3>Variance</h3>
-<p>Slot 0 is <code>x</code> (8 f32). Write its variance into the one-element buffer in slot 1, computed exactly as</p>
-<pre><code>mean = (sum of x) * 0.125
-c    = x + expand(-mean)          # -mean is mean * -1.0
-var  = (sum of c * c) * 0.125</code></pre>
-<p>Both sums are <code>reduce op=add</code>. Results are compared bit for bit.</p>
+<details class="toggle">
+<summary>Two reduces over one vector: why they need no temp, for when you count loops</summary>
+<div class="prose">
+<p><strong>Two reduces over one vector</strong> already work without a temp: each reduce is its own loop reading <code>x</code>. The oracle even shares the load of <code>x[0]</code> that seeds both folds, because hash consing makes it one node.</p>
 </div>
-
-<div class="exercise small" data-ex="w4-04-stage-set" data-ex-py="w4-04-stage-set-py">
-<h3>Which nodes are worth staging</h3>
-<p>A graph is a list of <code>(id, srcs)</code> pairs. Return, sorted, every non-leaf id that has two or more distinct consumers. A node read twice by the same consumer (like <code>mul %c %c</code>) is still one use, since rangeify builds that element once per index. That's the candidate list a materialization pass starts from.</p>
-</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>

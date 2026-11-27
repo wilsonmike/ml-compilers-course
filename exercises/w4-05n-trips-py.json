@@ -1,0 +1,50 @@
+{
+ "id": "w4-05n-trips-py",
+ "lang": "python",
+ "title": "How many trips does each loop make?",
+ "prompt": "<p>A toy program is a list of <code>(kind, n)</code> pairs in the order the kernel runs them. The kind is <code>'store'</code> (a rank-1 store of <code>n</code> elements), <code>'reduce'</code> (a reduce of an <code>n</code>-element vector), <code>'stage'</code>, <code>'expand'</code> or <code>'scalar'</code> (any scalar op, where <code>n</code> is 0). Write <code>trips(prog)</code>: the list of trip counts of the <code>for</code> loops the rendered kernel has, in order. A store or a stage loops <code>n</code> times. A reduce loops <code>n - 1</code> times. An expand or a scalar makes no loop.</p>",
+ "show": "lambda v: ' '.join(map(str, v))",
+ "starter": "def trips(prog: list[tuple[str, int]]) -> list[int]:\n    return []\n",
+ "tests": [
+  {
+   "expr": "trips([('store', 1000)])",
+   "expect": "1000",
+   "sample": true
+  },
+  {
+   "expr": "trips([('reduce', 4096), ('scalar', 0), ('expand', 4096), ('store', 4096)])",
+   "expect": "4095 4096",
+   "sample": true
+  },
+  {
+   "expr": "trips([])",
+   "expect": ""
+  },
+  {
+   "expr": "trips([('reduce', 1), ('scalar', 0)])",
+   "expect": "0"
+  },
+  {
+   "expr": "trips([('expand', 8), ('scalar', 0)])",
+   "expect": ""
+  },
+  {
+   "expr": "trips([('stage', 4), ('store', 4), ('reduce', 4), ('scalar', 0)])",
+   "expect": "4 4 3"
+  },
+  {
+   "expr": "trips([('expand', 4096), ('stage', 4096), ('store', 4096), ('reduce', 4096), ('scalar', 0), ('reduce', 4096), ('scalar', 0)])",
+   "expect": "4096 4096 4095 4095"
+  },
+  {
+   "expr": "trips([('reduce', 2), ('reduce', 2), ('store', 2)])",
+   "expect": "1 1 2"
+  }
+ ],
+ "hints": [
+  "Go through the list in order. Each pair adds one number to the answer or adds nothing.",
+  "Which kinds make a loop? <code>'store'</code>, <code>'reduce'</code> and <code>'stage'</code>. The other two add nothing.",
+  "Start with <code>out = []</code>. For <code>'store'</code> and <code>'stage'</code> append <code>n</code>. For <code>'reduce'</code> append <code>n - 1</code>, because element 0 seeds the accumulator. Return <code>out</code>."
+ ],
+ "explain": "A rank-1 <code>'store'</code> of n is a loop of n trips and so is the fill loop of a <code>'stage'</code> of n. A <code>'reduce'</code> of n seeds its accumulator with element 0, so its loop makes n - 1 trips, which is 0 for a one-element vector. <code>'expand'</code> and <code>'scalar'</code> make no loop: an expand's element at any index is the scalar itself, and a scalar runs once between the loops."
+}

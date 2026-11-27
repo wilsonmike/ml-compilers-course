@@ -1,0 +1,54 @@
+{
+ "id": "w1-03n-finish-py",
+ "lang": "python",
+ "title": "Finish a rewriter",
+ "show": "lambda e: to_string(simplify(e))",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(frozen=True)\nclass Const:\n    n: int\n\n\n@dataclass(frozen=True)\nclass Var:\n    name: str\n\n\n@dataclass(frozen=True)\nclass Add:\n    a: object\n    b: object\n\n\n@dataclass(frozen=True)\nclass Mul:\n    a: object\n    b: object\n\n\ndef to_string(e):\n    match e:\n        case Const(n):\n            return str(n)\n        case Var(s):\n            return s\n        case Add(a, b):\n            return f\"({to_string(a)} + {to_string(b)})\"\n        case Mul(a, b):\n            return f\"({to_string(a)} * {to_string(b)})\"\n\n\ndef wrap32(x):\n    return (x + 2**31) % 2**32 - 2**31\n\n\ndef rule(e):\n    match e:\n        case Add(Const(a), Const(b)):\n            return Const(wrap32(a + b))\n        case Mul(Const(a), Const(b)):\n            return Const(wrap32(a * b))\n        case Add(x, Const(0)):\n            return x\n        case Mul(x, Const(1)):\n            return x\n        case Add(Add(x, Const(a)), Const(b)):\n            return Add(x, Const(wrap32(a + b)))\n    return None\n\n\ndef simplify(e):\n    match e:\n        case Add(a, b):\n            e = Add(a, b)\n        case Mul(a, b):\n            e = Mul(simplify(a), simplify(b))\n    r = rule(e)\n    if r is not None:\n        e = r\n    return e\n",
+ "tests": [
+  {
+   "expr": "Add(Const(2), Const(3))",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "Add(Var(\"y\"), Add(Const(2), Const(3)))",
+   "expect": "(y + 5)",
+   "sample": true
+  },
+  {
+   "expr": "Add(Add(Var(\"x\"), Const(3)), Const(-3))",
+   "expect": "x",
+   "sample": true
+  },
+  {
+   "expr": "Mul(Add(Var(\"x\"), Const(0)), Const(1))",
+   "expect": "x"
+  },
+  {
+   "expr": "Add(Add(Var(\"x\"), Add(Const(1), Const(2))), Const(-3))",
+   "expect": "x"
+  },
+  {
+   "expr": "Add(Const(2147483647), Const(1))",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "Add(Add(Add(Var(\"x\"), Const(1)), Const(2)), Const(3))",
+   "expect": "(x + 6)"
+  },
+  {
+   "expr": "Var(\"x\")",
+   "expect": "x"
+  },
+  {
+   "expr": "Mul(Var(\"x\"), Add(Mul(Const(1), Const(1)), Const(0)))",
+   "expect": "x"
+  }
+ ],
+ "hints": [
+  "Look at the two cases inside `simplify`. The `Mul` case calls `simplify` on both children before it rebuilds the node. The `Add` case does not.",
+  "After the fix to `Add`, the code still offers the node to `rule` only one time. When `rule` returns a node, that node is new and has not been offered to `rule` yet.",
+  "Make the `Add` case `e = Add(simplify(a), simplify(b))`. Then turn the `if` into a loop: `while r is not None:` with `e = r` and `r = rule(e)` inside it."
+ ],
+ "explain": "Both cases now simplify the children first, so by the time `rule` sees a node its sources are already as simple as they get. The `while` loop keeps offering the result to `rule` until it answers `None`, because a rule such as the regrouping one builds a new node, here `(x + 0)`, that another rule can still shrink."
+}

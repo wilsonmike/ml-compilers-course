@@ -1,0 +1,50 @@
+{
+  "id": "w9-05n-attend-py",
+  "lang": "python",
+  "title": "Attention for one row, in one pass",
+  "prompt": "<p>Write <code>attend(pairs)</code>. Each pair is <code>(score, value)</code> for one key. Return the output for the row: the average of the values, weighted by the softmax of the scores. Go through the pairs once and keep only three numbers: <code>m</code>, <code>l</code> and <code>acc</code>. Do not build a list of scores. The starter returns 0.</p>",
+  "show": "lambda v: f'{v:.4f}'",
+  "starter": "import math\n\ndef attend(pairs: list[tuple[float, float]]) -> float:\n    return 0.0\n",
+  "tests": [
+    {
+      "expr": "attend([(1.0, 10.0), (2.0, 20.0), (0.0, 30.0)])",
+      "expect": "18.4530",
+      "sample": true
+    },
+    {
+      "expr": "attend([(1.0, 1.0), (2.0, 0.0)])",
+      "expect": "0.2689",
+      "sample": true
+    },
+    {
+      "expr": "attend([(0.5, 7.0)])",
+      "expect": "7.0000"
+    },
+    {
+      "expr": "attend([(2.0, 4.0), (2.0, 8.0)])",
+      "expect": "6.0000"
+    },
+    {
+      "expr": "attend([(3.0, 10.0), (2.0, 20.0), (1.0, 30.0)])",
+      "expect": "14.2479"
+    },
+    {
+      "expr": "attend([(-1.0, -4.0), (4.0, 2.0), (0.0, 6.0), (5.0, -2.0)])",
+      "expect": "-0.8959"
+    },
+    {
+      "expr": "attend([(10.0, 1.0), (-10.0, 2.0), (20.0, 3.0)])",
+      "expect": "2.9999"
+    },
+    {
+      "expr": "attend([(1000.0, 5.0), (1001.0, 7.0)])",
+      "expect": "6.4621"
+    }
+  ],
+  "hints": [
+    "Start with <code>m, l, acc = -math.inf, 0.0, 0.0</code> and loop <code>for s, v in pairs</code>.",
+    "In the loop: <code>m_new = max(m, s)</code>, <code>c = math.exp(m - m_new)</code>, <code>p = math.exp(s - m_new)</code>.",
+    "Then <code>l = l * c + p</code>, <code>acc = acc * c + p * v</code>, <code>m = m_new</code>. After the loop, return <code>acc / l</code>."
+  ],
+  "explain": "Keep three numbers: the max so far <code>m</code>, the sum <code>l</code> and the weighted sum <code>acc</code>. For each pair, find the new max, then the correction <code>c = exp(m - m_new)</code> and the new term <code>p = exp(s - m_new)</code>. Both <code>l</code> and <code>acc</code> are rescaled by the same <code>c</code>, because every term in both was computed against the old max. At the end <code>acc / l</code> is the weighted average, the same one softmax gives with all the scores in hand. No score is kept, and because <code>s - m_new</code> is never above 0, <code>exp</code> cannot overflow even for scores like 1000."
+}

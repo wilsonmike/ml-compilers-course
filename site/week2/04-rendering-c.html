@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rendering C</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name and print each one as a C statement...">
+<meta name="description" content="So far your compiler has worked out every answer itself. In this lesson it starts writing: it prints a C program that does the same work, and a C compiler...">
 <link rel="canonical" href="https://sharpterminal.com/site/week2/04-rendering-c">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Rendering C">
-<meta property="og:description" content="Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name and print each one as a C statement that means exactly what the .uir op means...">
+<meta property="og:description" content="So far your compiler has worked out every answer itself. In this lesson it starts writing: it prints a C program that does the same work, and a C compiler turns that into machine code. You learn what...">
 <meta property="og:url" content="https://sharpterminal.com/site/week2/04-rendering-c">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,43 +20,218 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 2 · Lesson 4</p>
 <h1>Rendering C</h1>
-<p class="lede">Rendering turns a graph into straight-line C: put the nodes in an order the memory rules allow, give every value a name and print each one as a C statement that means exactly what the .uir op means. That last part is harder than it sounds, because C has undefined behavior and .uir doesn't.</p>
+<p class="lede">So far your compiler has worked out every answer itself. In this lesson it starts writing: it prints a C program that does the same work, and a C compiler turns that into machine code. You learn what to print for each node, in what order, and how to stop C from changing the answer.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Turn a checked .uir graph into lines of C that give exactly the answers .uir promises.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Reading C, undefined behavior and division that truncates, from <a href="../week0/01-c-and-pointers.html">lesson 0.1</a>. Buffer versions from <a href="02-load-store-after.html">lesson 2.2</a> and f32 from <a href="01-buffers-and-views.html">lesson 2.1</a>. The slow version of wrapping is <a href="../learn/hard-04-numbers-like-c.html">H.4</a>.</p>
+<p class="only-python">In the exercises: a dict (<a href="../learn/py-03-collections.html">P.3</a>), a small class (<a href="../learn/py-04-your-own-types.html">P.4</a>) and a function that calls itself (<a href="../learn/py-05-recursion.html">P.5</a>).</p>
+<p class="only-ocaml">In the exercises: <code>match</code> on a list (<a href="../learn/ml-03-lists-matching.html">O.3</a>), your own types (<a href="../learn/ml-04-your-own-types.html">O.4</a>) and a <code>ref</code> (<a href="../learn/ml-05-mutation.html">O.5</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="10">
+<p class="q">What is <code>%x</code>?</p>
+<pre><code>%b  = buffer 2 [10 20] dtype=i32 slot=0
+%e  = shrink %b 0 []
+%s  = store %e 99
+%b1 = after %b %s
+%x  = load %e</code></pre>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>%e</code> is a view of <code>%b</code>. Which version does the store change: <code>%b</code> or <code>%b1</code>?</p>
+<div class="why"><p>10. A store never changes <code>%b</code>. The 99 lives in the new version <code>%b1</code>, and this load reads the old one.</p></div>
+</div>
+
+<div class="quiz" data-fill="-2147483648">
+<p class="q">The largest i32 is 2147483647. What is <code>add 2147483647 1</code> in .uir?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">An i32 has no room for a bigger number, so it rolls over like a car's odometer.</p>
+<div class="why"><p>It wraps to the smallest i32, <code>-2147483648</code>. Nothing fails. Hold on to this: C does not agree, and that is half of this lesson.</p></div>
+</div>
 
 <div class="prose">
-<h2>Three jobs: schedule, name, print</h2>
-<p>Your renderer gets a checked program and prints one C function, <code>void kernel(...)</code>, with one pointer parameter per <code>buffer</code> in slot order. Inside it, three things happen:</p>
+<h2>Your compiler writes a C program</h2>
+<p>A program that runs another program directly is an interpreter. That is what your <code>./compile</code> has been so far. A compiler does something else: it writes a new program in a lower-level language and lets that program do the work. Yours will write C. Printing that C is called <strong>rendering</strong>.</p>
+<p>Here is a program that doubles the number in a buffer, and next to it the C your renderer will print for it, with one line hidden.</p>
+</div>
+
+<div class="split">
+<pre><code>%b  = buffer 1 [21] dtype=i32 slot=0
+%e  = shrink %b 0 []
+%x  = load %e
+%y  = add %x %x
+%s  = store %e %y
+%b1 = after %b %s</code></pre>
+<pre><code>void kernel(int32_t *restrict b0) {
+  int32_t v3 = b0[0];
+  int32_t v4 = (int32_t)((uint32_t)v3 + (uint32_t)v3);
+  ???
+}</code></pre>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Which line of C belongs where the <code>???</code> is?</p>
+<div class="opts">
+<button data-k="a"><code>b0[0] = v4;</code></button>
+<button data-k="b"><code>int32_t v5 = b0[0];</code></button>
+<button data-k="c"><code>return v4;</code></button>
+</div>
+<p class="hint">The load and the add are printed. The .uir line that still has work to do is the <code>store</code>.</p>
+<div class="why"><p>The store writes <code>v4</code> into element 0 of the buffer. The function returns nothing: its results are whatever it leaves in the buffers.</p></div>
+</div>
+
+<div class="prose">
+<p>Read the C against the .uir:</p>
 <ol>
-<li><strong>Schedule.</strong> Pick a line-by-line order. Every node comes after its sources, and every load of a buffer version comes before the store that overwrites that version.</li>
-<li><strong>Name.</strong> Each value node becomes one C variable, printed once even if ten nodes use it. Constants go inline. Memory nodes don't become variables, with one exception: an <code>alloc</code> becomes a zero-initialized local array (<code>int32_t a4[1] = {0};</code>). Otherwise a <code>buffer</code> is a parameter, a <code>shrink</code> is that pointer plus an offset, and an <code>after</code> is the same memory as before.</li>
-<li><strong>Print.</strong> Each op becomes a C expression with the same meaning: the same wraparound, the same rounding, the same answer for <code>-0.0</code> and <code>nan</code>. The file is compiled on its own, so start it with <code>#include</code> lines for <code>&lt;stdint.h&gt;</code> (<code>int32_t</code>), <code>&lt;stdbool.h&gt;</code> (<code>bool</code>) and <code>&lt;math.h&gt;</code> (<code>NAN</code>, <code>INFINITY</code>, <code>isnan</code>).</li>
+<li><strong>The buffer becomes a parameter.</strong> The function is always called <code>kernel</code>. It takes one pointer per <code>buffer</code>, in slot order, so slot 0 is <code>b0</code>.</li>
+<li><strong>The load becomes a read.</strong> The view <code>%e</code> is <code>b0</code> at offset 0, so <code>%x</code> is <code>b0[0]</code>, saved in a variable.</li>
+<li><strong>The add becomes a new variable.</strong> It is longer than <code>v3 + v3</code>. A later section shows why.</li>
+<li><strong>The store becomes an assignment.</strong> <code>shrink</code> and <code>after</code> print no line at all.</li>
 </ol>
-<p>Step through a small program. It adds two elements into a third, then doubles that result into the first element. The names <code>v0</code>, <code>v1</code> are arbitrary. Any unique names work.</p>
+<p>The file is compiled on its own, so it starts with <code>#include</code> lines for <code>&lt;stdint.h&gt;</code> (<code>int32_t</code>), <code>&lt;stdbool.h&gt;</code> (<code>bool</code>) and <code>&lt;math.h&gt;</code> (<code>NAN</code>, <code>INFINITY</code>, <code>isnan</code>). <code>restrict</code> is the promise from lesson 0.1, and you may leave it out.</p>
+
+<h2>One node, one line</h2>
+<p>Rendering is three jobs:</p>
+<ol>
+<li><strong>Schedule.</strong> Pick an order for the lines. Every node comes after its sources.</li>
+<li><strong>Name.</strong> Give each value node one C variable. The names can be anything unique. The oracle uses <code>v</code> and the node's number.</li>
+<li><strong>Print.</strong> Write each op as C that means exactly what the .uir op means.</li>
+</ol>
+<p>Step through a program with two stores. It adds two elements into a third, then doubles that into the first. Before each step, guess what gets printed.</p>
 </div>
 
 <div class="fig bleed" id="steps" data-title="render: one node at a time"></div>
 
+<details class="toggle">
+<summary>The .uir text of the program in the figure</summary>
+<pre><code>%b  = buffer 3 [3 4 0] dtype=i32 slot=0
+%e0 = shrink %b 0 []
+%e1 = shrink %b 1 []
+%e2 = shrink %b 2 []
+%x  = load %e0
+%y  = load %e1
+%s  = add %x %y
+%st = store %e2 %s
+%b1 = after %b %st
+%g2 = shrink %b1 2 []
+%g0 = shrink %b1 0 []
+%z  = load %g2
+%w  = mul %z 2
+%s2 = store %g0 %w
+%b2 = after %b1 %s2</code></pre>
+</details>
+
+<details class="toggle">
+<summary>What each kind of node becomes in C, in one table, for when you write your renderer</summary>
+<div class="tablewrap"><table>
+<thead><tr><th>node</th><th>what it becomes in C</th></tr></thead>
+<tbody>
+<tr><td><code>buffer</code></td><td>a pointer parameter, <code>b0</code> for slot 0</td></tr>
+<tr><td><code>alloc</code></td><td>a local array that starts as zeros: <code>int32_t a4[2] = {0};</code></td></tr>
+<tr><td><code>shrink</code></td><td>no line. It is the same pointer plus an offset.</td></tr>
+<tr><td><code>load</code>, and every op that makes a value</td><td>one new variable</td></tr>
+<tr><td>a constant</td><td>no line. It is written inside the line that uses it.</td></tr>
+<tr><td><code>store</code></td><td>one assignment into the array</td></tr>
+<tr><td><code>after</code></td><td>no line. It is the same array, one store later.</td></tr>
+</tbody></table></div>
+</details>
+
 <div class="prose">
-<h2>Loads before the store that overwrites them</h2>
-<p>In the graph, memory is immutable: <code>%b1 = after %b %st</code> is a new version, and <code>%b</code> still exists. In C, there's only one array, and a store changes it in place. So the moment the renderer prints <code>b0[2] = v2;</code>, version <code>%b</code> is gone. Every load of <code>%b</code> has to be printed before that line.</p>
-<p>That's the one extra edge the scheduler adds: <strong>store into version V depends on every load of V</strong>. With it, an ordinary topological sort gives a correct order. Week 2's checker already rejects the one program shape where no such order exists: a load of an old version whose offset depends on a newer version.</p>
+<h2>Which line goes first</h2>
+<p>This program swaps elements 0 and 2. Both loads read the first version, <code>%b</code>.</p>
+<pre><code>%b  = buffer 3 [1 2 3] dtype=i32 slot=0
+%e0 = shrink %b 0 []
+%e2 = shrink %b 2 []
+%x  = load %e0
+%y  = load %e2
+%s0 = store %e0 %y
+%b1 = after %b %s0
+%f2 = shrink %b1 2 []
+%s1 = store %f2 %x
+%b2 = after %b1 %s1</code></pre>
+<p>Your graph does not remember the order of these lines. It only has source edges. Suppose a renderer prints each store as soon as its value is ready. It could print this:</p>
+<pre><code>int32_t v5 = b0[2];
+b0[0] = v5;
+int32_t v6 = b0[0];
+b0[2] = v6;</code></pre>
 </div>
 
-<div class="trap">
-<span class="label">Reading the old version is legal</span>
-<p>A program may load from <code>%b</code> after <code>%b1</code> exists. That isn't a bug. It's how a swap works. The renderer just has to hoist that load above the store. If your scheduler emits stores as soon as their value is ready, a swap silently becomes a copy.</p>
+<div class="quiz" data-fill="3 2 3 | [3 2 3] | 3, 2, 3 | 3,2,3 | [3, 2, 3]">
+<p class="q">The buffer starts as <code>1 2 3</code>. What does it hold after those four lines of C? Write the three numbers.</p>
+<div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
+<p class="hint">Run the C one line at a time. What is in <code>b0[0]</code> when the third line reads it?</p>
+<div class="why"><p><code>3 2 3</code>. The 1 was overwritten before it was read, so the swap turned into a copy. The .uir program says <code>3 2 1</code>.</p></div>
 </div>
 
 <div class="prose">
-<h2>C is not .uir: undefined behavior</h2>
-<p>In .uir, <code>add</code> on i32 wraps around. In C, signed overflow is <strong>undefined behavior</strong>: the compiler may assume it never happens and optimize as if it can't. The grader compiles your C with <code>-fsanitize=undefined -fsanitize-trap=undefined</code>, so undefined behavior crashes the test instead of quietly working on your machine. Every i32 op needs a spelling with no undefined cases:</p>
+<p>The graph has two versions of the buffer. C has one array, and a store changes it in place. The moment <code>b0[0] = v5;</code> runs, version <code>%b</code> is gone. So the scheduler follows one extra rule: <strong>a store into version V comes after every load of V</strong>.</p>
+<ol>
+<li><strong>Find the loads of <code>%b</code>.</strong> <code>%x</code> and <code>%y</code>.</li>
+<li><strong>Hold the store back.</strong> <code>%s0</code> writes into <code>%b</code>, so treat both loads as extra sources of <code>%s0</code>.</li>
+<li><strong>Sort as usual.</strong> Sources first, as in week 1. The oracle prints:</li>
+</ol>
+<pre><code>int32_t v5 = b0[2];
+int32_t v6 = b0[0];
+b0[0] = v5;
+b0[2] = v6;</code></pre>
+<p>An order like this always exists. The checker from lesson 2.2 already rejects the one shape where it would not: a load of an old version whose offset depends on a newer version.</p>
 </div>
+
+<div class="exercise" data-ex="w2-04n-loads-first" data-ex-py="w2-04n-loads-first-py">
+<h3>Loads before the store</h3>
+<p><code>schedule</code> takes toy nodes and returns their names in the order to print them. <span class="only-python">A node is a tuple <code>(name, kind, version, srcs)</code>, and <code>kind</code> is <code>"load"</code>, <code>"store"</code> or <code>"op"</code>.</span><span class="only-ocaml">A node is a record with <code>name</code>, <code>kind</code>, <code>version</code> and <code>srcs</code>, and <code>kind</code> is <code>Load</code>, <code>Store</code> or <code>Op</code>.</span> For a load, <code>version</code> is the buffer version it reads. For a store, it is the version it overwrites.</p>
+<p>The sort is written: <code>visit</code> prints a node after everything in <code>needs</code>. Right now <code>needs</code> is only the node's sources, so the swap comes out as a copy. Change <code>needs</code> so that a store also needs every load of the version it overwrites.</p>
+</div>
+
+<div class="prose">
+<h2>Why a + b is the wrong C</h2>
+<p>Take these two lines, where <code>%x</code> was loaded from a buffer that holds 2147483647, the largest i32. In .uir the add wraps to the smallest i32, so <code>%lt</code> is <code>false</code>.</p>
+<pre><code>%y   = add %x 1
+%lt  = cmplt %x %y</code></pre>
+<p>A renderer that prints <code>add</code> as a plain <code>+</code> would write:</p>
+<pre><code>int32_t v7 = v5 + 1;
+bool v8 = (v5 &lt; v7);</code></pre>
+<p>This is the trap from <a href="../week0/01-c-and-pointers.html">lesson 0.1</a>. Built with <code>clang -O2</code>, that C stores <code>true</code>: signed overflow is <strong>undefined behavior</strong>, so the optimizer assumes it never happens and deletes the compare. .uir has no undefined behavior, so your renderer must never print C that has any. The grader compiles with <code>-fsanitize=undefined -fsanitize-trap=undefined</code>, which makes undefined behavior crash the test.</p>
+<p>The fix is the one from lesson 0.1. Unsigned math wraps by definition, so convert to <code>uint32_t</code>, add and convert back:</p>
+<pre><code>int32_t v7 = (int32_t)((uint32_t)v5 + (uint32_t)1);</code></pre>
+<p><code>mul</code> and <code>shl</code> get the same treatment. <code>shl</code> has one more trap: C does not define a shift by 32 or more, or by a negative amount. .uir shifts by <code>b mod 32</code>, which in C is <code>b &amp; 31</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-04n-wrap">
+<h3>Make mul and shl wrap</h3>
+<p><code>uir_add</code> is done. <code>uir_mul</code> and <code>uir_shl</code> still use the plain C operator, and the runner traps undefined behavior. Fix <code>uir_mul</code> the way <code>uir_add</code> does it. In <code>uir_shl</code>, shift <code>(uint32_t)a</code> by <code>((uint32_t)b &amp; 31u)</code> and convert the answer back.</p>
+</div>
+
+<div class="prose">
+<h2>Division rounds the other way</h2>
+<p>A buffer holds -7, and the program computes <code>div %x 2</code>. .uir's <code>div</code> floors, so the answer is -4. A renderer that prints <code>v3 / 2</code> gets -3, because C truncates toward zero (lesson 0.1).</p>
+<p>C's <code>/</code> and <code>%</code> have a second problem: <code>a / 0</code> and <code>INT_MIN / -1</code> are undefined behavior, and .uir defines both. So the renderer prints a call to a small helper function, which it defines once above <code>kernel</code>. The oracle prints this for the program above:</p>
+<pre><code>int32_t v5 = i32_div(v3, 2);</code></pre>
+<p>The helper answers <code>b == 0</code> and <code>b == -1</code> without dividing. For everything else it divides the C way, then fixes the result when the remainder is nonzero and its sign differs from <code>b</code>'s: that is exactly when C rounded the wrong way. The toggle below has each case.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-04-c-divmod">
+<h3>Floor division in C, without undefined behavior</h3>
+<p>Write <code>int32_t uir_div(int32_t a, int32_t b)</code> and <code>int32_t uir_mod(int32_t a, int32_t b)</code>: .uir's <code>div</code> and <code>mod</code>, in C. The quotient is the floor of <code>a / b</code>, wrapped to 32 bits, so <code>uir_div(-7, 2)</code> is -4 and <code>uir_div(INT_MIN, -1)</code> is <code>INT_MIN</code>. The remainder is <code>a - b * floor(a / b)</code>, so <code>uir_mod(-7, 2)</code> is 1 and <code>uir_mod(7, -2)</code> is -1. <code>b = 0</code> gives -1 and <code>a</code>. No input may hit undefined behavior: the runner traps it.</p>
+<p class="muted">On Windows, a naive <code>INT_MIN / -1</code> can hang the test until the runner times it out.</p>
+</div>
+
+<details class="toggle">
+<summary>The safe C for every op, for when you write your renderer</summary>
 <div class="tablewrap"><table>
 <thead><tr><th>op</th><th>naive C</th><th>the problem</th><th>safe C</th></tr></thead>
 <tbody>
@@ -65,61 +240,45 @@
 <tr><td><code>div</code></td><td><code>a / b</code></td><td>C truncates, .uir floors: <code>-7 / 2</code> is -3 in C and -4 in .uir. And <code>a / 0</code> and <code>INT_MIN / -1</code> are undefined (the second traps on x86).</td><td>a helper: <code>b == 0</code> gives -1, <code>b == -1</code> is a wrapping negation, and otherwise divide and subtract 1 when the remainder is nonzero and its sign differs from <code>b</code>'s</td></tr>
 <tr><td><code>mod</code></td><td><code>a % b</code></td><td>the remainder takes <code>a</code>'s sign in C and <code>b</code>'s in .uir, and <code>a % 0</code> and <code>INT_MIN % -1</code> are undefined</td><td>a helper: <code>b == 0</code> gives <code>a</code>, <code>b == -1</code> gives 0, and otherwise add <code>b</code> to a nonzero remainder whose sign differs from <code>b</code>'s</td></tr>
 <tr><td><code>cast</code> f32 to i32</td><td><code>(int32_t)x</code></td><td>NaN, and anything outside the i32 range, is undefined</td><td>a helper that saturates: NaN gives 0, <code>x &gt;= 2147483648.0f</code> gives <code>INT32_MAX</code>, <code>x &lt;= -2147483648.0f</code> gives <code>INT32_MIN</code>, and anything else is a plain <code>(int32_t)x</code></td></tr>
+<tr><td>the constant <code>-2147483648</code></td><td><code>-2147483648</code></td><td>C reads this as a minus sign applied to 2147483648, which does not fit in an <code>int</code></td><td><code>(-2147483647 - 1)</code></td></tr>
 </tbody></table></div>
+<div class="prose">
+<p>Plain <code>/</code> and <code>%</code> are still right when bounds prove <code>a</code> is never negative and <code>b</code> is a positive constant. Then the oracle prints <code>mod %m 4</code> with <code>%m = max %x 0</code> as <code>(v4 % 4)</code>, with no helper.</p>
+<p>The other ops have no undefined cases, and the oracle prints them directly: i32 <code>max</code> as <code>(a &gt; b ? a : b)</code>, <code>cmplt</code> as <code>(a &lt; b)</code>, <code>where</code> as <code>(c ? a : b)</code>, <code>xor</code> as <code>(a ^ b)</code> for i32 and <code>(a != b)</code> for bool, f32 <code>add</code> and <code>mul</code> as <code>(a + b)</code> and <code>(a * b)</code>, and <code>recip</code> as <code>(1.0f / a)</code>.</p>
+</div>
+</details>
 
 <div class="prose">
-<p>Plain <code>a / b</code> and <code>a % b</code> are still right in one common case: when bounds prove <code>a</code> is never negative and <code>b</code> is a positive constant. Then truncating and flooring agree, and nothing is undefined. For example, <code>mod %m 4</code> with <code>%m = max %i 0</code>, or a non-negative offset divided by a width of 8. Everywhere else, print a call to the helper.</p>
+<h2>Print each node once</h2>
+<p>Your graph is hash consed, so a value used five times is one node.</p>
 </div>
 
-<div class="exercise small" data-ex="w2-04-c-divmod">
-<h3>Floor division in C, without undefined behavior</h3>
-<p>Write <code>int32_t uir_div(int32_t a, int32_t b)</code> and <code>int32_t uir_mod(int32_t a, int32_t b)</code>: .uir's <code>div</code> and <code>mod</code>, in C. The quotient is the floor of <code>a / b</code>, wrapped to 32 bits, so <code>uir_div(-7, 2)</code> is -4 and <code>uir_div(INT_MIN, -1)</code> is <code>INT_MIN</code>. The remainder is <code>a - b * floor(a / b)</code>, so <code>uir_mod(-7, 2)</code> is 1 and <code>uir_mod(7, -2)</code> is -1. <code>b = 0</code> gives -1 and <code>a</code>. No input may hit undefined behavior: the runner traps it.</p>
-<p class="muted">If you try the naive version first: on Windows, <code>INT_MIN / -1</code> can hang the test until the runner times it out, rather than crashing straight away.</p>
+<div class="quiz" data-answer="c">
+<p class="q">A program doubles a value 30 times: each line is <code>add</code> of the line above with itself. A renderer prints a node's sources again every time it meets them. About how many lines of C does it print?</p>
+<div class="opts">
+<button data-k="a">30</button>
+<button data-k="b">60</button>
+<button data-k="c">About a billion</button>
 </div>
-
-<div class="prose">
-<h2>Floats: the same rounding, every time</h2>
-<p>f32 is easier, because C's <code>float</code> on x86-64 and ARM64 already rounds to binary32 after every operation, exactly like .uir. One compiler habit can break that: <strong>contraction</strong>. Given <code>a * b + c</code>, the compiler may emit one fused multiply-add instruction that rounds once instead of twice. That's usually more accurate, and it's still the wrong answer for us:</p>
-<pre><code>a = 0x1.001p+0f, b = 0x1.001p+0f, c = -0x1.002p+0f
-two roundings: (a * b) rounds to 0x1.002p+0, plus c gives 0
-one rounding:  fmaf(a, b, c) gives 0x1p-24</code></pre>
-<p><code>-ffp-contract=off</code> forbids that fusion, so the C rounds after every op like the oracle does. The grader passes it for you. If you build your own runtime, pass it too: clang contracts within an expression by default on targets with fused multiply-add, which includes every Apple Silicon Mac.</p>
-
-<h3>Literals that mean exactly one float</h3>
-<p>A constant in your graph is an exact f32. Printing it in decimal invites trouble: <code>printf("%g", FLT_MAX)</code> prints <code>3.40282e+38</code>, and C reads that back as a different float. <code>%.9g</code> is enough digits for any f32, but there's a cleaner way: a <strong>hex float</strong> writes the bits directly. <code>0.1f</code> is <code>0x1.99999ap-4f</code>, a mantissa in hex and a power of two. Trailing zeros are fine (<code>0x1.99999a0000000p-4f</code> is the same number).</p>
-<p>Three values have no literal: use <code>NAN</code>, <code>INFINITY</code> and <code>(-INFINITY)</code> from <code>&lt;math.h&gt;</code>. Negative zero needs its sign: <code>-0x0p+0f</code>. The oracle prints zeros as <code>0x0.0p+0f</code> and <code>-0x0.0p+0f</code>, the same two values written with a <code>.0</code>.</p>
-</div>
-
-<div class="exercise small" data-ex="w2-04-f32-literal" data-ex-py="w2-04-f32-literal-py">
-<h3>An f32 as an exact C literal</h3>
-<p>Write <span class="only-ocaml"><code>c_float : float -&gt; string</code></span><span class="only-python"><code>c_float(x: float) -&gt; str</code></span>. The input is already an f32 value. Return <code>NAN</code> for any NaN, <code>INFINITY</code> for +inf, <code>(-INFINITY)</code> for -inf, and otherwise <span class="only-ocaml">what <code>Printf.sprintf "%h"</code> prints</span><span class="only-python">the exact hex float in its shortest form (<code>x.hex()</code> with the trailing zeros of the fraction dropped)</span>, followed by <code>f</code>.</p>
+<p class="hint">The top node prints the node below it twice. Each of those prints the next one down twice. Keep doubling for 30 levels.</p>
+<div class="why"><p>About 2<sup>30</sup>, which is over a billion. Week 2 has no node budget, so a test can go 300 levels deep. Printing each node once gives 300 lines.</p></div>
 </div>
 
 <div class="prose">
-<h3>max is not fmaxf</h3>
-<p>C has <code>fmaxf</code>, and it's the wrong function. <code>fmaxf(NAN, 1.0f)</code> returns <code>1.0f</code>: C's rule is "ignore a NaN". .uir's <code>max</code> returns NaN if either side is NaN, and returns <code>+0.0</code> for <code>max(-0.0, 0.0)</code> in either order. So write a small helper function in the C you print, test it against those cases and call it for every f32 <code>max</code>. That's allowed: the C may call <code>&lt;math.h&gt;</code>, <code>memcpy</code> from <code>&lt;string.h&gt;</code> and non-recursive helpers defined in the same file, and nothing else.</p>
+<p>The cure is a table from node to C name:</p>
+<ol>
+<li><strong>Look first.</strong> If the node is in the table, use its name and stop. Do not walk into its sources.</li>
+<li><strong>Print.</strong> Otherwise get the text for its sources, then print one line with a fresh name.</li>
+<li><strong>Remember.</strong> Put the node and its name in the table.</li>
+</ol>
+<p>Key the table on which node it is, not on what the node looks like.</p>
 </div>
 
-<div class="prose">
-<h2>Shaped values, calls and casts</h2>
-<p>A rank-1 value becomes a small local array. <code>stack</code> is an array initializer and <code>index</code> is a subscript. Every index has been proven in range, so the subscript never reads past the array. This is the oracle's output for <code>stack 100 200 300</code> indexed by a loaded value <code>mod 3</code> (the loaded value can be negative, so the <code>mod</code> goes through the helper):</p>
-<pre><code>int32_t v7[3] = {100, 200, 300};
-int32_t v9 = b0[0];
-int32_t v11 = i32_mod(v9, 3);
-int32_t v12 = v7[v11];</code></pre>
-<p>A rank-1 <code>load</code> or <code>store</code> can't use a loop, so it is unrolled one element at a time. Loading <code>shrink %a 2 [3]</code> and storing it into <code>shrink %b 1 [3]</code> prints:</p>
-<pre><code>float v6[3] = {b0[2 + 0], b0[2 + 1], b0[2 + 2]};
-b1[1 + 0] = v6[0];
-b1[1 + 1] = v6[1];
-b1[1 + 2] = v6[2];</code></pre>
-<p>A <code>call</code> doesn't become a C function. It is inlined: the body is printed again for each call, with each param replaced by its arg's name. In <code>tests/week2/render/call_inlined.uir</code>, two calls of <code>p * 10 + q</code> with the args swapped print four lines, two per call.</p>
-<p>Most casts are plain C casts. i32 or bool to f32 prints <code>((float)x)</code>, which rounds to nearest-even like .uir. Anything to bool prints <code>(x != 0)</code>, which is <code>true</code> for <code>nan</code>, as .uir says. f32 to i32 is the exception: it saturates in .uir and is undefined in C for NaN and out-of-range values, so it calls the saturating helper from the table above.</p>
-
-<h2>Naming, and printing each node once</h2>
-<p>Your graph is hash consed, so a value used five times is one node. Print it once, as one variable, and refer to the name everywhere else. Keep a table from node to name, keyed on node identity. Week 2 has no node budget, so a program can be a 300-level doubling DAG, where each level adds the one below to itself. Without the table, that prints 2<sup>300</sup> lines. With it, 300.</p>
+<div class="exercise" data-ex="w2-04n-emit-once" data-ex-py="w2-04n-emit-once-py">
+<h3>Print a shared node once</h3>
+<p><code>emit</code> turns a toy expression into C lines and the name of the result. It works, but a node used twice is printed twice: for <code>x * x</code> with <code>x = a + 1</code> it prints the add two times. The table <code>names</code> exists and nothing uses it. Use it: look the node up before walking into its sources, and save the name after printing the line. <span class="only-python">Key it on <code>id(e)</code>.</span><span class="only-ocaml">Look up with <code>List.assq_opt</code>, which compares with <code>==</code>.</span></p>
 </div>
 
-<h2>Code it</h2>
 <div class="exercise" data-ex="w2-04-emit" data-ex-py="w2-04-emit-py">
 <h3>Emit straight-line C</h3>
 <p>A toy expression type stands in for your graph: <span class="only-ocaml"><code>type e = Lit of int | Var of string | Add of e * e | Mul of e * e</code></span><span class="only-python">the dataclasses <code>Lit(n)</code>, <code>Var(name)</code>, <code>Add(a, b)</code> and <code>Mul(a, b)</code></span>. Write <span class="only-ocaml"><code>emit : e -&gt; string list * string</code></span><span class="only-python"><code>emit(e) -&gt; tuple[list[str], str]</code></span>, returning the C lines and the expression for the result.</p>
@@ -129,6 +288,110 @@ b1[1 + 2] = v6[2];</code></pre>
 <li>A node that is physically the same (<span class="only-ocaml"><code>==</code></span><span class="only-python"><code>is</code></span>) as one you've already emitted reuses its name and adds no line.</li>
 </ul>
 </div>
+
+<div class="prose">
+<h2>Float constants that survive the trip</h2>
+<p>A constant in your graph is an exact f32. The C file is text, so the constant has to be written as text and read back by the C compiler as the same f32. Suppose the renderer prints floats the default way, with C's <code>%g</code>.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The constant is <code>16777215.0</code>. <code>%g</code> prints it as <code>1.67772e+07</code>. What number does the C compiler read back?</p>
+<div class="opts">
+<button data-k="a">16777215</button>
+<button data-k="b">16777200</button>
+<button data-k="c">It is a syntax error</button>
+</div>
+<p class="hint"><code>e+07</code> means "times ten million". How many digits did <code>%g</code> keep?</p>
+<div class="why"><p>16777200. <code>%g</code> keeps six digits, so the last 15 is gone and the program now computes with a different number.</p></div>
+</div>
+
+<div class="prose">
+<p>Nine digits (<code>%.9g</code>) are enough for any f32. There is a cleaner way: a <strong>hex float</strong> writes the bits themselves. Here is how to read <code>0x1.8p+1f</code>:</p>
+<ol>
+<li><strong>The digits.</strong> <code>0x1.8</code> is in base 16: 1 plus 8 sixteenths, which is 1.5.</li>
+<li><strong>The power.</strong> <code>p+1</code> means times 2<sup>1</sup>. So the value is 3.</li>
+<li><strong>The suffix.</strong> <code>f</code> makes it a <code>float</code> and not a <code>double</code>.</li>
+</ol>
+<p>For <code>mul %x 0.1</code> the oracle prints <code>(v3 * 0x1.99999a0000000p-4f)</code>. Trailing zeros change nothing: <code>0x1.99999ap-4f</code> is the same number. Three values have no literal, so use <code>NAN</code>, <code>INFINITY</code> and <code>(-INFINITY)</code> from <code>&lt;math.h&gt;</code>. Negative zero keeps its sign: <code>-0x0p+0f</code>, which the oracle writes as <code>-0x0.0p+0f</code>.</p>
+</div>
+
+<div class="exercise small" data-ex="w2-04-f32-literal" data-ex-py="w2-04-f32-literal-py">
+<h3>An f32 as an exact C literal</h3>
+<p>Write <span class="only-ocaml"><code>c_float : float -&gt; string</code></span><span class="only-python"><code>c_float(x: float) -&gt; str</code></span>. The input is already an f32 value. Return <code>NAN</code> for any NaN, <code>INFINITY</code> for +inf, <code>(-INFINITY)</code> for -inf, and otherwise <span class="only-ocaml">what <code>Printf.sprintf "%h"</code> prints</span><span class="only-python">the exact hex float in its shortest form (<code>x.hex()</code> with the trailing zeros of the fraction dropped)</span>, followed by <code>f</code>.</p>
+</div>
+
+<div class="prose">
+<h2>Float max is not fmaxf</h2>
+<p>f32 <code>add</code> and <code>mul</code> are easy: C's <code>float</code> rounds after every operation, exactly like .uir. <code>max</code> looks easy too, because C has a function for it, <code>fmaxf</code>. In .uir, <code>max nan 1.0</code> is <code>nan</code>.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">What does C's <code>fmaxf(NAN, 1.0f)</code> return?</p>
+<div class="opts">
+<button data-k="a"><code>1.0f</code></button>
+<button data-k="b"><code>NAN</code></button>
+<button data-k="c">It is undefined behavior</button>
+</div>
+<p class="hint">C's rule for the <code>fmax</code> family is to treat a NaN as missing data.</p>
+<div class="why"><p><code>1.0f</code>. C ignores a NaN when the other side is a number. .uir does the opposite, so <code>fmaxf</code> gives the wrong answer.</p></div>
+</div>
+
+<div class="prose">
+<p>.uir's <code>max</code> returns NaN if either side is NaN, and returns <code>+0.0</code> for <code>max(-0.0, 0.0)</code> in either order. So print one more small helper above <code>kernel</code> and call it for every f32 <code>max</code>. The oracle calls its helper <code>f32_max</code>.</p>
+</div>
+
+<details class="toggle">
+<summary>Why the grader passes -ffp-contract=off, for when you build your own runtime</summary>
+<div class="prose">
+<p>One compiler habit can break "round after every operation": <strong>contraction</strong>. Given <code>a * b + c</code>, the compiler may emit one fused multiply-add instruction that rounds once instead of twice. That's usually more accurate, and it's still the wrong answer for us:</p>
+<pre><code>a = 0x1.001p+0f, b = 0x1.001p+0f, c = -0x1.002p+0f
+two roundings: (a * b) rounds to 0x1.002p+0, plus c gives 0
+one rounding:  fmaf(a, b, c) gives 0x1p-24</code></pre>
+<p><code>-ffp-contract=off</code> forbids that fusion, so the C rounds after every op like the oracle does. The grader passes it for you. If you build your own runtime, pass it too: clang contracts within an expression by default on targets with fused multiply-add, which includes every Apple Silicon Mac.</p>
+</div>
+</details>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Render a graph: print a C program where each node is a parameter, a variable, an assignment or nothing.</li>
+<li>Schedule every load of a version before the store that overwrites it.</li>
+<li>Print <code>add</code>, <code>mul</code>, <code>shl</code>, <code>div</code> and <code>mod</code> as C with no undefined behavior.</li>
+<li>Print each node once, with a table from node to name.</li>
+<li>Write an f32 constant as a hex float that reads back exactly.</li>
+</ul>
+<p>Next, lesson 2.5 takes the C you print, compiles it and runs it, so your compiler can check its own output.</p>
+</div>
+
+<details class="toggle">
+<summary>How vectors, calls, casts and allocs print, for when you reach them in the lab</summary>
+<div class="prose">
+<p>A rank-1 value becomes a small local array. <code>stack</code> is an array initializer and <code>index</code> is a subscript. Every index has been proven in range, so the subscript never reads past the array. This is the oracle's output for <code>tests/week2/render/stack_index_dynamic.uir</code>, where <code>stack 100 200 300</code> is indexed by two loaded values <code>mod 3</code>. A loaded value can be negative, so each <code>mod</code> goes through the helper:</p>
+<pre><code>void kernel(int32_t *restrict b0, int32_t *restrict b1) {
+  int32_t v5[3] = {100, 200, 300};
+  int32_t v8 = b0[0];
+  int32_t v10 = i32_mod(v8, 3);
+  int32_t v11 = v5[v10];
+  int32_t v14 = b0[1];
+  int32_t v15 = i32_mod(v14, 3);
+  int32_t v16 = v5[v15];
+  int32_t v17[2] = {v11, v16};
+  b1[0 + 0] = v17[0];
+  b1[0 + 1] = v17[1];
+}</code></pre>
+<p>A rank-1 <code>load</code> or <code>store</code> can't use a loop, so it is unrolled one element at a time. In <code>tests/week2/render/rank1_copy.uir</code>, loading <code>shrink %a 2 [3]</code> and storing it into <code>shrink %b 1 [3]</code> prints:</p>
+<pre><code>void kernel(float *restrict b0, float *restrict b1) {
+  float v6[3] = {b0[2 + 0], b0[2 + 1], b0[2 + 2]};
+  b1[1 + 0] = v6[0];
+  b1[1 + 1] = v6[1];
+  b1[1 + 2] = v6[2];
+}</code></pre>
+<p>A <code>call</code> doesn't become a C function. It is inlined: the body is printed again for each call, with each param replaced by its arg's name. In <code>tests/week2/render/call_inlined.uir</code>, two calls of <code>p * 10 + q</code> with the args swapped print four lines, two per call.</p>
+<p>Most casts are plain C casts. i32 or bool to f32 prints <code>((float)x)</code>, which rounds to nearest-even like .uir. Anything to bool prints <code>(x != 0)</code>, which is <code>true</code> for <code>nan</code>, as .uir says. f32 to i32 is the exception: it saturates in .uir and is undefined in C for NaN and out-of-range values, so it calls the saturating helper from the table of safe C.</p>
+<p>The C must have no loops and no recursion. It may call <code>&lt;math.h&gt;</code> functions, <code>memcpy</code> from <code>&lt;string.h&gt;</code> and helper functions defined in the same file that do not call themselves, and nothing else.</p>
+<p>An <code>alloc</code> whose contents never reach a buffer changes no output, so you may leave it out of the C. Every <code>alloc</code> you do print must start as zeros, because reading memory that was never set is undefined behavior too.</p>
+</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
@@ -189,18 +452,6 @@ b1[1 + 2] = v6[2];</code></pre>
 <div class="why"><p>C's <code>fmaxf</code> ignores a NaN argument and returns the other one. .uir propagates NaN, and pins <code>max(-0.0, 0.0)</code> to <code>+0.0</code>, which <code>fmaxf</code> doesn't promise. A small helper gets both right.</p></div>
 </div>
 
-<div class="quiz" data-answer="c">
-<p class="q">What does <code>-ffp-contract=off</code> prevent?</p>
-<div class="opts">
-<button data-k="a">Constant folding of float expressions</button>
-<button data-k="b">Promotion of <code>float</code> to <code>double</code></button>
-<button data-k="c">Fusing <code>a * b + c</code> into one instruction that rounds once instead of twice</button>
-<button data-k="d">Reordering stores to memory</button>
-</div>
-<p class="hint">"Contract" here means combining two operations into one. Which two float ops have a combined hardware instruction?</p>
-<div class="why"><p>Contraction into a fused multiply-add. It skips the rounding after the multiply, so the result can differ from .uir's round-after-every-op semantics (0 versus <code>0x1p-24</code> in the example above).</p></div>
-</div>
-
 <div class="quiz" data-fill="0 | zero | none">
 <p class="q">How many lines of C does an <code>after</code> node produce?</p>
 <div class="fill"><input aria-label="number of lines" inputmode="numeric"><button class="btn">Check</button></div>
@@ -231,28 +482,28 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
   };
   const L = [
-    'void kernel(int32_t *b0) {',
-    '  int32_t v0 = b0[0];',
-    '  int32_t v1 = b0[1];',
-    '  int32_t v2 = (int32_t)((uint32_t)v0 + (uint32_t)v1);',
-    '  b0[2] = v2;',
-    '  int32_t v3 = b0[2];',
-    '  int32_t v4 = (int32_t)((uint32_t)v3 * (uint32_t)2);',
-    '  b0[0] = v4;',
+    'void kernel(int32_t *restrict b0) {',
+    '  int32_t v5 = b0[0];',
+    '  int32_t v8 = b0[1];',
+    '  int32_t v9 = (int32_t)((uint32_t)v5 + (uint32_t)v8);',
+    '  b0[2] = v9;',
+    '  int32_t v14 = b0[2];',
+    '  int32_t v15 = (int32_t)((uint32_t)v14 * (uint32_t)2);',
+    '  b0[0] = v15;',
     '}',
   ];
   const code = (n, closed = true) => ({ text: L.slice(0, n).join('\n') + (closed && n < 9 && n > 0 ? '\n}' : ''), hl: n - 1 });
   const steps = [
     { caption: 'A checked program. Memory nodes (<code>buffer</code>, <code>shrink</code>, <code>after</code>) sit beside value nodes. Nothing is printed yet.', hit: [], c: { text: '// nothing printed yet', hl: -1 } },
     { caption: 'The <code>buffer</code> with slot 0 becomes the parameter <code>b0</code>. It\'s the only memory the kernel sees.', hit: ['b'], c: code(1) },
-    { caption: 'A load through <code>shrink %b 0 []</code>: the view is just pointer <code>b0</code> plus offset 0. The value gets a name, <code>v0</code>.', hit: ['e0', 'x'], c: code(2) },
+    { caption: 'A load through <code>shrink %b 0 []</code>: the view is just pointer <code>b0</code> plus offset 0. The value gets a name, <code>v5</code>.', hit: ['e0', 'x'], c: code(2) },
     { caption: 'The second load, at offset 1. Both read version <code>%b</code>.', hit: ['e1', 'y'], c: code(3) },
     { caption: 'The <code>add</code>, wrapped through <code>uint32_t</code> so overflow is defined C.', hit: ['s'], c: code(4) },
     { caption: 'The store overwrites <code>b0[2]</code> in place, which destroys version <code>%b</code>. It\'s allowed here only because every load of <code>%b</code> has already been printed.', hit: ['st', 'e2'], c: code(5) },
     { caption: '<code>after</code> prints nothing. <code>%b1</code> is the same array as <code>%b</code>, one store later.', hit: ['b1'], c: code(5) },
     { caption: 'A load from <code>%b1</code>: same pointer, and now <code>b0[2]</code> holds the sum.', hit: ['g2', 'z'], c: code(6) },
     { caption: 'The constant <code>2</code> goes inline. Constants never need their own line.', hit: ['w', 'k2'], c: code(7) },
-    { caption: 'The last store, into <code>%b1</code> at offset 0. The only load of <code>%b1</code> (<code>v3</code>) is already printed, so this store can go now.', hit: ['s2', 'g0'], c: code(8) },
+    { caption: 'The last store, into <code>%b1</code> at offset 0. The only load of <code>%b1</code> (<code>v14</code>) is already printed, so this store can go now.', hit: ['s2', 'g0'], c: code(8) },
     { caption: 'Done. <code>%b2</code> is the final version of slot 0, and the caller sees it in <code>b0</code> when <code>kernel</code> returns.', hit: ['b2'], c: code(9, false) },
   ];
   CC.stepper(document.getElementById('steps'), steps, (s, body) => {

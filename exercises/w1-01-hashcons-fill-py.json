@@ -1,0 +1,54 @@
+{
+ "id": "w1-01-hashcons-fill-py",
+ "lang": "python",
+ "title": "Repair a node table",
+ "show": "str",
+ "prompt": "<p>This <code>make</code> is almost a hash-consing table. Two lines are wrong.</p><p><strong>The key.</strong> It only looks at the op, so <code>add</code> of two different pairs of sources would collide. It should be the op plus the ids of the sources, as a tuple.</p><p><strong>The hit.</strong> When the key is already in the table it builds a new node anyway. It should hand back the node that is stored there.</p>",
+ "starter": "from dataclasses import dataclass\n\n\n@dataclass(eq=False)\nclass Node:\n    id: int\n    op: str\n    src: list[\"Node\"]\n\n\ndef create():\n    table = {}\n\n    def make(op: str, src: list[Node]) -> Node:\n        key = (op,)\n        if key in table:\n            return Node(len(table), op, src)\n        node = Node(len(table), op, src)\n        table[key] = node\n        return node\n\n    return make\n",
+ "tests": [
+  {
+   "expr": "(mk := create(), a := mk('x', []), b := mk('x', []), a is b)[-1]",
+   "expect": "True",
+   "sample": true
+  },
+  {
+   "expr": "(mk := create(), a := mk('x', []), b := mk('y', []), f'{a.id} {b.id}')[-1]",
+   "expect": "0 1",
+   "sample": true
+  },
+  {
+   "expr": "(mk := create(), x := mk('x', []), mk('add', [x, x]) is mk('add', [x, x]))[-1]",
+   "expect": "True"
+  },
+  {
+   "expr": "(mk := create(), x := mk('x', []), mk('add', [x, x]), mk('add', [x, x]), mk('z', []).id)[-1]",
+   "expect": "2"
+  },
+  {
+   "expr": "(mk := create(), x := mk('x', []), y := mk('y', []), mk('add', [x, y]) is mk('add', [y, x]))[-1]",
+   "expect": "False"
+  },
+  {
+   "expr": "(m1 := create(), m2 := create(), m1('a', []), m2('b', []).id)[-1]",
+   "expect": "0"
+  },
+  {
+   "expr": "(mk := create(), x := mk('x', []), mk('neg', [x]) is mk('neg', [x, x]))[-1]",
+   "expect": "False"
+  },
+  {
+   "expr": "(mk := create(), a := mk('add', [mk('x', []), mk('x', [])]), b := mk('add', [mk('x', []), mk('x', [])]), a is b and a.id == 1)[-1]",
+   "expect": "True"
+  },
+  {
+   "expr": "(mk := create(), last := mk('c', []), [last := mk('s', [last]) for _ in range(1000)], mk('s', [mk('c', [])]).id)[-1]",
+   "expect": "1"
+  }
+ ],
+ "hints": [
+  "The key needs two parts: `op`, and something that says which sources.",
+  "`tuple(n.id for n in src)` turns the list of source nodes into a tuple of their ids. A tuple can be a dict key and a list can't.",
+  "On a hit, return `table[key]`. That is the very same object as before, which is what `is` checks."
+ ],
+ "explain": "The key `(op, tuple(n.id for n in src))` says exactly which node this is: the same op on the same sources. When that key is already in the table, returning `table[key]` hands back the one node that was built the first time, so nothing is ever built twice."
+}

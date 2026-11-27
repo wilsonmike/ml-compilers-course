@@ -1,0 +1,137 @@
+{
+ "id": "w5-04n-square",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "Line B up the right way",
+ "starter": "%Ab = buffer 4 dtype=f32 slot=0\n%Bb = buffer 4 dtype=f32 slot=1\n%Cb = buffer 4 dtype=f32 slot=2\n%A  = load %Ab\n%B  = load %Bb\n%a3 = reshape %A [2 2 1]\n%aT = permute %a3 [1 0 2]\n%ax = expand %aT [2 2 2]\n%b3 = reshape %B [2 2 1]\n%bx = expand %b3 [2 2 2]\n%p  = mul %ax %bx\n%c  = reduce %p op=add pop=1\n%cf = reshape %c [4]\n%s  = store %Cb %cf\n%C1 = after %Cb %s\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0
+    ],
+    "1": [
+     5.0,
+     6.0,
+     7.0,
+     8.0
+    ]
+   },
+   "sample": true,
+   "expect": "[19.0 22.0 43.0 50.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "1": [
+     5.0,
+     6.0,
+     7.0,
+     8.0
+    ]
+   },
+   "sample": true,
+   "expect": "[5.0 6.0 7.0 8.0]"
+  },
+  {
+   "data": {
+    "0": [
+     2.0,
+     0.0,
+     0.0,
+     3.0
+    ],
+    "1": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "expect": "[2.0 2.0 3.0 3.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.5,
+     -1.0,
+     2.0,
+     4.0
+    ],
+    "1": [
+     4.0,
+     8.0,
+     -2.0,
+     0.25
+    ]
+   },
+   "expect": "[4.0 3.75 0.0 17.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     2.0,
+     3.0,
+     4.0
+    ],
+    "1": [
+     0.0,
+     1.0,
+     1.0,
+     0.0
+    ]
+   },
+   "expect": "[2.0 1.0 4.0 3.0]"
+  },
+  {
+   "data": {
+    "0": [
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "1": [
+     9.0,
+     8.0,
+     7.0,
+     6.0
+    ]
+   },
+   "expect": "[0.0 0.0 0.0 0.0]"
+  },
+  {
+   "data": {
+    "0": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "1": [
+     1.0,
+     2.0,
+     3.0,
+     4.0
+    ]
+   },
+   "expect": "[4.0 6.0 4.0 6.0]"
+  }
+ ],
+ "hints": [
+  "B is K x N. Which of the three axes k, m, n does B not have? That is where its size-1 axis goes.",
+  "The cube's axes are k, m, n. B has k and n, so it needs a 1 in the middle, where m is.",
+  "Change B's reshape to `[2 1 2]`. Then `expand` repeats row k of B down the m axis."
+ ],
+ "explain": "B has a k axis and an n axis and no m axis, so its size-1 axis sits in the middle: `[2 1 2]`. With `[2 2 1]` the cube has the right shape and the wrong numbers, because B gets read as if its columns were m."
+}

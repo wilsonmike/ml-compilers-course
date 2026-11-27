@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rangeify Movement Ops</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Movement ops never compute anything, so rangeify can make them disappear. Each one becomes a little index arithmetic in front of a load: a multiply, a divide...">
+<meta name="description" content="A movement op computes nothing. In this lesson you teach rangeify what to do with one: change the index, then ask the source. Once it can, your compiler turns...">
 <link rel="canonical" href="https://sharpterminal.com/site/week5/05-rangeify-movement">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Rangeify Movement Ops">
-<meta property="og:description" content="Movement ops never compute anything, so rangeify can make them disappear. Each one becomes a little index arithmetic in front of a load: a multiply, a divide, a clamp. After rangeify, a matmul...">
+<meta property="og:description" content="A movement op computes nothing. In this lesson you teach rangeify what to do with one: change the index, then ask the source. Once it can, your compiler turns lesson 5.4&#x27;s matmul into two plain...">
 <meta property="og:url" content="https://sharpterminal.com/site/week5/05-rangeify-movement">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .padview { display: grid; gap: var(--s4); }
   .vlabel { font: 0.875rem var(--mono); color: var(--ink-3); margin-bottom: var(--s1); }
@@ -35,31 +35,175 @@
 <main>
 <p class="eyebrow">Week 5 · Lesson 5</p>
 <h1>Rangeify movement ops</h1>
-<p class="lede">Movement ops never compute anything, so rangeify can make them disappear. Each one becomes a little index arithmetic in front of a load: a multiply, a divide, a clamp. After rangeify, a matmul written as a broadcast cube is two loops (one over the flattened outputs, one over k) and a few integer ops, and the cube was never there.</p>
+<p class="lede">A movement op computes nothing. In this lesson you teach rangeify what to do with one: change the index, then ask the source. Once it can, your compiler turns lesson 5.4's matmul into two plain loops, and the big cube of products is never built.</p>
 
-<div class="prose">
-<h2>Every op is a rule for indices</h2>
-<p>Week 4's rangeify asked each value one question: what is your element at index <code>i</code>? Week 5 asks the same question with an index <em>tuple</em> <code>(i0, i1, ...)</code>, one entry per axis. A movement op answers by rewriting the tuple and passing the question to its operand:</p>
+<div class="note">
+<span class="label">Goal</span>
+<p>Give the element at any index of a <code>permute</code>, <code>expand</code>, <code>shrink</code>, <code>reshape</code> and <code>pad</code> as index arithmetic on its source.</p>
 </div>
-<div class="tablewrap"><table>
-<thead><tr><th>op</th><th>element at <code>(i0, ..., ik)</code> becomes</th></tr></thead>
-<tbody>
-<tr><td><code>reshape</code></td><td>flatten the index in the new shape (<code>f = i0·stride0 + i1·stride1 + ...</code>, row-major strides), then unflatten <code>f</code> in the old shape: axis k is <code>(f div stride_k) mod size_k</code></td></tr>
-<tr><td><code>permute [p0 p1 ...]</code></td><td>the operand at the index whose axis <code>p_k</code> is <code>i_k</code>: just a reordering, no arithmetic</td></tr>
-<tr><td><code>pad [l r ...]</code></td><td>the operand at the clamped index <code>clamp(i - l, 0, n - 1)</code>, then <code>where(valid, that, 0)</code>, with <code>valid = l ≤ i &lt; l + n</code></td></tr>
-<tr><td><code>shrink</code></td><td>the operand at <code>(i0 + o0, ...)</code></td></tr>
-<tr><td><code>expand</code></td><td>the operand with every size-1 axis read at 0</td></tr>
-<tr><td><code>stack</code></td><td>item <code>i0</code> at the rest of the index: a chain of <code>where</code>s on <code>i0</code>, or a plain C array index when the items are scalars</td></tr>
-<tr><td><code>index x j0 ...</code></td><td>the operand at <code>(j0, ..., i0, ...)</code>: the <code>j</code>s become its leading coordinates. On a <code>stack</code> of vectors that coordinate goes through the <code>where</code> chain, so with two items a <code>j</code> that isn't a constant renders as <code>(j &lt; 1 ? a0 : a1)</code>. The oracle renders a constant <code>j</code> the same way, with a constant condition like <code>(1 &lt; 1)</code> that constant folding (lesson 1.3) could remove</td></tr>
-<tr><td><code>reduce pop=m</code></td><td>one accumulator loop over all <code>m</code> leading axes together: a flat counter <code>t</code>, unflattened into the m indices with div and mod</td></tr>
-</tbody></table></div>
-<div class="prose">
-<p>Eventually every question reaches a <code>load</code> of a rank-1 buffer, which answers with a scalar load at <code>offset + i</code>. Everything above it was index arithmetic.</p>
-<p>Here is one question followed all the way down. <code>%m = reshape %v [2 3]</code> on a 6-element <code>%v</code>, then <code>%t = permute %m [1 0]</code>, shape <code>(3, 2)</code>. Ask <code>%t</code> for element <code>(2, 1)</code>. The permute swaps the tuple and asks <code>%m</code> for <code>(1, 2)</code>. The reshape flattens that in <code>[2 3]</code>, <code>f = 1·3 + 2 = 5</code>, then unflattens 5 in <code>%v</code>'s shape <code>(6,)</code>, which leaves 5. So the transpose's <code>(2, 1)</code> is a load of element 5.</p>
 
-<h2>Pad: a clamp and a mask</h2>
+<div class="note">
+<span class="label">You'll use</span>
+<p>The question "what is your element at <code>i</code>?" (<a href="../week4/03-rangeify.html">lesson 4.3</a>), row-major order and strides (<a href="01-shapes.html">5.1</a>) and the movement ops themselves (<a href="02-reshape-permute.html">5.2</a>, <a href="03-pad-shrink-expand.html">5.3</a>).</p>
+<p class="only-python">In the exercises: a list comprehension with <code>zip</code> (<a href="../learn/py-03-collections.html">P.3</a>) and <code>match</code> on your own classes (<a href="../learn/py-04-your-own-types.html">P.4</a>).</p>
+<p class="only-ocaml">In the exercises: list functions like <code>List.map2</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>) and <code>match</code> on your own types (<a href="../learn/ml-04-your-own-types.html">O.4</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="c">
+<p class="q">From lesson 4.3: what is the element at <code>i</code> of <code>expand 2.0 [4]</code>?</p>
+<div class="opts">
+<button data-k="a">A load from a 4-element buffer at <code>i</code></button>
+<button data-k="b"><code>2.0</code> times <code>i</code></button>
+<button data-k="c"><code>2.0</code> itself, whatever <code>i</code> is</button>
+</div>
+<p class="hint">Every element of a broadcast is the same scalar.</p>
+<div class="why"><p>The index is thrown away. No copy is built, and nothing is computed.</p></div>
+</div>
+
+<div class="quiz" data-fill="9">
+<p class="q">From lesson 5.1: a buffer of 12 numbers is read as shape <code>[3 4]</code>, row-major. Which flat position holds element <code>[2][1]</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Each row is 4 numbers, so row 2 starts at position 8.</p>
+<div class="why"><p><code>2·4 + 1 = 9</code>. The strides of <code>[3 4]</code> are 4 and 1: one step along axis 0 skips 4 elements.</p></div>
+</div>
+
+<h2>A transpose computes nothing</h2>
+<div class="prose">
+<p>Hand your compiler the matmul from lesson 5.4 and it stops at the first <code>permute</code>. It has no rule for it. Lesson 4.3 gave you the question to ask: what is your element at index <code>i</code>? A value now has several axes, so the index is a list with one entry per axis, like <code>(i, j)</code>. Ask a transpose:</p>
+<pre><code>%m = reshape %v [2 3]
+%t = permute %m [1 0]</code></pre>
+<p><code>%v</code> holds <code>10 20 30 40 50 60</code>. So <code>%m</code> is <code>[[10 20 30] [40 50 60]]</code>, and <code>%t</code> has shape <code>(3, 2)</code>.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The element of <code>%t</code> at <code>(2, 1)</code> is which element of <code>%m</code>?</p>
+<div class="opts">
+<button data-k="a"><code>%m</code> at <code>(2, 1)</code></button>
+<button data-k="b"><code>%m</code> at <code>(1, 2)</code></button>
+<button data-k="c"><code>%m</code> at <code>(0, 2)</code></button>
+</div>
+<p class="hint">A transpose turns rows into columns. <code>%m</code> has no row 2.</p>
+<div class="why"><p>A transpose's element at <code>(i, j)</code> is the source's element at <code>(j, i)</code>. Here that is <code>%m</code> at <code>(1, 2)</code>, which is 60.</p></div>
+</div>
+
+<div class="prose">
+<p>No add or multiply happened. The <code>permute</code> swapped the two index entries and passed the question on to its <strong>source</strong>, the value it was applied to.</p>
+</div>
+
+<div class="key">
+<span class="label">A movement op only changes the question</span>
+<p>Asked for its element at one index, a movement op asks its source for the element at another index. It computes no value and uses no memory. Each rule in this lesson says how to get the other index.</p>
+</div>
+
+<div class="prose">
+<p>The general rule for <code>permute %x [p0 p1 ...]</code>: entry <code>k</code> of the index goes to axis <code>p_k</code> of the source. With order <code>[2 0 1]</code>, index <code>(1, 0, 2)</code> asks the source at <code>(0, 2, 1)</code>. It is a reordering, with no arithmetic at all.</p>
+</div>
+
+<h2>expand drops an index, shrink adds an offset</h2>
+<div class="prose">
+<p><code>%c</code> has shape <code>(3, 1)</code> and holds <code>7 8 9</code>, one number per row. <code>%e = expand %c [3 4]</code> repeats each row's number across 4 columns.</p>
+</div>
+
+<div class="quiz" data-fill="0">
+<p class="q">The element of <code>%e</code> at <code>(2, 3)</code> is <code>%c</code> at <code>(2, ?)</code>. What is the missing entry?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">How many elements does <code>%c</code> have along axis 1?</p>
+<div class="why"><p>0. Axis 1 of <code>%c</code> has one element, at position 0. The 3 is thrown away, and the answer is <code>%c</code> at <code>(2, 0)</code>, which is 9.</p></div>
+</div>
+
+<div class="prose">
+<p>That is the rule for <code>expand</code>: every size-1 axis of the source is asked at 0, and the other entries pass through. Lesson 4.3's expand of a scalar is the same rule with every entry dropped.</p>
+<p><code>shrink</code> cuts a window that starts at an offset, so its rule adds the offset back. For <code>%w = shrink %p 2 [5]</code> on a 7-element <code>%p</code>:</p>
+<ol>
+<li><strong>Take the index.</strong> Say <code>%w</code> is asked for element 4.</li>
+<li><strong>Add the offset.</strong> <code>4 + 2 = 6</code>.</li>
+<li><strong>Ask the source.</strong> The answer is <code>%p</code> at 6.</li>
+</ol>
+<p>With several axes, each entry gets its own axis's offset.</p>
+</div>
+
+<div class="exercise" data-ex="w5-05n-src" data-ex-py="w5-05n-src-py">
+<h3>The source index of a movement op</h3>
+<p><code>src op idx</code> answers one question: when a movement op is asked for its element at index <code>idx</code>, which index does it ask its source for? The <code>Permute</code> case is written. Fix the other two, which pass the index on unchanged. <code>Expand shape</code> carries the shape of the source, the value being expanded, so you can see which axes have size 1. <code>Shrink offsets</code> carries one offset per axis.</p>
+</div>
+
+<h2>reshape flattens, then splits</h2>
+<div class="prose">
+<p>Take the same <code>%m = [[10 20 30] [40 50 60]]</code>, shape <code>(2, 3)</code>, and reshape it: <code>%r = reshape %m [3 2]</code>.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The element of <code>%r</code> at <code>(1, 0)</code> is which element of <code>%m</code>?</p>
+<div class="opts">
+<button data-k="a"><code>%m</code> at <code>(0, 1)</code>, the 20</button>
+<button data-k="b"><code>%m</code> at <code>(0, 2)</code>, the 30</button>
+<button data-k="c"><code>%m</code> at <code>(1, 0)</code>, the 40</button>
+</div>
+<p class="hint">Reshape never moves a number. Write <code>%r</code> out in rows of 2.</p>
+<div class="why"><p><code>%r</code> is <code>[[10 20] [30 40] [50 60]]</code>, so <code>(1, 0)</code> is 30. Swapping the entries would give 20, which is the transpose's answer, not the reshape's.</p></div>
+</div>
+
+<div class="prose">
+<p>A reshape keeps every element at the same row-major position (lesson 5.2). So the position is the one thing both shapes agree on, and the rule goes through it:</p>
+<ol>
+<li><strong>Flatten in the new shape.</strong> Shape <code>[3 2]</code> has strides 2 and 1, so <code>(1, 0)</code> is at position <code>f = 1·2 + 0·1 = 2</code>.</li>
+<li><strong>Split in the old shape.</strong> Shape <code>[2 3]</code> has strides 3 and 1. The entry for an axis is <code>(f div stride) mod size</code>: the row is <code>(2 div 3) mod 2 = 0</code> and the column is <code>(2 div 1) mod 3 = 2</code>.</li>
+<li><strong>Ask the source.</strong> The answer is <code>%m</code> at <code>(0, 2)</code>.</li>
+</ol>
+<p>These are the first movement rules that cost anything: a few integer ops on the index. Here they are for index <code>(2, 1)</code>. Guess each value, then change the 2 and the 1 on the first two lines to try another index.</p>
+</div>
+
+<div class="fig" id="reshape-math"></div>
+
+<div class="exercise" data-ex="w5-05n-reshape" data-ex-py="w5-05n-reshape-py">
+<h3>Flatten, then split</h3>
+<p>Write the two halves of the reshape rule. <code>flatten shape idx</code> is the row-major position of index <code>idx</code> in <code>shape</code>. <code>unflatten shape f</code> goes the other way: the index, one entry per axis, of position <code>f</code>. <code>reshape_src</code> is written and joins them: flatten in the new shape, unflatten in the old one.</p>
+</div>
+
+<h2>pad needs a mask and a clamp</h2>
+<div class="prose">
+<p><code>pad %x [1 2]</code> on a 3-element <code>x = 1 2 3</code> gives 6 elements: <code>0 1 2 3 0 0</code>. One zero went in front, so element <code>i</code> of the result lines up with <code>x</code> at <code>i - 1</code>.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">At <code>i = 5</code> that is <code>x</code> at 4, and <code>x</code> has no element 4. The result there must be 0. What should the loop do on that trip?</p>
+<div class="opts">
+<button data-k="a">Read <code>x[4]</code>. Memory past the end holds 0.</button>
+<button data-k="b">Read <code>x[4]</code>, then swap the value for 0.</button>
+<button data-k="c">Read an index pulled back inside <code>x</code>, then swap the value for 0.</button>
+</div>
+<p class="hint">In C, is it safe to read past the end of a buffer if you never use the value?</p>
+<div class="why"><p>Reading outside a buffer is undefined behavior in C, even when the value is thrown away. So the read itself has to stay inside.</p></div>
+</div>
+
+<div class="prose">
+<p>So the pad rule has two parts. For <code>l</code> zeros on the left of an <code>n</code>-element source:</p>
+<ul>
+<li><strong>The mask</strong> picks the value. <code>valid</code> is true when <code>l ≤ i &lt; l + n</code>, and the element is <code>where(valid, the read, 0)</code>.</li>
+<li><strong>The clamp</strong> keeps the read legal. To <strong>clamp</strong> a number is to pull it back into a range: the read is at <code>i - l</code> clamped into <code>[0, n - 1]</code>.</li>
+</ul>
+<p>Step through all six trips. In the rendered C the counter is <code>r9</code>, <code>x</code> is <code>b0</code> and the result is <code>b1</code>.</p>
+</div>
+
+<div class="fig" id="pad" data-title="pad x [1 2]: what each iteration reads"></div>
+
+<div class="trap">
+<span class="label">The mask doesn't make the read safe</span>
+<p>The <code>where</code> throws the loaded value away outside the real elements, so it's tempting to drop the clamp and read <code>b0[r9 - 1]</code>. But the load still runs on every trip: at <code>r9 = 0</code> it reads <code>b0[-1]</code>, and at <code>r9 = 5</code> it reads <code>b0[4]</code> of a 3-element buffer. The grader can't see this, because the bad value never reaches an output. Clamp first, then mask.</p>
+</div>
+
+<div class="exercise" data-ex="w5-05-padidx">
+<h3>Pad: clamp and mask</h3>
+<p>Write the two halves of a padded read. For a pad with <code>l</code> zeros on the left of an <code>n</code>-element <code>x</code>: <code>pad_valid(i, l, n)</code> is 1 when position <code>i</code> lands on a real element and 0 otherwise, and <code>pad_src(i, l, n)</code> is the index to read, <code>i - l</code> clamped into <code>[0, n-1]</code>. Positions may be anywhere, including negative.</p>
+</div>
+
+<details class="toggle">
+<summary>The oracle's C for this pad, for when you compare your renderer's output</summary>
+<div class="prose">
 <p>Here is the oracle's C for <code>pad %x [1 2]</code> on a 3-element <code>x</code>, stored into a 6-element buffer:</p>
-</div>
 <pre><code>for (int32_t r9 = 0; r9 &lt; 6; r9++) {
   bool v11 = (0 &lt; r9);
   bool v12 = (r9 &lt; 4);
@@ -73,26 +217,108 @@
   float v21 = (v13 ? v20 : 0x0.0p+0f);
   b1[r9] = v21;
 }</code></pre>
+<p>There's no <code>min</code> op, so the upper clamp is written as <code>-max(-x, -(n-1))</code>.</p>
+</div>
+</details>
+
+<h2>Follow one question to the load</h2>
 <div class="prose">
-<p>There's no <code>min</code> op, so the upper clamp is written as <code>-max(-x, -(n-1))</code>. Step through the loop to see what each iteration reads.</p>
+<p>Movement ops stack up, and each one passes the question to the next. The asking ends at a <code>load</code> of a buffer, which answers with one scalar load, as in lesson 4.3. Ask the transpose from the start of the lesson for its element at <code>(2, 1)</code>:</p>
+<ol>
+<li><strong>Ask the permute.</strong> <code>%t</code> swaps the entries and asks <code>%m</code> for <code>(1, 2)</code>.</li>
+<li><strong>Ask the reshape.</strong> <code>%m</code> flattens <code>(1, 2)</code> in <code>[2 3]</code>: <code>f = 1·3 + 2 = 5</code>. Splitting 5 in <code>%v</code>'s shape <code>(6,)</code> leaves 5.</li>
+<li><strong>Ask the load.</strong> <code>%v</code> is a load, so the answer is a scalar load of buffer element 5, the 60.</li>
+</ol>
+<p>Two ops, one load, and the only arithmetic was on the index.</p>
+<p>Every rule needed a shape: strides for the reshape, sizes for the clamp, and the loop's bound for the store. So before rangeify asks anything, it works out the shape of every value in the chain.</p>
 </div>
 
-<div class="fig" id="pad" data-title="pad x [1 2]: what each iteration reads"></div>
-
-<div class="trap">
-<span class="label">The mask doesn't make the read safe</span>
-<p>The <code>where</code> throws away the loaded value outside the real elements, so it's tempting to drop the clamp and read <code>b0[r9 - 1]</code>. But the load still runs, every iteration: at <code>r9 = 0</code> it reads <code>b0[-1]</code>, and at <code>r9 = 5</code> it reads <code>b0[4]</code> of a 3-element buffer. Reading out of bounds is undefined behavior in C, even if the value is discarded. The clamp is what keeps every read inside the buffer.</p>
+<div class="exercise small" data-ex="w5-05-shape" data-ex-py="w5-05-shape-py">
+<h3>The shape after a chain of movement ops</h3>
+<p>Given a starting shape and a list of movement ops, compute the final shape. <code>Reshape</code> and <code>Expand</code> give the new shape directly, <code>Permute</code> reorders axes, <code>Pad</code> adds a left and right amount per axis, and <code class="only-ocaml">Reduce m</code><code class="only-python">Reduce(m)</code> drops the first m axes. The inputs are always valid.</p>
 </div>
 
-<div class="exercise" data-ex="w5-05-padidx">
-<h3>Pad: clamp and mask</h3>
-<p>Write the two halves of a padded read. For a pad with <code>l</code> zeros on the left of an <code>n</code>-element <code>x</code>: <code>pad_valid(i, l, n)</code> is 1 when position <code>i</code> lands on a real element and 0 otherwise, and <code>pad_src(i, l, n)</code> is the index to read, <code>i - l</code> clamped into <code>[0, n-1]</code>. Positions may be anywhere, including negative.</p>
-</div>
-
+<details class="toggle">
+<summary>Every index rule in one table, with stack, index and reduce, for when you write the lab</summary>
 <div class="prose">
-<h2>The movement GEMM, rendered</h2>
-<p>And here is the syllabus GEMM from lesson 5.4 (K = 2, M = 2, N = 3), after rangeify. The store of the <code>[2 3]</code> result became one loop over its 6 elements, and the <code>reduce pop=1</code> became a seeded accumulator and a loop over the remaining K - 1 = 1 values of k:</p>
+<p>Week 5 asks week 4's question with an index <em>tuple</em> <code>(i0, i1, ...)</code>, one entry per axis. A movement op answers by rewriting the tuple and passing the question to its operand:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>op</th><th>element at <code>(i0, ..., ik)</code> becomes</th></tr></thead>
+<tbody>
+<tr><td><code>reshape</code></td><td>flatten the index in the new shape (<code>f = i0·stride0 + i1·stride1 + ...</code>, row-major strides), then unflatten <code>f</code> in the old shape: axis k is <code>(f div stride_k) mod size_k</code></td></tr>
+<tr><td><code>permute [p0 p1 ...]</code></td><td>the operand at the index whose axis <code>p_k</code> is <code>i_k</code>: just a reordering, no arithmetic</td></tr>
+<tr><td><code>pad [l r ...]</code></td><td>the operand at the clamped index <code>clamp(i - l, 0, n - 1)</code>, then <code>where(valid, that, 0)</code>, with <code>valid = l ≤ i &lt; l + n</code></td></tr>
+<tr><td><code>shrink</code></td><td>the operand at <code>(i0 + o0, ...)</code></td></tr>
+<tr><td><code>expand</code></td><td>the operand with every size-1 axis read at 0</td></tr>
+<tr><td><code>stack</code></td><td>item <code>i0</code> at the rest of the index: a chain of <code>where</code>s on <code>i0</code>, or a plain C array index when the items are scalars</td></tr>
+<tr><td><code>index x j0 ...</code></td><td>the operand at <code>(j0, ..., i0, ...)</code>: the <code>j</code>s become its leading coordinates. On a <code>stack</code> of vectors that coordinate goes through the <code>where</code> chain, so with two items a <code>j</code> that isn't a constant renders as <code>(j &lt; 1 ? a0 : a1)</code>. The oracle renders a constant <code>j</code> the same way, with a constant condition like <code>(1 &lt; 1)</code> that constant folding (lesson 1.3) could remove</td></tr>
+<tr><td><code>reduce pop=m</code></td><td>one accumulator loop over all <code>m</code> leading axes together: a flat counter <code>t</code>, unflattened into the m indices with div and mod</td></tr>
+</tbody></table></div>
+<p>Eventually every question reaches a <code>load</code> of a rank-1 buffer, which answers with a scalar load at <code>offset + i</code>. Everything above it was index arithmetic.</p>
 </div>
+</details>
+
+<details class="toggle">
+<summary>A reduce over two axes, in the oracle's C, for when your <code>pop=2</code> output differs</summary>
+<div class="prose">
+<p>Here is <code>reduce op=add pop=2</code> on a <code>(2, 2, 3)</code> value (a 12-element buffer, reshaped), stored into a 3-element buffer. The two popped axes make 4 combinations per output. The accumulator is seeded with the first, element <code>(0, 0, n)</code>, and one loop folds in the other 3 in row-major order:</p>
+<pre><code>float a3[1] = {0};
+for (int32_t r9 = 0; r9 &lt; 3; r9++) {
+  int32_t v11 = (r9 % 12);
+  float v13 = b0[v11];
+  a3[0] = v13;
+  for (int32_t r17 = 0; r17 &lt; 3; r17++) {
+    float v18 = a3[0];
+    int32_t v19 = (int32_t)((uint32_t)r17 + (uint32_t)1);
+    int32_t v20 = (v19 / 2);
+    int32_t v21 = (v20 % 2);
+    int32_t v22 = (int32_t)((uint32_t)v21 * (uint32_t)2);
+    int32_t v23 = (v19 % 2);
+    int32_t v24 = (int32_t)((uint32_t)v22 + (uint32_t)v23);
+    int32_t v25 = (int32_t)((uint32_t)v24 * (uint32_t)3);
+    int32_t v26 = (int32_t)((uint32_t)v25 + (uint32_t)r9);
+    int32_t v27 = (v26 % 12);
+    float v29 = b0[v27];
+    float v30 = (v18 + v29);
+    a3[0] = v30;
+  }
+  float v34 = a3[0];
+  b1[r9] = v34;
+}</code></pre>
+<p>The flat counter <code>t = r17 + 1</code> (<code>v19</code>) is unflattened in shape <code>[2 2]</code>: <code>v21 = (t div 2) mod 2</code> on axis 0 and <code>v23 = t mod 2</code> on axis 1. Then <code>v26 = (i0·2 + i1)·3 + n</code> flattens the full index in <code>(2, 2, 3)</code>. For output <code>n = 0</code> with the buffer holding <code>0..11</code>: the seed is element 0, then <code>t = 1, 2, 3</code> unflatten to <code>(0, 1)</code>, <code>(1, 0)</code> and <code>(1, 1)</code> and read elements 3, 6 and 9, for a sum of 18.</p>
+</div>
+</details>
+
+<h2>The cube was never there</h2>
+<div class="prose">
+<p>The syllabus matmul from lesson 5.4 (A stored transposed), with K = 2, M = 2 and N = 3, multiplies two values expanded to a <code>(2, 2, 3)</code> cube, then reduces over <code>k</code>. Rangeify makes this of it, names tidied up:</p>
+<pre><code>for (r = 0; r &lt; 6; r++) {
+  m = r / 3;
+  n = r % 3;
+  acc = a[0*2 + m] * b[0*3 + n];
+  for (k = 1; k &lt; 2; k++)
+    acc = acc + a[k*2 + m] * b[k*3 + n];
+  c[r] = acc;
+}</code></pre>
+<p>Every line comes from a rule you know:</p>
+<ul>
+<li>The store of the 6 results is one loop, and splitting <code>r</code> into <code>(m, n)</code> is the reshape rule.</li>
+<li>The <code>reduce</code> is lesson 4.3's accumulator: seeded at <code>k = 0</code>, then a loop over the rest.</li>
+<li>The <code>mul</code> asks both sides at <code>(k, m, n)</code>. The expands drop <code>n</code> for <code>a</code> and <code>m</code> for <code>b</code>, and the reshapes flatten what is left to <code>k·2 + m</code> and <code>k·3 + n</code>.</li>
+</ul>
+</div>
+
+<div class="quiz" data-fill="0">
+<p class="q">The cube has 12 elements. How many of them does this C store in memory?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Look for an array of 12 floats in the code.</p>
+<div class="why"><p>None. Each cube element is one multiply of two loads, done when the reduce asks for it and added straight into <code>acc</code>.</p></div>
+</div>
+
+<details class="toggle">
+<summary>The oracle's exact C for this matmul, and why it prints C's <code>/</code> and <code>%</code></summary>
+<div class="prose">
+<p>The syllabus GEMM from lesson 5.4 (K = 2, M = 2, N = 3), after rangeify. The store of the <code>[2 3]</code> result became one loop over its 6 elements, and the <code>reduce pop=1</code> became a seeded accumulator and a loop over the remaining K - 1 = 1 values of k:</p>
 <pre><code>float a4[1] = {0};
 for (int32_t r11 = 0; r11 &lt; 6; r11++) {          /* output element: (m, n) = (r11 / 3, r11 % 3) */
   int32_t v13 = (r11 / 3);
@@ -123,49 +349,29 @@ for (int32_t r11 = 0; r11 &lt; 6; r11++) {          /* output element: (m, n) = 
   float v45 = a4[0];
   b2[r11] = v45;
 }</code></pre>
-<div class="prose">
 <p>Inside the k loop, <code>v28 = r26 + 1</code> is k, and <code>v29 = v28 % 2</code> is its coordinate on the k axis of size 2. A's flat index is <code>k·2 + m</code> (<code>v31</code>, reusing <code>v14 = m</code> from the outer loop), and B's is <code>k·3 + n</code> (<code>v36</code>, reusing <code>v18 = n</code>). The two loads are multiplied and added into the accumulator.</p>
 <p>The <code>/</code> and <code>%</code> here are .uir's <code>div</code> and <code>mod</code>. Those floor, while C's operators truncate, but the two only differ when an operand is negative. Every left operand here is provably non-negative and every divisor is a positive constant, so the oracle prints C's operators bare. Anywhere else it calls helpers that floor (the oracle names them <code>i32_div</code> and <code>i32_mod</code>), like the <code>uir_div</code> and <code>uir_mod</code> you wrote in <a href="../week2/04-rendering-c.html">lesson 2.4</a>.</p>
 <p>The <code>[K M N]</code> cube from lesson 5.4 is gone. Every element of it was a multiply of two loads, and rangeify only ever asked for the elements the reduce needed, one k at a time.</p>
-
-<h2>Cleaning up the index math</h2>
-<p>Look at <code>v15 = (v14 % 4)</code>. <code>v14</code> is <code>(r11 / 3) % 2</code>, which is always 0 or 1, so the <code>% 4</code> does nothing. The same goes for <code>v19 = (v18 % 6)</code>. These come from composing an unflatten with the next flatten, and week 1 already gave you the tool to remove them: bounds analysis (lesson 1.4) proves <code>v14</code> is in <code>[0, 1]</code>, and the rule <code>mod(x, c) → x</code> when <code>0 ≤ x &lt; c</code> deletes the op. Constant folding (lesson 1.3) handles any arithmetic on constants that's left. The output is correct either way. Cleaner index math is smaller, and from week 7 it's faster.</p>
 </div>
+</details>
 
+<details class="toggle">
+<summary>Cleaning up the index math: the leftover <code>% 4</code> and <code>% 6</code>, for when you want smaller output</summary>
 <div class="prose">
-<h2>Reduce over two axes</h2>
-<p>Here is <code>reduce op=add pop=2</code> on a <code>(2, 2, 3)</code> value (a 12-element buffer, reshaped), stored into a 3-element buffer. The two popped axes make 4 combinations per output. The accumulator is seeded with the first, element <code>(0, 0, n)</code>, and one loop folds in the other 3 in row-major order:</p>
+<p>Above, look at <code>v15 = (v14 % 4)</code>. <code>v14</code> is <code>(r11 / 3) % 2</code>, which is always 0 or 1, so the <code>% 4</code> does nothing. The same goes for <code>v19 = (v18 % 6)</code>. These are the same leftovers as the <code>% 4</code> line in lesson 4.3's reduce loop, and week 1 already gave you the tool to remove them: bounds analysis (lesson 1.4) proves <code>v14</code> is in <code>[0, 1]</code>, and the rule <code>mod(x, c) → x</code> when <code>0 ≤ x &lt; c</code> deletes the op. Constant folding (lesson 1.3) handles any arithmetic on constants that's left. The output is correct either way. Cleaner index math is smaller and, from week 7, faster.</p>
 </div>
-<pre><code>float a3[1] = {0};
-for (int32_t r9 = 0; r9 &lt; 3; r9++) {
-  int32_t v11 = (r9 % 12);
-  float v13 = b0[v11];
-  a3[0] = v13;
-  for (int32_t r17 = 0; r17 &lt; 3; r17++) {
-    float v18 = a3[0];
-    int32_t v19 = (int32_t)((uint32_t)r17 + (uint32_t)1);
-    int32_t v20 = (v19 / 2);
-    int32_t v21 = (v20 % 2);
-    int32_t v22 = (int32_t)((uint32_t)v21 * (uint32_t)2);
-    int32_t v23 = (v19 % 2);
-    int32_t v24 = (int32_t)((uint32_t)v22 + (uint32_t)v23);
-    int32_t v25 = (int32_t)((uint32_t)v24 * (uint32_t)3);
-    int32_t v26 = (int32_t)((uint32_t)v25 + (uint32_t)r9);
-    int32_t v27 = (v26 % 12);
-    float v29 = b0[v27];
-    float v30 = (v18 + v29);
-    a3[0] = v30;
-  }
-  float v34 = a3[0];
-  b1[r9] = v34;
-}</code></pre>
-<div class="prose">
-<p>The flat counter <code>t = r17 + 1</code> (<code>v19</code>) is unflattened in shape <code>[2 2]</code>: <code>v21 = (t div 2) mod 2</code> on axis 0 and <code>v23 = t mod 2</code> on axis 1. Then <code>v26 = (i0·2 + i1)·3 + n</code> flattens the full index in <code>(2, 2, 3)</code>. For output <code>n = 0</code> with the buffer holding <code>0..11</code>: the seed is element 0, then <code>t = 1, 2, 3</code> unflatten to <code>(0, 1)</code>, <code>(1, 0)</code> and <code>(1, 1)</code> and read elements 3, 6 and 9, for a sum of 18.</p>
-</div>
+</details>
 
-<div class="exercise small" data-ex="w5-05-shape" data-ex-py="w5-05-shape-py">
-<h3>The shape after a chain of movement ops</h3>
-<p>Given a starting shape and a list of movement ops, compute the final shape. <code>Reshape</code> and <code>Expand</code> give the new shape directly, <code>Permute</code> reorders axes, <code>Pad</code> adds a left and right amount per axis, and <code class="only-ocaml">Reduce m</code><code class="only-python">Reduce(m)</code> drops the first m axes. The inputs are always valid.</p>
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Say what a movement op does in rangeify: it changes the index and asks its source.</li>
+<li>Give the source index for a <code>permute</code> (reorder), an <code>expand</code> (size-1 axes at 0) and a <code>shrink</code> (add the offsets).</li>
+<li>Turn a <code>reshape</code> into a flatten in the new shape and a split in the old one, with <code>div</code> and <code>mod</code>.</li>
+<li>Build a padded read from a mask and a clamp, and say why the clamp cannot be dropped.</li>
+<li>Follow a question through a chain of ops down to one scalar load.</li>
+</ul>
+<p>Next, in the lab, you add these rules to your own compiler and run the week 5 tests.</p>
 </div>
 
 <h2>Check yourself</h2>
@@ -250,6 +456,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   });
   CC.stepper(document.getElementById('pad'), steps, (s, body) => body.append(h('div', { class: 'padview' }, s.draw())));
+  CC.trace(document.getElementById('reshape-math'), '%a   = mul 2 2\n%f   = add %a 1\n%q   = div %f 3\n%row = mod %q 2\n%col = mod %f 3', { title: 'reshape [2 3] to [3 2]: where does index (2, 1) read?', edit: true });
 });
 </script>
 </body>

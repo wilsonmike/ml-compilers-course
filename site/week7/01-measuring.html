@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Measuring Speed</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="Until now the grader checked the bits and a few limits. From this week it also asks how fast your kernel runs. Before making anything faster, you need to know...">
+<meta name="description" content="For six weeks the only question was: is the answer right? From this week the answer must stay exactly the same, bit for bit, and the new question is: how fast?...">
 <link rel="canonical" href="https://sharpterminal.com/site/week7/01-measuring">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Measuring Speed">
-<meta property="og:description" content="Until now the grader checked the bits and a few limits. From this week it also asks how fast your kernel runs. Before making anything faster, you need to know how fast it could possibly be, and what...">
+<meta property="og:description" content="For six weeks the only question was: is the answer right? From this week the answer must stay exactly the same, bit for bit, and the new question is: how fast? By the end of this lesson you can...">
 <meta property="og:url" content="https://sharpterminal.com/site/week7/01-measuring">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,28 +20,190 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
+<style>
+  .roof svg { display: block; }
+  .roof text { font: 0.875rem var(--sans); fill: var(--ink-2); }
+  .roof text.tick { font-family: var(--mono); fill: var(--ink-3); }
+  .roof text.lim { fill: var(--ink); font-weight: 500; }
+  .roof .grid { stroke: var(--line); stroke-width: 1; }
+  .roof .axis { stroke: var(--line-2); stroke-width: 1; }
+  .roof .over { stroke: var(--ink-3); stroke-width: 1; fill: none; }
+  .roof .best { stroke: var(--ink); stroke-width: 2.5; fill: none; stroke-linejoin: round; }
+  .roof .drop { stroke: var(--ink-3); stroke-width: 1; }
+  .roof .dot { fill: var(--ink); stroke: var(--panel); stroke-width: 2; }
+</style>
 </head>
 <body data-root="../">
 <main>
 <p class="eyebrow">Week 7 · Lesson 1</p>
 <h1>Measuring speed: FLOPs, bytes and the roofline</h1>
-<p class="lede">Until now the grader checked the bits and a few limits. From this week it also asks how fast your kernel runs. Before making anything faster, you need to know how fast it could possibly be, and what is holding it back. Two numbers answer that: how much arithmetic a kernel does, and how many bytes it has to move.</p>
+<p class="lede">For six weeks the only question was: is the answer right? From this week the answer must stay exactly the same, bit for bit, and the new question is: how fast? By the end of this lesson you can measure a kernel's speed and say what is holding it back, which is what your compiler needs to know before it tries to make anything faster.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Given a kernel, say whether arithmetic or memory limits its speed.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Cache lines and stride from <a href="../week0/02-memory-and-caches.html">lesson 0.2</a>, and <code>tools/bench.py</code> from the <a href="../week6/06-lab.html">week 6 lab</a>. The code on this page is one division and one comparison.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="4000">
+<p class="q">An f32 array has 1,000 elements. How many bytes is that?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The 32 in f32 counts bits. There are 8 bits in a byte.</p>
+<div class="why"><p>Each f32 is 4 bytes, so 1,000 of them take 4,000 bytes.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">A matrix is stored row after row. Which walk gets a new cache line on almost every step?</p>
+<div class="opts">
+<button data-k="a">Down a column</button>
+<button data-k="b">Along a row</button>
+<button data-k="c">Neither. Both visit every element once.</button>
+</div>
+<p class="hint">Which two elements sit next to each other in memory: left and right neighbors, or up and down neighbors?</p>
+<div class="why"><p>Row neighbors are 4 bytes apart, so 16 of them share one 64-byte line. Column neighbors are a whole row apart, so each step lands on a different line.</p></div>
+</div>
+
+<h2>Same answer, different speed</h2>
+<div class="prose">
+<p>Here are two ways to multiply two 768×768 matrices in C. Each one computes every <code>C[i][j]</code> as the same sum, in the same order of <code>k</code>. The outputs match bit for bit. Only the order of the loops differs.</p>
+</div>
+<pre><code>for (int i = 0; i &lt; N; i++)
+  for (int j = 0; j &lt; N; j++) {
+    float s = 0.0f;
+    for (int k = 0; k &lt; N; k++)
+      s += A[i*N + k] * B[k*N + j];
+    C[i*N + j] = s;
+  }</code></pre>
+<p class="muted">Loop A: <code>k</code> is the inner loop.</p>
+<pre><code>for (int i = 0; i &lt; N; i++) {
+  for (int j = 0; j &lt; N; j++) C[i*N + j] = 0.0f;
+  for (int k = 0; k &lt; N; k++)
+    for (int j = 0; j &lt; N; j++)
+      C[i*N + j] += A[i*N + k] * B[k*N + j];
+}</code></pre>
+<p class="muted">Loop B: <code>j</code> is the inner loop.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">Both loops do the same 0.9 billion multiplies and adds. How do their times compare?</p>
+<div class="opts">
+<button data-k="a">About the same. The work is identical.</button>
+<button data-k="b">Loop A takes about three times as long.</button>
+<button data-k="c">Loop B takes about three times as long.</button>
+</div>
+<p class="hint">Look at <code>B[k*N + j]</code>. In each loop, how far does the inner loop jump through <code>B</code> on every step?</p>
+<div class="why"><p>Loop A took 89 ms and loop B took 30 ms. That is one measurement, on the machine this course was built on, with gcc at <code>-O2</code> and one thread. Your numbers will differ.</p></div>
+</div>
 
 <div class="prose">
-<h2>Work and time</h2>
-<p>A <b>FLOP</b> is one floating-point operation: an add or a multiply. A 768×768 matrix multiply does about <code>2 · 768³ ≈ 0.9</code> billion of them (one multiply and one add per term). Divide the FLOPs by the seconds the kernel takes and you get its speed in <b>GFLOP/s</b>, billions of FLOPs per second.</p>
-<p><code>tools/bench.py</code> does this for any program. On the machine this course was built on, the same GEMM ran at 9 GFLOP/s as plain loops and at over 200 GFLOP/s with the schedule this week teaches. Both versions compute the identical bits.</p>
+<p>In loop A the inner loop walks <code>B</code> down a column, so almost every load is a new cache line. In loop B the inner loop walks <code>B</code> and <code>C</code> along a row. Walking in order also lets the C compiler do several floats with one instruction, which lesson 7.3 covers.</p>
+<p>So the second half of this course is about a number the first half ignored. Two counts describe any kernel: how much arithmetic it does, and how many bytes it moves.</p>
+</div>
 
-<h2>What limits a kernel</h2>
-<p>A processor can only do so many operations per second: its <b>peak</b>. Memory can only deliver so many bytes per second: its <b>bandwidth</b>. A kernel is held back by whichever runs out first.</p>
-<p>The deciding number is the kernel's <b>arithmetic intensity</b>: FLOPs per byte moved between memory and the processor.</p>
-<ul>
-<li>An elementwise add of two f32 arrays reads 8 bytes and writes 4 for each single add: about 0.08 FLOPs per byte. However fast the processor, it waits on memory.</li>
-<li>A matrix multiply of N×N matrices moves about <code>3 · 4N²</code> bytes (it reads two matrices and writes one) and does <code>2N³</code> FLOPs: an intensity that grows with N. At N = 768 it's over 100 FLOPs per byte. Memory is no excuse: it's the arithmetic that has to get faster.</li>
-</ul>
-<p>Memory can feed at most <code>bandwidth · intensity</code> FLOP/s, and the processor can do at most <code>peak</code>. So the best a kernel can reach is the smaller of the two. Draw that against intensity and you get a roof: a slanted part (memory-bound) meeting a flat part (compute-bound). It's called the <b>roofline</b>.</p>
+<h2>Count the work: FLOPs</h2>
+<div class="prose">
+<p>A <b>FLOP</b> is one floating-point operation: one add or one multiply. FLOPs count the work a kernel does, whatever order it does it in. Divide the FLOPs by the seconds the kernel took and you have its speed. The usual unit is <b>GFLOP/s</b>, billions of FLOPs per second.</p>
+<p>Here is loop A's speed:</p>
+<ol>
+<li><strong>Count the FLOPs.</strong> Each of the 768 × 768 outputs is a sum of 768 terms, and each term costs one multiply and one add. That is <code>2 · 768³ = 905,969,664</code>, about 0.9 GFLOP.</li>
+<li><strong>Time the kernel.</strong> 89 ms is 0.089 seconds.</li>
+<li><strong>Divide.</strong> <code>0.906 / 0.089</code> is about 10 GFLOP/s.</li>
+</ol>
+<p><code>tools/bench.py</code> does all three steps for any program. On the same machine, the same matrix multiply reached over 200 GFLOP/s with this week's <b>schedule</b>, the program's choice of how each loop runs, and it still computed the identical bits.</p>
+</div>
+
+<div class="quiz" data-fill="30|30.2|30.1|30.20|30.199">
+<p class="q">Loop B does the same 0.906 GFLOP in 30 ms. What is its speed in GFLOP/s?</p>
+<div class="fill"><input aria-label="answer" inputmode="decimal"><button class="btn">check</button></div>
+<p class="hint">30 ms is 0.030 seconds. Divide the GFLOPs by the seconds.</p>
+<div class="why"><p><code>0.906 / 0.030</code> is about 30 GFLOP/s. Same work, a third of the time, three times the speed.</p></div>
+</div>
+
+<h2>Count the bytes: bandwidth</h2>
+<div class="prose">
+<p>Now a simpler kernel: add two arrays of 16 million floats, <code>z[i] = x[i] + y[i]</code>. It walks memory in perfect order.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Loop B ran at 30 GFLOP/s. How fast does this add run on the same machine?</p>
+<div class="opts">
+<button data-k="a">Well over 30 GFLOP/s. It is the simplest loop there is.</button>
+<button data-k="b">About 30 GFLOP/s</button>
+<button data-k="c">About 2 GFLOP/s</button>
+</div>
+<p class="hint">Each array is 64 MB, far too big for any cache. Where does every number have to come from?</p>
+<div class="why"><p>It measured 2.2 GFLOP/s, on the same machine with the same compiler. The processor spends most of its time waiting for numbers to arrive.</p></div>
+</div>
+
+<div class="prose">
+<p>Memory can only deliver so many bytes per second. That rate is its <b>bandwidth</b>, and on this machine it measured about 25 GB/s. Each add reads 8 bytes and writes 4, so it moves 12 bytes for 1 FLOP. 25 billion bytes per second, at 12 bytes per add, is about 2 billion adds per second. No faster processor would change that.</p>
+<p>The matrix multiply is different. Its three matrices are small, and it uses each number 768 times. The number that tells these kernels apart is <b>arithmetic intensity</b>: FLOPs per byte moved between memory and the processor. The add has 1/12, about 0.08.</p>
+</div>
+
+<div class="quiz" data-fill="6.25|6.3|6.2">
+<p class="q">Summing an f32 array does one add per 4-byte element. With 25 GB/s of bandwidth, what is the most GFLOP/s memory can feed it?</p>
+<div class="fill"><input aria-label="answer" inputmode="decimal"><button class="btn">check</button></div>
+<p class="hint">The intensity is 1 FLOP per 4 bytes. Multiply the bandwidth by the intensity.</p>
+<div class="why"><p><code>25 · (1/4) = 6.25</code> GFLOP/s. A sum has three times the add's intensity, so memory can feed it three times as many FLOPs.</p></div>
+</div>
+
+<h2>Two limits, one picture</h2>
+<div class="prose">
+<p>Put both limits on one chart. Intensity runs across and speed runs up.</p>
+<ol>
+<li><strong>The arithmetic ceiling.</strong> A processor can do only so many FLOPs per second. That is its <b>peak</b>. For a desktop with every <b>core</b> (each of its independent processors) working it is a few hundred GFLOP/s, and this page uses 200. It is a flat line, the same for every kernel.</li>
+<li><strong>The memory slope.</strong> Memory can feed at most <code>bandwidth · intensity</code> FLOPs per second. At 25 GB/s, a kernel with 1 FLOP per byte gets 25 GFLOP/s and a kernel with 2 gets 50. It is a rising line.</li>
+</ol>
+<p>A kernel has to stay under both lines, so its best possible speed is the smaller of the two. Pick a kernel and see which line it meets first.</p>
+</div>
+
+<div class="fig roof" id="roof">
+<div class="head"><span class="title">A machine with a peak of 200 GFLOP/s and 25 GB/s of bandwidth</span></div>
+<div class="lab-bar"><div class="seg" role="group" aria-label="Kernel" id="roof-pick"></div></div>
+<div class="body" id="roof-body"></div>
+<div class="cap" id="roof-cap"></div>
+</div>
+
+<div class="prose">
+<p>The thick line is a slope that meets a flat top, like a roof. That is why this chart is called the <b>roofline</b>. A kernel under the slope is <b>memory-bound</b>. A kernel under the flat part is <b>compute-bound</b>. The lines meet at <code>200 / 25 = 8</code> FLOPs per byte.</p>
+</div>
+
+<div class="quiz" data-fill="100">
+<p class="q">On this machine, what is the best speed in GFLOP/s for a kernel with 4 FLOPs per byte?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Work out the memory slope at 4 FLOPs per byte, then compare it with the ceiling of 200.</p>
+<div class="why"><p>Memory can feed <code>25 · 4 = 100</code> GFLOP/s. That is under the ceiling of 200, so 100 is the best it can do, and it is memory-bound.</p></div>
+</div>
+
+<h2>Which limit is a kernel hitting?</h2>
+<div class="prose">
+<p>Every kernel gets the same five steps. Here they are for the 768×768 matrix multiply:</p>
+<ol>
+<li><strong>Count the FLOPs.</strong> <code>2N³</code>, about 906 million.</li>
+<li><strong>Count the bytes.</strong> It reads two matrices and writes one. Each is <code>4N²</code> bytes, so <code>12N²</code> in all, about 7 million.</li>
+<li><strong>Divide.</strong> The intensity is <code>2N³ / 12N² = N / 6</code>, which is 128 FLOPs per byte.</li>
+<li><strong>Find the memory slope.</strong> <code>25 · 128 = 3,200</code> GFLOP/s.</li>
+<li><strong>Take the smaller.</strong> The ceiling is 200. This kernel is compute-bound.</li>
+</ol>
+<p>So the roofline says loop A, at 10 GFLOP/s, could run 20 times faster. Step 2 assumed each number travels from memory once. Loop A fetches the same numbers again and again, and lesson 7.2 fixes that.</p>
+</div>
+
+<div class="exercise small" data-ex="w7-01n-limit" data-ex-py="w7-01n-limit-py">
+<h3>Which limit is it hitting?</h3>
+<p><code>limit</code> answers <code>"memory"</code> or <code>"compute"</code> for a kernel that does <code>flops</code> FLOPs and moves <code>nbytes</code> bytes, on a machine with <code>peak</code> GFLOP/s and <code>bandwidth</code> GB/s. The comparison at the end is right. The two lines before it each have one mistake. Repair them.</p>
+</div>
+
+<h2>What helps depends on the limit</h2>
+<div class="prose">
+<p>Knowing the limit tells you where to spend effort. Making arithmetic faster does nothing for a kernel that is waiting on memory, and the reverse is also true.</p>
 </div>
 
 <div class="tablewrap"><table>
@@ -57,23 +219,67 @@
 <p>Write <code>attainable</code>: the best GFLOP/s a kernel can reach, given the machine's peak and bandwidth and the kernel's FLOPs and bytes.</p>
 </div>
 
+<h2>Measure honestly</h2>
 <div class="prose">
-<h2>Measuring honestly</h2>
 <p>Timing is noisy. Other programs run, the processor changes its clock speed, the first run warms the caches. Three habits make numbers trustworthy:</p>
 <ul>
-<li><b>Time the kernel alone.</b> Not the compiler, not loading the data. The harness reads a monotonic clock just before and just after the kernel call.</li>
+<li><b>Time the kernel alone.</b> Not the compiler, not loading the data. The harness reads a monotonic clock, one that only ever counts forward, just before and just after the kernel call.</li>
 <li><b>Take the best of several runs.</b> Noise almost always makes a run slower, so the minimum is the closest to the truth.</li>
 <li><b>Compare on the same machine, at the same time.</b> A number from your laptop and one from a server mean nothing side by side. The speed tests run your kernel and the reference kernel alternately, three times each, and compare the bests.</li>
 </ul>
+</div>
+
+<div class="quiz" data-fill="30">
+<p class="q">Three runs of one kernel take 31 ms, 30 ms and 44 ms. Which time, in ms, do you report?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Something else was running during the 44 ms run. Did that make the kernel itself slower?</p>
+<div class="why"><p>30 ms, the best. The average, 35 ms, mostly measures whatever interrupted the third run.</p></div>
+</div>
 
 <h2>How week 7 grades speed</h2>
+<div class="prose">
 <p>A test with <code># speed: 0.5</code> requires your kernel to run at least half as fast as the reference compiler's kernel for the same program, built the same way, on your machine. It must also give exactly the reference's bits. Half is generous on purpose: the tests aren't measuring clever tricks, they're checking that your compiler does what the program's schedule says. Lessons 7.3 and 7.4 show that a renderer that ignores the schedule lands 2 to 8 times too slow.</p>
+</div>
+
+<div class="quiz" data-fill="40">
+<p class="q">A test says <code># speed: 0.5</code>. The reference kernel's best time is 20 ms. What is the longest best time, in ms, that still passes?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Half the speed means twice the time.</p>
+<div class="why"><p><code>20 / 0.5 = 40</code> ms. The rule is: your best time is at most the reference's best time divided by the number after <code>speed:</code>.</p></div>
 </div>
 
 <div class="key">
 <span class="label">Bits first, then speed</span>
 <p>Nothing this week changes what a program computes. Unrolling and threads must keep every add in its original order, so a fast kernel's output is identical to a slow one's. The C is compiled with <code>-ffp-contract=off</code>, which stops the C compiler from fusing a multiply and an add into one instruction. That fused instruction rounds once instead of twice, so it would change the bits.</p>
 </div>
+
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Count a kernel's FLOPs and turn a time into GFLOP/s.</li>
+<li>Count the bytes a kernel moves and work out its arithmetic intensity.</li>
+<li>Draw the roofline from a machine's peak and bandwidth, and say whether a kernel is memory-bound or compute-bound.</li>
+<li>Time a kernel so the number means something: alone, best of several, same machine.</li>
+</ul>
+<p>Next, lesson 7.2 takes the matrix multiply apart to see where it reloads numbers it already had, and how tiling stops that.</p>
+</div>
+
+<details class="toggle">
+<summary>How <code>tools/bench.py</code> counts FLOPs, for when your numbers differ slightly from this page</summary>
+<div class="prose">
+<p>It counts one FLOP per element of each elementwise op, and <code>size - result size</code> per reduce, times the trip count of any hand-written loops around them. Movement ops and loads count zero. A matmul written as a multiply and a reduce is therefore <code>N³</code> multiplies plus <code>N³ - N²</code> adds, slightly under the <code>2N³</code> used above, because a sum of 768 terms needs 767 adds.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>What this simple model leaves out, for readers who know hardware</summary>
+<div class="prose">
+<p><strong>Caches.</strong> The bytes that count are the ones that travel from main memory. A kernel whose data fits in a cache is not held to the memory slope at all, which is why a small matrix multiply does not behave as memory-bound whatever its <code>N / 6</code> says.</p>
+<p><strong>Writes cost more than 4 bytes.</strong> Before it writes to a cache line, a processor normally reads that line in. So the add really moves closer to 16 bytes per element than 12. The 25 GB/s on this page was computed with 12, from one thread.</p>
+<p><strong>Both limits depend on the core count.</strong> One core has a lower peak than all of them together, and several cores can pull more bytes per second than one. A careful roofline uses a peak and a bandwidth measured with the same number of threads.</p>
+<p><strong>Peak depends on the instructions used.</strong> A core that works on 8 floats per instruction has 8 times the peak of the same core working on one at a time.</p>
+</div>
+</details>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
@@ -130,5 +336,59 @@
 <a href="02-caches-and-tiling.html">Lesson 2: Caches and tiling →</a>
 </nav>
 </main>
+<script>
+(() => {
+  const PEAK = 200, BW = 25, X0 = -2, X1 = 3, Y0 = -1, Y1 = 3;
+  const KERNELS = [
+    { name: 'Add two arrays', x: 1 / 12, xs: '(1/12)', per: '1 FLOP per 12 bytes' },
+    { name: 'Sum an array', x: 0.25, per: '1 FLOP per 4 bytes' },
+    { name: 'Where the lines meet', x: 8, per: '8 FLOPs per byte' },
+    { name: '768×768 matmul', x: 128, per: '128 FLOPs per byte' }
+  ];
+  const body = document.getElementById('roof-body'), cap = document.getElementById('roof-cap'), pick = document.getElementById('roof-pick');
+  let cur = 0, lastW = 0;
+  const fmt = v => v >= 100 ? String(Math.round(v)) : String(Math.round(v * 100) / 100);
+  function draw() {
+    const W = Math.max(288, Math.min(640, (body.clientWidth || 600) - 40)), H = 300;
+    const L = 58, R = 28, T = 16, B = 48;
+    const px = x => L + (Math.log10(x) - X0) / (X1 - X0) * (W - L - R);
+    const py = y => T + (Y1 - Math.log10(y)) / (Y1 - Y0) * (H - T - B);
+    const k = KERNELS[cur], mem = BW * k.x, best = Math.min(mem, PEAK);
+    let s = '';
+    for (let e = X0; e <= X1; e++) {
+      const x = Math.pow(10, e);
+      s += `<line class="grid" x1="${px(x)}" y1="${T}" x2="${px(x)}" y2="${H - B}"/>`;
+      s += `<text class="tick" x="${px(x)}" y="${H - B + 18}" text-anchor="middle">${x}</text>`;
+    }
+    for (let e = Y0 + 1; e <= Y1; e++) {
+      const y = Math.pow(10, e);
+      s += `<line class="grid" x1="${L}" y1="${py(y)}" x2="${W - R}" y2="${py(y)}"/>`;
+      s += `<text class="tick" x="${L - 8}" y="${py(y) + 5}" text-anchor="end">${y}</text>`;
+    }
+    s += `<line class="axis" x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"/><line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${H - B}"/>`;
+    s += `<text x="${(L + W - R) / 2}" y="${H - 8}" text-anchor="middle">FLOPs per byte</text>`;
+    s += `<text x="14" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 14 ${(T + H - B) / 2})">GFLOP/s</text>`;
+    s += `<line class="over" x1="${px(0.01)}" y1="${py(PEAK)}" x2="${px(PEAK / BW)}" y2="${py(PEAK)}"/>`;
+    s += `<line class="over" x1="${px(PEAK / BW)}" y1="${py(PEAK)}" x2="${px(1000 / BW)}" y2="${py(1000)}"/>`;
+    s += `<polyline class="best" points="${px(0.01)},${py(BW * 0.01)} ${px(PEAK / BW)},${py(PEAK)} ${px(1000)},${py(PEAK)}"/>`;
+    s += `<text class="lim" x="${L + 8}" y="${py(PEAK) - 9}">arithmetic ceiling</text>`;
+    s += `<text class="lim" x="${px(0.25) + 12}" y="${py(BW * 0.25) + 22}">memory slope</text>`;
+    s += `<line class="drop" x1="${px(k.x)}" y1="${py(best)}" x2="${px(k.x)}" y2="${H - B}"/>`;
+    s += `<circle class="dot" cx="${px(k.x)}" cy="${py(best)}" r="6"/>`;
+    body.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Speed against intensity. A rising line, the memory slope, meets a flat line, the arithmetic ceiling, at 8 FLOPs per byte.">${s}</svg>`;
+    const which = mem < PEAK ? 'Memory runs out first: this kernel is memory-bound.' : mem > PEAK ? 'Arithmetic runs out first: this kernel is compute-bound.' : 'Both limits are the same here.';
+    cap.innerHTML = `<b>${k.name}</b>, ${k.per}. Memory can feed <code>25 · ${k.xs || fmt(k.x)} = ${fmt(mem)}</code> GFLOP/s. The ceiling is 200. The smaller is <b>${fmt(best)} GFLOP/s</b>. ${which}`;
+    lastW = body.clientWidth;
+  }
+  KERNELS.forEach((k, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = k.name; b.className = i === 0 ? 'on' : '';
+    b.onclick = () => { cur = i; pick.querySelectorAll('button').forEach((x, j) => x.classList.toggle('on', j === i)); draw(); };
+    pick.append(b);
+  });
+  draw();
+  new ResizeObserver(() => { if (body.clientWidth !== lastW) draw(); }).observe(body);
+})();
+</script>
 </body>
 </html>

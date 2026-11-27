@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Modules, maps and projects in OCaml</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="The last step from snippets in utop to a real program. You&#x27;ll group code into modules, use OCaml&#x27;s maps and sets, set up a project with dune, read a file, and...">
+<meta name="description" content="You can write a function. This last Learn OCaml lesson covers what sits between that and a real program: keeping functions in named groups, building a program...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/ml-06-modules-projects">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Modules, maps and projects in OCaml">
-<meta property="og:description" content="The last step from snippets in utop to a real program. You&#x27;ll group code into modules, use OCaml&#x27;s maps and sets, set up a project with dune, read a file, and find out what went wrong when your...">
+<meta property="og:description" content="You can write a function. This last Learn OCaml lesson covers what sits between that and a real program: keeping functions in named groups, building a program on your own computer, running it and...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/ml-06-modules-projects">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,53 +20,106 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Learn OCaml|Modules, maps and projects" data-root="../">
 <main>
   <p class="eyebrow">Learn OCaml · Lesson 6</p>
   <h1>Modules, maps and projects</h1>
-  <p class="lede">The last step from snippets in utop to a real program. You'll group code into modules, use OCaml's maps and sets, set up a project with dune, read a file, and find out what went wrong when your program crashes.</p>
+  <p class="lede">You can write a function. This last Learn OCaml lesson covers what sits between that and a real program: keeping functions in named groups, building a program on your own computer, running it and finding out why it is wrong. Your compiler will be a program like that.</p>
 
-  <div class="prose">
-    <h2>A module groups names</h2>
-    <p>You've been writing <code>String.length</code> since lesson O.1 and <code>List.map</code> since lesson O.3. The part before the dot is a <b>module</b>: a named group of types and functions that belong together. <code>List</code> holds everything about lists, <code>String</code> everything about strings, <code>Hashtbl</code> everything about hash tables.</p>
-  </div>
-<pre><code># String.length "hello";;
-- : int = 5
-# String.uppercase_ascii "loud";;
-- : string = "LOUD"
-# List.map;;
-- : ('a -&gt; 'b) -&gt; 'a list -&gt; 'b list = &lt;fun&gt;</code></pre>
-  <div class="prose">
-    <p>Why bother? Because both lists and arrays need a <code>map</code>, and both strings and lists need a <code>length</code>. Modules let each one keep the short, obvious name without the names colliding: <code>List.length</code> and <code>String.length</code> are two different functions. When you want to know what a module offers, look up its page in the OCaml manual, or type the module name and a dot in your editor and read the list it suggests.</p>
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Build a tiny program from three files, run it with an argument and track down a bug in it.</p>
   </div>
 
-  <div class="prose">
-    <h2>Writing your own module</h2>
-    <p>You make a module with <code>module Name = struct ... end</code>. Everything between <code>struct</code> and <code>end</code> is ordinary OCaml. Here is a <b>stack</b>, a pile where you only add to the top ("push") and take from the top ("pop"), like a stack of plates:</p>
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p><code>List.fold_left</code> and <code>option</code> (<a href="ml-03-lists-matching.html">O.3</a>), exceptions (<a href="ml-04-your-own-types.html">O.4</a>), arrays and <code>Hashtbl</code> (<a href="ml-05-mutation.html">O.5</a>).</p>
+    <p>The quizzes and exercises run in this page. The parts marked <b>On your machine</b> need a terminal and the OCaml tools from <a href="ml-01-first-steps.html">O.1</a>.</p>
   </div>
-<pre><code># module Stack = struct
-    type t = int list
-    let empty = []
-    let push x s = x :: s
-    let pop s = match s with [] -&gt; None | x :: rest -&gt; Some (x, rest)
-  end;;
-module Stack :
-  sig
-    type t = int list
-    val empty : 'a list
-    val push : 'a -&gt; 'a list -&gt; 'a list
-    val pop : 'a list -&gt; ('a * 'a list) option
-  end
-# let s = Stack.push 2 (Stack.push 1 Stack.empty);;
-val s : int list = [2; 1]
-# Stack.pop s;;
-- : (int * int list) option = Some (2, [1])</code></pre>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="6">
+    <p class="q">What is <code>List.fold_left (fun acc x -&gt; acc + x) 0 [1; 2; 3]</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint"><code>acc</code> starts at 0. Each step adds the next item to it.</p>
+    <div class="why"><p>6. The fold carries a running answer along the list: 0, then 1, then 3, then 6. You'll use the same move today to build a table.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">What is the value of this?</p>
+<pre><code>let t = Hashtbl.create 16 in
+Hashtbl.replace t "kiwi" 3;
+Hashtbl.replace t "kiwi" 4;
+Hashtbl.find_opt t "kiwi"</code></pre>
+    <div class="opts">
+      <button data-k="a"><code>Some 3</code></button>
+      <button data-k="b"><code>Some 4</code></button>
+      <button data-k="c"><code>None</code></button>
+    </div>
+    <p class="hint">A hash table is changed in place.</p>
+    <div class="why"><p><code>Some 4</code>. The second <code>replace</code> changed the table itself, and the 3 is gone for good. Today you meet a table that works the other way.</p></div>
+  </div>
+
   <div class="prose">
-    <p>Outside the module, you reach its names with a dot, exactly like <code>List.map</code>. utop answers with the module's <b>signature</b>: the list of everything inside it and the type of each. <code>pop</code> returns an option because an empty stack has nothing to pop. When there is a top, it returns the top and the rest of the stack as a pair.</p>
-    <p>A stack never changes here. <code>push</code> returns a new, taller stack, the same no-change style as <code>{ r with ... }</code> in lesson O.4. OCaml's library has its own <code>Stack</code> module, a mutable one. Defining yours with the same name hides that one for the rest of the session, which is fine for practice.</p>
+    <h2>The name before the dot</h2>
+    <p>You have written <code>String.length</code> since O.1 and <code>List.map</code> since O.3. Look closely at the part before the dot.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q"><code>String.length "hello"</code> is 5 and <code>List.length [1; 2; 3]</code> is 3. What does <code>List.length "hello"</code> give?</p>
+    <div class="opts">
+      <button data-k="a">5</button>
+      <button data-k="b">A type error</button>
+      <button data-k="c">1</button>
+    </div>
+    <p class="hint">Are <code>String.length</code> and <code>List.length</code> one function or two?</p>
+    <div class="why"><p>A type error. They are two different functions that share the short name <code>length</code>. The one in <code>List</code> takes a list, and <code>"hello"</code> is a string.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The word before the dot is a <b>module</b>: a named box of functions that belong together. <code>List</code> holds the functions for lists, <code>String</code> the ones for strings and <code>Hashtbl</code> the ones for hash tables. A function's full name is the box, a dot, then the short name.</p>
+    <p>Boxes let lists and strings both have a <code>length</code>, and lists and arrays both a <code>map</code>. The names never clash, and the full name tells you what the function works on.</p>
+<pre><code># List.length "hello";;
+Line 1, characters 12-19:
+1 | List.length "hello";;
+                ^^^^^^^
+Error: This expression has type "string" but an expression was expected of type
+         "'a list"</code></pre>
+    <p>To see what a box holds, read the module's page in the OCaml manual.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Make your own module</h2>
+    <p>Your compiler will have dozens of functions. Loose in one pile, they are hard to find. So you make boxes of your own. Here is one for a <b>stack</b>: a pile where you add to the top ("push") and take from the top ("pop"), like a pile of plates.</p>
+<pre><code>module Stack = struct
+  type t = int list
+  let empty = []
+  let push x s = x :: s
+  let pop s = match s with [] -&gt; None | x :: rest -&gt; Some (x, rest)
+end
+
+let s = Stack.push 2 (Stack.push 1 Stack.empty)</code></pre>
+    <ol>
+      <li><strong>Open the box.</strong> <code>module Stack = struct</code> starts a module named <code>Stack</code>. A module name starts with a capital letter.</li>
+      <li><strong>Fill it.</strong> Everything up to <code>end</code> is ordinary OCaml. <code>t</code> is the usual name for a module's main type, so <code>Stack.t</code> reads "a stack". Here a stack is a list with the top at the front.</li>
+      <li><strong>Use it from outside.</strong> After <code>end</code>, every name needs the box in front: <code>Stack.push</code>, <code>Stack.empty</code>. <code>s</code> is <code>[2; 1]</code>.</li>
+    </ol>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Below the module, you type <code>push 3 s</code> with no <code>Stack.</code> in front. What happens?</p>
+    <div class="opts">
+      <button data-k="a">It works, and gives <code>[3; 2; 1]</code></button>
+      <button data-k="b">It changes <code>s</code></button>
+      <button data-k="c"><code>Error: Unbound value "push"</code></button>
+    </div>
+    <p class="hint">Where does the name <code>push</code> live?</p>
+    <div class="why"><p>"Unbound" means OCaml knows no value by that name. <code>push</code> lives inside the box, so outside it the name is <code>Stack.push</code>. When you see this error, check for a missing module name first.</p></div>
   </div>
 
   <div class="exercise small" data-ex="lo-06-stack">
@@ -76,17 +129,50 @@ val s : int list = [2; 1]
   </div>
 
   <div class="prose">
-    <h2>Every file is a module, and an interface hides the details</h2>
-    <p>In a project you don't usually write <code>module ... = struct</code>. Instead, each <code>.ml</code> file is a module on its own, named after the file with a capital first letter. Put the four lines from inside the <code>struct</code> into a file called <code>stack.ml</code>, and the rest of the program can call <code>Stack.push</code>.</p>
-    <p>Next to <code>stack.ml</code> you can put a file <code>stack.mli</code>, an <b>interface</b>. It lists what other files are allowed to see. Anything not listed is private to the module.</p>
+    <h2>A file is a module</h2>
+    <p>In a real project you rarely write <code>struct</code>. Every <code>.ml</code> file is already a module, named after the file with its first letter made a capital. So a project can look like this:</p>
   </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>file</th><th>what is in it</th></tr></thead>
+    <tbody>
+      <tr><td><code>stack.ml</code></td><td><code>let empty = []</code><br><code>let push x s = x :: s</code></td></tr>
+      <tr><td><code>main.ml</code></td><td><code>let s = Stack.push 1 Stack.empty</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>Nothing in <code>stack.ml</code> says "module". The file name does that job. Any other file in the project reaches its contents as <code>Stack.</code> and a name. This is how your compiler will be laid out: one file for reading text, one for running programs and a main file that names them.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">A file named <code>price_list.ml</code> holds <code>let total = ...</code>. What does another file in the project call it?</p>
+    <div class="opts">
+      <button data-k="a"><code>price_list.total</code></button>
+      <button data-k="b"><code>Price_list.total</code></button>
+      <button data-k="c"><code>PriceList.total</code></button>
+    </div>
+    <p class="hint">Only the first letter changes.</p>
+    <div class="why"><p><code>Price_list.total</code>. The first letter becomes a capital and the rest of the file name stays as it is, underscore included.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The editor in this page holds one file, so its exercises write <code>module ... = struct ... end</code>, which behaves the same way. You'll make a real second file later in this lesson.</p>
+  </div>
+
+  <div class="exercise small" data-ex="lo-06n-push-all">
+    <h3>Use a module from outside</h3>
+    <p>Below the <code>Stack</code> module, write <code>push_all xs s</code>. It pushes every item of the list <code>xs</code> onto the stack <code>s</code>, first item first, and returns the new stack. <code>push_all [1; 2; 3] Stack.empty</code> is <code>[3; 2; 1]</code>.</p>
+    <p class="muted">You are outside the box now. Carry the stack along the list with <code>List.fold_left</code>.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Interface files (.mli) and hidden types, for when a module gets big</summary>
+    <div class="prose">
+      <p>Next to <code>stack.ml</code> you can put a file <code>stack.mli</code>, an <b>interface</b>. It lists what other files are allowed to see. Anything not listed is private to the module.</p>
 <pre><code>type t
 val empty : t
 val push : int -&gt; t -&gt; t
 val pop : t -&gt; (int * t) option</code></pre>
-  <div class="prose">
-    <p>The first line says there is a type <code>t</code> but doesn't say what it is. A type like that is called <b>abstract</b>. Code outside the module can hold stacks and pass them to <code>Stack</code>'s functions, but it can't see that a stack is a list. You can try the same idea in utop by writing the interface between <code>sig</code> and <code>end</code>:</p>
-  </div>
+      <p>The first line says there is a type <code>t</code> but doesn't say what it is. A type like that is called <b>abstract</b>. Code outside the module can hold stacks and pass them to <code>Stack</code>'s functions, but it can't see that a stack is a list. You can try the same idea in utop by writing the interface between <code>sig</code> and <code>end</code>:</p>
 <pre><code># module Stack : sig
     type t
     val empty : t
@@ -113,66 +199,81 @@ Line 1, characters 12-13:
                 ^
 Error: This expression has type "Stack.t"
        but an expression was expected of type "'a list"</code></pre>
-  <div class="prose">
-    <p>Now <code>s</code> prints as <code>&lt;abstr&gt;</code>, and treating it as a list is an error. Why want that? Because it means you can change how a stack works inside, say to an array, and no other file can break, since no other file was allowed to depend on the list. It is the same reason <code>Hashtbl.t</code> and <code>Buffer.t</code> print as <code>&lt;abstr&gt;</code>. For your first projects, interfaces are optional. Skip them until a module gets big enough that you want to separate what it offers from how it works.</p>
-  </div>
+      <p>Now <code>s</code> prints as <code>&lt;abstr&gt;</code>, and treating it as a list is an error. Why want that? Because it means you can change how a stack works inside, say to an array, and no other file can break, since no other file was allowed to depend on the list. It is the same reason <code>Hashtbl.t</code> and <code>Buffer.t</code> print as <code>&lt;abstr&gt;</code>. For your first projects, interfaces are optional. Skip them until a module gets big enough that you want to separate what it offers from how it works.</p>
+      <p>When you type a module into utop, it answers with the module's <b>signature</b>: the list of everything inside it and the type of each. OCaml's library also has its own <code>Stack</code> module, a mutable one. Defining yours with the same name hides that one for the rest of the session, which is fine for practice.</p>
+    </div>
+  </details>
 
   <div class="prose">
-    <h2>Maps and sets: modules made by a functor</h2>
-    <p>In lesson O.5 you used <code>Hashtbl</code> to look things up by key. OCaml has a second tool for that, the <b>map</b>, which never changes, like a list or a record. To get one, you write a line that looks odd at first:</p>
-  </div>
+    <h2>A table that never changes</h2>
+    <p>In the warm up, <code>Hashtbl.replace</code> wiped out the old value. Sometimes you need the old table too. A compiler, for example, wants to know which names were defined at each line, not only at the end. For that, OCaml has the <b>map</b>: a lookup table that never changes. Adding a key gives you back a new map.</p>
+    <p>You get a map module with one line. Treat it as a recipe:</p>
 <pre><code>module StringMap = Map.Make (String)</code></pre>
-  <div class="prose">
-    <p><code>Map.Make</code> is a <b>functor</b>: a module that builds a module from another module. A map keeps its keys in sorted order, so it needs to know how to compare two keys. The <code>String</code> module has a <code>compare</code> function for strings. <code>Map.Make (String)</code> takes it and builds a whole new module, which you name <code>StringMap</code>, full of map functions for string keys. Want ints as keys? <code>Map.Make (Int)</code>. The pattern is always the same, so you can treat that line as a recipe.</p>
-    <p>If you type it into utop, it prints the new module's signature, about fifty lines long. It starts like this:</p>
+    <p><code>Map.Make</code> is a <b>functor</b>: a module that builds a new module from another one. Give it <code>String</code> and it builds a box of map functions for string keys, which you name <code>StringMap</code>. Now use it:</p>
+<pre><code>let m0 = StringMap.empty
+let m1 = StringMap.add "kiwi" 3 m0
+let m2 = StringMap.add "pear" 5 m1</code></pre>
   </div>
+
+  <div class="quiz" data-fill="1">
+    <p class="q">After all three lines have run, how many keys does <code>m1</code> hold?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Did the third line change <code>m1</code>, or make something new?</p>
+    <div class="why"><p>1. The third line made a new map, <code>m2</code>, with two keys. <code>m1</code> is still the map it was, with only <code>"kiwi"</code>.</p></div>
+  </div>
+
+  <div class="fig" id="maps" data-title="each add makes a new map, and the old ones stay"></div>
+
+  <div class="prose">
+    <p>Step through the picture. Then read the same thing in utop, where each reply shows what you got back:</p>
+<pre><code># StringMap.cardinal m1;;
+- : int = 1
+# StringMap.find_opt "kiwi" m2;;
+- : int option = Some 3
+# StringMap.find_opt "plum" m2;;
+- : int option = None
+# let m3 = StringMap.add "kiwi" 4 m2;;
+val m3 : int StringMap.t = &lt;abstr&gt;
+# StringMap.bindings m3;;
+- : (StringMap.key * int) list = [("kiwi", 4); ("pear", 5)]</code></pre>
+    <p><code>cardinal</code> counts the keys. <code>find_opt</code> looks a key up and returns an option, like <code>Hashtbl.find_opt</code>. <code>bindings</code> lists every key with its value, sorted by key. Adding a key that is already there, as in <code>m3</code>, gives a new map with the new value. The type <code>int StringMap.t</code> reads "a map from strings to ints".</p>
+  </div>
+
+  <details class="toggle">
+    <summary>More about Map.Make: other key types, fold, and why add is not slow</summary>
+    <div class="prose">
+      <p>A map keeps its keys in sorted order, so it needs to know how to compare two keys. The <code>String</code> module has a <code>compare</code> function for strings. <code>Map.Make (String)</code> takes it and builds the new module. Want ints as keys? <code>Map.Make (Int)</code>. The pattern is always the same.</p>
+      <p>If you type the recipe into utop, it prints the new module's signature, about fifty lines long. It starts like this:</p>
 <pre><code>module StringMap :
   sig
     type key = String.t
     type 'a t = 'a Map.Make(String).t
     val empty : 'a t
     val add : key -&gt; 'a -&gt; 'a t -&gt; 'a t</code></pre>
-  <div class="prose">
-    <p><code>'a t</code> is a map whose values have type <code>'a</code>, so <code>int StringMap.t</code> is a map from strings to ints. Here are the functions you'll use most:</p>
-  </div>
-<pre><code># let m0 = StringMap.empty;;
-val m0 : 'a StringMap.t = &lt;abstr&gt;
-# let m1 = StringMap.add "kiwi" 3 m0;;
-val m1 : int StringMap.t = &lt;abstr&gt;
-# let m2 = StringMap.add "pear" 5 m1;;
-val m2 : int StringMap.t = &lt;abstr&gt;
-# StringMap.find_opt "kiwi" m2;;
-- : int option = Some 3
-# StringMap.bindings m2;;
-- : (StringMap.key * int) list = [("kiwi", 3); ("pear", 5)]
-# StringMap.fold (fun word n acc -&gt; acc + n) m2 0;;
+      <p><code>'a t</code> is a map whose values have type <code>'a</code>. <code>StringMap.fold</code> visits every pair in key order and builds up a result. This one adds up all the values, 3 + 5 = 8:</p>
+<pre><code># StringMap.fold (fun word n acc -&gt; acc + n) m2 0;;
 - : int = 8</code></pre>
-  <div class="prose">
-    <p><code>find_opt</code> looks up a key and returns an option, like <code>Hashtbl.find_opt</code>. <code>bindings</code> lists every key and value, already in sorted key order. <code>fold</code> visits every pair, in key order, and builds up a result. Here it adds up all the values: 3 + 5 = 8.</p>
-    <h3><code>add</code> returns a new map</h3>
-    <p>This is the big difference from <code>Hashtbl</code>. <code>StringMap.add "pear" 5 m1</code> does not change <code>m1</code>. It returns a new map with one more key, and <code>m1</code> is still the map it was:</p>
-  </div>
-<pre><code># StringMap.cardinal m1;;
-- : int = 1
-# StringMap.cardinal m2;;
-- : int = 2
-# StringMap.find_opt "kiwi" m0;;
-- : 'a option = None
-# let m3 = StringMap.add "kiwi" 4 m2;;
-val m3 : int StringMap.t = &lt;abstr&gt;
-# StringMap.bindings m3;;
-- : (StringMap.key * int) list = [("kiwi", 4); ("pear", 5)]
-# StringMap.bindings m2;;
-- : (StringMap.key * int) list = [("kiwi", 3); ("pear", 5)]</code></pre>
-
-  <div class="fig" id="maps" data-title="each add makes a new map, and the old ones stay"></div>
+      <p>A new map for every <code>add</code> doesn't mean every <code>add</code> copies the whole map. Inside, the new map reuses almost all of the old one, so <code>add</code> stays fast even for big maps.</p>
+    </div>
+  </details>
 
   <div class="prose">
-    <p><code>cardinal</code> is the number of keys. Adding an existing key, as in <code>m3</code>, replaces its value in the new map only. This doesn't mean every <code>add</code> copies the whole map. Inside, the new map reuses almost all of the old one, so <code>add</code> stays fast even for big maps.</p>
+    <h2>Keep the new map</h2>
+    <p>Since <code>add</code> changes nothing, you must hold on to what it returns. The usual way is <code>List.fold_left</code> with the map as the running answer. This function maps each word to its length:</p>
+<pre><code>let lengths words =
+  List.fold_left
+    (fun m w -&gt; StringMap.add w (String.length w) m)
+    StringMap.empty words</code></pre>
+    <ol>
+      <li><strong>Start empty.</strong> The fold begins with <code>StringMap.empty</code>.</li>
+      <li><strong>Take the map so far.</strong> Each step receives <code>m</code>, the map built from the words before this one.</li>
+      <li><strong>Return the next map.</strong> The step's answer is <code>StringMap.add ... m</code>, a new map. The fold hands it to the next step.</li>
+    </ol>
+    <p><code>StringMap.bindings (lengths ["pear"; "fig"])</code> is <code>[("fig", 3); ("pear", 4)]</code>.</p>
   </div>
   <div class="trap">
     <span class="label">Throwing away the new map</span>
-    <p>Coming from <code>Hashtbl</code>, it's natural to write <code>List.iter (fun w -&gt; ignore (StringMap.add w 1 m)) words</code>. <code>ignore</code> throws away the value it is given. So this builds a new map for each word and throws it away, and <code>m</code> stays empty. With a map you have to keep the result. The usual way is <code>List.fold_left</code> with the map as the accumulator: each step receives the map so far and returns the next one.</p>
+    <p>Coming from <code>Hashtbl</code>, it's natural to write <code>List.iter (fun w -&gt; ignore (StringMap.add w 1 m)) words</code>. <code>ignore</code> throws away the value it is given. So this builds a new map for each word and throws it away, and <code>m</code> stays empty.</p>
   </div>
 
   <div class="exercise small" data-ex="lo-06-word-map">
@@ -182,20 +283,23 @@ val m3 : int StringMap.t = &lt;abstr&gt;
   </div>
 
   <div class="prose">
-    <h3>Sets</h3>
-    <p>A <b>set</b> is a collection where each element appears once, and order doesn't matter on the way in. <code>Set.Make</code> is the same kind of functor. utop prints its long signature again, which is left out here:</p>
-  </div>
+    <h2>A set holds each thing once</h2>
+    <p>Sometimes you only need to know whether something is in a collection, with no value attached: "have I seen this name before?" That is a <b>set</b>. Each element is in it once, however many times you add it. <code>Set.Make</code> is the same kind of recipe as <code>Map.Make</code>:</p>
 <pre><code># module StringSet = Set.Make (String);;
 # let s = StringSet.of_list ["b"; "a"; "b"; "c"];;
 val s : StringSet.t = &lt;abstr&gt;
 # StringSet.elements s;;
 - : StringSet.elt list = ["a"; "b"; "c"]
-# StringSet.cardinal s;;
-- : int = 3
 # StringSet.mem "a" s;;
 - : bool = true</code></pre>
-  <div class="prose">
-    <p><code>of_list</code> builds a set from a list, dropping duplicates. <code>elements</code> gives them back as a sorted list. <code>mem</code> asks whether something is in the set. Like maps, sets never change: <code>StringSet.add</code> returns a new set.</p>
+    <p><code>of_list</code> builds a set from a list and drops the repeats. <code>elements</code> gives the set back as a sorted list. <code>mem</code> asks whether something is in the set. <code>cardinal</code> counts the elements, as it does for a map.</p>
+  </div>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">The set <code>s</code> above has 3 elements. After <code>let s2 = StringSet.add "z" s</code>, what is <code>StringSet.cardinal s</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">A set behaves like a map here, not like a hash table.</p>
+    <div class="why"><p>Still 3. Like a map, a set never changes. <code>add</code> returned a new set, <code>s2</code>, with 4 elements.</p></div>
   </div>
 
   <div class="exercise small" data-ex="lo-06-unique-words">
@@ -204,43 +308,178 @@ val s : StringSet.t = &lt;abstr&gt;
     <p class="muted">Two functions from the session above, one after the other.</p>
   </div>
 
-  <div class="prose">
-    <h2>Map or Hashtbl?</h2>
-    <p>Both look things up by key. They differ in whether they change, and that decides which one fits.</p>
-  </div>
-  <div class="tablewrap"><table>
-    <thead><tr><th></th><th><code>StringMap</code> (from <code>Map.Make</code>)</th><th><code>Hashtbl</code></th></tr></thead>
-    <tbody>
-      <tr><td>Changes?</td><td>Never. <code>add</code> returns a new map.</td><td>Yes. <code>replace</code> changes the table.</td></tr>
-      <tr><td>Old versions</td><td>Stay valid. You can keep <code>m1</code> and <code>m2</code> both.</td><td>Gone. There is only the current table.</td></tr>
-      <tr><td>Order of keys</td><td>Sorted, always.</td><td>No useful order.</td></tr>
-      <tr><td>Speed</td><td>Fast: about log<sub>2</sub>(n) steps per lookup.</td><td>Faster: about one step per lookup.</td></tr>
-      <tr><td>Setup</td><td>One line of <code>Map.Make</code> per key type.</td><td>None. <code>Hashtbl.create 16</code> takes any key type.</td></tr>
-      <tr><td>Good for</td><td>Values passed around and built step by step, like "which names are defined so far". Output that must be sorted.</td><td>One big table filled by a loop, like counting or hash consing.</td></tr>
-    </tbody>
-  </table></div>
+  <details class="toggle">
+    <summary>Map or Hashtbl, side by side, for when you have to pick one</summary>
+    <div class="prose">
+      <p>Both look things up by key. They differ in whether they change, and that decides which one fits.</p>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th></th><th><code>StringMap</code> (from <code>Map.Make</code>)</th><th><code>Hashtbl</code></th></tr></thead>
+      <tbody>
+        <tr><td>Changes?</td><td>Never. <code>add</code> returns a new map.</td><td>Yes. <code>replace</code> changes the table.</td></tr>
+        <tr><td>Old versions</td><td>Stay valid. You can keep <code>m1</code> and <code>m2</code> both.</td><td>Gone. There is only the current table.</td></tr>
+        <tr><td>Order of keys</td><td>Sorted, always.</td><td>No useful order.</td></tr>
+        <tr><td>Speed</td><td>Fast: about log<sub>2</sub>(n) steps per lookup.</td><td>Faster: about one step per lookup.</td></tr>
+        <tr><td>Setup</td><td>One line of <code>Map.Make</code> per key type.</td><td>None. <code>Hashtbl.create 16</code> takes any key type.</td></tr>
+        <tr><td>Good for</td><td>Values passed around and built step by step, like "which names are defined so far". Output that must be sorted.</td><td>One big table filled by a loop, like counting or hash consing.</td></tr>
+      </tbody>
+    </table></div>
+  </details>
 
   <div class="prose">
-    <h2>A dune project from scratch</h2>
-    <p>utop is great for trying things, but a program you run again and again lives in files, and <b>dune</b>, OCaml's build tool, turns those files into a program. <a href="../week0/06-ocaml.html">Lesson 0.6</a> creates a project with one command, <code>dune init project</code>. Here you'll write the same kind of project by hand, three small files, so that you know what each one is for.</p>
-  </div>
-<pre><code>counter/
+    <h2>What a build tool does</h2>
+    <p>So far your OCaml lived in the toplevel or in one exercise box. A real program is many files, and some use others, the way <code>main.ml</code> used <code>Stack</code>. Something has to work out which file comes first, check every one and join them into a single program you can run. That something is a <b>build tool</b>. OCaml's is called <b>dune</b>.</p>
+    <p>dune needs to be told two things: where the project starts and what to build. So the smallest project is three files.</p>
+<pre><code>greet/
   dune-project
   bin/
     dune
     main.ml</code></pre>
-  <div class="prose">
-    <p><code>dune-project</code> marks the top folder of the project. It holds one line, which says which version of dune's rules the project is written for:</p>
   </div>
-<pre><code>(lang dune 3.0)</code></pre>
-  <div class="prose">
-    <p><code>bin/dune</code> says what to build in the <code>bin</code> folder: one program, made from <code>main.ml</code>.</p>
+
+  <div class="fig" id="project" data-title="three files in, one program out"></div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">A project has 40 <code>.ml</code> files. You edit one and run <code>dune build</code> again. What does dune redo?</p>
+    <div class="opts">
+      <button data-k="a">All 40 files, every time</button>
+      <button data-k="b">The file you edited and the files that use it</button>
+      <button data-k="c">Nothing, until you delete the old program</button>
+    </div>
+    <p class="hint">A build tool keeps track of which file uses which.</p>
+    <div class="why"><p>dune remembers what it built and which file uses which. It redoes only what your edit could have changed, so rebuilding after a small edit stays quick even in a big project.</p></div>
   </div>
+
+  <div class="prose">
+    <h2>Build and run a project</h2>
+  </div>
+  <div class="note">
+    <span class="label">On your machine</span>
+    <p>This part happens in a terminal, not in this page. Type <code>dune --version</code>. If you see a number, you are ready. If not, the install steps are in <a href="../week0/06-ocaml.html#install">lesson 0.6</a>. You can also read on now and do these steps when you get there.</p>
+  </div>
+  <div class="prose">
+    <p>Make this practice project somewhere outside the course folder.</p>
+    <ol>
+      <li><strong>Make the folders.</strong>
+<pre><code>mkdir greet
+cd greet
+mkdir bin</code></pre></li>
+      <li><strong>Mark the top.</strong> In <code>greet</code>, make a file named <code>dune-project</code> with one line. It says which version of dune's rules the project uses.
+<pre><code>(lang dune 3.0)</code></pre></li>
+      <li><strong>Say what to build.</strong> In <code>bin</code>, make a file named <code>dune</code>. It says: build one program, starting from <code>main.ml</code>.
 <pre><code>(executable
- (name main))</code></pre>
-  <div class="prose">
-    <p><code>bin/main.ml</code> is the program itself. This one prints how many characters a file has:</p>
+ (name main))</code></pre></li>
+      <li><strong>Write the program.</strong> In <code>bin</code>, make <code>main.ml</code>. <code>print_endline</code> prints a string and ends the line. <code>let () =</code> in front means "run this when the program starts". Printing gives back <code>()</code>, the unit value from O.5, so the two sides fit.
+<pre><code>let () = print_endline "hello from my own program"</code></pre></li>
+      <li><strong>Build it and run it.</strong> Both commands are typed in <code>greet</code>, the folder that holds <code>dune-project</code>.
+<pre><code>dune build
+dune exec ./bin/main.exe</code></pre></li>
+    </ol>
   </div>
+  <div class="note">
+    <span class="label">Checkpoint</span>
+    <p><code>dune build</code> prints nothing when everything is fine. <code>dune exec</code> builds if needed, then runs the program, and you should see:</p>
+<pre><code>hello from my own program</code></pre>
+    <p>The finished program is the file <code>_build/default/bin/main.exe</code>. dune uses the ending <code>.exe</code> on every system, not only on Windows.</p>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Suppose you had saved the program as <code>bin/mian.ml</code> by mistake. <code>dune build</code> now fails. Which file does its error point at?</p>
+    <div class="opts">
+      <button data-k="a"><code>dune-project</code></button>
+      <button data-k="b"><code>bin/mian.ml</code></button>
+      <button data-k="c"><code>bin/dune</code></button>
+    </div>
+    <p class="hint">Which file mentions the name <code>main</code>?</p>
+    <div class="why"><p><code>bin/dune</code> asks for <code>(name main)</code>, and no file gives it a module by that name. The error is <code>Module "Main" doesn't exist</code>, with the file and line of the request. Notice that dune calls the file a module.</p></div>
+  </div>
+
+  <details class="toggle">
+    <summary>If dune can't find the project or the program, or stops on an unused variable</summary>
+    <div class="prose">
+      <p>dune looks for <code>dune-project</code> in the current folder and the folders above it. Run it from <code>greet/bin</code> and it finds the project, but <code>./bin/main.exe</code> now points at the wrong place: <code>Error: Program './bin/main.exe' not found!</code>. Run it from a folder outside any project and you get <code>Error: I cannot find the root of the current workspace/project.</code> Either way, go to the folder that holds <code>dune-project</code>. And keep the <code>./</code> and the <code>.exe</code> in <code>dune exec ./bin/main.exe</code>, on every system: that's dune's name for the program, not a Windows file name.</p>
+      <p>dune is stricter than utop. A name you define with <code>let ... in</code> and never use stops the build with <code>Error (warning 26 [unused-var]): unused variable x.</code> Use the name, delete it or start it with <code>_</code> to say it is unused on purpose.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>A program that reads its arguments</h2>
+    <p>Your compiler will be run as <code>compile FILE</code>, with a different file each time. So a program needs the words typed after its name. They are called <b>arguments</b>, and OCaml puts them in an array of strings named <code>Sys.argv</code>. Slot 0 holds the program's own name. The first argument is in slot 1.</p>
+  </div>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">You run a program with one argument, <code>Ada</code>. What is <code>Array.length Sys.argv</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Slot 0 is taken before any argument is counted.</p>
+    <div class="why"><p>2: the program's name in slot 0 and <code>"Ada"</code> in slot 1. Forgetting slot 0 is the usual mistake.</p></div>
+  </div>
+
+  <div class="exercise small" data-ex="lo-06n-argv">
+    <h3>Read the right argument</h3>
+    <p><code>greeting argv</code> gets an array shaped like <code>Sys.argv</code> and returns the line to print. With exactly one argument it should return <code>"hello, "</code> and that argument. With any other count it should return <code>"usage: "</code>, the program's name and <code>" NAME"</code>. The starter reads the wrong slot and never checks the length. Repair it.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">On your machine</span>
+    <p>Give <code>greet</code> a second file and an argument. Make <code>bin/greeting.ml</code> with this one line:</p>
+<pre><code>let make name = "hello, " ^ name</code></pre>
+    <p>Change <code>bin/main.ml</code> to this:</p>
+<pre><code>let () = print_endline (Greeting.make Sys.argv.(1))</code></pre>
+    <p>Then run it. Everything after <code>--</code> goes to your program, not to dune.</p>
+<pre><code>dune exec ./bin/main.exe -- Ada</code></pre>
+    <p>You should see <code>hello, Ada</code>. The file <code>greeting.ml</code> became the module <code>Greeting</code>, and dune worked out that it must be built before <code>main.ml</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>Exit codes: how a program says how it went</h2>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Now you run it with no name: <code>dune exec ./bin/main.exe</code>. What happens?</p>
+    <div class="opts">
+      <button data-k="a">It prints <code>hello, </code> with nothing after it</button>
+      <button data-k="b">It stops with an exception</button>
+      <button data-k="c">It waits for you to type a name</button>
+    </div>
+    <p class="hint">How long is <code>Sys.argv</code> now, and which slot does the program read?</p>
+    <div class="why"><p>The array has only slot 0, so reading slot 1 raises an exception. The program prints <code>Fatal error: exception Invalid_argument("index out of bounds")</code> and stops.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>When a program ends, it hands one number back to whoever started it. That number is its <b>exit code</b>. 0 means "it went fine". Any other number means "something went wrong". An exception that nobody catches ends an OCaml program with exit code 2.</p>
+    <p>You can pick the number yourself. Here is <code>bin/main.ml</code> with the missing check:</p>
+<pre><code>let () =
+  if Array.length Sys.argv = 2 then
+    print_endline (Greeting.make Sys.argv.(1))
+  else (
+    prerr_endline "usage: main NAME";
+    exit 1)</code></pre>
+    <ol>
+      <li><strong>Check first.</strong> Slot 1 is read only when the array has two slots.</li>
+      <li><strong>Complain on the error stream.</strong> <code>prerr_endline</code> prints a line to <b>stderr</b>, a second output meant for messages to a person. The program's real answer goes to normal output, called <b>stdout</b>.</li>
+      <li><strong>Leave with a code.</strong> <code>exit 1</code> ends the program with exit code 1. Reaching the end without trouble gives 0.</li>
+    </ol>
+  </div>
+  <div class="note">
+    <span class="label">On your machine</span>
+    <p>Right after a command, <code>echo $?</code> shows its exit code. In PowerShell, type <code>echo $LASTEXITCODE</code>.</p>
+<pre><code>$ dune exec ./bin/main.exe -- Ada
+hello, Ada
+$ echo $?
+0
+$ dune exec ./bin/main.exe
+usage: main NAME
+$ echo $?
+1</code></pre>
+  </div>
+  <div class="prose">
+    <p>Why care? The course's grader is a program too. It runs your compiler on hundreds of tests. It reads what your compiler prints on stdout, and for some commands the exit code. A compiler that crashes prints no answer line, so that test fails. <a href="../week0/06-ocaml.html">Lesson 0.6</a> connects your program to the grader.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Reading a whole file, for when your program gets a file name</summary>
+    <div class="prose">
+      <p>This <code>main.ml</code> prints how many characters a file has:</p>
 <pre><code>let () =
   if Array.length Sys.argv &lt;&gt; 2 then begin
     Printf.eprintf "usage: main FILE\n";
@@ -250,17 +489,12 @@ val s : StringSet.t = &lt;abstr&gt;
   let text = In_channel.with_open_text path In_channel.input_all in
   Printf.printf "%s has %d characters\n" path (String.length text);
   exit 0</code></pre>
-  <div class="prose">
-    <p>Line by line:</p>
-    <ul>
-      <li><code>let () = ...</code> is the code that runs when the program starts. <code>()</code> is the unit value from lesson O.1, so this says "run this, and it returns nothing".</li>
-      <li><code>Sys.argv</code> is an array of the words typed on the command line. <code>Sys.argv.(0)</code> is the program's own name, and <code>Sys.argv.(1)</code> is the first word after it. Checking the length first means you never read past the end of the array.</li>
-      <li><code>begin ... end</code> groups steps, like parentheses. Without it, only the first step would belong to the <code>if</code>.</li>
-      <li><code>In_channel.with_open_text path f</code> opens the file, calls <code>f</code> on it, and closes it again, even if <code>f</code> fails. <code>In_channel.input_all</code> reads everything into one string. Both need OCaml 4.14 or newer.</li>
-      <li><code>exit 0</code> ends the program with <b>exit code</b> 0, which means success. Any other number means failure. Shells and other programs read this number to find out how things went.</li>
-    </ul>
-    <p>First make a file called <code>notes.txt</code> in the <code>counter</code> folder and type a line of text into it. Then build the project and run it from the <code>counter</code> folder. The number you see is the length of your own file, so it may not be 20. <code>dune build</code> prints nothing when everything compiles. Everything after <code>--</code> is passed to your program instead of to dune.</p>
-  </div>
+      <ul>
+        <li><code>begin ... end</code> groups steps, like parentheses. Without it, only the first step would belong to the <code>if</code>.</li>
+        <li><code>In_channel.with_open_text path f</code> opens the file, calls <code>f</code> on it, and closes it again, even if <code>f</code> fails. <code>In_channel.input_all</code> reads everything into one string. Both need OCaml 4.14 or newer.</li>
+        <li><code>Printf.eprintf</code> works like <code>Printf.printf</code> but writes to stderr.</li>
+      </ul>
+      <p>Make a file called <code>notes.txt</code> in the project folder and type a line of text into it. The number you see is the length of your own file, so it may not be 20.</p>
 <pre><code>$ dune build
 $ dune exec ./bin/main.exe -- notes.txt
 notes.txt has 20 characters
@@ -274,55 +508,76 @@ $ dune exec ./bin/main.exe -- nope.txt
 Fatal error: exception Sys_error("nope.txt: No such file or directory")
 $ echo $?
 2</code></pre>
-  <div class="prose">
-    <p><code>echo $?</code> shows the exit code of the last command in a Unix shell. In PowerShell, use <code>echo $LASTEXITCODE</code>. The finished program also sits at <code>_build/default/bin/main.exe</code>, and you can run that file directly.</p>
-    <p>The last run shows what happens to an exception nobody catches: the program prints <code>Fatal error: exception</code> and the exception, and exits with code 2. Two things go to <b>stderr</b>, the error stream, which is separate from normal output: the <code>Fatal error</code> message, and the usage line, because it was printed with <code>Printf.eprintf</code>. If you send normal output to a file with <code>&gt;</code>, those messages still appear on screen.</p>
-  </div>
-  <div class="trap">
-    <span class="label">Build and run from the project folder</span>
-    <p>dune looks for <code>dune-project</code> in the current folder and the folders above it. Run it from <code>counter/bin</code> and it finds the project, but <code>./bin/main.exe</code> now points at the wrong place: <code>Error: Program './bin/main.exe' not found!</code>. Run it from a folder outside any project and you get <code>Error: I cannot find the root of the current workspace/project.</code> Either way, go to the folder that holds <code>dune-project</code>. And keep the <code>./</code> and the <code>.exe</code> in <code>dune exec ./bin/main.exe</code>, on every system: that's dune's name for the program, not a Windows file name.</p>
-  </div>
+      <p>The last run is an exception nobody caught, so the exit code is 2. If you send normal output to a file with <code>&gt;</code>, the messages on stderr still appear on screen.</p>
+    </div>
+  </details>
 
   <div class="prose">
-    <h2>When something goes wrong</h2>
-    <h3>Print to stderr</h3>
-    <p>The oldest debugging tool is a print. Use <code>Printf.eprintf</code>, which works like <code>printf</code> but writes to stderr. That keeps your debug lines out of the program's real output, which a test may be checking. Add <code>%!</code> at the end of the format to make sure the line appears right away, even if the program crashes on the next line:</p>
-  </div>
-<pre><code>Printf.eprintf "looking up %s\n%!" fruit</code></pre>
-  <div class="prose">
-    <h3>Ask for a backtrace</h3>
-    <p>Here's a program with a bug. <code>List.assoc k l</code> finds the value for key <code>k</code> in a list of pairs, and raises <code>Not_found</code> if it isn't there. There is no price for "plum":</p>
-  </div>
+    <h2>Find a bug calmly</h2>
+    <p>Every program you write will be wrong at first. That is normal, and there is a routine for it. This program adds up the prices of the fruit in a basket. <code>List.assoc k l</code> finds the value stored with key <code>k</code> in a list of pairs.</p>
 <pre><code>let prices = [ ("kiwi", 3); ("pear", 5) ]
 
 let price_of fruit = List.assoc fruit prices
 
 let total basket = List.fold_left (fun acc fruit -&gt; acc + price_of fruit) 0 basket
 
-let () = Printf.printf "%d\n" (total [ "kiwi"; "plum" ])</code></pre>
+let () = print_endline (string_of_int (total [ "kiwi"; "pear"; "plum"; "kiwi" ]))</code></pre>
 <pre><code>$ dune exec ./bin/main.exe
 Fatal error: exception Not_found</code></pre>
-  <div class="prose">
-    <p>That says what went wrong, but not where. In a big program there may be fifty lookups that could raise <code>Not_found</code>. Set the environment variable <code>OCAMLRUNPARAM</code> to <code>b</code> (for backtrace) and run it again:</p>
+    <ol>
+      <li><strong>Read the error.</strong> All of it, slowly. <code>Not_found</code> is the exception a lookup raises when the key is missing. So some lookup failed. The message does not say which.</li>
+      <li><strong>Print a value.</strong> Make the program show what it is working on. Put one line at the start of <code>price_of</code> and run again:
+<pre><code>let price_of fruit =
+  prerr_endline ("looking up " ^ fruit);
+  List.assoc fruit prices</code></pre></li>
+      <li><strong>Shrink the input.</strong> Cut the input down until you have the smallest one that still fails. Here that is <code>total [ "plum" ]</code>. With one item there is nothing else left to suspect.</li>
+    </ol>
   </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">With the print from step 2 added, which line appears last, right before <code>Fatal error</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>looking up kiwi</code></button>
+      <button data-k="b"><code>looking up pear</code></button>
+      <button data-k="c"><code>looking up plum</code></button>
+    </div>
+    <p class="hint">The program stops at the first lookup that fails. Which fruit has no price?</p>
+    <div class="why"><p>The program prints kiwi, pear and plum, then stops. The last value printed before a crash is the one that caused it. There is no price for plum. Printing to stderr keeps these lines apart from the program's real answer.</p></div>
+  </div>
+
+  <div class="exercise small" data-ex="lo-06n-average">
+    <h3>Read the error, then repair it</h3>
+    <p><code>average xs</code> should return the whole-number average of a list, and 0 for an empty list. Press Run before you change anything, and read what the failing test says. Then repair the function.</p>
+    <p class="muted">The error names what went wrong. Ask which input is the smallest one that causes it.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>A backtrace: ask OCaml where the exception came from</summary>
+    <div class="prose">
+      <p><code>Fatal error: exception Not_found</code> says what went wrong, but not where. In a big program there may be fifty lookups that could raise <code>Not_found</code>. Set the environment variable <code>OCAMLRUNPARAM</code> to <code>b</code> (for backtrace) and run the first version of the fruit program again:</p>
 <pre><code>$ OCAMLRUNPARAM=b dune exec ./bin/main.exe
 Fatal error: exception Not_found
 Raised at Stdlib__List.assoc in file "list.ml", line 199, characters 10-25
 Called from Dune__exe__Main.price_of in file "bin/main.ml" (inlined), line 3, characters 21-44
 Called from Dune__exe__Main.total.(fun) in file "bin/main.ml", line 5, characters 58-72
 Called from Stdlib__List.fold_left in file "list.ml", line 123, characters 24-34
-Called from Dune__exe__Main in file "bin/main.ml", line 7, characters 30-56</code></pre>
-  <div class="prose">
-    <p>A <b>backtrace</b> is the chain of calls that led to the crash, innermost first. Read it from the top and stop at the first line in a file you wrote:</p>
-    <ul>
-      <li>The exception was raised inside <code>List.assoc</code>, in OCaml's own <code>list.ml</code>. Library code is rarely the culprit, so keep reading.</li>
-      <li>That was called from <code>price_of</code>, on line 3 of <code>bin/main.ml</code>. This is your code: the lookup that failed. <code>(inlined)</code> means the compiler copied <code>price_of</code> into the function that uses it to save a call. The line number is still right.</li>
-      <li>Further down: <code>price_of</code> was called by the <code>fun</code> inside <code>total</code> on line 5, which was run by <code>List.fold_left</code>, which was started on line 7.</li>
-    </ul>
-    <p>In PowerShell, set the variable once with <code>$env:OCAMLRUNPARAM = "b"</code> and then run the program as usual. dune's normal build keeps the information a backtrace needs, so there's nothing else to switch on. The line numbers inside <code>list.ml</code> may differ with your OCaml version.</p>
-    <h3>Watch a function's calls with <code>#trace</code></h3>
-    <p>In utop, <code>#trace</code> makes a function report every call and every return. It is a quick way to see a recursive function at work:</p>
-  </div>
+Called from Dune__exe__Main in file "bin/main.ml", line 7, characters 38-80</code></pre>
+      <p>A <b>backtrace</b> is the chain of calls that led to the crash, innermost first. Read it from the top and stop at the first line in a file you wrote:</p>
+      <ul>
+        <li>The exception was raised inside <code>List.assoc</code>, in OCaml's own <code>list.ml</code>. Library code is rarely the culprit, so keep reading.</li>
+        <li>That was called from <code>price_of</code>, on line 3 of <code>bin/main.ml</code>. This is your code: the lookup that failed. <code>(inlined)</code> means the compiler copied <code>price_of</code> into the function that uses it to save a call. The line number is still right.</li>
+        <li>Further down: <code>price_of</code> was called by the <code>fun</code> inside <code>total</code> on line 5, which was run by <code>List.fold_left</code>, which was started on line 7.</li>
+      </ul>
+      <p>In PowerShell, set the variable once with <code>$env:OCAMLRUNPARAM = "b"</code> and then run the program as usual. dune's normal build keeps the information a backtrace needs, so there's nothing else to switch on. The line numbers inside <code>list.ml</code> may differ with your OCaml version.</p>
+    </div>
+  </details>
+
+  <details class="toggle">
+    <summary>Printing with Printf.eprintf, and watching a function's calls with #trace</summary>
+    <div class="prose">
+      <p><code>Printf.eprintf</code> works like <code>printf</code> but writes to stderr, so you can print numbers too. Add <code>%!</code> at the end of the format to make sure the line appears right away, even if the program crashes on the next line:</p>
+<pre><code>Printf.eprintf "looking up %s\n%!" fruit</code></pre>
+      <p>In utop, <code>#trace</code> makes a function report every call and every return. It is a quick way to see a recursive function at work:</p>
 <pre><code># let rec fact n = if n &lt;= 1 then 1 else n * fact (n - 1);;
 val fact : int -&gt; int = &lt;fun&gt;
 # #trace fact;;
@@ -335,21 +590,20 @@ fact --&gt; 1
 fact --&gt; 2
 fact --&gt; 6
 - : int = 6</code></pre>
-  <div class="prose">
-    <p><code>&lt;--</code> is a call going in, with its argument, and <code>--&gt;</code> is a result coming out. The calls nest: <code>fact 3</code> calls <code>fact 2</code>, which calls <code>fact 1</code>. <code>fact 1</code> returns first, and then each waiting call finishes in turn, 2 × 1 = 2, then 3 × 2 = 6. Type <code>#untrace fact;;</code> to turn it off. The <code>#</code> at the start is part of the command, which is why the line above shows two: the prompt and the one you type.</p>
-  </div>
+      <p><code>&lt;--</code> is a call going in, with its argument, and <code>--&gt;</code> is a result coming out. The calls nest: <code>fact 3</code> calls <code>fact 2</code>, which calls <code>fact 1</code>. <code>fact 1</code> returns first, and then each waiting call finishes in turn, 2 × 1 = 2, then 3 × 2 = 6. Type <code>#untrace fact;;</code> to turn it off. The <code>#</code> at the start is part of the command, which is why the line above shows two: the prompt and the one you type.</p>
+    </div>
+  </details>
 
   <div class="prose">
     <h2>What you can do now</h2>
     <ul>
-      <li>Explain what a module is, write one with <code>struct ... end</code>, and know that each file is a module.</li>
-      <li>Read a simple <code>.mli</code> interface and say what an abstract type hides.</li>
-      <li>Make a map or set module with <code>Map.Make</code> or <code>Set.Make</code>, and use <code>add</code>, <code>find_opt</code>, <code>bindings</code> and <code>fold</code>, keeping the new map each time.</li>
-      <li>Choose between a map and a hash table.</li>
-      <li>Set up a dune project by hand, read a file, use <code>Sys.argv</code>, and exit with a meaningful code.</li>
-      <li>Debug with <code>Printf.eprintf</code>, a backtrace from <code>OCAMLRUNPARAM=b</code>, and <code>#trace</code>.</li>
+      <li>Say what a module is, write one with <code>struct ... end</code> and name a file's contents from another file.</li>
+      <li>Make a map or a set with <code>Map.Make</code> or <code>Set.Make</code>, and keep the new one that <code>add</code> returns.</li>
+      <li>Say what a build tool does and what each of the three files of a small dune project is for.</li>
+      <li>Read arguments from <code>Sys.argv</code>, print a result and exit with a code that says how it went.</li>
+      <li>Work on a bug in three moves: read the error, print a value, shrink the input.</li>
     </ul>
-    <p>That is the whole Learn OCaml track. Next comes week 0, starting with <a href="../week0/01-c-and-pointers.html">lesson 0.1: C and pointers</a>. It ends with <a href="../week0/06-ocaml.html">lesson 0.6, the OCaml crash course</a>. That lesson moves faster than these pages, but every piece of it will be something you've seen.</p>
+    <p>That is the whole Learn OCaml track. Next, in <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a>, you write a small interpreter in the page. Then <a href="../week0/06-ocaml.html">lesson 0.6</a> sets up your real compiler project with one command, <code>dune init project</code>, which writes the files you just wrote by hand, and connects it to the grader.</p>
   </div>
 
   <h2>Check yourself</h2>
@@ -398,17 +652,20 @@ fact --&gt; 6
   <div class="quiz" data-fill="2">
     <p class="q">A program stops with <code>Fatal error: exception Not_found</code>. What exit code does it return?</p>
     <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
-    <p class="hint">Look at the <code>nope.txt</code> run in the dune section.</p>
+    <p class="hint">An exception that nobody catches always ends an OCaml program with the same code.</p>
     <p class="hint">It isn't 0, and it isn't the 1 the program chose for its usage message.</p>
-    <div class="why"><p>2. An exception that nobody catches makes an OCaml program exit with code 2. It also prints nothing on stdout, and the course's test runner reads the outcome line your compiler prints, so a crash fails the test. Lesson 0.6 shows how to catch your own errors and print the right outcome on purpose.</p></div>
+    <div class="why"><p>2. An exception that nobody catches makes an OCaml program exit with code 2. It also prints nothing on stdout, and the course's grader reads the line your compiler prints there, so a crash fails the test. Lesson 0.6 shows how to catch your own errors and print the right outcome on purpose.</p></div>
   </div>
 
-  <div class="quiz" data-fill="2">
-    <p class="q">After <code>#trace fact</code>, how many lines starting with <code>fact &lt;--</code> does <code>fact 2</code> print?</p>
-    <div class="fill"><input aria-label="answer"><button class="btn">check</button></div>
-    <p class="hint">Each call prints one <code>&lt;--</code> line. Which calls happen?</p>
-    <p class="hint"><code>fact 2</code> calls <code>fact 1</code>. Does <code>fact 1</code> call anything?</p>
-    <div class="why"><p>2: <code>fact &lt;-- 2</code> and <code>fact &lt;-- 1</code>. <code>fact 1</code> hits <code>n &lt;= 1</code> and returns 1 without another call. Then come two <code>--&gt;</code> lines, 1 and 2.</p></div>
+  <div class="quiz" data-answer="a">
+    <p class="q">Your program crashes on an input with 200 items and the error does not say which one is to blame. What is a good next move?</p>
+    <div class="opts">
+      <button data-k="a">Run it on half of the input and see whether it still crashes</button>
+      <button data-k="b">Rewrite the function that looks most complicated</button>
+      <button data-k="c">Run it again a few times in case it passes</button>
+    </div>
+    <p class="hint">Which of the three moves makes the problem smaller?</p>
+    <div class="why"><p>Shrink the input. Each cut that still crashes leaves fewer items to suspect, and eight cuts take 200 items down to one. The same input gives the same crash every time, so running it again tells you nothing new.</p></div>
   </div>
 
   <nav class="pager"><a href="ml-05-mutation.html">← Arrays, tables and mutation</a><a href="../week0/01-c-and-pointers.html">0.1 C and pointers →</a></nav>
@@ -430,6 +687,24 @@ fact --&gt; 6
   ];
   CC.stepper(document.getElementById('maps'), steps, (s, body) => {
     body.append(CC.graph(all.slice(0, s.n).map((n, i) => ({ ...n, cls: i === s.n - 1 ? 'new' : '' }))));
+  });
+
+  const files = [
+    { id: 'dp', op: 'dune-project', sub: 'top of the project' },
+    { id: 'bd', op: 'bin/dune', sub: 'what to build' },
+    { id: 'ml', op: 'bin/main.ml', sub: 'your code' },
+    { id: 'build', op: 'dune build', src: ['dp', 'bd', 'ml'] },
+    { id: 'exe', op: 'main.exe', sub: 'a program you can run', src: ['build'] },
+  ];
+  const build = [
+    { n: 1, caption: '<code>dune-project</code> sits in the top folder. It tells dune "the project starts here".' },
+    { n: 2, caption: '<code>bin/dune</code> tells dune what to make from the files in <code>bin</code>: one program.' },
+    { n: 3, caption: '<code>bin/main.ml</code> is the OCaml code, the only one of the three you will edit often.' },
+    { n: 4, caption: 'The command <code>dune build</code> reads all three, checks the code and reports any error.' },
+    { n: 5, caption: 'Out comes one file, the program. dune keeps it in a folder of its own named <code>_build</code>.' },
+  ];
+  CC.stepper(document.getElementById('project'), build, (s, body) => {
+    body.append(CC.graph(files.slice(0, s.n).map((n, i) => ({ ...n, cls: i === s.n - 1 ? 'new' : '' }))));
   });
 })();
 </script>

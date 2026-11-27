@@ -1,0 +1,54 @@
+{
+ "id": "w1-03n-fold-py",
+ "lang": "python",
+ "title": "Fold like the interpreter",
+ "show": "str",
+ "starter": "def wrap32(x):\n    return (x + 2**31) % 2**32 - 2**31\n\n\ndef fold(op, a, b):\n    if op == \"add\":\n        return a + b\n    if op == \"mul\":\n        return a * b\n    if op == \"div\":\n        return a // b\n    return 0\n",
+ "tests": [
+  {
+   "expr": "fold('add', 2, 3)",
+   "expect": "5",
+   "sample": true
+  },
+  {
+   "expr": "fold('mul', 65536, 65536)",
+   "expect": "0",
+   "sample": true
+  },
+  {
+   "expr": "fold('div', 1, 0)",
+   "expect": "-1",
+   "sample": true
+  },
+  {
+   "expr": "fold('add', 2147483647, 1)",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "fold('div', -7, 2)",
+   "expect": "-4"
+  },
+  {
+   "expr": "fold('mul', -1, -2147483648)",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "fold('div', -2147483648, -1)",
+   "expect": "-2147483648"
+  },
+  {
+   "expr": "fold('div', 0, 0)",
+   "expect": "-1"
+  },
+  {
+   "expr": "fold('add', -2147483648, -1)",
+   "expect": "2147483647"
+  }
+ ],
+ "hints": [
+  "Python ints never overflow, so `a + b` and `a * b` can leave the i32 range. The starter already has `wrap32`. Nothing calls it yet.",
+  "`a // 0` raises `ZeroDivisionError`. In .uir, `div x 0` is -1 for every `x`, so check for `b == 0` before you divide.",
+  "Wrap all three answers: `wrap32(a + b)`, `wrap32(a * b)` and `-1 if b == 0 else wrap32(a // b)`. The division needs the wrap for one input: `div -2147483648 -1`."
+ ],
+ "explain": "Every answer goes through `wrap32`, so the folder gives the same i32 the interpreter would. Division checks for a zero divisor first and answers -1, the value .uir defines, so folding a valid program can never raise. The wrap on `div` matters for -2147483648 divided by -1, which is 2147483648 before wrapping."
+}

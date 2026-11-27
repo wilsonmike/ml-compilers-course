@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sharing Nodes</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="A compiler stores a program as a picture of boxes and arrows. When the same piece appears twice, you can draw it twice or draw it once and point at it from two...">
+<meta name="description" content="When the same piece of a program shows up twice, a compiler can draw it twice, or draw it once and point at it from two places. This page takes the second way...">
 <link rel="canonical" href="https://sharpterminal.com/site/learn/hard-01-sharing">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Sharing Nodes">
-<meta property="og:description" content="A compiler stores a program as a picture of boxes and arrows. When the same piece appears twice, you can draw it twice or draw it once and point at it from two places. This page is about the second...">
+<meta property="og:description" content="When the same piece of a program shows up twice, a compiler can draw it twice, or draw it once and point at it from two places. This page takes the second way slowly. You will see why it matters so...">
 <meta property="og:url" content="https://sharpterminal.com/site/learn/hard-01-sharing">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,56 +20,110 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 </head>
 <body data-crumbs="Hard ideas|Sharing nodes" data-root="../">
 <main>
   <p class="eyebrow">Hard ideas · 1</p>
   <h1>Sharing nodes</h1>
-  <p class="lede">A compiler stores a program as a picture of boxes and arrows. When the same piece appears twice, you can draw it twice or draw it once and point at it from two places. This page is about the second way: why it matters so much, and how a lookup table makes it happen by itself.</p>
+  <p class="lede">When the same piece of a program shows up twice, a compiler can draw it twice, or draw it once and point at it from two places. This page takes the second way slowly. You will see why it matters so much, and how one lookup table makes it happen without anyone hunting for repeats.</p>
 
   <div class="note">
-    <span class="label">Before you start</span>
-    <p>You should be comfortable with your own types and with tables of key and value: <span class="only-python"><a href="py-03-collections.html">P.3</a> (dicts) and <a href="py-04-your-own-types.html">P.4</a> (classes and dataclasses)</span><span class="only-ocaml"><a href="ml-04-your-own-types.html">O.4</a> (variants and records) and <a href="ml-05-mutation.html">O.5</a> (Hashtbl)</span>. Code on this page follows your Language setting in the sidebar. The ideas are the same in both languages.</p>
+    <span class="label">Goal</span>
+    <p>Explain how a table makes sure the same box is never built twice, and say what goes in the table's key.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>The picture of boxes and arrows from <a href="../start/01-run-a-program.html">Run your first program</a> and <code>env</code> from <a href="../start/02-build-a-calculator.html">Build the thing that runs it</a>. This page is the slow version of the hash consing part of <a href="../week1/01-the-uop.html">lesson 1.1</a>.</p>
+    <p class="only-python">In Python: a dict (<a href="py-03-collections.html">P.3</a>) and <code>is</code> (<a href="py-04-your-own-types.html">P.4</a>).</p>
+    <p class="only-ocaml">In OCaml: a <code>Hashtbl</code> and <code>==</code> (both in <a href="ml-05-mutation.html">O.5</a>).</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from the start steps, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="2">
+    <p class="q">In the picture of this program, how many arrows go into the <code>mul</code> box?</p>
+<pre><code>%a   = add 1 2
+%out = mul %a %a</code></pre>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">An arrow runs from a value to a line that uses it. Count the things <code>mul</code> reads.</p>
+    <div class="why"><p>Two, and both start at the same <code>add</code> box, because <code>%a</code> is used twice. One box with two arrows going out is what this page is about.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Your interpreter saved each line's answer in <code>env</code> under its name. What does it do when a later line uses <code>%a</code>?</p>
+    <div class="opts">
+      <button data-k="a">It works <code>%a</code> out again</button>
+      <button data-k="b">It looks <code>a</code> up in <code>env</code></button>
+      <button data-k="c">It reads the program again from the top</button>
+    </div>
+    <p class="hint">Why did step 2 save the answers at all?</p>
+    <div class="why"><p>It looks the name up. <code>env</code> is a table: hand it a name and it hands back what was saved under it. A table like that does the main job on this page too.</p></div>
   </div>
 
   <div class="prose">
     <h2>One recipe, used twice</h2>
-    <p>Picture a cookbook. The pizza needs tomato sauce, and so does the pasta. The writer could print the sauce recipe twice, once inside each dish. Or the writer could print it once, on page 12, and have both dishes say "see page 12". The second book is shorter, and if you fix a mistake in the sauce, you fix it in one place.</p>
-    <p>Expressions have the same choice. Take <code>(a + b) * (a + b)</code>. Each box in the drawing below is a <b>node</b>. The arrows go from a node to the node that uses it. A node that another node reads from is that node's <b>child</b>, and the node reading it is its <b>parent</b>. The nodes with no children (<code>a</code> and <code>b</code>) are <b>leaves</b>.</p>
-    <p>A <b>tree</b> gives every use its own copy, so <code>a + b</code> appears twice. A <b>DAG</b> lets two arrows leave the same node, so <code>a + b</code> appears once and <code>*</code> points at it twice. DAG stands for directed acyclic graph: the arrows have a direction, and following them never brings you back where you started. Step through it.</p>
+    <p>Picture a cookbook. The pizza needs tomato sauce, and so does the pasta. The writer could print the sauce recipe twice, once inside each dish. Or the writer could print it once, on page 12, and have both dishes say "see page 12". The second book is shorter. Fix a mistake in the sauce and it is fixed for both dishes.</p>
+    <p>A program has the same choice. Take (2 + 3) × (2 + 3). The sum 2 + 3 is the sauce: it is needed twice. Each box in the picture is called a <strong>node</strong>, and a number is a node too.</p>
+    <p>One way to draw it gives every use its own copy. That takes 7 boxes: one <code>mul</code>, two <code>add</code>, two <code>2</code> and two <code>3</code>. A drawing like that is called a <strong>tree</strong>.</p>
   </div>
 
-  <div class="fig" id="treedag" data-title="(a + b) * (a + b): a tree, then a DAG"></div>
+  <div class="quiz" data-fill="4">
+    <p class="q">Guess first. Now draw each thing only once and let two arrows leave a box that is used twice, like "see page 12". How many boxes does (2 + 3) × (2 + 3) need?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">List the different things: the number 2, the number 3, the sum and the product.</p>
+    <div class="why"><p>Four: <code>2</code>, <code>3</code>, one <code>add</code> and one <code>mul</code>. Both arrows into <code>mul</code> come from the one <code>add</code>.</p></div>
+  </div>
+
+  <p class="prose">Press Next to see both drawings.</p>
+
+  <div class="fig" id="treedag" data-title="(2 + 3) × (2 + 3): a tree, then a graph with sharing"></div>
 
   <div class="prose">
-    <p>Sources sit on top and results flow down, the same way as every graph in the course. Both drawings compute the same number. The DAG computes <code>a + b</code> once instead of twice.</p>
+    <p>The drawing with sharing is called a <strong>DAG</strong> (lesson 1.1 says what the letters stand for). Both drawings give 25. The DAG works out 2 + 3 once, not twice.</p>
 
     <h2>How fast a tree grows</h2>
-    <p>One shared node saves one copy. That sounds small. It isn't, because sharing can stack. Start with a leaf <code>x0</code>. Then let <code>x1 = x0 + x0</code>, <code>x2 = x1 + x1</code>, and keep going. Each level uses the level below it twice.</p>
-    <p>As a DAG, each level adds one node. As a tree, each level holds <em>two full copies</em> of the level below, plus one new <code>+</code> on top. So the tree size doubles, plus one, at every level. Step through the first few levels and watch the left side.</p>
+    <p>One shared box saved three boxes. That sounds small. It is not, because sharing can stack. In this program every line uses the line above it twice:</p>
+<pre><code>%x0 = 1
+%x1 = add %x0 %x0
+%x2 = add %x1 %x1
+%x3 = add %x2 %x2</code></pre>
+    <p>With sharing, each line adds one box. As a tree, each line needs two full copies of the tree above it and one new <code>add</code> on top. Count the tree by hand:</p>
+    <ol>
+      <li><strong>Start.</strong> <code>x0</code> is one box.</li>
+      <li><strong>Double and add one.</strong> <code>x1</code> is two copies of <code>x0</code> and an <code>add</code>: 2 × 1 + 1 = 3 boxes.</li>
+      <li><strong>Do it again.</strong> <code>x2</code> is two copies of <code>x1</code> and an <code>add</code>: 2 × 3 + 1 = 7 boxes.</li>
+    </ol>
+  </div>
+
+  <div class="quiz" data-fill="15">
+    <p class="q">Guess first. How many boxes is <code>x3</code> as a tree?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Two copies of <code>x2</code>, which has 7 boxes, and one new <code>add</code>.</p>
+    <div class="why"><p>2 × 7 + 1 = 15. With sharing, <code>x3</code> is 4 boxes. Step through the figure and watch the left side double.</p></div>
   </div>
 
   <div class="fig" id="grow" data-title="x0 to x3: tree on the left, DAG on the right"></div>
 
-  <div class="prose">
-    <p>Here is the same growth as a <b>trace table</b>: one row per level, with the value of each count. The tree column follows the rule "1 + 2 times the row above".</p>
-  </div>
   <div class="tablewrap"><table>
-    <thead><tr><th>level k</th><th>tree nodes</th><th>how</th><th>DAG nodes</th></tr></thead>
+    <thead><tr><th>level</th><th>boxes as a tree</th><th>boxes with sharing</th></tr></thead>
     <tbody>
-      <tr><td>0</td><td>1</td><td>one leaf</td><td>1</td></tr>
-      <tr><td>1</td><td>3</td><td>1 + 2 × 1</td><td>2</td></tr>
-      <tr><td>2</td><td>7</td><td>1 + 2 × 3</td><td>3</td></tr>
-      <tr><td>3</td><td>15</td><td>1 + 2 × 7</td><td>4</td></tr>
-      <tr><td>10</td><td>2,047</td><td>2<sup>11</sup> − 1</td><td>11</td></tr>
-      <tr><td>30</td><td>2,147,483,647</td><td>2<sup>31</sup> − 1</td><td>31</td></tr>
+      <tr><td>3</td><td>15</td><td>4</td></tr>
+      <tr><td>10</td><td>2,047</td><td>11</td></tr>
+      <tr><td>30</td><td>2,147,483,647</td><td>31</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
-    <p>Thirty levels is over two billion tree nodes and 31 DAG nodes. You can check the tree column with a few lines of code. This function only counts. It doesn't build anything:</p>
+    <p>Ten more lines of program make a tree of two thousand boxes. Thirty make two billion. The week 1 tests use this chain 94 levels deep, which is 95 boxes with sharing and a tree no computer could ever hold. So a compiler must share, and it needs a way to share without thinking about it.</p>
   </div>
+
+  <details class="toggle">
+    <summary>Check the table in code, and why you should never print a big shared value</summary>
+    <div class="prose">
+      <p>This function only counts. It doesn't build anything:</p>
 <pre class="only-python"><code>&gt;&gt;&gt; def tree_size(k):
 ...     if k == 0:
 ...         return 1
@@ -83,9 +137,7 @@
 val tree_size : int -&gt; int = &lt;fun&gt;
 # tree_size 30;;
 - : int = 2147483647</code></pre>
-  <div class="prose">
-    <p>Building the DAG in code costs nothing special. You make the new node from the <em>same</em> value twice, and that one value is shared:</p>
-  </div>
+      <p>Building the shared version in code costs nothing special. You make the new value from the <em>same</em> value twice, and that one value is shared:</p>
 <pre class="only-python"><code>&gt;&gt;&gt; s = "x"
 &gt;&gt;&gt; for i in range(30):
 ...     s = ("+", s, s)
@@ -98,99 +150,110 @@ type e = X | Add of e * e
 val chain : int -&gt; e = &lt;fun&gt;
 # match chain 30 with Add (a, b) -&gt; a == b | X -&gt; false;;
 - : bool = true</code></pre>
+      <p>That code made 30 new values, not two billion. The danger comes later: any code that walks this value as if it were a tree takes two billion steps. <a href="hard-02-walking-graphs.html">H.2</a> is about walking it once.</p>
+      <p><strong>Printing a shared value prints the tree.</strong> <span class="only-python"><code>print(s)</code></span><span class="only-ocaml">A <code>to_string</code> function that turns both sides of <code>chain 30</code> into text</span> writes out every copy, because text has no way to say "see page 12". Print the size or a few levels of a big shared value, never all of it.</p>
+    </div>
+  </details>
+
   <div class="prose">
-    <p>That code made 30 new values, not two billion. The danger comes later: any code that walks this value as if it were a tree does two billion steps. <a href="hard-02-walking-graphs.html">H.2</a> is about walking it once.</p>
+    <h2>Equal, or the very same one?</h2>
+    <p>Before the table, one small idea it depends on. Start with two things you can hold.</p>
   </div>
-  <div class="trap">
-    <span class="label">Printing a shared value prints the tree</span>
-    <p><span class="only-python"><code>print(s)</code></span><span class="only-ocaml">A <code>to_string</code> function that turns both children of <code>chain 30</code> into text</span> writes out every copy, because text has no way to say "see page 12". Never print a big shared value in full. Print its size or a few levels instead.</p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Guess first. You and a friend each buy a copy of the same book. You write your name on page 1 of yours. What is on page 1 of your friend's copy?</p>
+    <div class="opts">
+      <button data-k="a">Your name</button>
+      <button data-k="b">Nothing new</button>
+    </div>
+    <p class="hint">How many books are there?</p>
+    <div class="why"><p>Nothing new. The two copies had the same words, but they are two objects. Now picture one book with two bookmarks in it. Open it at either bookmark and your name is there, because it is one object reached two ways.</p></div>
   </div>
 
   <div class="prose">
-    <h2>Equal, or the same one?</h2>
-    <p>Two copies of the same book on a shelf are <em>equal</em>: same words, same pages. One book with two bookmarks in it is the <em>same</em> book, reached two ways. Programs make this distinction too.</p>
+    <p>Programs ask both questions about values:</p>
     <ul>
-      <li><b>Equality</b> asks "do these two values look the same, all the way down?" It compares contents.</li>
-      <li><b>Identity</b> asks "are these the very same value in memory?" It compares where they live. That's one step, however big the value is.</li>
+      <li><strong>Equal</strong> asks "do these have the same contents?" To answer, you read both books side by side to the last page. A longer book takes longer.</li>
+      <li><strong>The very same one</strong> asks "is this one object?" To answer, you look at what is in your hands. That is one step, however long the book is. The usual word for it is <strong>identity</strong>.</li>
     </ul>
-  </div>
+    <p>Here <code>a</code> and <code>b</code> are two copies, and <code>c</code> is a second bookmark in <code>a</code>:</p>
 <pre class="only-python"><code>&gt;&gt;&gt; a = [1, 2]
 &gt;&gt;&gt; b = [1, 2]
+&gt;&gt;&gt; c = a
 &gt;&gt;&gt; a == b
 True
 &gt;&gt;&gt; a is b
 False
-&gt;&gt;&gt; c = a
 &gt;&gt;&gt; c is a
 True</code></pre>
 <pre class="only-ocaml"><code># let a = [1; 2];;
 val a : int list = [1; 2]
 # let b = [1; 2];;
 val b : int list = [1; 2]
+# let c = a;;
+val c : int list = [1; 2]
 # a = b;;
 - : bool = true
 # a == b;;
 - : bool = false
-# let c = a;;
-val c : int list = [1; 2]
 # c == a;;
 - : bool = true</code></pre>
-  <div class="prose">
-    <p><code>a</code> and <code>b</code> were built separately, so they are equal but not the same. <span class="only-python"><code>c = a</code></span><span class="only-ocaml"><code>let c = a</code></span> doesn't copy anything. It gives the same list a second name.</p>
-    <p class="only-ocaml">That result is from utop, where each line is built on its own. A compiled program may store two identical constant lists only once, and then <code>a == b</code> is true. So don't use <code>==</code> on values you wrote out by hand. Values built while the program runs, like your compiler's nodes, are only the same when your code makes them the same.</p>
   </div>
   <div class="tablewrap"><table>
     <thead><tr><th>question</th><th>Python</th><th>OCaml</th><th>cost</th></tr></thead>
     <tbody>
-      <tr><td>same contents?</td><td><code>a == b</code></td><td><code>a = b</code></td><td>walks both values, as far as they go</td></tr>
-      <tr><td>same value in memory?</td><td><code>a is b</code></td><td><code>a == b</code></td><td>one step</td></tr>
+      <tr><td>equal?</td><td><code>a == b</code></td><td><code>a = b</code></td><td>reads both values to the end</td></tr>
+      <tr><td>the very same one?</td><td><code>a is b</code></td><td><code>a == b</code></td><td>one step</td></tr>
     </tbody>
   </table></div>
   <div class="trap">
     <span class="label">The symbols swap between the languages</span>
-    <p>Python's <code>==</code> is equality and OCaml's <code>==</code> is identity. When you read code in the other language, check which one you're looking at. And use identity only on values you built, like nodes. <span class="only-python">For numbers and strings, <code>is</code> gives answers that depend on how Python stores them, so compare those with <code>==</code>.</span><span class="only-ocaml">For floats and strings, <code>==</code> gives answers that depend on how OCaml stores them, so compare those with <code>=</code>.</span></p>
+    <p>Python's <code>==</code> means equal. OCaml's <code>==</code> means the very same one.</p>
   </div>
   <div class="prose">
-    <p>Why care? Comparing two separately built copies of <code>x30</code> with equality walks both trees, two billion steps. If you could promise that equal nodes are always the <em>same</em> node, the cheap identity check would answer the equality question too. That promise is the next idea.</p>
-
-    <h2>Hash consing: a coat check for nodes</h2>
-    <p>At a theater coat check, you hand over a coat and get a ticket with a number. Now imagine a coat check that also remembers every coat it has seen. You hand over a coat. The attendant looks it up first. If an identical coat is already on the rack, you get <em>that</em> ticket back, and nothing new goes on the rack. Only a coat it has never seen gets a new hook and the next number.</p>
-    <p><b>Hash consing</b> is that coat check, for nodes. You keep one table. Before you make a node, you build its <b>key</b>, a small description of it:</p>
-    <ul>
-      <li>the op, like <code>"+"</code>,</li>
-      <li>the ids of its children, in order.</li>
-    </ul>
-    <p>Then you look the key up. If it's there, you hand back the node that's already stored. If it isn't, you make the node, give it the next id (0, 1, 2, and so on), and store it under the key. The name comes from Lisp, where <code>cons</code> builds a pair and "hash" is the table. Step through building <code>(a + b) * (a + b)</code>, reading it left to right.</p>
+    <p>Why care? Checking two separately built copies of <code>x30</code> for "equal" reads two billion boxes. Suppose you could promise that equal nodes are always the very same node. Then the one-step check would answer the slow question too. The table in the next part keeps that promise.</p>
   </div>
 
-  <div class="fig" id="hc" data-title="building (a + b) * (a + b) through the table"></div>
+  <details class="toggle">
+    <summary>When the one-step check gives odd answers: numbers, strings and values you typed in</summary>
+    <div class="prose">
+      <p>Use identity only on values your program built, like nodes. <span class="only-python">For numbers and strings, <code>is</code> gives answers that depend on how Python stores them, so compare those with <code>==</code>.</span><span class="only-ocaml">For floats and strings, <code>==</code> gives answers that depend on how OCaml stores them, so compare those with <code>=</code>.</span></p>
+      <p class="only-ocaml">The result above is from utop, where each line is built on its own. A compiled program may store two identical constant lists only once, and then <code>a == b</code> is true. So don't use <code>==</code> on values you wrote out by hand. Values built while the program runs, like your compiler's nodes, are only the same when your code makes them the same.</p>
+      <p><span class="only-python"><code>c = a</code></span><span class="only-ocaml"><code>let c = a</code></span> doesn't copy anything. It gives the same list a second name.</p>
+    </div>
+  </details>
 
   <div class="prose">
-    <p>Seven requests, four nodes. The second <code>a + b</code> came back as node 2, the same node as the first, so the <code>*</code> points at one node twice. Nobody had to notice the repeat. The table did it.</p>
-    <p>Here is the lookup part by hand, with the table already holding the first three nodes. The key is a <span class="only-python">tuple</span><span class="only-ocaml">pair of the op and a list of ids (the pictures write <code>("+", 0, 1)</code>, OCaml writes <code>("+", [0; 1])</code>)</span>, and the stored value is the id:</p>
+    <h2>A coat check that remembers</h2>
+    <p>Picture the coat desk at a theater that lends coats to its actors. You don't hand over a coat. You hand over a <strong>slip</strong> that describes the one you need, like "red, size M". The attendant keeps a notebook with one line for every slip seen so far.</p>
+    <ol>
+      <li><strong>Look the slip up.</strong> The attendant searches the notebook for "red, size M".</li>
+      <li><strong>Found: hand back the old ticket.</strong> That coat already hangs on a hook. You get its ticket number, and nothing new is made.</li>
+      <li><strong>Not found: make one.</strong> A new coat goes on the next free hook. The notebook gets a new line, and you get the new ticket number. Tickets count 0, 1, 2 and so on.</li>
+    </ol>
   </div>
-<pre class="only-python"><code>&gt;&gt;&gt; table = {("leaf", "a"): 0, ("leaf", "b"): 1, ("+", 0, 1): 2}
-&gt;&gt;&gt; ("+", 0, 1) in table
-True
-&gt;&gt;&gt; table[("+", 0, 1)]
-2
-&gt;&gt;&gt; ("+", 1, 0) in table
-False</code></pre>
-<pre class="only-ocaml"><code># let table = Hashtbl.create 16;;
-val table : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
-# Hashtbl.add table ("+", [0; 1]) 2;;
-- : unit = ()
-# Hashtbl.find_opt table ("+", [0; 1]);;
-- : int option = Some 2
-# Hashtbl.find_opt table ("+", [1; 0]);;
-- : int option = None</code></pre>
+
+  <div class="quiz" data-fill="0">
+    <p class="q">Guess first. The notebook is empty. Three slips arrive in this order: "red, M", then "blue, S", then "red, M". What ticket number does the third slip get?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The first slip got ticket 0 and the second got ticket 1. Is the third slip in the notebook?</p>
+    <div class="why"><p>Ticket 0. "red, M" is already in the notebook, so the attendant hands back the ticket it got the first time. Two actors now hold ticket 0, and it leads both of them to the very same coat.</p></div>
+  </div>
+
   <div class="prose">
-    <p>The last lookup misses on purpose. <code>b + a</code> has its children in the other order, so its key is different, and it becomes a new node. Hash consing compares <em>structure</em>, not meaning. Making <code>a + b</code> and <code>b + a</code> meet is a job for rewrite rules (<a href="hard-03-rewriting.html">H.3</a>).</p>
+    <p>Nobody at the desk has to notice that two actors want the same coat. Every request goes through the notebook, so the same slip always comes back with the same ticket.</p>
+    <p>Here is that desk in code, nearly right. <span class="only-python">The notebook is a dict from slip to ticket.</span><span class="only-ocaml">The notebook is a <code>Hashtbl</code> from slip to ticket.</span></p>
   </div>
-  <div class="key">
-    <span class="label">What you get</span>
-    <p>Once every node goes through the table, two nodes with the same op and the same children are always the same node. So "are these two expressions equal?" becomes "are they the same node?", which is one identity check. In <a href="../week1/01-the-uop.html">lesson 1.1</a> you write the full constructor, a function that does the lookup and the storing, for your own compiler.</p>
+
+  <div class="exercise" data-ex="hi-01n-coat-check" data-ex-py="hi-01n-coat-check-py">
+    <h3>Repair the coat check</h3>
+    <p><code>coat_check slips</code> takes a list of slips, each a <code>(color, size)</code> pair, and returns the ticket number each slip gets. Tickets start at 0, and a new coat gets the next number. Two places are wrong.</p>
+    <p><strong>The slip.</strong> It only writes down the color, so a red M and a red L count as the same coat. It should hold the color and the size.</p>
+    <p><strong>The hit.</strong> When the slip is already in the notebook, it hands out a new number. It should hand back the ticket stored there.</p>
   </div>
+
+  <h2>Write the coat check yourself</h2>
+  <p class="prose">Now the same desk from an empty function, with words in place of coats. You have just seen every piece it needs.</p>
 
   <div class="exercise small" data-ex="hi-01-number-words" data-ex-py="hi-01-number-words-py">
     <h3>A coat check for words</h3>
@@ -200,150 +263,108 @@ val table : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
   </div>
 
   <div class="prose">
-    <h2>Why the key holds ids, not whole children</h2>
-    <p>You might ask: why put the children's <em>ids</em> in the key? Why not the children themselves?</p>
-    <p>Because of what a table does with a key. To find a key, a hash table first computes a number from it (its <b>hash</b>) and then checks the candidates with equality. If the key held the whole child, checking for a match would look inside the child, and inside its children, all the way down<span class="only-python">, and so would computing the hash</span>. For <code>x30</code>, one lookup would walk two billion nodes.</p>
-    <p>The ids avoid that. A child that went through the table is unique, so its id stands for its entire subgraph. The key for <code>x30</code> is <code>("+", 29, 29)</code>: three small values, whatever lies underneath. Every lookup costs the same few steps.</p>
+    <h2>Nodes go through the same desk</h2>
+    <p>Now swap coats for nodes. <strong>Hash consing</strong> is the name for running every new node through a coat check. Each part of the desk gets a new name:</p>
   </div>
   <div class="tablewrap"><table>
-    <thead><tr><th>key holds</th><th>cost of one lookup for <code>x30</code></th><th>why</th></tr></thead>
+    <thead><tr><th>at the desk</th><th>in the compiler</th></tr></thead>
     <tbody>
-      <tr><td>the children's ids</td><td>a few steps</td><td>ids are small numbers</td></tr>
-      <tr><td>the children themselves</td><td>can be billions of steps</td><td>hashing and equality look inside each child, as a tree</td></tr>
+      <tr><td>a coat on a hook</td><td>a node</td></tr>
+      <tr><td>the ticket number</td><td>the node's <strong>id</strong>, written <code>n0</code>, <code>n1</code> and so on</td></tr>
+      <tr><td>the slip</td><td>the <strong>key</strong>: the op, the ids of the sources in order and the arg</td></tr>
+      <tr><td>the notebook</td><td>the table, also called the cache</td></tr>
     </tbody>
   </table></div>
-  <div class="trap">
-    <span class="label">The default can do the slow thing for you</span>
-    <p><span class="only-python">A frozen dataclass with the default <code>eq=True</code> compares and hashes by every field, recursively. Used as a dict key, or with <code>==</code>, a node then walks its whole subtree. <a href="../resources/languages.html">Python and OCaml, deeper</a> shows the fix (<code>eq=False</code>, so a node compares by identity).</span><span class="only-ocaml">The generic <code>Hashtbl</code> and <code>=</code> are structural. A table keyed on the nodes themselves compares subtrees on every lookup. <a href="../resources/languages.html">Python and OCaml, deeper</a> shows the fix (key on ids with <code>Hashtbl.Make</code>).</span></p>
-  </div>
-
   <div class="prose">
-    <h2>The float trap in a key</h2>
-    <p>Leaves often hold a number, and the number goes in the key. For whole numbers that's fine. Floats have two values that break a table's idea of "the same key":</p>
-    <ul>
-      <li><b>-0.0</b>, a negative zero. It is equal to <code>0.0</code> but it is a different value: in C, <code>1.0 / -0.0</code> is minus infinity.</li>
-      <li><b>nan</b>, "not a number", the result of something undefined like <code>0.0 / 0.0</code>. It is not equal to anything, not even itself.</li>
-    </ul>
-    <p>A table that compares keys with equality gets these wrong. The two zeros turn into one key<span class="only-python">, and a nan key may never be found again:</span><span class="only-ocaml">. (A nan key does work in OCaml's <code>Hashtbl</code>, because it matches keys with <code>compare</code>, which treats nan as equal to itself. <code>nan = nan</code> is still false.)</span></p>
-  </div>
-<pre class="only-python"><code>&gt;&gt;&gt; d = {0.0: "plus zero"}
-&gt;&gt;&gt; d[-0.0] = "minus zero"
-&gt;&gt;&gt; d
-{0.0: 'minus zero'}
-&gt;&gt;&gt; nan = float("nan")
-&gt;&gt;&gt; nan == nan
-False
-&gt;&gt;&gt; print({nan: 1}.get(float("nan")))
-None</code></pre>
-<pre class="only-ocaml"><code># let h = Hashtbl.create 8;;
-val h : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
-# Hashtbl.replace h 0.0 "plus zero";;
-- : unit = ()
-# Hashtbl.replace h (-0.0) "minus zero";;
-- : unit = ()
-# Hashtbl.length h;;
-- : int = 1
-# nan = nan;;
-- : bool = false</code></pre>
-  <div class="prose">
-    <p>The second store overwrote the first, so a program that has both zeros would get one node for both, and a wrong answer. The fix is to put the float's <b>bits</b> in the key instead of the float. Every float is stored as 64 bits (<a href="hard-04-numbers-like-c.html">H.4</a> shows them). The two zeros have different bits, and a nan has the same bits as another nan made the same way. Bits compare like plain whole numbers, so the table behaves.</p>
-  </div>
-<pre class="only-python"><code>&gt;&gt;&gt; import struct
-&gt;&gt;&gt; struct.pack("&gt;d", 0.0).hex()
-'0000000000000000'
-&gt;&gt;&gt; struct.pack("&gt;d", -0.0).hex()
-'8000000000000000'
-&gt;&gt;&gt; struct.pack("&gt;d", float("nan")).hex()
-'7ff8000000000000'</code></pre>
-<pre class="only-ocaml"><code># Int64.bits_of_float 0.0;;
-- : int64 = 0L
-# Int64.bits_of_float (-0.0);;
-- : int64 = -9223372036854775808L
-# Int64.bits_of_float nan = Int64.bits_of_float nan;;
-- : bool = true</code></pre>
-  <div class="prose">
-    <p><span class="only-python"><code>struct.pack("&gt;d", x)</code> gives the 8 bytes of the float <code>x</code>, and <code>.hex()</code> writes them as hex digits. The bytes themselves make a fine key.</span><span class="only-ocaml"><code>Int64.bits_of_float</code> gives the 64 bits as an <code>int64</code>. The top bit is the sign, which is why <code>-0.0</code> shows as the most negative <code>int64</code>.</span> <span class="only-python">There's one more Python trap of the same kind: <code>1 == True</code>, so <code>{1: "a", True: "b"}</code> has one key. Put the type in the key too.</span> <a class="only-python" href="../week0/07-python.html">Lesson 0.7</a><a class="only-ocaml" href="../week0/06-ocaml.html">Lesson 0.6</a> showed the same trap for the course's own constants.</p>
+    <p>The sources of a node are the boxes its arrows come from. The arg is its extra data, such as the 2 in the node for the number 2 (lesson 1.1 names that op <code>const</code>). So the number 2 has the key <code>(const, [], 2)</code>. If 2 gets id <code>n0</code> and 3 gets id <code>n1</code>, then <code>add 2 3</code> has the key <code>(add, [n0, n1])</code>.</p>
+<pre><code>%a   = add 2 3
+%b   = add 2 3
+%out = mul %a %b</code></pre>
+    <p>Building this program sends 7 requests to the desk: a 2, a 3 and an <code>add</code> for line 1, the same three again for line 2, then the <code>mul</code>.</p>
   </div>
 
-  <div class="exercise small" data-ex="hi-01-float-key" data-ex-py="hi-01-float-key-py">
-    <h3>A key for a float</h3>
-    <p>Write <code>float_key x</code>: a value to use as a table key in place of the float <code>x</code>. Two keys must be equal exactly when the two floats have the same bits. So <code>float_key 0.0</code> and <code>float_key (-0.0)</code> differ, and <code>float_key nan = float_key nan</code>.</p>
-    <p class="muted">One call from the standard library gives you the bits as an <code>int64</code>.</p>
-  </div>
-
-  <div class="prose">
-    <h2>Where this shows up in the course</h2>
-    <ul>
-      <li><a href="../week0/03-compilers-and-irs.html">Lesson 0.3</a> introduces trees, DAGs and the doubling chain.</li>
-      <li><a href="../week1/01-the-uop.html">Lesson 1.1</a>: every node of your compiler goes through a hash-consing table keyed on the op, the children's ids and the argument. The tests include the doubling chain 94 levels deep, just under week 1's budget of 100 nodes per file.</li>
-      <li><a href="../week1/03-rewrites-and-folding.html">Lesson 1.3</a>: a rule like <code>xor(x, x) → 0</code> checks "same node" with identity, which only works because of hash consing.</li>
-      <li><a href="../week2/04-rendering-c.html">Lesson 2.4</a>: a shared node becomes one line of C, computed once, because it is one node.</li>
-    </ul>
-
-    <h2>What you can do now</h2>
-    <ul>
-      <li>Draw an expression as a tree and as a DAG, and count the nodes of each.</li>
-      <li>Explain why sharing that stacks makes a tree grow by doubling.</li>
-      <li>Tell equality from identity in both languages, and say what each costs.</li>
-      <li>Build nodes through a table keyed on the op and the children's ids, by hand.</li>
-      <li>Key a float by its bits, so <code>0.0</code> and <code>-0.0</code> stay apart and nan finds itself.</li>
-    </ul>
-  </div>
-
-  <h2>Check yourself</h2>
-  <p class="score"></p>
-
-  <div class="quiz" data-fill="31">
-    <p class="q"><code>x0</code> is a leaf and <code>x(k+1) = x(k) + x(k)</code>. Written out as a tree, how many nodes does <code>x4</code> have?</p>
+  <div class="quiz" data-fill="4">
+    <p class="q">Guess first. Out of those 7 requests, how many make a new node?</p>
     <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
-    <p class="hint">Use the trace table: each row is 1 + 2 times the row above. <code>x3</code> has 15.</p>
-    <p class="hint">1 + 2 × 15.</p>
-    <div class="why"><p>31, which is 2<sup>5</sup> − 1. Each level is two copies of the level below plus one new node on top.</p></div>
+    <p class="hint">A request makes a node only when its key is not in the table yet. Which requests repeat an earlier one?</p>
+    <div class="why"><p>Four: <code>2</code>, <code>3</code>, <code>add</code> and <code>mul</code>. The three requests for line 2 are all found in the table. Step through and watch each one.</p></div>
   </div>
 
-  <div class="quiz" data-fill="5">
-    <p class="q">Same <code>x4</code>, built as a DAG. How many nodes?</p>
-    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
-    <p class="hint">In a DAG, each level adds exactly one new node.</p>
-    <div class="why"><p>Five: <code>x0</code> to <code>x4</code>. Both arrows into each <code>+</code> come from the one node below it.</p></div>
+  <div class="fig" id="hc" data-title="building the program through the table"></div>
+
+  <div class="prose">
+    <p>Line 2 made no new box, and <code>%b</code> names the very same node as <code>%a</code>. That is the promise from the last part: equal nodes are now always the same node, so the one-step check is enough.</p>
+    <p>The table compares keys, not meanings. <code>add 3 2</code> has the key <code>(add, [n1, n0])</code>, with the sources in the other order, so it becomes a new node even though it is also 5. Making those two meet is a job for rewrite rules (<a href="hard-03-rewriting.html">H.3</a>).</p>
   </div>
 
-  <div class="quiz" data-answer="b">
-    <p class="q">Without hash consing, you build <code>a + b</code> twice, from the same leaves. What do equality and identity say about the two <code>+</code> nodes?</p>
-    <div class="opts">
-      <button data-k="a">Equal and the same</button>
-      <button data-k="b">Equal, but not the same</button>
-      <button data-k="c">Not equal, but the same</button>
+  <details class="toggle">
+    <summary>The lookup by hand in your language, and where the name comes from</summary>
+    <div class="prose">
+      <p>The table already holds the first three nodes. The key is a <span class="only-python">tuple</span><span class="only-ocaml">pair of the op and a list of ids</span>, and the stored value here is the id:</p>
+<pre class="only-python"><code>&gt;&gt;&gt; table = {("const", 2): 0, ("const", 3): 1, ("add", 0, 1): 2}
+&gt;&gt;&gt; ("add", 0, 1) in table
+True
+&gt;&gt;&gt; table[("add", 0, 1)]
+2
+&gt;&gt;&gt; ("add", 1, 0) in table
+False</code></pre>
+<pre class="only-ocaml"><code># let table = Hashtbl.create 16;;
+val table : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
+# Hashtbl.add table ("add", [0; 1]) 2;;
+- : unit = ()
+# Hashtbl.find_opt table ("add", [0; 1]);;
+- : int option = Some 2
+# Hashtbl.find_opt table ("add", [1; 0]);;
+- : int option = None</code></pre>
+      <p>The name comes from Lisp, where <code>cons</code> builds a pair and "hash" is the table. In your real compiler each node also carries a dtype and a shape, and they are part of the key (lesson 1.1).</p>
     </div>
-    <p class="hint">Do they have the same contents? Were they made by one construction or two?</p>
-    <div class="why"><p>Same op and same children, so they are equal. Two constructions made two values in memory, so they are not the same. Hash consing would have handed back the first one the second time, making them the same.</p></div>
-  </div>
+  </details>
 
-  <div class="quiz" data-answer="c">
-    <p class="q">In the stepper, <code>a</code> got id 0 and <code>b</code> got id 1. Which key does the table use for <code>b + a</code>?</p>
-    <div class="opts">
-      <button data-k="a"><code>("+", 0, 1)</code>, the same key as <code>a + b</code></button>
-      <button data-k="b"><code>("+", b, a)</code>, with the leaves themselves inside</button>
-      <button data-k="c"><code>("+", 1, 0)</code></button>
-    </div>
-    <p class="hint">The key is the op, then the children's ids, in order.</p>
-    <p class="hint">Which child comes first in <code>b + a</code>, and what is its id?</p>
-    <div class="why"><p><code>("+", 1, 0)</code>. Order matters, so it's a different key and a new node. The key holds ids, never the children themselves.</p></div>
+  <div class="prose">
+    <h2>Why the key holds ids, not whole boxes</h2>
+    <p>Back at the desk, an actor needs a full outfit: a coat and a hat. There are two ways to fill in the slip. One describes the coat and the hat again in full. The other says "the coat on hook 0 and the hat on hook 1". The second slip is short, and it stays short however fancy the coat is.</p>
+    <p>Nodes work the same way. Take <code>x30 = add x29 x29</code> from the doubling chain, where <code>x29</code> has the id <code>n29</code>.</p>
   </div>
 
   <div class="quiz" data-answer="a">
-    <p class="q">Why does the key hold the children's ids instead of the children?</p>
+    <p class="q">Guess first. To look a key up, a table has to read the whole key. Which key for <code>x30</code> can it read in a few steps?</p>
     <div class="opts">
-      <button data-k="a">So one lookup costs a few steps, however big the children are</button>
-      <button data-k="b">Because a table can't store a node as a key</button>
-      <button data-k="c">So that <code>a + b</code> and <code>b + a</code> get the same key</button>
+      <button data-k="a"><code>(add, [n29, n29])</code>, the op and two ids</button>
+      <button data-k="b">The op and everything under <code>x29</code>, written out twice</button>
     </div>
-    <p class="hint">What does a table do with a key when it looks it up? How much of the key does it read?</p>
-    <div class="why"><p>Comparing a key with equality reads all of it. Ids are small, and each one stands for a whole unique subgraph, so a lookup never looks inside a child. Order still matters, so <code>a + b</code> and <code>b + a</code> stay different.</p></div>
+    <p class="hint">Written out as a tree, <code>x29</code> is about a billion boxes.</p>
+    <div class="why"><p>The key with ids is three small things. The other key is two billion boxes, and the table would read all of them on every lookup.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The ids are enough because every source already went through the table. Each source is the only node of its kind, so its id stands for everything under it. Two keys with the same op and the same ids describe the same node, all the way down.</p>
+    <ol>
+      <li><strong>Get the ids.</strong> Both sources of <code>x30</code> are <code>x29</code>, with id <code>n29</code>.</li>
+      <li><strong>Write the key.</strong> <code>(add, [n29, n29])</code>.</li>
+      <li><strong>Look it up.</strong> The table reads three small things. It never looks inside <code>x29</code>.</li>
+    </ol>
+    <p>So building a node costs the same few steps whether there are 3 boxes under it or 3 billion.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>How your language can do the slow thing without telling you, for when you write your real node type</summary>
+    <div class="prose">
+      <p>To find a key, a hash table first computes a number from it (its <strong>hash</strong>) and then checks the candidates with equality. If the key held the whole source, checking for a match would look inside the source, and inside its sources, all the way down<span class="only-python">, and so would computing the hash</span>.</p>
+      <p><span class="only-python">A frozen dataclass with the default <code>eq=True</code> compares and hashes by every field, recursively. Used as a dict key, or with <code>==</code>, a node then walks its whole subtree. <a href="../resources/languages.html">Python and OCaml, deeper</a> shows the fix (<code>eq=False</code>, so a node compares by identity).</span><span class="only-ocaml">The generic <code>Hashtbl</code> and <code>=</code> are structural. A table keyed on the nodes themselves compares subtrees on every lookup. <a href="../resources/languages.html">Python and OCaml, deeper</a> shows the fix (key on ids with <code>Hashtbl.Make</code>).</span></p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>A trap for later: a decimal number in the key</h2>
+    <p>Week 1 has only whole numbers, so you can leave this part until week 2. A number node keeps its number in the key. Decimal numbers, called <strong>floats</strong>, have two odd values:</p>
+    <ul>
+      <li><strong>-0.0</strong>, a negative zero. It is equal to <code>0.0</code>, but it is a different value: in C, <code>1.0 / -0.0</code> is minus infinity.</li>
+      <li><strong>nan</strong>, "not a number", the result of <code>0.0 / 0.0</code>. It is not equal to anything, not even itself.</li>
+    </ul>
   </div>
 
   <div class="quiz" data-answer="b">
-    <p class="q">A table keys float leaves on the plain float. A program has the constants <code>0.0</code> and <code>-0.0</code>. What happens?</p>
+    <p class="q">A table keys float nodes on the plain float. A program has the constants <code>0.0</code> and <code>-0.0</code>. What happens?</p>
     <div class="opts">
       <button data-k="a">Two nodes, as it should be</button>
       <button data-k="b">One node for both, which can change the program's answer</button>
@@ -353,6 +374,134 @@ val h : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
     <div class="why"><p>They compare equal, so the table finds the first one and hands it back. But they are different values (in C, dividing 1.0 by them gives infinities of opposite sign), so merging them is a bug. Keying on the bits keeps them apart.</p></div>
   </div>
 
+  <div class="prose">
+    <p>The fix is to put the float's <strong>bits</strong> in the key, not the float. Every float is stored as 64 bits (<a href="hard-04-numbers-like-c.html">H.4</a> shows them). The two zeros have different bits, and a nan has the same bits as another nan made the same way.</p>
+<pre class="only-python"><code>&gt;&gt;&gt; import struct
+&gt;&gt;&gt; struct.pack("&gt;d", 0.0).hex()
+'0000000000000000'
+&gt;&gt;&gt; struct.pack("&gt;d", -0.0).hex()
+'8000000000000000'</code></pre>
+<pre class="only-ocaml"><code># Int64.bits_of_float 0.0;;
+- : int64 = 0L
+# Int64.bits_of_float (-0.0);;
+- : int64 = -9223372036854775808L</code></pre>
+    <p><span class="only-python"><code>struct.pack("&gt;d", x)</code> gives the 8 bytes of the float <code>x</code>, and <code>.hex()</code> writes them out as digits. The bytes themselves make a fine key.</span><span class="only-ocaml"><code>Int64.bits_of_float</code> gives the 64 bits as an <code>int64</code>. The top bit is the sign, which is why <code>-0.0</code> shows as the most negative <code>int64</code>.</span></p>
+  </div>
+
+  <div class="exercise small" data-ex="hi-01-float-key" data-ex-py="hi-01-float-key-py">
+    <h3>A key for a float</h3>
+    <p>Write <code>float_key x</code>: a value to use as a table key in place of the float <code>x</code>. Two keys must be equal exactly when the two floats have the same bits. So <code>float_key 0.0</code> and <code>float_key (-0.0)</code> differ, and <code>float_key nan = float_key nan</code>.</p>
+    <p class="muted">One call from the standard library gives you the bits as an <code>int64</code>.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>What a real table does with the two zeros and with nan, and one more trap of the same kind</summary>
+    <div class="prose">
+      <p>A table that compares keys with equality turns the two zeros into one key<span class="only-python">, and a nan key may never be found again:</span><span class="only-ocaml">. (A nan key does work in OCaml's <code>Hashtbl</code>, because it matches keys with <code>compare</code>, which treats nan as equal to itself. <code>nan = nan</code> is still false.)</span></p>
+<pre class="only-python"><code>&gt;&gt;&gt; d = {0.0: "plus zero"}
+&gt;&gt;&gt; d[-0.0] = "minus zero"
+&gt;&gt;&gt; d
+{0.0: 'minus zero'}
+&gt;&gt;&gt; nan = float("nan")
+&gt;&gt;&gt; nan == nan
+False
+&gt;&gt;&gt; print({nan: 1}.get(float("nan")))
+None
+&gt;&gt;&gt; struct.pack("&gt;d", float("nan")).hex()
+'7ff8000000000000'</code></pre>
+<pre class="only-ocaml"><code># let h = Hashtbl.create 8;;
+val h : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
+# Hashtbl.replace h 0.0 "plus zero";;
+- : unit = ()
+# Hashtbl.replace h (-0.0) "minus zero";;
+- : unit = ()
+# Hashtbl.length h;;
+- : int = 1
+# nan = nan;;
+- : bool = false
+# Int64.bits_of_float nan = Int64.bits_of_float nan;;
+- : bool = true</code></pre>
+      <p>The second store overwrote the first, so a program that has both zeros would get one node for both, and a wrong answer. Bits compare like plain whole numbers, so a table keyed on them behaves.</p>
+      <p><span class="only-python">There's one more Python trap of the same kind, and it matters in week 1: <code>1 == True</code>, so <code>{1: "a", True: "b"}</code> has one key. Put the type in the key too.</span> <a class="only-python" href="../week0/07-python.html">Lesson 0.7</a><a class="only-ocaml" href="../week0/06-ocaml.html">Lesson 0.6</a> showed the same trap for the course's own constants.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Draw an expression as a tree and with sharing, and count the boxes of each.</li>
+      <li>Explain why a tree doubles at every level when each line uses the last one twice.</li>
+      <li>Tell "equal" from "the very same one" in both languages, and say what each costs.</li>
+      <li>Run requests through a table by hand and say which ones make a new node.</li>
+      <li>Say why the key holds the op and the ids of the sources, and not the sources themselves.</li>
+    </ul>
+    <p>Next, go back to <a href="../week1/01-the-uop.html#repair">lesson 1.1</a> and do "Repair a node table". It is the coat check you just repaired, with nodes in place of coats.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Where sharing shows up in the rest of the course</summary>
+    <div class="prose">
+      <ul>
+        <li><a href="../week0/03-compilers-and-irs.html">Lesson 0.3</a> introduces trees, DAGs and the doubling chain.</li>
+        <li><a href="../week1/01-the-uop.html">Lesson 1.1</a>: every node of your compiler goes through a hash-consing table keyed on the op, the ids of the sources and the arg. The tests include the doubling chain 94 levels deep, just under week 1's budget of 100 nodes per file.</li>
+        <li><a href="../week1/03-rewrites-and-folding.html">Lesson 1.3</a>: a rule like <code>xor(x, x) → 0</code> checks "same node" with identity, which only works because of hash consing.</li>
+        <li><a href="../week2/04-rendering-c.html">Lesson 2.4</a>: a shared node becomes one line of C, computed once, because it is one node.</li>
+      </ul>
+    </div>
+  </details>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="31">
+    <p class="q"><code>x0</code> is one box and <code>x(k+1) = add x(k) x(k)</code>. Written out as a tree, how many boxes does <code>x4</code> have?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Each level is 2 times the level before, plus 1. <code>x3</code> has 15.</p>
+    <p class="hint">2 × 15 + 1.</p>
+    <div class="why"><p>31, which is 2<sup>5</sup> − 1. Each level is two copies of the level below plus one new node on top.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="5">
+    <p class="q">Same <code>x4</code>, built with sharing. How many nodes?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">With sharing, each level adds exactly one new node.</p>
+    <div class="why"><p>Five: <code>x0</code> to <code>x4</code>. Both arrows into each <code>add</code> come from the one node above it.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Without hash consing, you build <code>add 2 3</code> twice, from the same two number nodes. What is true of the two <code>add</code> nodes?</p>
+    <div class="opts">
+      <button data-k="a">Equal and the very same one</button>
+      <button data-k="b">Equal, but not the same one</button>
+      <button data-k="c">Not equal, but the same one</button>
+    </div>
+    <p class="hint">Do they have the same contents? Were they made by one construction or two?</p>
+    <div class="why"><p>Same op and same sources, so they are equal. Two constructions made two values in memory, so they are not the same one. Hash consing would have handed back the first one the second time.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">In the stepper, <code>2</code> got id <code>n0</code> and <code>3</code> got id <code>n1</code>. Which key does the table use for <code>add 3 2</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>(add, [n0, n1])</code>, the same key as <code>add 2 3</code></button>
+      <button data-k="b"><code>(add, [3, 2])</code>, with the numbers themselves inside</button>
+      <button data-k="c"><code>(add, [n1, n0])</code></button>
+    </div>
+    <p class="hint">The key is the op, then the ids of the sources, in order.</p>
+    <p class="hint">Which source comes first in <code>add 3 2</code>, and what is its id?</p>
+    <div class="why"><p><code>(add, [n1, n0])</code>. Order matters, so it's a different key and a new node. The key holds ids, never the sources themselves.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Why does the key hold the ids of the sources and not the sources themselves?</p>
+    <div class="opts">
+      <button data-k="a">So one lookup costs a few steps, however big the sources are</button>
+      <button data-k="b">Because a table can't store a node as a key</button>
+      <button data-k="c">So that <code>add 2 3</code> and <code>add 3 2</code> get the same key</button>
+    </div>
+    <p class="hint">What does a table do with a key when it looks it up? How much of the key does it read?</p>
+    <div class="why"><p>Comparing a key with equality reads all of it. Ids are small, and each one stands for a whole unique subgraph, so a lookup never looks inside a source. Order still matters, so <code>add 2 3</code> and <code>add 3 2</code> stay different.</p></div>
+  </div>
+
   <nav class="pager"><a href="../week0/07-python.html">← 0.7 Python for this course</a><a href="hard-02-walking-graphs.html">Walking a graph once →</a></nav>
 </main>
 
@@ -360,25 +509,25 @@ val h : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
 (() => {
   const { h, graph, stepper } = CC;
   const T = [
-    { id: 'a1', op: 'a' }, { id: 'b1', op: 'b' }, { id: 'a2', op: 'a' }, { id: 'b2', op: 'b' },
-    { id: 'p1', op: '+', src: ['a1', 'b1'] }, { id: 'p2', op: '+', src: ['a2', 'b2'] }, { id: 'm', op: '*', src: ['p1', 'p2'] }];
-  const D = [{ id: 'a', op: 'a' }, { id: 'b', op: 'b' }, { id: 'p', op: '+', src: ['a', 'b'] }, { id: 'm', op: '*', src: ['p', 'p'] }];
+    { id: 'a1', op: '2' }, { id: 'b1', op: '3' }, { id: 'a2', op: '2' }, { id: 'b2', op: '3' },
+    { id: 'p1', op: 'add', src: ['a1', 'b1'] }, { id: 'p2', op: 'add', src: ['a2', 'b2'] }, { id: 'm', op: 'mul', src: ['p1', 'p2'] }];
+  const D = [{ id: 'a', op: '2' }, { id: 'b', op: '3' }, { id: 'p', op: 'add', src: ['a', 'b'] }, { id: 'm', op: 'mul', src: ['p', 'p'] }];
   const mark = (ns, ids, cls) => ns.map(n => ({ ...n, cls: ids.includes(n.id) ? cls : '' }));
   stepper(document.getElementById('treedag'), [
-    { caption: '<b>As a tree.</b> Seven nodes. Every use of <code>a + b</code> has its own copy, leaves included.', nodes: T },
-    { caption: 'The two outlined parts are copies of each other: same op, same leaves, built twice.', nodes: mark(T, ['p1', 'p2', 'a1', 'b1', 'a2', 'b2'], 'hit') },
-    { caption: '<b>As a DAG.</b> Four nodes. <code>a + b</code> exists once, and <code>*</code> has two arrows coming from it.', nodes: mark(D, ['p'], 'new') },
+    { caption: '<b>As a tree.</b> Seven boxes. Every use of <code>2 + 3</code> has its own copy, numbers included.', nodes: T },
+    { caption: 'The two outlined parts are copies of each other: same op, same numbers, drawn twice.', nodes: mark(T, ['p1', 'p2', 'a1', 'b1', 'a2', 'b2'], 'hit') },
+    { caption: '<b>With sharing.</b> Four boxes. <code>add</code> exists once, and two arrows run from it to <code>mul</code>.', nodes: mark(D, ['p'], 'new') },
   ], (s, body) => body.append(graph(s.nodes)));
 
   const treeOf = k => { const ns = []; let n = 0;
-    const go = d => { const id = 't' + n++; if (d === 0) { ns.push({ id, op: 'x0' }); return id; }
-      const a = go(d - 1), b = go(d - 1); ns.push({ id, op: '+', src: [a, b], sub: 'x' + d }); return id; };
+    const go = d => { const id = 't' + n++; if (d === 0) { ns.push({ id, op: '1', sub: 'x0' }); return id; }
+      const a = go(d - 1), b = go(d - 1); ns.push({ id, op: 'add', src: [a, b], sub: 'x' + d }); return id; };
     go(k); return ns; };
-  const dagOf = k => { const ns = [{ id: 'd0', op: 'x0' }];
-    for (let i = 1; i <= k; i++) ns.push({ id: 'd' + i, op: '+', src: ['d' + (i - 1), 'd' + (i - 1)], sub: 'x' + i });
+  const dagOf = k => { const ns = [{ id: 'd0', op: '1', sub: 'x0' }];
+    for (let i = 1; i <= k; i++) ns.push({ id: 'd' + i, op: 'add', src: ['d' + (i - 1), 'd' + (i - 1)], sub: 'x' + i });
     return ns; };
-  const grow = [0, 1, 2, 3].map(k => ({ k, caption: `<b>x${k}.</b> Tree: ${2 ** (k + 1) - 1} node${k ? 's' : ''}. DAG: ${k + 1} node${k ? 's' : ''}.` +
-    (k === 0 ? ' A single leaf. Both are the same so far.' : k === 3 ? ' The tree doubled again. The DAG grew by one.' : ' The tree is two copies of the last one, plus a new <code>+</code>.') }));
+  const grow = [0, 1, 2, 3].map(k => ({ k, caption: `<b>x${k}.</b> Tree: ${2 ** (k + 1) - 1} box${k ? 'es' : ''}. With sharing: ${k + 1} box${k ? 'es' : ''}.` +
+    (k === 0 ? ' A single number. Both are the same so far.' : k === 3 ? ' The tree doubled again. The DAG grew by one.' : ' The tree is two copies of the last one, plus a new <code>add</code>.') }));
   stepper(document.getElementById('grow'), grow, (s, body) => {
     body.append(h('div', { class: 'split' },
       h('div', {}, h('span', { class: 'label', text: 'tree' }), graph(treeOf(s.k))),
@@ -386,23 +535,23 @@ val h : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
   });
 
   const reqs = [
-    { label: 'a', key: '("leaf", "a")', node: { id: 'n0', op: 'a', sub: 'id 0' } },
-    { label: 'b', key: '("leaf", "b")', node: { id: 'n1', op: 'b', sub: 'id 1' } },
-    { label: 'a + b', key: '("+", 0, 1)', node: { id: 'n2', op: '+', src: ['n0', 'n1'], sub: 'id 2' } },
-    { label: 'a', key: '("leaf", "a")' },
-    { label: 'b', key: '("leaf", "b")' },
-    { label: 'a + b', key: '("+", 0, 1)' },
-    { label: '(a + b) * (a + b)', key: '("*", 2, 2)', node: { id: 'n3', op: '*', src: ['n2', 'n2'], sub: 'id 3' } },
+    { label: '2', key: '(const, [], 2)', node: { id: 'n0', op: '2', sub: 'n0' } },
+    { label: '3', key: '(const, [], 3)', node: { id: 'n1', op: '3', sub: 'n1' } },
+    { label: 'add 2 3', key: '(add, [n0, n1])', node: { id: 'n2', op: 'add', src: ['n0', 'n1'], sub: 'n2' } },
+    { label: '2', key: '(const, [], 2)' },
+    { label: '3', key: '(const, [], 3)' },
+    { label: 'add 2 3', key: '(add, [n0, n1])' },
+    { label: 'mul %a %b', key: '(mul, [n2, n2])', node: { id: 'n3', op: 'mul', src: ['n2', 'n2'], sub: 'n3' } },
   ];
   const notes = [
-    'An empty table. We build left to right, and a node is built only after its children.',
-    'Make leaf <code>a</code>. Its key is not in the table, so it is <b>new</b>: it gets id 0 and is stored.',
-    'Make leaf <code>b</code>. Not in the table: <b>new</b>, id 1.',
-    'Make <code>a + b</code>. Its children have ids 0 and 1, so the key is <code>("+", 0, 1)</code>. Not there: <b>new</b>, id 2.',
-    'The second <code>a</code>. Its key is <b>found</b>, so you get node 0 back. Nothing new is made.',
-    'The second <code>b</code>. <b>Found</b>: node 1.',
-    'The second <code>a + b</code>. Its children are nodes 0 and 1 again, so the key is <code>("+", 0, 1)</code>. <b>Found</b>: you get node 2, the same node as before.',
-    'Make the <code>*</code>. Both children are node 2, so the key is <code>("*", 2, 2)</code>. <b>New</b>, id 3. Seven requests made four nodes.',
+    'An empty table. A node is requested only after its sources, so each line asks for its numbers first.',
+    '<b>Line 1</b> needs the number <code>2</code>. Its key is not in the table, so it is <b>new</b>: it gets id n0 and is stored.',
+    'Line 1 needs the number <code>3</code>. Not in the table: <b>new</b>, id n1.',
+    'Now line 1 asks for its <code>add</code>. The sources have ids n0 and n1, so the key is <code>(add, [n0, n1])</code>. Not there: <b>new</b>, id n2. <code>%a</code> names n2.',
+    '<b>Line 2</b> needs the number <code>2</code>. Its key is <b>found</b>, so you get n0 back. Nothing new is made.',
+    'Line 2 needs the number <code>3</code>. <b>Found</b>: n1.',
+    'Line 2 asks for its <code>add</code>. The sources are n0 and n1 again, so the key is <code>(add, [n0, n1])</code>. <b>Found</b>: <code>%b</code> names n2, the very same node as <code>%a</code>.',
+    '<b>Line 3</b> asks for the <code>mul</code>. Both sources are n2, so the key is <code>(mul, [n2, n2])</code>. <b>New</b>, id n3. Seven requests made four nodes.',
   ];
   const steps = notes.map((caption, i) => ({ i, caption }));
   stepper(document.getElementById('hc'), steps, (s, body) => {
@@ -411,7 +560,7 @@ val h : ('_weak1, '_weak2) Hashtbl.t = &lt;abstr&gt;
     const curId = cur && (cur.node ? cur.node.id : stored.find(r => r.key === cur.key).node.id);
     const rows = stored.map(r => { const on = cur && r.key === cur.key;
       const cell = t => h('td', {}, on ? h('b', {}, h('code', { text: t })) : h('code', { text: t }));
-      return h('tr', {}, cell(r.key), cell(r.node.sub.replace('id ', '')), h('td', { text: on ? (cur.node ? 'new' : 'found') : '' })); });
+      return h('tr', {}, cell(r.key), cell(r.node.id), h('td', { text: on ? (cur.node ? 'new' : 'found') : '' })); });
     const table = h('div', { class: 'tablewrap' }, h('table', {},
       h('thead', {}, h('tr', {}, h('th', { text: 'key' }), h('th', { text: 'id' }), h('th', { text: 'this step' }))),
       h('tbody', {}, rows.length ? rows : [h('tr', {}, h('td', { text: 'empty' }), h('td'), h('td'))])));

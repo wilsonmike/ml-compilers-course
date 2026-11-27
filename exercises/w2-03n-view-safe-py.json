@@ -1,0 +1,59 @@
+{
+ "id": "w2-03n-view-safe-py",
+ "lang": "python",
+ "title": "Repair the bounds check",
+ "prompt": "<p><code>view_safe(bounds, n, k)</code> answers one question: is a view of <code>k</code> elements provably inside a parent of <code>n</code> elements, when all you know about its offset is <code>bounds = (lo, hi)</code>? It follows the three steps, and two of them are wrong:</p><ul><li><strong>Step 2.</strong> <code>last_start</code> is only right for a one-element view. Make it right for any <code>k</code>.</li><li><strong>Step 3.</strong> The compare checks the high end only. A negative offset gets through. Check the low end too.</li></ul>",
+ "show": "lambda v: str(v).lower()",
+ "starter": "def view_safe(bounds: tuple[int, int], n: int, k: int) -> bool:\n    lo, hi = bounds\n    last_start = n - 1\n    return hi <= last_start\n",
+ "tests": [
+  {
+   "expr": "view_safe((0, 3), 4, 1)",
+   "expect": "true",
+   "sample": true
+  },
+  {
+   "expr": "view_safe((0, 3), 4, 2)",
+   "expect": "false",
+   "sample": true
+  },
+  {
+   "expr": "view_safe((-1, 2), 8, 1)",
+   "expect": "false",
+   "sample": true
+  },
+  {
+   "expr": "view_safe((0, 2), 4, 2)",
+   "expect": "true"
+  },
+  {
+   "expr": "view_safe((6, 6), 8, 3)",
+   "expect": "false"
+  },
+  {
+   "expr": "view_safe((5, 5), 8, 3)",
+   "expect": "true"
+  },
+  {
+   "expr": "view_safe((-2147483648, 2147483647), 8, 1)",
+   "expect": "false"
+  },
+  {
+   "expr": "view_safe((0, 0), 4, 4)",
+   "expect": "true"
+  },
+  {
+   "expr": "view_safe((0, 0), 4, 5)",
+   "expect": "false"
+  },
+  {
+   "expr": "view_safe((-3, 0), 4, 1)",
+   "expect": "false"
+  }
+ ],
+ "hints": [
+  "Follow the three steps. Step 1 is done for you: the offset's bounds arrive as `lo` and `hi`. Steps 2 and 3 each have one mistake.",
+  "Step 2: a view of `k` elements that starts at `s` ends at element `s + k - 1`, and that must be at most `n - 1`. So the last allowed start is `n - k`, not `n - 1`.",
+  "Step 3 needs both ends: the smallest offset must be at least 0 and the largest must be at most `last_start`. Add the `lo` check next to the `hi` check."
+ ],
+ "explain": "The last allowed start is `n - k`, because a window of `k` elements starting there ends exactly at element `n - 1`. The view is proven when the whole range of the offset fits: `lo >= 0` and `hi <= n - k`. That is the spec's rule `lo >= 0` and `hi + k <= n` with `k` moved to the other side. When `k` is larger than `n`, `n - k` is negative, so nothing passes."
+}

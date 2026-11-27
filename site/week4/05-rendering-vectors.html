@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rendering Vectors</title>
 <!-- seo: written by tools/build_seo.py -->
-<meta name="description" content="After rangeify, your renderer is printing a week 3 program, so most of this lesson is about what the output should look like and how to check it. The short...">
+<meta name="description" content="Your render can print loops you wrote by hand, and your interpreter can run whole-vector programs. But render on a vector program has no good answer yet: it...">
 <link rel="canonical" href="https://sharpterminal.com/site/week4/05-rendering-vectors">
 <meta property="og:site_name" content="ML compilers, from zero">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Rendering Vectors">
-<meta property="og:description" content="After rangeify, your renderer is printing a week 3 program, so most of this lesson is about what the output should look like and how to check it. The short version: one loop per rank-1 store, one per...">
+<meta property="og:description" content="Your render can print loops you wrote by hand, and your interpreter can run whole-vector programs. But render on a vector program has no good answer yet: it fails, or it prints one line of C for...">
 <meta property="og:url" content="https://sharpterminal.com/site/week4/05-rendering-vectors">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
@@ -20,8 +20,8 @@
 <link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
-<link rel="stylesheet" href="../assets/course.css?v=af4dda2e78">
-<script src="../assets/course.js?v=cd1b9ee0fa"></script>
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=013e314611"></script>
 <style>
   .stack { display: grid; gap: var(--s4); }
 </style>
@@ -30,42 +30,113 @@
 <main>
 <p class="eyebrow">Week 4 · Lesson 5</p>
 <h1>Rendering vectors</h1>
-<p class="lede">After rangeify, your renderer is printing a week 3 program, so most of this lesson is about what the output should look like and how to check it. The short version: one loop per rank-1 store, one per reduce, scalars computed once between them, and a file that stays under two kilobytes no matter how long the vectors are.</p>
+<p class="lede">Your <code>render</code> can print loops you wrote by hand, and your interpreter can run whole-vector programs. But <code>render</code> on a vector program has no good answer yet: it fails, or it prints one line of C for every element. In this lesson you make it print a loop, by putting rangeify in front of the renderer you already have.</p>
 
-<div class="prose">
-<h2>Why unrolling fails</h2>
-<p>Week 2's renderer handled a rank-1 value by keeping it as a C array and spelling out every element: <code>{b0[0 + 0], b0[0 + 1], ...}</code>. For four elements that's fine. Week 4's render tests use vectors of 4096 floats, and the grader rejects any rendered C over <strong>20,000 bytes</strong>, before it even tries to compile it.</p>
-<p>Count it out for <code>x / sum(x)</code> on 4096 floats. The store alone, unrolled, is one line per element, about 30 bytes each: roughly 125,000 bytes, six times the limit, before the reduce or any loads. The rangeified version is about 1.6 kilobytes in total (1,579 bytes with the current oracle), headers and helper functions included. Make the vectors a million long and it's the same size plus a few more digits in the loop bounds.</p>
-</div>
-
-<div class="fig" id="steps" data-title="x / sum(x) on 4096 floats: where each part of the C comes from"></div>
-
-<h2>The shape of the output</h2>
-<div class="prose">
-<p>Three rules cover almost every week 4 kernel:</p>
-<ul>
-<li><strong>Every rank-1 store is a loop</strong> over the vector's length. Its body computes the element at the loop index, all the way down through the elementwise ops, and stores it.</li>
-<li><strong>Every reduce is an accumulator loop</strong>: seed with the element at 0, fold in elements 1 to n-1. If two reduces read the same vector, that's two loops (lesson 4.4).</li>
-<li><strong>Scalars live between loops.</strong> The reduce's result, its reciprocal, anything computed from scalars alone, has no open range, so week 3's placement puts it in the outer block, once. In the kernel above, <code>1.0f / v23</code> runs one time, not 4096 times.</li>
-</ul>
-<p>An <code>expand</code> leaves no trace in the C at all: its element at any index is the scalar, so the store loop just uses <code>v24</code> directly.</p>
+<div class="note">
+<span class="label">Goal</span>
+<p>Say what C <code>render</code> must print for a vector program, why it has to stay small and which parts of your compiler produce it.</p>
 </div>
 
 <div class="note">
-<span class="label">Hoisting comes free</span>
-<p>You don't need a separate pass to hoist the reciprocal out of the store loop. It never had the store loop's range in the first place: rangeify asked the expand for its element at <code>i</code>, and the answer was a node with no ranges at all. Placement by open ranges does the rest.</p>
+<span class="label">You'll use</span>
+<p>Depths and loop printing from <a href="../week3/05-rendering-loops.html">lesson 3.5</a>, the element at index <code>i</code> from <a href="03-rangeify.html">lesson 4.3</a> and <code>stage</code> from <a href="04-materialization.html">lesson 4.4</a>. Two exercises are in C: <a href="../week0/01-c-and-pointers.html">C and pointers</a> covers what they need.</p>
+<p class="only-python">In the last exercise: a loop over a list of pairs (<a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">In the last exercise: <code>match</code> on your own type (<a href="../learn/ml-03-lists-matching.html">O.3</a>, <a href="../learn/ml-04-your-own-types.html">O.4</a>).</p>
 </div>
 
-<div class="exercise" data-ex="w4-05-normalize">
-<h3>The normalize loop pair</h3>
-<p>Write <code>void normalize(const float *x, float *y, int n)</code> (n ≥ 1) so that it computes exactly what the oracle's kernel computes for <code>store %y (mul %v (expand (recip (reduce %v op=add))))</code>: fold the sum left to right from <code>x[0]</code>, compute the reciprocal once as <code>1.0f / sum</code>, then multiply each element by it. Results are compared bit for bit.</p>
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="a">
+<p class="q">In lesson 3.5, a value has no open ranges, like <code>g[0]</code> squared. Where does its line of C go?</p>
+<div class="opts">
+<button data-k="a">Outside every loop, where it runs once</button>
+<button data-k="b">Inside the loop that uses it</button>
+<button data-k="c">Inside the innermost loop</button>
+</div>
+<p class="hint">Would its value change from one trip through a loop to the next?</p>
+<div class="why"><p>Outside. A value's open ranges decide its depth, and with none open it sits in the outer block and runs once.</p></div>
 </div>
 
-<h2>Check your output size</h2>
+<div class="quiz" data-answer="b">
+<p class="q">In lesson 4.3, rangeify lowers a vector program to scalars. Which two things become loops?</p>
+<div class="opts">
+<button data-k="a">Every elementwise op and every <code>load</code></button>
+<button data-k="b">A rank-1 <code>store</code> and a <code>reduce</code></button>
+<button data-k="c">An <code>expand</code> and a <code>recip</code></button>
+</div>
+<p class="hint">Which ops take a whole vector and give back an effect or a single scalar?</p>
+<div class="why"><p>A rank-1 store and a reduce. Everything else only answers "what is your element at index <code>i</code>?" with a scalar.</p></div>
+</div>
+
+<h2>One line per element</h2>
 <div class="prose">
-<p>The grader measures your <code>render</code> output in bytes, as UTF-8, and checks the limit before anything else. Measure it yourself on the big tests:</p>
+<p>This week 2 program copies four floats from one buffer to another:</p>
+<pre><code>%a  = buffer 4 dtype=f32 slot=0
+%c  = buffer 4 dtype=f32 slot=1
+%x  = load %a
+%st = store %c %x
+%c1 = after %c %st</code></pre>
+<p>The reference compiler (the grader calls it the oracle) renders it the week 2 way, and so does your compiler. There is no loop. Every element is spelled out, which is called <strong>unrolling</strong>:</p>
+<pre><code>void kernel(float *restrict b0, float *restrict b1) {
+  float v2[4] = {b0[0 + 0], b0[0 + 1], b0[0 + 2], b0[0 + 3]};
+  b1[0 + 0] = v2[0];
+  b1[0 + 1] = v2[1];
+  b1[0 + 2] = v2[2];
+  b1[0 + 3] = v2[3];
+}</code></pre>
+<p>Now take a week 4 program that adds two vectors of 1,000 floats:</p>
+<pre><code>%a  = buffer 1000 dtype=f32 slot=0
+%b  = buffer 1000 dtype=f32 slot=1
+%c  = buffer 1000 dtype=f32 slot=2
+%x  = load %a
+%y  = load %b
+%z  = add %x %y
+%st = store %c %z
+%c1 = after %c %st</code></pre>
+<p>Your renderer has no rule for an <code>add</code> of two vectors. The quickest patch is more of the same: one add and one store line for each of the 1,000 elements.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Say you patch it that way, and every value the C computes is right. What does the grader report for this test?</p>
+<div class="opts">
+<button data-k="a">A pass: the values are right</button>
+<button data-k="b">A failure: the C is too big, and it is never compiled</button>
+<button data-k="c">A failure: clang cannot compile a thousand lines</button>
+</div>
+<p class="hint">The copy above costs about 38 bytes of C for each element. Multiply by 1,000.</p>
+<div class="why"><p>The grader measures your C before it compiles anything, and rejects more than <strong>20,000 bytes</strong>. At about 38 bytes for each element, even a plain copy of 1,000 floats unrolls to about 38,000 bytes.</p></div>
+</div>
+
+<div class="prose">
+<p>The reference compiler prints this for the same program:</p>
+<pre><code>void kernel(float *restrict b0, float *restrict b1, float *restrict b2) {
+  for (int32_t r4 = 0; r4 &lt; 1000; r4++) {
+    float v7 = b0[r4];
+    float v9 = b1[r4];
+    float v10 = (v7 + v9);
+    b2[r4] = v10;
+  }
+}</code></pre>
+<p>That is eight lines, and the whole file is 1,277 bytes. A thousand lines became one loop with four lines inside.</p>
+</div>
+
+<h2>Why the grader counts bytes</h2>
+<div class="prose">
+<p>Unrolled C can be correct, so comparing values cannot catch it. Size can. Code that spells out every element grows with the vector. A loop does not: the length appears only as a number in the <code>for</code> line.</p>
+</div>
+
+<div class="quiz" data-fill="8">
+<p class="q">The looped kernel above is 8 lines for 1,000 elements. How many lines is it for 2,000 elements?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Which characters of the kernel mention the length?</p>
+<div class="why"><p>Still 8. Only <code>1000</code> in the <code>for</code> line changes to <code>2000</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>So the limit is a test of one thing: did every vector become a loop? Week 4's big render tests use up to 4,096 elements. A looped kernel for them is about 2,000 bytes, and an unrolled one is far over 20,000. The grader counts your <code>render</code> output in bytes, as UTF-8, right after <code>render</code> exits. Measure it yourself:</p>
 <pre><code>C:/path/to/your.exe render tests/week4/render/normalize_4096.uir | wc -c</code></pre>
-<p>(That's Git Bash, and <code>wc -c</code> counts bytes.) If the number grows when you double the vector length, something is still unrolled. The usual culprits are a rank-1 value that reaches the printer without going through rangeify, and a vector constant built element by element instead of with <code>expand</code>.</p>
+<p>That is Git Bash, and <code>wc -c</code> counts bytes. On Windows it can count one byte more per line than the grader, which reads a Windows line end as one byte. If the number grows when you double a vector's length, something is still unrolled. The usual causes are a rank-1 value that reaches the printer without going through rangeify, and a vector constant built element by element when it should be an <code>expand</code>.</p>
 </div>
 
 <div class="trap">
@@ -75,14 +146,136 @@
 
 <div class="exercise small" data-ex="w4-05-fits">
 <h3>Will it fit in 20,000 bytes?</h3>
-<p>Write <code>int fits(int n, int per_elem, int fixed)</code>: 1 if <code>n * per_elem + fixed &lt;= 20000</code>, else 0. All three are non-negative ints, but the product may not fit in an int.</p>
+<p>Repair <code>int fits(int n, int per_elem, int fixed)</code>: 1 if <code>n * per_elem + fixed &lt;= 20000</code>, else 0. The starter is right for small numbers. All three are non-negative ints, but the product may not fit in an int.</p>
+</div>
+
+<h2>Render reuses rangeify</h2>
+<div class="prose">
+<p>You do not write a new printer for vectors. In lesson 4.3, rangeify asked every vector for its element at index <code>i</code>, and turned each rank-1 store and each reduce into a <code>range</code>, scalar ops and an <code>end</code>. What comes out has no vectors left. It is a week 3 program, the kind your lesson 3.5 renderer already prints. So <code>render</code> is a chain of four steps:</p>
+<ol>
+<li><strong>Parse and check.</strong> As before, now with week 4's shape rules.</li>
+<li><strong>Rangeify.</strong> Lower every vector op to scalars at an index. This is the week's new work.</li>
+<li><strong>Place.</strong> Lesson 3.5's pass gives every value a depth from its open ranges.</li>
+<li><strong>Print.</strong> Lesson 3.5's printer writes the loops.</li>
+</ol>
+<p>The lowered program is also one your interpreter can run, because it ran week 3 programs. That gives you a check on rangeify before any C exists: run the vector program directly, run its lowered form and compare the buffers.</p>
+<p>One catch: a week 2 style program, like the four-element copy, must still print with no loops. Send a program through rangeify only when it needs loops. The toggle has the exact rule.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">In the looped add above, four lines sit inside the <code>for</code>. Which part of your compiler put them there?</p>
+<div class="opts">
+<button data-k="a">A new case in the printer for <code>add</code> of vectors</button>
+<button data-k="b">Rangeify, which writes the C for the loop body</button>
+<button data-k="c">Lesson 3.5's placement: each of them depends on the range that rangeify made</button>
+</div>
+<p class="hint">Rangeify produces a graph, not text. Which pass turns open ranges into depths?</p>
+<div class="why"><p>Rangeify only builds the graph: a range, two scalar loads, a scalar add, a scalar store and an end. Each of those four values has the new range open, so the week 3 pass places them at depth 1.</p></div>
+</div>
+
+<details class="toggle">
+<summary>The exact rule for when render may print loops, for the lab</summary>
+<div class="prose">
+<p><code>render</code> may use <code>for</code> loops when the program has a <code>range</code>, a <code>reduce</code>, an <code>expand</code> or a <code>stage</code>, an elementwise op on a rank-1 value, or any rank-1 value with more than 32 elements. So a plain copy of 4,096 floats is rendered as a loop even though it has no vector math. A program with none of these must render loopless, as in week 2, and the grader fails it if it finds a <code>for</code>. In every case <code>while</code>, <code>do</code> and <code>goto</code> are not allowed.</p>
+<p>The grader's order for a render test: run <code>render</code> and fail on a nonzero exit, check the size, check the loop rule, compile, then compare every buffer with the reference.</p>
+</div>
+</details>
+
+<h2>Two loops and the scalars between them</h2>
+<div class="prose">
+<p>Here is a program with a reduce in it. It divides every element of <code>x</code> by the sum of <code>x</code>, on 4,096 floats:</p>
+<pre><code>%v  = load %x
+%s  = reduce %v op=add
+%r  = recip %s
+%e  = expand %r [4096]
+%w  = mul %v %e
+%st = store %y %w</code></pre>
+</div>
+
+<div class="quiz" data-fill="2">
+<p class="q">How many <code>for</code> loops will its C have?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Use your warm up answer: which ops become loops?</p>
+<div class="why"><p>Two: one for the reduce and one for the rank-1 store. The <code>recip</code> is a scalar and the <code>expand</code> makes no loop.</p></div>
+</div>
+
+<div class="prose">
+<p>Step through the reference compiler's kernel. The whole file is 1,579 bytes by the grader's count.</p>
+</div>
+
+<div class="fig" id="steps" data-title="x / sum(x) on 4096 floats: where each part of the C comes from"></div>
+
+<div class="prose">
+<p>Three rules cover almost every week 4 kernel:</p>
+<ul>
+<li><strong>Every rank-1 store is a loop</strong> over the vector's length. Its body computes the element at the loop index, all the way down through the elementwise ops, and stores it.</li>
+<li><strong>Every reduce is an accumulator loop</strong>: seed with the element at 0, fold in elements 1 to n-1. If two reduces read the same vector, that's two loops (lesson 4.4).</li>
+<li><strong>Scalars live between loops.</strong> The reduce's result, its reciprocal, anything computed from scalars alone, has no open range, so week 3's placement puts it in the outer block, once. In the kernel above, <code>1.0f / v23</code> runs one time, not 4096 times.</li>
+</ul></div>
+
+<div class="note">
+<span class="label">Hoisting comes free</span>
+<p>You don't need a separate pass to hoist the reciprocal out of the store loop. It never had the store loop's range in the first place: rangeify asked the expand for its element at <code>i</code>, and the answer was a node with no ranges at all. Placement by open ranges does the rest.</p>
+</div>
+
+<div class="exercise" data-ex="w4-05-normalize">
+<h3>The normalize loop pair</h3>
+<p>Repair <code>void normalize(const float *x, float *y, int n)</code> (n ≥ 1) so that it computes exactly what the reference kernel computes for <code>store %y (mul %v (expand (recip (reduce %v op=add))))</code>: fold the sum left to right from <code>x[0]</code>, compute the reciprocal once as <code>1.0f / sum</code>, then multiply each element by it. The starter has both loops and gets two of those details wrong. Results are compared bit for bit.</p>
+</div>
+
+<details class="toggle">
+<summary>The <code>% 4096</code> line and the helpers at the top of the file, for when you compare your C with the reference</summary>
+<div class="prose">
+<p>The reduce loop computes <code>v15 % 4096</code> before it loads. The reference builds every index as if the value could have several axes, so it adds a <code>% n</code> step. For a vector that step never changes the value, and your C does not need it. Lesson 5.5 shows how a simplifier removes it.</p>
+<p>About 1,060 of the 1,579 bytes are the helper functions every rendered file starts with (<code>f32_max</code>, <code>i32_div</code> and the rest from lesson 2.4). They count toward the limit, and they do not grow.</p>
+</div>
+</details>
+
+<h2>Count the loops before you render</h2>
+<div class="prose">
+<p>You can predict a kernel's loops from the program, before you run <code>render</code>. A <strong>trip</strong> is one pass through a loop's body. Go through the program in order:</p>
+</div>
+<div class="tablewrap"><table>
+<tr><th>in the program</th><th>in the C</th></tr>
+<tr><td>a rank-1 <code>store</code> of n elements</td><td>one loop, n trips</td></tr>
+<tr><td>a <code>reduce</code> of n elements</td><td>one loop, n-1 trips, because element 0 is the seed</td></tr>
+<tr><td>a <code>stage</code> of n elements (lesson 4.4)</td><td>one loop that fills the temp, n trips</td></tr>
+<tr><td>an <code>expand</code></td><td>nothing</td></tr>
+<tr><td>a scalar op</td><td>one line, outside the loops</td></tr>
+</table></div>
+<div class="prose">
+<p>For the program above that gives 4095 and 4096, which matches the two <code>for</code> lines in the figure. If your C has more loops than your count, or a different bound, look at that op's lowering first.</p>
+</div>
+
+<div class="exercise" data-ex="w4-05n-trips" data-ex-py="w4-05n-trips-py">
+<h3>How many trips does each loop make?</h3>
+<p>A toy program is an <code>item list</code> in the order the kernel runs: <code>Store n</code> (a rank-1 store of <code>n</code> elements), <code>Reduce n</code>, <code>Stage n</code>, <code>Expand n</code> or <code>Scalar</code> (any scalar op). Write <code>trips prog</code>: the list of trip counts of the <code>for</code> loops the rendered kernel has, in order. A store or a stage loops <code>n</code> times. A reduce loops <code>n - 1</code> times. An expand or a scalar makes no loop.</p>
+</div>
+
+<details class="toggle">
+<summary>Two cases that add or empty a loop, for when a lab test surprises you</summary>
+<div class="prose">
+<p><strong>A store into the memory it reads prints two loops.</strong> When any <code>load</code> in the stored value's graph reads the buffer the store writes, the reference renders the store as if its value were staged: one loop fills a temp, and a second loop copies the temp in. The test <code>r_inplace_scale_by_sum</code> is this case (lesson 4.4).</p>
+<p><strong>A reduce of one element still prints a loop.</strong> Its bound is n-1, which is 0, so the reference prints <code>for (int32_t r10 = 0; r10 &lt; 0; r10++)</code> and the body never runs. The result is the seed. The test <code>r_reduce_single</code> checks it.</p>
+</div>
+</details>
+
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Say why unrolled C fails week 4's render tests even when its values are right.</li>
+<li>Measure your rendered C against the 20,000-byte limit.</li>
+<li>Build <code>render</code> for vectors as rangeify followed by the week 3 placement and printer.</li>
+<li>Predict a kernel's loops, their trip counts and which lines sit between them.</li>
+</ul>
+<p>Next is the week 4 lab, where you add all of this to your own compiler.</p>
 </div>
 
 <h2>Check yourself</h2>
 <p class="score"></p>
 
 <div class="quiz" data-answer="a">
-<p class="q">Roughly how big is the oracle's rendered C for <code>x / sum(x)</code> on 4096 floats, headers included?</p>
+<p class="q">Roughly how big is the reference compiler's rendered C for <code>x / sum(x)</code> on 4096 floats, headers included?</p>
 <div class="opts">
 <button data-k="a">About 1,600 bytes</button>
 <button data-k="b">About 20,000 bytes, right at the limit</button>
@@ -90,7 +283,7 @@
 <button data-k="d">It depends on the data in the buffer</button>
 </div>
 <p class="hint">It's in the lesson, and it doesn't depend on 4096.</p>
-<div class="why"><p>About 1.6 kilobytes (1,579 bytes with the current oracle): the helper functions at the top, then two loops and a few scalar lines. The vector length only appears as a few numbers: the loop bounds 4095 and 4096, and the <code>% 4096</code> in the index math. 125,000 bytes is what the unrolled store alone would cost.</p></div>
+<div class="why"><p>1,579 bytes by the grader's count: the helper functions at the top, then two loops and a few scalar lines. The vector length only appears as a few numbers: the loop bounds 4095 and 4096, and the <code>% 4096</code> in the index math. 125,000 bytes is what the unrolled store alone would cost.</p></div>
 </div>
 
 <div class="quiz" data-answer="b">
@@ -158,7 +351,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   const { h } = CC;
   const N = (id, op, sub, src, cls) => ({ id, op, sub, src: src || [], cls });
-  const c = `void kernel(float *b0, float *b1) {
+  const c = `void kernel(float *restrict b0, float *restrict b1) {
   float a3[1] = {0};
   float v7 = b0[0];
   a3[0] = v7;
