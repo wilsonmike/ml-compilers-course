@@ -7,11 +7,13 @@ import hashlib, html, json, pathlib, re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASE = 'https://sharpterminal.com'
-NAME = 'ML compilers, from zero'
+NAME = 'ML Compilers, From Zero'
+BRAND = 'Sharp Terminal'
 REPO = 'https://github.com/wilsonmike/ml-compilers-course'
 SECTIONS = {
+  'start': 'Start: run a program, then write the interpreter that runs it',
   'learn': 'Learn Python, Learn OCaml, and hard ideas explained slowly',
-  'week0': 'Week 0: prerequisites (C, memory, IRs, tensors, matmul, Python or OCaml)',
+  'week0': 'Week 0: short primers, each placed just before the week that needs it (C, memory, IRs, tensors, matmul, Python or OCaml setup)',
   'week1': 'Week 1: UOps and rewrites',
   'week2': 'Week 2: memory and rendering C',
   'week3': 'Week 3: loops',
@@ -63,7 +65,7 @@ def seo_block(p, title, desc):
   return ('<!-- seo: written by tools/build_seo.py -->\n'
     f'<meta name="description" content="{a(clip(desc))}">\n'
     f'<link rel="canonical" href="{u}">\n'
-    f'<meta property="og:site_name" content="{a(NAME)}">\n'
+    f'<meta property="og:site_name" content="{a(BRAND)}">\n'
     f'<meta property="og:type" content="{"website" if p.name == "index.html" and p.parent.name == "site" else "article"}">\n'
     f'<meta property="og:title" content="{a(title)}">\n'
     f'<meta property="og:description" content="{a(clip(desc, 200))}">\n'
@@ -78,11 +80,12 @@ def seo_block(p, title, desc):
     + '<!-- /seo -->\n')
 
 def course_ld(u, desc):
-  data = [{'@context': 'https://schema.org', '@type': 'WebSite', 'name': NAME, 'url': u},
+  data = [{'@context': 'https://schema.org', '@type': 'WebSite', 'name': BRAND, 'alternateName': NAME, 'url': u},
           {'@context': 'https://schema.org', '@type': 'Course', 'name': NAME, 'description': clip(desc, 300), 'url': u,
            'inLanguage': 'en', 'isAccessibleForFree': True, 'educationalLevel': 'Beginner to advanced',
-           'teaches': 'Building a machine learning compiler: graph IRs, rewrites, loops, memory, rendering C and CUDA, fast CPU and GPU kernels',
-           'provider': {'@type': 'Organization', 'name': 'sharpterminal.com', 'url': BASE + '/'},
+           'teaches': 'Building a machine learning compiler from scratch in Python or OCaml: graph IRs, rewrites, loops, memory, rendering C and CUDA, autodiff, fast CPU and GPU kernels, tensor cores and multiple GPUs',
+           'audience': {'@type': 'Audience', 'audienceType': 'Beginners, Python programmers, systems programmers and machine learning engineers'},
+           'provider': {'@type': 'Organization', 'name': BRAND, 'url': BASE + '/'},
            'offers': {'@type': 'Offer', 'category': 'Free', 'price': 0, 'priceCurrency': 'USD'},
            'hasCourseInstance': {'@type': 'CourseInstance', 'courseMode': 'Online'},
            'license': REPO + '/blob/main/LICENSE-CONTENT.md'}]
@@ -111,14 +114,18 @@ rows = ''.join(f'  <url><loc>{url(p)}</loc></url>\n' for p in pages)
   f'Sitemap: {BASE}/sitemap.xml\n', encoding='utf-8', newline='\n')
 
 # llms.txt, in the format of https://llmstxt.org
-out = [f'# {NAME}', '',
-  '> A free, open-source course where you build a machine learning compiler from scratch, in Python or OCaml. '
+out = [f'# {NAME}, by {BRAND}', '',
+  '> A free, open-source, self-paced course where you build a machine learning compiler from scratch, in Python or OCaml. '
   'It is inspired by the public syllabus of CMU 10-411, Compilers for Machine Learning, and is independent: '
   'not affiliated with CMU or George Hotz.', '',
   'The compiler works on a small graph IR of UOps, written in a text format called .uir. Each week adds ops and '
-  'a spec, and a test suite grades your compiler against a reference implementation. Week 0 teaches the '
-  'prerequisites (C, memory and caches, IRs, tensors, matmul, and the language you write the compiler in). '
-  'Every lesson has quizzes with hints and answers, and graded exercises that run in the browser editor.', '',
+  'a spec, and each week ends in a hands-on lab where a test suite grades your compiler against a reference implementation. '
+  'It starts with two short steps (run a program, then write the interpreter that runs it) and goes through ten weeks: '
+  'interpreting and simplifying, memory and rendering C, loops, tensors and shapes, autodiff and training on MNIST, fast CPU '
+  'kernels, CUDA GPU kernels, tensor cores and flash attention, and running on several GPUs. Short primers on C, memory, '
+  'tensors and matrix multiply appear just before the week that needs them, and complete beginners can learn Python or OCaml '
+  'from scratch first. Every lesson asks you to guess before it explains, has quizzes with hints and answers, and has graded '
+  'exercises that run in the browser editor. No GPU is needed: CUDA runs in an emulator.', '',
   f'Source code, tests and the reference compiler: {REPO}', '']
 for key, title in [('site', 'Start here')] + list(SECTIONS.items()):
   if key not in groups: continue
