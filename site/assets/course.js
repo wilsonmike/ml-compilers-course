@@ -239,7 +239,7 @@ const CC = (() => {
     paintSeg();
     const km = keymapSelect();
     const side = h('aside', { class: 'side' },
-      h('a', { class: 'brand', href: root + 'index.html' }, h('span', { class: 'mark', 'aria-hidden': 'true' }), 'ML Compilers, From Zero'),
+      h('a', { class: 'brand', href: root + 'index.html' }, h('span', { class: 'mark', 'aria-hidden': 'true' }), 'Sharp Terminal'),
       h('div', { class: 'search' }, search),
       h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect()), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Keys', km)), nav);
     const pill = h('span', { class: 'runner', title: 'Start it with: python tools/serve.py' }, h('span', { class: 'dot' }), 'Runner off');
@@ -252,7 +252,7 @@ const CC = (() => {
     });
     const isHome = b.classList.contains('home');
     const subPage = !cur && /\/resources\/(week\d+|tests-week\d+)(\.html)?$/.test(location.pathname.replace(/\\/g, '/'));
-    const crumbs = h('div', { class: 'crumbs' }, isHome ? [h('span', { text: 'sharpterminal.com' })]
+    const crumbs = h('div', { class: 'crumbs' }, isHome ? [h('span', { text: 'ML Compilers, From Zero' })]
       : cur ? [h('a', { href: root + 'index.html', text: 'Course' }),
       ...(cur[0].title === 'Start here' ? [] : [h('span', { class: 'sep', text: '/' }), cur[0].title.split(' · ')[0]]),
       h('span', { class: 'sep', text: '/' }), cur[1][1]]
