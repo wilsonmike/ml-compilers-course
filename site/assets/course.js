@@ -82,7 +82,10 @@ const CC = (() => {
   // Google Analytics 4, through the Google tag container (it carries the GA4 stream, G-5W4EDH8RFN). Only on the
   // live site, so local copies and previews never count as visits.
   const TAG_ID = 'GTM-MPMCLH74';
-  const LIVE = /(^|\.)sharpterminal\.com$/.test(location.hostname);
+  const optOut = (() => { try { const q = new URLSearchParams(location.search).get('analytics');
+    if (q === 'off') localStorage.setItem('cc-no-analytics', '1'); else if (q === 'on') localStorage.removeItem('cc-no-analytics');
+    return localStorage.getItem('cc-no-analytics') === '1'; } catch { return false; } })();
+  const LIVE = /(^|\.)sharpterminal\.com$/.test(location.hostname) && !optOut;
   const report = (event, params) => { if (LIVE) (window.dataLayer = window.dataLayer || []).push({ event, ...params }); };
   if (LIVE) {
     window.dataLayer = window.dataLayer || [];
