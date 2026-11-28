@@ -1,0 +1,34 @@
+# cuda
+# two device loops in a row shard o differently: halves on two devices, then quarters on four, with o whole on device 0 in between
+%x   = buffer 16 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16] dtype=i32 slot=0
+%o   = buffer 16 dtype=i32 slot=1
+%d   = range 2 axis=device
+%b   = range 2 axis=global
+%t   = range 4 axis=local
+%ds  = mul %d 8
+%m   = mul %b 4
+%e   = add %m %t
+%i   = add %ds %e
+%xv  = shrink %x %i []
+%xe  = load %xv
+%y   = add %xe 1
+%ov  = shrink %o %i []
+%s   = store %ov %y
+%et  = end %s %t
+%eb  = end %et %b
+%ed  = end %eb %d
+%o1  = after %o %ed
+%f   = range 4 axis=device
+%c   = range 1 axis=global
+%u   = range 4 axis=local
+%fs  = mul %f 4
+%j   = add %fs %u
+%jc  = add %j %c
+%ov2 = shrink %o1 %jc []
+%v   = load %ov2
+%z   = mul %v 2
+%s2  = store %ov2 %z
+%eu  = end %s2 %u
+%ec  = end %eu %c
+%ef  = end %ec %f
+%o2  = after %o1 %ef

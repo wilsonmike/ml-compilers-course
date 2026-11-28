@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>More than one GPU</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="You&#x27;ll be able to say when a second GPU makes a job faster and when it makes it slower, with arithmetic you can do by hand. Your compiler needs this picture...">
+<link rel="canonical" href="https://sharpterminal.com/site/week10/01-more-than-one-gpu">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="More than one GPU">
+<meta property="og:description" content="You&#x27;ll be able to say when a second GPU makes a job faster and when it makes it slower, with arithmetic you can do by hand. Your compiler needs this picture because this week it learns to split one...">
+<meta property="og:url" content="https://sharpterminal.com/site/week10/01-more-than-one-gpu">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<style>
+  .gp { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: flex-start; }
+  .gp .g { border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s2); background: var(--panel); }
+  .gp .lab { font: 0.875rem var(--sans); color: var(--ink-2); margin-bottom: var(--s1); }
+  .gp .dev > .lab { color: var(--ink); font-weight: 600; }
+  .gp .cells { display: flex; flex-wrap: wrap; gap: 3px; }
+  .gp .c { font: 0.875rem var(--mono); text-align: center; width: 2.25rem; min-height: 2.125rem; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+  .gp .c.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .gp .rows { display: flex; flex-direction: column; gap: var(--s2); }
+  .gp .none { font: 0.875rem var(--sans); color: var(--ink-2); }
+</style>
+</head>
+<body data-crumbs="Week 10|More than one GPU" data-root="../">
+<main>
+<p class="eyebrow">Week 10 · Lesson 1</p>
+<h1>More than one GPU</h1>
+<p class="lede">You'll be able to say when a second GPU makes a job faster and when it makes it slower, with arithmetic you can do by hand. Your compiler needs this picture because this week it learns to split one program across several GPUs, and every rule it follows comes from one fact: GPUs do not share memory.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Name the five words of the week (device, shard, replicate, scatter, gather) and predict the time of a job on several GPUs, copies included.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Slices from <a href="../week7/04-threads.html">lesson 7.4</a>, global memory and the host from <a href="../week8/01-gpus.html">lesson 8.1</a>, and the harness from <a href="../week8/04-rendering-cuda.html">lesson 8.4</a>. You do not need a GPU for this lesson, and there is no <code>.uir</code> in it.</p>
+<p class="only-python">In the exercises: <code>if</code>, whole-number division <code>//</code> and loops (<a href="../learn/py-02-decisions-loops.html">P.2</a>).</p>
+<p class="only-ocaml">In the exercises: <code>if</code> and integer division (<a href="../learn/ml-01-first-steps.html">O.1</a>), and recursion or a <code>while</code> loop (<a href="../learn/ml-05-mutation.html">O.5</a>).</p>
+</div>
+
+<div class="prose">
+<p><b>What week 10 is for.</b> In weeks 8 and 9 your compiler learned to write fast kernels for one GPU. Big machine learning jobs use many GPUs at once. This week your compiler runs one program on several GPUs and moves the data each one needs. This lesson is the picture. The next four turn it into rules and code.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from weeks 7 and 8, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-fill="8">
+<p class="q">A thread loop cuts a buffer into slices of <code>S = 4</code> elements, and iteration <code>r</code> owns elements <code>r·S</code> to <code>r·S + S - 1</code>. Which element does iteration 2's slice start at?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Multiply the iteration by the slice size.</p>
+<div class="why"><p><code>2 · 4 = 8</code>, so iteration 2 owns elements 8 to 11. This week cuts buffers the same way, with one piece per GPU.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">In week 8, when your <code>kernel</code> function starts, where are the buffers?</p>
+<div class="opts">
+<button data-k="a">In the CPU's memory. Every GPU thread reads them from there.</button>
+<button data-k="b">In the GPU's global memory. The harness copied them there before the call and copies them back after.</button>
+<button data-k="c">In each block's shared memory</button>
+</div>
+<p class="hint">Lesson 8.4 says what the harness does around your <code>kernel</code>.</p>
+<div class="why"><p>The harness copies the buffers to the GPU, calls <code>kernel</code> and copies them back. Copies were already there in week 8, hidden in the harness. This week your compiler writes them.</p></div>
+</div>
+
+<div class="prose">
+<h2>Two GPUs, twice as fast?</h2>
+<p>People use several GPUs for two reasons. A job can be <b>too big</b>: the model and its data do not fit in one GPU's memory. Or it can be <b>too slow</b>: training on one GPU would take weeks. Either way, the hope is that two GPUs do the job in half the time. Guess first.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">A job takes 8 seconds on one GPU. You split the work evenly over two GPUs. How long does it take now?</p>
+<div class="opts">
+<button data-k="a">Exactly 4 seconds</button>
+<button data-k="b">Less than 4 seconds</button>
+<button data-k="c">More than 4 seconds</button>
+</div>
+<p class="hint">The data starts on the first GPU. What has to happen before the second GPU can start?</p>
+<div class="why"><p>More than 4. Each GPU does 4 seconds of work, but first half the data has to travel to the second GPU, and afterward its answers have to travel back. Those copies take time that one GPU never spent.</p></div>
+</div>
+
+<div class="prose">
+<p>The work really does split in half. The extra time is the copying. Whether a second GPU helps comes down to one comparison: is the time saved on work bigger than the time spent on copies? The rest of this lesson builds the picture behind that question and then the arithmetic to answer it.</p>
+
+<h2>Each GPU has its own memory</h2>
+<p>From now on a GPU in a program is called a <b>device</b>, numbered from 0. Each device has its own global memory, and a kernel running on one device can only read and write that device's memory. It cannot see another device's memory at all.</p>
+<p>So anything a device needs must be <b>copied</b> into its memory first. A copy goes over the wire between the GPUs, which is far slower than a GPU reading its own memory. Step through it.</p>
+</div>
+
+<div class="fig" id="apart" data-title="Two devices, two separate memories"></div>
+
+<div class="quiz" data-fill="2">
+<p class="q">A buffer holds 1,000,000 floats of 4 bytes each, so 4 MB. It sits on device 0. Device 1 needs the second half. How many megabytes must be copied to device 1?</p>
+<div class="fill"><input aria-label="answer in MB" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Half of 4 MB.</p>
+<div class="why"><p>2 MB. Device 1 gets only the part it uses. Copying all 4 MB would work too, but it would take twice as long.</p></div>
+</div>
+
+<div class="prose">
+<h2>Five words for moving memory</h2>
+<p>The whole week uses five words. Here they are one at a time, on a small job. A lookup table <code>t</code> holds 4 numbers. For each element of <code>x</code>, the job writes <code>o[i] = t[x[i]]</code>: the table entry that <code>x[i]</code> names. Two devices share the work, four elements each.</p>
+</div>
+
+<div class="fig" id="words" data-title="Device, shard, replicate, scatter, gather"></div>
+
+<div class="prose">
+<p>A <b>shard</b> is the same idea as a thread's slice in lesson 7.4, with a device in place of the thread: device <code>d</code> owns elements <code>d·S</code> to <code>d·S + S - 1</code>. Lesson 10.2 brings that rule back word for word.</p>
+</div>
+
+<div class="quiz" data-fill="6">
+<p class="q">Now four devices share the same job. <code>x</code> has 8 elements and is sharded. <code>t</code> has 4 elements and is replicated. How many elements does the scatter copy to device 1?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Device 1's shard of <code>x</code> is 8 ÷ 4 elements. It also needs all of <code>t</code>.</p>
+<div class="why"><p><code>2 + 4 = 6</code>. Notice the difference: with more devices each shard of <code>x</code> gets smaller, but every device still needs all 4 elements of <code>t</code>. Sharding splits the copying. Replicating multiplies it.</p></div>
+</div>
+
+<div class="prose">
+<h2>What decides if more GPUs help</h2>
+<p>Copying costs the same per byte whatever the job does with the bytes. So the question that decides everything is: <b>how much work does the job do for each byte it moves?</b> Compare two jobs.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Which job gains more from a second GPU?</p>
+<div class="opts">
+<button data-k="a">Doubling every number in a big buffer</button>
+<button data-k="b">Multiplying two big square matrices</button>
+<button data-k="c">They gain the same, since both split in half</button>
+</div>
+<p class="hint">How many times is each number used once it arrives?</p>
+<div class="why"><p>The matrix multiply. Doubling uses each number once, so the GPU finishes it faster than the wire can deliver it. In an 8192×8192 matrix multiply, every number is used 8192 times, so each byte moved pays for a lot of work.</p></div>
+</div>
+
+<div class="prose">
+<p>Here are both jobs with rough numbers. They are made up to show the shape, not measured: a GPU reads its own memory at about 250 GB per second and does about 10 trillion float operations per second, and a copy between GPUs runs at about 25 GB per second.</p>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>job (illustrative numbers)</th><th>one GPU</th><th>two GPUs: work</th><th>two GPUs: copies</th><th>two GPUs: total</th></tr></thead>
+<tbody>
+<tr><td>double 1 GB of floats</td><td>8 ms</td><td>4 ms</td><td>1 GB, 40 ms</td><td>44 ms, slower</td></tr>
+<tr><td>8192×8192 matrix multiply</td><td>110 ms</td><td>55 ms</td><td>0.54 GB, 22 ms</td><td>77 ms, faster</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<p>For the doubling, half the buffer goes out and half the answers come back. For the matrix multiply, half of <code>A</code> goes out, all of <code>B</code> is replicated and half of <code>C</code> comes back. Lesson 10.4 runs that one.</p>
+
+<h2>A cost model you can compute by hand</h2>
+<p>A <b>cost model</b> is a small formula that predicts how long something takes. Ours has two parts. The work splits evenly over the devices. The copies do not split: they go one after another over the same wire, so their time is the data moved divided by the copy speed.</p>
+<pre><code>time on 1 device  = work
+time on N devices = work / N  +  data moved / copy speed</code></pre>
+<p>On one device the data is already where it needs to be, so nothing is copied. The <b>speedup</b> is the time on one device divided by the time on N. Take the 8 second job, which moves 4 GB in all to and from the second device, with copies at 4 GB per second. These numbers are illustrative too.</p>
+<ol>
+<li><strong>Split the work.</strong> <code>8 / 2 = 4</code> seconds.</li>
+<li><strong>Find the copy time.</strong> <code>4 GB / 4 GB per second = 1</code> second.</li>
+<li><strong>Add them.</strong> <code>4 + 1 = 5</code> seconds. The speedup is <code>8 / 5 = 1.6</code>, not 2.</li>
+</ol>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">The same job runs on 4 devices. All its buffers are sharded, so the shards still add up to 4 GB moved. How many seconds does it take?</p>
+<div class="fill"><input aria-label="answer in seconds" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Split the work 4 ways, then add the copy time, which did not change.</p>
+<div class="why"><p><code>8 / 4 + 1 = 3</code> seconds, a speedup of about 2.7 on 4 devices. The work keeps shrinking, the copy time does not. That is why adding devices helps less and less.</p></div>
+</div>
+
+<div class="exercise" data-ex="w10-01n-time-on" data-ex-py="w10-01n-time-on-py">
+<h3>Fix the cost model</h3>
+<p><code>time_on</code> takes the number of devices <code>n</code>, the <code>work</code> on one device in milliseconds, the data moved <code>mb</code> in megabytes and the copy <code>speed</code> in megabytes per millisecond. It returns the time in whole milliseconds, using whole-number division. One device copies nothing. The starter gets 2 or more devices wrong: it splits the copy time over the devices too. Fix that one line.</p>
+</div>
+
+<div class="prose">
+<h2>When a second GPU makes it slower</h2>
+<p>A short job does little work, but its data still has to move. Predict this one.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">A job takes 1 second on one GPU. On two, it moves 6 GB at 4 GB per second. How long does it take on two?</p>
+<div class="opts">
+<button data-k="a">0.5 seconds</button>
+<button data-k="b">1 second</button>
+<button data-k="c">2 seconds</button>
+</div>
+<p class="hint">Work over 2, plus data over speed.</p>
+<div class="why"><p><code>1 / 2 + 6 / 4 = 0.5 + 1.5 = 2</code> seconds. Twice as slow as one GPU. The copies cost more than the second GPU saved.</p></div>
+</div>
+
+<div class="prose">
+<p>Two devices win when <code>work / 2 + copy &lt; work</code>, where <code>copy</code> is the copy time. Take <code>work / 2</code> from both sides: they win when <b>half the work is more than the copy time</b>. With N devices the saving is bigger, <code>work - work / N</code>, but the copy still has to fit under it. To find the smallest job that wins without fractions, multiply both sides by N:</p>
+<pre><code>work + N · copy  &lt;  N · work</code></pre>
+<p>Check it on the job above: <code>1 + 2 · 1.5 = 4</code>, which is not less than <code>2 · 1 = 2</code>. Two devices lose, as you found.</p>
+</div>
+
+<div class="exercise" data-ex="w10-01n-break-even" data-ex-py="w10-01n-break-even-py">
+<h3>The smallest job worth splitting</h3>
+<p>Write <code>smallest_work</code>. It takes the number of devices <code>n</code> (at least 2) and the copy time <code>copy</code> in whole milliseconds. It returns the smallest whole number of milliseconds of work for which <code>n</code> devices are strictly faster than one, using the inequality above.</p>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say why devices need copies: each has its own memory and cannot see the others'.</li>
+<li>Use the five words: device, shard, replicate, scatter and gather.</li>
+<li>Count the data a scatter moves, and see that sharding splits it while replicating multiplies it.</li>
+<li>Predict the time on N devices with <code>work / N + data / speed</code>, and find when a second device makes a job slower.</li>
+</ul>
+<p>Your compiler needs two new things to do this: a <code>device</code> axis that says which device runs which iterations, and a rule for where each buffer lives, sharded or replicated. Lesson 10.2 adds both.</p>
+</div>
+
+<details class="toggle">
+<summary>What the cost model leaves out, for when real numbers disagree with it</summary>
+<div class="prose">
+<ul>
+<li><b>Device 0 copies too.</b> In this week's design the program's buffers live on device 0, and the scatter also gives device 0 its own copy of its shard. That copy stays inside one GPU, which is far faster than the wire, so the model leaves it out. The <code># cuda copy:</code> budget in the tests does count it.</li>
+<li><b>Copies can overlap.</b> Real systems copy to several devices at once over separate wires, and copy the next piece while computing the current one. Then the copy time can partly hide behind the work. This week's compiler does neither, so the simple sum is close to what it does.</li>
+<li><b>Wires differ.</b> GPUs joined through the main board (PCIe) copy at tens of GB per second. GPUs joined by a direct link (NVLink on NVIDIA cards) copy at hundreds. The numbers in this lesson are illustrative only.</li>
+<li><b>Not every part splits.</b> Some work, such as adding up the partial results of each device, stays on one device. Lessons 10.4 and 10.5 show it.</li>
+<li><b>Copies are not free on one GPU either.</b> The harness copies buffers from the CPU to the GPU and back, as in week 8. Both setups pay that, so the model leaves it out of the comparison.</li>
+</ul>
+</div>
+</details>
+
+<details class="toggle">
+<summary>The too-big reason, with numbers</summary>
+<div class="prose">
+<p>A model with 7 billion weights stored as 4-byte floats needs 28 GB just for the weights, before any activations or gradients. A GPU with 16 GB of memory cannot hold it. Sharding the weights over two such GPUs gives each 14 GB, which fits. For a job like that a second GPU is not about speed at all: without it the job cannot run. These sizes are illustrative, and real systems also store weights in 2-byte or smaller formats.</p>
+</div>
+</details>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="b">
+<p class="q">What does a gather do?</p>
+<div class="opts">
+<button data-k="a">Copies every device's shard of the inputs out to it</button>
+<button data-k="b">Copies each device's results back to their place in the buffer on device 0</button>
+<button data-k="c">Gives every device a whole copy of a buffer</button>
+</div>
+<p class="hint">Scatter sends out. Gather is the other direction.</p>
+<div class="why"><p>A gather brings the results home. (a) is a scatter of shards, and (c) is replicating.</p></div>
+</div>
+
+<div class="quiz" data-fill="400">
+<p class="q">A 100 MB table is replicated to 4 devices, counting device 0's own copy. How many megabytes does the scatter copy for it in all?</p>
+<div class="fill"><input aria-label="answer in MB" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Every device gets the whole table.</p>
+<div class="why"><p><code>4 · 100 = 400</code> MB. A sharded 100 MB buffer would move 100 MB in all, however many devices there are.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Every device reads only its own piece of a buffer. Should the buffer be sharded or replicated?</p>
+<div class="opts">
+<button data-k="a">Sharded: each device gets only its piece, so less is copied</button>
+<button data-k="b">Replicated: every device should have everything, to be safe</button>
+</div>
+<p class="hint">Which choice moves fewer bytes?</p>
+<div class="why"><p>Sharded. Replicating would give the same results but copy N times as much. Lesson 10.3 shows how the tests tell the two apart: they count the bytes.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">In the cost model, why can't 2 devices ever take less than half the time of one?</p>
+<div class="opts">
+<button data-k="a">Because device 1 is slower than device 0</button>
+<button data-k="b">Because the work does not split evenly</button>
+<button data-k="c">Because the work splits in half and the copy time is added on top</button>
+</div>
+<p class="hint">Look at the two parts of <code>work / N + data / speed</code>.</p>
+<div class="why"><p>The work part is exactly half. The copy part is zero or more. So the total is half or more, and equal to half only when nothing moves.</p></div>
+</div>
+
+<nav class="pager"></nav>
+</main>
+<script src="../assets/course.js?v=f8627300fd"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const cells = (vals, on) => h('div', { class: 'cells' }, vals.map((v, i) => h('div', { class: 'c' + (on && on(i) ? ' on' : ''), text: v })));
+  const row = (label, vals, on) => h('div', {}, [h('div', { class: 'lab', text: label }), cells(vals, on)]);
+  const dev = (name, list) => h('div', { class: 'g dev' }, [h('div', { class: 'lab', text: name }),
+    h('div', { class: 'rows' }, list.length ? list : [h('div', { class: 'none', text: 'nothing for this job yet' })])]);
+  const two = (a, b) => h('div', { class: 'gp' }, [dev('device 0', a), dev('device 1', b)]);
+  const fig = (id, steps) => CC.stepper(document.getElementById(id), steps, (s, body) => body.append(s.draw()));
+  const all = () => true;
+
+  const v = [3, 1, 4, 1, 5, 9, 2, 6];
+  const q = ['?', '?', '?', '?'];
+  const hi = v.slice(4);
+  fig('apart', [
+    { caption: 'Two devices, each with its own memory. The buffer <code>x</code> is in device 0\'s memory. Device 1 has no part of it.', draw: () => two([row('x', v)], [row('device 1 memory', q)]) },
+    { caption: 'Device 1 should double elements 4 to 7. But its kernel can only read its own memory, and there is no <code>x</code> there. It would read whatever bits happened to be left over, shown as <code>?</code>.', draw: () => two([row('x', v)], [row('device 1 memory', q, all)]) },
+    { caption: 'So copy first: elements 4 to 7 of <code>x</code> travel over the wire to device 1. This takes time that one GPU never spent.', draw: () => two([row('x', v, i => i >= 4)], [row('copy of x[4] to x[7]', hi, all)]) },
+    { caption: 'Now device 1 can double its four numbers. The answers are in device 1\'s memory, so they still have to be copied back to device 0.', draw: () => two([row('x', v)], [row('copy of x[4] to x[7]', hi), row('answers', hi.map(n => n * 2), all)]) },
+  ]);
+
+  const x = [2, 0, 3, 1, 1, 3, 0, 2];
+  const t = [10, 20, 30, 40];
+  const o = x.map(k => t[k]);
+  const blank = ['', '', '', '', '', '', '', ''];
+  const half = (a, d) => a.slice(4 * d, 4 * d + 4);
+  const home = (oRow, on) => [row('x', x, on && on.x), row('t', t, on && on.t), row('o', oRow, on && on.o)];
+  const own = (d, oVals, on) => [row('x shard', half(x, d), on && on.x), row('t copy', t, on && on.t), row('o shard', oVals, on && on.o)];
+  fig('words', [
+    { caption: '<b>Device</b>: one GPU, with its own memory, numbered from 0. The job\'s buffers start on device 0.', draw: () => two(home(blank), []) },
+    { caption: '<b>Shard</b>: a device\'s own piece of a buffer. Device 0 works on elements 0 to 3 and device 1 on elements 4 to 7, so <code>x</code> and <code>o</code> are cut into two shards of 4. Shown here: device 1\'s shards.', draw: () => two(home(blank, { x: i => i >= 4, o: i => i >= 4 }), []) },
+    { caption: '<b>Replicate</b>: give every device a whole copy. Any <code>x[i]</code> may name any entry of <code>t</code>, so each device needs all of <code>t</code>, not a piece.', draw: () => two(home(blank, { t: all }), []) },
+    { caption: '<b>Scatter</b>: copy out to the devices. Each device gets its shard of <code>x</code> and a whole <code>t</code>. Device 0 gets its pieces too, by a fast copy inside the same GPU.', draw: () => two([...home(blank), ...own(0, ['', '', '', ''], { x: all, t: all })], own(1, ['', '', '', ''], { x: all, t: all })) },
+    { caption: 'Each device runs the kernel on its own shard, at the same time. Device 1 writes <code>o</code> elements 4 to 7 into its own memory.', draw: () => two([...home(blank), ...own(0, half(o, 0), { o: all })], own(1, half(o, 1), { o: all })) },
+    { caption: '<b>Gather</b>: copy the results back. Each device\'s shard of <code>o</code> goes to its place in <code>o</code> on device 0. Now <code>o</code> is whole, exactly as if one GPU had done it.', draw: () => two([...home(o, { o: all }), ...own(0, half(o, 0))], own(1, half(o, 1))) },
+  ]);
+});
+</script>
+</body>
+</html>

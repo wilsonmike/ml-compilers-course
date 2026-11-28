@@ -8,7 +8,7 @@ import os, re, sys, json, glob, threading, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 SRC = open(os.path.join(HERE, 'uirc.py'), encoding='utf-8').read()
-WEEKS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
+WEEKS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 
 # (name, [(old, new), ...]) -- every old must occur exactly once in uirc.py
 M = [
@@ -181,7 +181,7 @@ M = [
   ("w3 zero-trip loops run once",         [("for t in range(val(r.src[0])):", "for t in range(max(val(r.src[0]), 1)):")]),
   ("w3 loop runs backwards",              [("for t in range(val(r.src[0])):", "for t in reversed(range(val(r.src[0]))):")]),
   ("w3 render loop uses <=",              [("{rv} < {ex(r.src[0])}; {rv}++", "{rv} <= {ex(r.src[0])}; {rv}++")]),
-  ("w3 render loop starts at 1",          [("for (int32_t {rv} = 0;", "for (int32_t {rv} = 1;")]),
+  ("w3 render loop starts at 1",          [("for (int32_t {rv} = 0; {rv} < {ex(r.src[0])};", "for (int32_t {rv} = 1; {rv} < {ex(r.src[0])};")]),
   ("w3 end doesn't close its range",      [("    elif x.op == 'end': o = o - {x.src[-1]}", "    elif x.op == 'end': o = o")]),
   ("w3 bounds may depend on ranges",      [("    need(not opens(src[0]), \"a range's bound can't depend on another range\")\n", "")]),
   ("w3 end need not use its range",       [("    need(any(src[-1] in opens(x) for x in src[:-1]), \"end closes a range its effects don't use\")\n", "")]),
@@ -328,6 +328,18 @@ M = [
   ("w9 mma reads unordered", [("      for v in n.src[1:]: loads_of.setdefault(id(version_of(v)), []).append(n)\n", "      pass\n")]),
   ("w9 block size ignores warps", [("          sizes.add(r.src[0].arg * (32 if ax == 'warp' else 1))", "          sizes.add(r.src[0].arg)")]),
   ("w9 i8 data range unchecked", [("c.dtype == 'i32' and -128 <= c.arg <= 127: c = const(c.arg, 'i8')", "c.dtype == 'i32': c = const(c.arg, 'i8')")]),
+  ('w10 device stores skip the slice rule', [('      if sid in written: raise\n', '      if False: raise\n')]),
+  ('w10 shards may run past the buffer', [('      if d.src[0].arg * S > storage_size(a): raise UIRError(', '      if False: raise UIRError(')]),
+  ('w10 device loop may be nested', [('        if depth: raise UIRError(f"device loop %{r.arg[1]} is inside another loop', '        if False: raise UIRError(f"device loop %{r.arg[1]} is inside another loop')]),
+  ('w10 device bound up to 64', [('need(src[0].op == \'const\' and 1 <= src[0].arg <= 16, "a device range\'s bound', 'need(src[0].op == \'const\' and 0 <= src[0].arg <= 64, "a device range\'s bound')]),
+  ('w10 thread loop allowed in a device loop', [("      if dev is not None and axis_of(r) == 'thread': raise UIRError(", '      if False: raise UIRError(')]),
+  ('w10 one buffer may have two strides', [('      if out.setdefault(sid, (a, S, sid in written))[1] != S: raise UIRError(', '      if out.setdefault(sid, (a, S, sid in written))[1] != S and False: raise UIRError(')]),
+  ('w10 cuda replicates read-only buffers', [('      if out.setdefault(sid, (a, S, sid in written))[1] != S: raise UIRError(', '      if out.setdefault(sid, (a, S if sid in written else None, sid in written))[1] != S: raise UIRError(')]),
+  ('w10 cuda does not copy memory to the device', [('            lines.append(f"{pad}  UIR_COPY({rv}, s{a.arg[1]}{sf}_[{rv}], 0, {home(a, S)}, {size(a, S)});")\n', '            pass\n')]),
+  ('w10 cuda does not copy results back', [('            if w: lines.append(f"{pad}  UIR_COPY(0, {home(a, S)}, {rv}, s{a.arg[1]}{sf}_[{rv}], {size(a, S)});")\n', '            pass\n')]),
+  ('w10 cuda kernel indexes the whole buffer', [('    if S is not None: o = f"(int32_t)((uint32_t)({o}) - (uint32_t){name[id(dev[0])]} * {S}u)"\n', '    pass\n')]),
+  ('w10 cuda launches with device 0 pointers', [("(c if dv is None or c == dv or c in hostvals else f's{c[1:]}{dsfx[0]}_[{dv}]') for c in used)});", 'c for c in used)});')]),
+  ('w10 cuda every device takes shard 0', [('(f" + {rv} * {S}" if S is not None else \'\')', '(f" + 0 * {S}" if S is not None else \'\')')]),
 ]
 
 # Generated mutants: every validation in the reference, switched off one at a time. A `need(cond, msg)` becomes

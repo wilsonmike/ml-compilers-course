@@ -1,0 +1,22 @@
+# a device runs kernels: a thread loop inside a device loop is refused
+%x  = buffer 8 [1 2 3 4 5 6 7 8] dtype=i32 slot=0
+%o  = buffer 8 dtype=i32 slot=1
+%d  = range 1 axis=device
+%b  = range 2 axis=thread
+%t  = range 4
+%ds = mul %d 8
+%m  = mul %b 4
+%e  = add %m %t
+%i  = add %ds %e
+%xv = shrink %x %i []
+%xe = load %xv
+%y  = mul %xe 3
+%ov = shrink %o %i []
+%s  = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%ed = end %eb %d
+%o1 = after %o %ed
+%l  = load %o1
+%w  = stack 3 6 9 12 15 18 21 24
+%t9 = assert %l %w

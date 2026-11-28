@@ -21,7 +21,7 @@
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
 <link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
-<script src="../assets/course.js?v=013e314611"></script>
+<script src="../assets/course.js?v=f8627300fd"></script>
 <style>
   .g-index { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); font: 500 1rem var(--mono); margin: 0 0 var(--s4); }
   .g-index a { text-decoration: none; }
@@ -71,6 +71,12 @@
     <p class="g-ex"><code>%b1 = after %b %s</code></p>
     <p class="g-where">Taught in <a href="../week2/02-load-store-after.html">2.2 Load, store, after</a>, <a href="../week3/02-memory-in-loops.html">3.2 Memory in loops</a></p>
   </div>
+  <div class="g-term" id="t-all-reduce">
+    <h3>all-reduce</h3>
+    <p>A way to add up the partial gradients of many devices by passing pieces from device to device, so that every device ends with the whole sum and no one device&#x27;s link carries all of it. In a ring of N devices each one sends about 2 × (N - 1)/N times the gradient&#x27;s size. This week&#x27;s compiler doesn&#x27;t do it: it gathers everything on device 0.</p>
+    <p class="g-ex"><code>ring of 8, a 31,360-byte gradient: about 54,880 bytes sent per device</code></p>
+    <p class="g-where">Taught in <a href="../week10/05-training-on-many.html">10.5 Training on several GPUs</a></p>
+  </div>
   <div class="g-term" id="t-alloc">
     <h3>alloc</h3>
     <p>Scratch memory local to one program run, like a local array in C. It starts as zeros and isn&#x27;t an output.</p>
@@ -115,9 +121,9 @@
   </div>
   <div class="g-term" id="t-axis">
     <h3>axis</h3>
-    <p>One dimension of a tensor. A matrix has two axes: rows and columns. Also called a dimension. From week 7 it&#x27;s also a range attribute saying how a loop runs: axis=loop (the default), upcast or thread in week 7, global or local in week 8, warp in week 9. No axis changes a program&#x27;s bits.</p>
+    <p>One dimension of a tensor. A matrix has two axes: rows and columns. Also called a dimension. From week 7 it&#x27;s also a range attribute saying how a loop runs: axis=loop (the default), upcast or thread in week 7, global or local in week 8, warp in week 9, device in week 10. No axis changes a program&#x27;s bits.</p>
     <p class="g-ex"><code>shape (3, 4): axis 0 has size 3</code></p>
-    <p class="g-where">Taught in <a href="../week0/04-tensors-and-shapes.html">0.4 Tensors and shapes</a>, <a href="../week5/01-shapes.html">5.1 Any rank, flat memory</a>, <a href="../week7/03-upcast.html">7.3 Upcast</a>, <a href="../week7/04-threads.html">7.4 Threads</a>, <a href="../week8/02-global-and-local.html">8.2 Global and local loops</a>, <a href="../week9/03-tensor-cores.html">9.3 Tensor cores</a></p>
+    <p class="g-where">Taught in <a href="../week0/04-tensors-and-shapes.html">0.4 Tensors and shapes</a>, <a href="../week5/01-shapes.html">5.1 Any rank, flat memory</a>, <a href="../week7/03-upcast.html">7.3 Upcast</a>, <a href="../week7/04-threads.html">7.4 Threads</a>, <a href="../week8/02-global-and-local.html">8.2 Global and local loops</a>, <a href="../week9/03-tensor-cores.html">9.3 Tensor cores</a>, <a href="../week10/02-device-loops.html">10.2 Device loops and shards</a></p>
   </div>
   <h2 id="g-B" class="g-letter">B</h2>
   <div class="g-term" id="t-bandwidth">
@@ -307,11 +313,23 @@
     
     <p class="g-where">Taught in <a href="../week3/04-conv.html">3.4 A convolution by hand</a>, <a href="../week5/04-matmul-conv.html">5.4 Matmul and conv from movement</a></p>
   </div>
+  <div class="g-term" id="t-copy-budget">
+    <h3>copy budget</h3>
+    <p>The number on a test&#x27;s first line, <code># cuda copy: N</code>. The grader adds up the bytes every UIR_COPY moves and fails the test above N, which is what the reference moves. Replicating a buffer that could be sharded gives the same bits, so only the budget catches it.</p>
+    <p class="g-ex"><code># cuda copy: 208</code></p>
+    <p class="g-where">Taught in <a href="../week10/03-moving-memory.html">10.3 Moving memory</a>, <a href="../week10/04-sharded-gemm.html">10.4 A GEMM on two GPUs</a></p>
+  </div>
   <div class="g-term" id="t-correlation">
     <h3>correlation</h3>
     <p>Sliding a window of weights over an input without flipping the weights. What machine learning calls a convolution, including every convolution in this course, is a correlation.</p>
     <p class="g-ex"><code>y[i] = x[i-1]·w[0] + x[i]·w[1] + x[i+1]·w[2]</code></p>
     <p class="g-where">Taught in <a href="../week5/04-matmul-conv.html">5.4 Matmul and conv from movement</a></p>
+  </div>
+  <div class="g-term" id="t-cost-model">
+    <h3>cost model</h3>
+    <p>A small formula that predicts how long something takes. Week 10&#x27;s: the time on N devices is the work divided by N plus the data moved divided by the copy speed. One device copies nothing.</p>
+    <p class="g-ex"><code>8 s of work, 4 GB at 4 GB/s, 2 devices: 8 / 2 + 1 = 5 s</code></p>
+    <p class="g-where">Taught in <a href="../week10/01-more-than-one-gpu.html">10.1 More than one GPU</a></p>
   </div>
   <div class="g-term" id="t-cross-entropy">
     <h3>cross-entropy</h3>
@@ -326,6 +344,12 @@
     <p class="g-ex"><code>(a+b)*(a+b) has one a+b node with two users</code></p>
     <p class="g-where">Taught in <a href="../week0/03-compilers-and-irs.html">0.3 Compilers and IRs</a>, <a href="../week1/01-the-uop.html">1.1 The UOp</a></p>
   </div>
+  <div class="g-term" id="t-data-parallelism">
+    <h3>data parallelism</h3>
+    <p>Training on several devices by splitting the batch. Every device gets the whole model (the weights are replicated) and a shard of the examples, and works out a partial gradient. The partial gradients are added up before the weights move.</p>
+    <p class="g-ex"><code>a batch of 4 on 2 devices: (g0 + g1) + (g2 + g3)</code></p>
+    <p class="g-where">Taught in <a href="../week10/05-training-on-many.html">10.5 Training on several GPUs</a></p>
+  </div>
   <div class="g-term" id="t-dataclass">
     <h3>dataclass</h3>
     <p>A Python class whose fields are declared once, with <code>__init__</code> and friends generated for you. <code>frozen=True</code> makes it immutable, a good fit for IR nodes. It plays the role of an OCaml record.</p>
@@ -337,6 +361,12 @@
     <p>The .uir op that keeps a value but passes no gradient through it, so the value counts as a constant.</p>
     <p class="g-ex"><code>gradient (mul x (detach x)) x is x, not 2x</code></p>
     <p class="g-where">Taught in <a href="../week6/03-autodiff.html">6.3 Automatic differentiation</a>, <a href="../week6/05-data-and-mnist.html">6.5 Data and MNIST</a></p>
+  </div>
+  <div class="g-term" id="t-device">
+    <h3>device</h3>
+    <p>One GPU in a program, numbered from 0. Each device has its own memory and can&#x27;t see another&#x27;s, so anything it needs is copied to it first. In .uir a device loop, range N axis=device, runs iteration d on device d. N is a literal from 1 to 16, and the loop sits at the top level.</p>
+    <p class="g-ex"><code>%d = range 4 axis=device</code></p>
+    <p class="g-where">Taught in <a href="../week10/01-more-than-one-gpu.html">10.1 More than one GPU</a>, <a href="../week10/02-device-loops.html">10.2 Device loops and shards</a></p>
   </div>
   <div class="g-term" id="t-dot-product">
     <h3>dot product</h3>
@@ -497,6 +527,12 @@
     <p class="g-where">Taught in <a href="../week4/04-materialization.html">4.4 Fuse or materialize</a></p>
   </div>
   <h2 id="g-G" class="g-letter">G</h2>
+  <div class="g-term" id="t-gather">
+    <h3>gather</h3>
+    <p>The copy back after a device loop: every device&#x27;s shard of each buffer the loop wrote goes to its place in the buffer on device 0, so the buffer is whole again.</p>
+    <p class="g-ex"><code>UIR_COPY(0, b2 + r6 * 8, r6, s2_[r6], 8 * sizeof(int32_t));</code></p>
+    <p class="g-where">Taught in <a href="../week10/01-more-than-one-gpu.html">10.1 More than one GPU</a>, <a href="../week10/03-moving-memory.html">10.3 Moving memory</a></p>
+  </div>
   <div class="g-term" id="t-gemm">
     <h3>GEMM</h3>
     <p>General matrix multiply, C = A @ B. Most of the compute in a neural network.</p>
@@ -652,9 +688,9 @@
   </div>
   <div class="g-term" id="t-kernel-form">
     <h3>kernel form</h3>
-    <p>What render-cuda accepts: every computation inside a global loop at the top level, and each kernel using only buffers, literals, its own ranges and its own shared memory. A program that isn&#x27;t in kernel form is still a valid program, and render still prints C for it, but render-cuda exits 2.</p>
+    <p>What render-cuda accepts: every computation inside a global loop at the top level, and each kernel using only buffers, literals, its own ranges and its own shared memory. A program that isn&#x27;t in kernel form is still a valid program, and render still prints C for it, but render-cuda exits 2. From week 10 a global loop may also sit directly inside a top-level device loop, with only i32 add and mul of the device index and literals between kernels.</p>
     
-    <p class="g-where">Taught in <a href="../week8/04-rendering-cuda.html">8.4 Rendering CUDA</a></p>
+    <p class="g-where">Taught in <a href="../week8/04-rendering-cuda.html">8.4 Rendering CUDA</a>, <a href="../week10/03-moving-memory.html">10.3 Moving memory</a></p>
   </div>
   <h2 id="g-L" class="g-letter">L</h2>
   <div class="g-term" id="t-l2-cache">
@@ -931,6 +967,12 @@
     
     <p class="g-where">Taught in <a href="../week0/03-compilers-and-irs.html">0.3 Compilers and IRs</a></p>
   </div>
+  <div class="g-term" id="t-partial-sum">
+    <h3>partial sum</h3>
+    <p>The sum of one shard, worked out on its own device. A kernel on device 0 adds the partial sums into the total. The program fixes the order of those adds, so the bits are the same on any number of GPUs.</p>
+    <p class="g-ex"><code>16 numbers on 2 devices: partial sums -15 and 11, total -4</code></p>
+    <p class="g-where">Taught in <a href="../week10/04-sharded-gemm.html">10.4 A GEMM on two GPUs</a>, <a href="../week10/05-training-on-many.html">10.5 Training on several GPUs</a></p>
+  </div>
   <div class="g-term" id="t-pattern-match">
     <h3>pattern match</h3>
     <p>OCaml&#x27;s way of branching on the shape of a value, naming its parts as it goes. Python 3.10 has the same idea in its <code>match</code> statement, with class patterns such as <code>case Add(x, y):</code>.</p>
@@ -1059,6 +1101,12 @@
     
     <p class="g-where">Taught in <a href="../week2/04-rendering-c.html">2.4 Rendering C</a></p>
   </div>
+  <div class="g-term" id="t-replicate">
+    <h3>replicate</h3>
+    <p>Give every device a whole copy of a buffer. A device loop replicates memory it only reads when some read of it doesn&#x27;t follow the shard rule. It is always correct, but it copies the buffer once per device.</p>
+    <p class="g-ex"><code>w read at the block number, with no d: every device gets all of w</code></p>
+    <p class="g-where">Taught in <a href="../week10/01-more-than-one-gpu.html">10.1 More than one GPU</a>, <a href="../week10/02-device-loops.html">10.2 Device loops and shards</a></p>
+  </div>
   <div class="g-term" id="t-reshape">
     <h3>reshape</h3>
     <p>The .uir movement op that reads the same elements, in row-major order, under a new shape.</p>
@@ -1126,6 +1174,12 @@
     
     <p class="g-where">Taught in <a href="../week0/04-tensors-and-shapes.html">0.4 Tensors and shapes</a>, <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></p>
   </div>
+  <div class="g-term" id="t-scatter">
+    <h3>scatter</h3>
+    <p>The copy out before a device loop runs: for every device and every buffer the loop touches, allocate memory on that device and copy in its shard, or the whole buffer if it&#x27;s replicated. Buffers the loop only writes are copied in too, because new device memory isn&#x27;t zeroed.</p>
+    <p class="g-ex"><code>UIR_COPY(r6, s0_[r6], 0, b0 + r6 * 8, 8 * sizeof(int32_t));</code></p>
+    <p class="g-where">Taught in <a href="../week10/01-more-than-one-gpu.html">10.1 More than one GPU</a>, <a href="../week10/03-moving-memory.html">10.3 Moving memory</a></p>
+  </div>
   <div class="g-term" id="t-schedule">
     <h3>schedule</h3>
     <p>The order a compiler runs operations in. Loads of a version have to be scheduled before the store that overwrites it. From week 7 it also means a program&#x27;s plan for speed: how its loops are tiled and which axis each loop gets. A schedule changes the speed, never the bits.</p>
@@ -1143,6 +1197,12 @@
     <p>The size of each axis of a value, written as a tuple. () is a scalar, and (3, 4) is a 3 by 4 matrix.</p>
     
     <p class="g-where">Taught in <a href="../week0/04-tensors-and-shapes.html">0.4 Tensors and shapes</a>, <a href="../week1/02-uir-and-interpreting.html">1.2 .uir and interpreting</a></p>
+  </div>
+  <div class="g-term" id="t-shard">
+    <h3>shard</h3>
+    <p>A device&#x27;s own piece of a buffer: elements d·S to d·S + S - 1 on device d. Memory a device loop writes must be sharded: every access at d * S + e with 0 ≤ e and e + size ≤ S, one S per buffer, and N·S at most the buffer&#x27;s size. In the kernel, element d·S + e is element e of the device&#x27;s allocation.</p>
+    <p class="g-ex"><code>S = 8 on 2 devices: device 1&#x27;s shard is elements 8 to 15</code></p>
+    <p class="g-where">Taught in <a href="../week10/01-more-than-one-gpu.html">10.1 More than one GPU</a>, <a href="../week10/02-device-loops.html">10.2 Device loops and shards</a></p>
   </div>
   <div class="g-term" id="t-shared-memory">
     <h3>shared memory</h3>
@@ -1170,9 +1230,9 @@
   </div>
   <div class="g-term" id="t-slice-rule">
     <h3>slice rule</h3>
-    <p>Week 7&#x27;s rule against races. In a thread loop, every store, and every load of memory the loop also stores into, must be at offset r * S + e, with S a positive literal, e independent of r, 0 ≤ e and e + size ≤ S, and one S per buffer. Memory the loop only reads may be read anywhere.</p>
+    <p>Week 7&#x27;s rule against races. In a thread loop, every store, and every load of memory the loop also stores into, must be at offset r * S + e, with S a positive literal, e independent of r, 0 ≤ e and e + size ≤ S, and one S per buffer. Memory the loop only reads may be read anywhere. Week 10 uses the same rule with the device index in place of r, to cut memory into shards.</p>
     <p class="g-ex"><code>iteration r owns elements r·S to r·S + S - 1</code></p>
-    <p class="g-where">Taught in <a href="../week7/04-threads.html">7.4 Threads</a></p>
+    <p class="g-where">Taught in <a href="../week7/04-threads.html">7.4 Threads</a>, <a href="../week10/02-device-loops.html">10.2 Device loops and shards</a></p>
   </div>
   <div class="g-term" id="t-slot">
     <h3>slot</h3>
@@ -1197,6 +1257,12 @@
     <p>The written rules of the .uir language for each week, in spec/uir-weekN.md.</p>
     
     <p class="g-where">Taught in <a href="../week1/06-lab.html">1.6 Lab: your compiler</a></p>
+  </div>
+  <div class="g-term" id="t-speedup">
+    <h3>speedup</h3>
+    <p>The time a job takes on one device divided by its time on N devices. Copies keep it below N, and a job with little work per byte can get a speedup below 1.</p>
+    <p class="g-ex"><code>8 s on one device, 5 s on two: a speedup of 1.6</code></p>
+    <p class="g-where">Taught in <a href="../week10/01-more-than-one-gpu.html">10.1 More than one GPU</a></p>
   </div>
   <div class="g-term" id="t-src">
     <h3>src</h3>

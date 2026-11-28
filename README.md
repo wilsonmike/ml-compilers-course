@@ -8,7 +8,7 @@ of [10-411, Compilers for Machine Learning](https://10-411.com/)
 The original course assumes strong C, a systems course and some GPU experience. This one adds a week 0 that teaches
 those, and puts a diagram before every idea.
 
-## Status: weeks 0 to 9
+## Status: weeks 0 to 10
 
 | week | topic | lessons | tests | spec |
 |---|---|---|---|---|
@@ -24,8 +24,9 @@ those, and puts a diagram before every idea.
 | 7 | fast kernels: tiling, upcast, threads, speed tests | 6 | 41 | [uir-week7.md](spec/uir-week7.md) |
 | 8 | GPUs: blocks and threads, shared memory, rendering CUDA | 6 | 42 | [uir-week8.md](spec/uir-week8.md) |
 | 9 | GPUs, part 2: registers, fast GEMMs, tensor cores, convolutions, flash attention | 6 | 52 | [uir-week9.md](spec/uir-week9.md) |
+| 10 | multiple GPUs: device loops, shards, moving memory, a sharded GEMM, training on several GPUs | 6 | 26 | [uir-week10.md](spec/uir-week10.md) |
 
-1,128 quizzes with hints and answers, 418 graded exercises (160 of them in Python) and 1084 compiler tests. `_reference/mutants.py` plants 286 plausible bugs in the reference compiler, one at a time, and each one must
+1,200 quizzes with hints and answers, 437 graded exercises (167 of them in Python) and 1110 compiler tests. `_reference/mutants.py` plants 298 plausible bugs in the reference compiler, one at a time, and each one must
 make some test fail. A few of them, like a CUDA kernel that runs each block on a single thread, are only caught on a real GPU. With `--checks` it
 also switches off each of the reference compiler's validations and simplifier rules, one at a time: most of these are caught, and the
 rest are either backed up by a second check that rejects the same program or can't be reached by a valid one. Week 1 follows the official 10-411
@@ -41,7 +42,7 @@ python tools/serve.py                       # the course and exercise runner at 
 ```
 
 Python 3.10 or newer, standard library only. From week 2 the grader also compiles the C your compiler prints, so it
-needs `clang` or `gcc` on PATH. Weeks 8 and 9 run CUDA on a GPU if `nvcc` is there, and otherwise in an emulator built
+needs `clang` or `gcc` on PATH. Weeks 8 to 10 run CUDA on a GPU if `nvcc` is there, and otherwise in an emulator built
 with `clang++` or `g++`, so no GPU is needed.
 
 You write your compiler in one of two languages, picked under Language in the sidebar: **Python** (the default) or
@@ -108,7 +109,7 @@ What it runs, and what each part protects:
 | `tools/check_spec_w6.py` | the week 6 spec's math definitions drifting from the reference |
 | `tools/test.py --self-check --week N` | a test whose file name or header disagrees with the reference compiler |
 | `_reference/check_exercises.py` | an exercise whose solution fails or whose starter already passes |
-| `_reference/mutants.py` | tests too weak to notice a bug: it plants 286 plausible bugs into the reference, one at a time, and each must fail some test while an unmutated copy passes them all (5 minutes). `--checks` adds one bug per validation and simplifier rule. `--matrix` records every test each bug fails, for the test guides. |
+| `_reference/mutants.py` | tests too weak to notice a bug: it plants 298 plausible bugs into the reference, one at a time, and each must fail some test while an unmutated copy passes them all (5 minutes). `--checks` adds one bug per validation and simplifier rule. `--matrix` records every test each bug fails, for the test guides. |
 
 The tricky values (f32 rounding and i32 wrapping) were also cross-checked against real C compiled with clang, and the week 6 gradients against finite differences. The week 8 and 9 CUDA tests, tensor cores and speed
 tests included, were run on a real GPU (an RTX 4060 Ti, through `--cuda-docker`) as well as in the grader's emulator, which is

@@ -26,6 +26,7 @@ def headers(text):
   if re.search(r"^#\s*cuda\s*$", text, re.M): h['cuda'] = True       # week 8: render-cuda, checked on a GPU or the emulator
   if (m := re.search(r"^#\s*cuda speed:\s*([0-9.]+)\s*$", text, re.M)): h['cuda'] = True; h['cuda_speed'] = float(m.group(1))
   if re.search(r"^#\s*cuda:\s*invalid\s*$", text, re.M): h['cuda'] = True; h['cuda_invalid'] = True   # render-cuda must exit 2
+  if (m := re.search(r"^#\s*cuda copy:\s*(\d+)\s*$", text, re.M)): h['cuda'] = True; h['cuda_copy'] = int(m.group(1))
   if 'speed' in h: h['render'] = True
   if (m := re.search(r"^#\s*render check:\s*slot\s+(\d+)\s*>=\s*(-?[0-9.]+)\s*$", text, re.M)):   # week 6: a threshold, not bits
     h['render'] = True; h['check'] = (int(m.group(1)), float(m.group(2)))
@@ -382,10 +383,62 @@ static void uir_launch(int grid, int block, std::function<void()> f) {
     for (int t = 0; t < block; t++) pthread_join(th[t], 0);
   }
 }
-#define UIR_LAUNCH(k, g, b, ...) uir_launch((g), (b), [&] { k(__VA_ARGS__); })
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+struct uir_blk { char *p; size_t n; int dev; };
+static std::vector<uir_blk> uir_blks;
+static int uir_dev;
+static unsigned long long uir_copied;
+static void uir_fail(const char *m) { fprintf(stderr, "multi-device error: %s\n", m); fflush(stderr); _Exit(4); }
+static int uir_owner(const void *q) {
+  for (auto &b : uir_blks) if ((const char *)q >= b.p && (const char *)q < b.p + b.n) return b.dev;
+  return 0;
+}
+static void *uir_alloc(int d, size_t n) {
+  char *p = (char *)malloc(n + 64); memset(p, 0xA5, n + 64);
+  uir_blks.push_back(uir_blk{p + 32, n, d}); return p + 32;
+}
+static void uir_copy(int dd, void *dst, int sd, const void *src, size_t n) {
+  if (uir_owner(dst) != dd || uir_owner(src) != sd) uir_fail("UIR_COPY names a device its pointer is not on");
+  for (auto &b : uir_blks) {
+    if ((char *)dst >= b.p && (char *)dst < b.p + b.n && (char *)dst + n > b.p + b.n) uir_fail("UIR_COPY writes past the end of a device allocation");
+    if ((const char *)src >= b.p && (const char *)src < b.p + b.n && (const char *)src + n > b.p + b.n) uir_fail("UIR_COPY reads past the end of a device allocation");
+  }
+  memmove(dst, src, n); uir_copied += n;
+}
+static void uir_free(int d, void *q) {
+  for (size_t i = 0; i < uir_blks.size(); i++) if (uir_blks[i].p == (char *)q) {
+    if (uir_blks[i].dev != d) uir_fail("UIR_FREE names the wrong device");
+    for (int k = 0; k < 32; k++) if ((unsigned char)uir_blks[i].p[-32 + k] != 0xA5 || (unsigned char)uir_blks[i].p[uir_blks[i].n + k] != 0xA5) uir_fail("a kernel wrote outside its device's allocation");
+    free(uir_blks[i].p - 32); uir_blks.erase(uir_blks.begin() + i); return;
+  }
+  uir_fail("UIR_FREE of memory that UIR_ALLOC did not return");
+}
+template <class T> static void uir_chk(T *q) { if (uir_owner(q) != uir_dev) uir_fail("a kernel was launched on one device with a pointer to another device's memory"); }
+static void uir_chk(int) {}
+template <class... A> static void uir_chk_all(A... a) { int x_[] = {0, (uir_chk(a), 0)...}; (void)x_; }
+struct uir_report { ~uir_report() { if (uir_copied) fprintf(stderr, "uir_copied %llu\n", uir_copied); } };
+static uir_report uir_report_;
+#define UIR_DEVICE(d) (uir_dev = (d))
+#define UIR_ALLOC(d, n) uir_alloc((d), (n))
+#define UIR_COPY(dd, dst, sd, src, n) uir_copy((dd), (dst), (sd), (src), (n))
+#define UIR_FREE(d, p) uir_free((d), (p))
+#define UIR_SYNC() ((void)0)
+#define UIR_LAUNCH(k, g, b, ...) (uir_chk_all(__VA_ARGS__), uir_launch((g), (b), [&] { k(__VA_ARGS__); }))
 """
 CUDA_PRELUDE = ("#include <mma.h>\nusing namespace nvcuda;   /* week 9: wmma:: for tensor cores */\n"
-                "#define UIR_LAUNCH(k, g, b, ...) do { if ((g) > 0) k<<<(g), (b)>>>(__VA_ARGS__); } while (0)\n")
+                "#define UIR_LAUNCH(k, g, b, ...) do { if ((g) > 0) k<<<(g), (b)>>>(__VA_ARGS__); } while (0)\n"
+                "#include <cuda_runtime.h>\n#include <stdio.h>\n"
+                "static int uir_ndev_() { static int n = 0; if (!n) { cudaGetDeviceCount(&n); if (n < 1) n = 1; } return n; }\n"
+                "static unsigned long long uir_copied;\n"
+                "static void *uir_alloc(int d, size_t n) { void *p = 0; cudaSetDevice(d % uir_ndev_()); cudaMalloc(&p, n); return p; }\n"
+                "static void uir_copy(int dd, void *dst, int sd, const void *src, size_t n) { int N = uir_ndev_(); cudaMemcpyPeer(dst, dd % N, src, sd % N, n); uir_copied += n; }\n"
+                "static void uir_sync() { for (int i = 0; i < uir_ndev_(); i++) { cudaSetDevice(i); cudaDeviceSynchronize(); } cudaSetDevice(0); }\n"
+                "struct uir_report { ~uir_report() { if (uir_copied) fprintf(stderr, \"uir_copied %llu\\n\", uir_copied); } };\nstatic uir_report uir_report_;\n"
+                "#define UIR_DEVICE(d) cudaSetDevice((d) % uir_ndev_())\n#define UIR_ALLOC(d, n) uir_alloc((d), (n))\n"
+                "#define UIR_COPY(dd, dst, sd, src, n) uir_copy((dd), (dst), (sd), (src), (n))\n"
+                "#define UIR_FREE(d, p) (cudaSetDevice((d) % uir_ndev_()), cudaFree(p))\n#define UIR_SYNC() uir_sync()\n")
 
 def local_blobs(h, names, d):
   """Copy url= data files next to the harness and open them by name, so the build also works inside a container."""
@@ -515,10 +568,12 @@ def grade_cuda(cmd, text, base=None, h=None):
       if c.returncode != 0: return "your CUDA doesn't compile (as C++, in the emulator):\n" + indent(c.stderr.decode('utf-8', 'replace').replace(d + os.sep, ''))
       try: r = subprocess.run([exe], capture_output=True, timeout=TIMEOUT * 3)
       except subprocess.TimeoutExpired: return "the emulated kernel didn't finish: a thread waiting at a __syncthreads() the others never reach?"
+      if r.returncode == 4: return "the emulator stopped your kernel: " + (r.stderr.decode('utf-8', 'replace').strip().splitlines() or ['multi-device error'])[-1]
       if r.returncode != 0: return f"the emulated kernel crashed (exit {r.returncode})"
     got = {}
     for line in r.stdout.decode().split('\n'):
       if re.fullmatch(r"[0-9]+ -?[0-9a-f]+", line.strip()): slot, v = line.split(); got.setdefault(int(slot), []).append(v)
+    moved = sum(int(x) for x in re.findall(rb"uir_copied (\d+)", r.stderr or b''))
   for slot, (dt, data) in want.items():
     g = got.get(slot, [])
     if len(g) != len(data): return f"buffer {slot}: read {len(g)} values, expected {len(data)}"
@@ -527,6 +582,8 @@ def grade_cuda(cmd, text, base=None, h=None):
         gb = struct.pack('<I', int(y, 16)); ok = (math.isnan(x) and math.isnan(struct.unpack('<f', gb)[0])) or O.fbits(x) == gb
       else: ok = int(y) == int(x)
       if not ok: return f"buffer {slot}[{i}]: expected {x!r}, your kernel left {y}" + ("" if real else " (in the emulator)")
+  if h and 'cuda_copy' in h and moved > h['cuda_copy']:
+    return f"moved {moved} bytes between devices, the budget is {h['cuda_copy']} (send each device only its shard of a buffer, not all of it)"
   if h and h.get('cuda_speed') and real: return cuda_speed(out, names, h['cuda_speed'], next((int(m) for m in re.findall(r'week(\d+)', base or '')), None))   # without a GPU: bits only
   return None
 

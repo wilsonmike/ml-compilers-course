@@ -1,0 +1,211 @@
+{
+ "id": "w10-04n-partial-max",
+ "lang": "uir",
+ "mode": "buffers",
+ "out_slot": 2,
+ "title": "The largest element, on two devices",
+ "require": [
+  [
+   "axis=device",
+   "the partial maxima come from a device loop: <code>%d = range 2 axis=device</code>"
+  ]
+ ],
+ "starter": "%x    = buffer 16 dtype=i32 slot=0\n%p    = buffer 2 dtype=i32 slot=1\n%m    = buffer 1 dtype=i32 slot=2\n%acc  = alloc 1 dtype=i32\n",
+ "tests": [
+  {
+   "data": {
+    "0": [
+     3,
+     9,
+     -2,
+     4,
+     0,
+     1,
+     7,
+     2,
+     -5,
+     6,
+     11,
+     -8,
+     3,
+     3,
+     0,
+     1
+    ]
+   },
+   "expect": "[11]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     -7,
+     -5,
+     -3,
+     -9,
+     -2,
+     -5,
+     -6,
+     -6,
+     -5,
+     -4,
+     -3,
+     -2,
+     -4,
+     -4,
+     -5,
+     -2
+    ]
+   },
+   "expect": "[-2]",
+   "sample": true
+  },
+  {
+   "data": {
+    "0": [
+     3,
+     9,
+     -2,
+     4,
+     0,
+     1,
+     7,
+     2,
+     -5,
+     6,
+     11,
+     -8,
+     3,
+     3,
+     0,
+     1
+    ]
+   },
+   "out": 1,
+   "expect": "[9 11]"
+  },
+  {
+   "data": {
+    "0": [
+     36,
+     9,
+     1,
+     -33,
+     3,
+     19,
+     24,
+     -6,
+     18,
+     -1,
+     12,
+     39,
+     -29,
+     21,
+     6,
+     -38
+    ]
+   },
+   "expect": "[39]"
+  },
+  {
+   "data": {
+    "0": [
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483648,
+     -2147483647
+    ]
+   },
+   "expect": "[-2147483647]"
+  },
+  {
+   "data": {
+    "0": [
+     2147483647,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "expect": "[2147483647]"
+  },
+  {
+   "data": {
+    "0": [
+     -7,
+     -5,
+     -3,
+     -9,
+     -2,
+     -5,
+     -6,
+     -6,
+     -5,
+     -4,
+     -3,
+     -2,
+     -4,
+     -4,
+     -5,
+     -2
+    ]
+   },
+   "out": 1,
+   "expect": "[-2 -2]"
+  },
+  {
+   "data": {
+    "0": [
+     3,
+     -46,
+     -50,
+     6,
+     18,
+     -42,
+     -44,
+     -6,
+     -39,
+     -31,
+     -37,
+     27,
+     8,
+     12,
+     -33,
+     8
+    ]
+   },
+   "out": 1,
+   "expect": "[18 27]"
+  }
+ ],
+ "hints": [
+  "Start from <code>c_partial_sums</code> above: the same buffers, the same two kernels. Keep its shard size of 8, and change the two <code>add</code>s that combine numbers into <code>max</code>.",
+  "<code>%acc</code> starts at 0, so a shard of negative numbers would give 0. In the loop over <code>%k</code>, compute <code>%big = max %cur %xe</code> and <code>%first = cmplt %k 1</code>, then store <code>%new = where %first %xe %big</code>.",
+  "After the device loop, <code>%p1 = after %p %ed</code>. The last kernel is <code>%g = range 1 axis=global</code> with <code>%w = range 1 axis=local</code> inside: load <code>p[w]</code> and <code>p[w + 1]</code> through <code>%p1</code>, take their <code>max</code> and store it at <code>m[w + g]</code>."
+ ],
+ "explain": "Each device runs one kernel that walks its 8 elements, <code>x[8d + k]</code>, keeping the largest so far in <code>acc</code>, and stores it at <code>p[d]</code>. At <code>k = 0</code> the <code>where</code> takes the element itself, because <code>acc</code> starts at 0 and 0 is larger than every negative number. A kernel after the device loop runs on device 0 and stores the larger of <code>p[0]</code> and <code>p[1]</code> in <code>m</code>. Max, like integer add, gives the same answer in any order, so this one would not change with the order."
+}

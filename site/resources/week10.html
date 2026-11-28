@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week 10 Study Guide</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Week 10 runs one program on several GPUs. A device loop says which GPU runs which iterations, a rule decides whether each buffer is cut into shards or copied...">
+<link rel="canonical" href="https://sharpterminal.com/site/resources/week10">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Week 10 Study Guide">
+<meta property="og:description" content="Week 10 runs one program on several GPUs. A device loop says which GPU runs which iterations, a rule decides whether each buffer is cut into shards or copied whole, and render-cuda writes the copies...">
+<meta property="og:url" content="https://sharpterminal.com/site/resources/week10">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<script src="../assets/course.js?v=f8627300fd"></script>
+</head>
+<body data-root="../">
+<main>
+  <h1>Week 10 study guide</h1>
+  <p class="lede">Week 10 runs one program on several GPUs. A device loop says which GPU runs which iterations, a rule decides whether each buffer is cut into shards or copied whole, and <code>render-cuda</code> writes the copies out and back. No GPU is needed: the emulator checks every bit and counts every byte moved. This page recaps the week, collects the rules worth memorizing, and walks the lab one step at a time.</p>
+
+  <h2>The week in one page</h2>
+  <h3><a href="../week10/01-more-than-one-gpu.html">10.1 More than one GPU</a></h3>
+  <p>A device is one GPU, numbered from 0, with its own memory that no other device can see. So anything a device reads is copied to it first. A buffer is sharded (each device gets its own piece) or replicated (each gets a whole copy). The scatter copies out, and the gather copies the results back to device 0. Time on <code>N</code> devices is about <code>work / N + data moved / copy speed</code>, so a job that does little work per byte gets slower on a second GPU.</p>
+  <h3><a href="../week10/02-device-loops.html">10.2 Device loops and shards</a></h3>
+  <p><code>range N axis=device</code> runs iteration <code>d</code> on device <code>d</code>. <code>N</code> is a literal from 1 to 16, the loop is at the top level, and the parallel loops inside it are global loops. Memory the loop writes follows week 7's slice rule with <code>d</code> in place of <code>r</code>: every access at <code>d·S + e</code>, <code>e</code> inside the shard, one <code>S</code> per buffer, and <code>N·S</code> at most the buffer's size. Memory it only reads is sharded when it passes the same checks, and replicated otherwise. The axis changes no bits.</p>
+  <h3><a href="../week10/03-moving-memory.html">10.3 Moving memory</a></h3>
+  <p>For each device loop, <code>render-cuda</code> prints four steps. Scatter: <code>UIR_ALLOC</code> and <code>UIR_COPY</code> for every buffer the loop touches, written ones too, since new memory isn't zeroed. Launch: <code>UIR_DEVICE</code>, then the kernels with the device's allocations. Wait: <code>UIR_SYNC()</code>. Gather: copy written shards back, then <code>UIR_FREE</code>. The kernel subtracts <code>d·S</code> from every offset into a sharded buffer. A <code># cuda copy: N</code> line fails a test that moves more than <code>N</code> bytes.</p>
+  <h3><a href="../week10/04-sharded-gemm.html">10.4 A GEMM on two GPUs</a></h3>
+  <p>Split <code>C = A @ B</code> by rows: A and C are sharded, B is replicated. <code>c_shard_gemm</code> moves 512 bytes, where whole copies of A, B and C would move 768. A sum that needs every device takes two steps: a partial sum on each device, then a total in a kernel after the loop, on device 0. The program fixes the order of the adds, so the bits are the same on any number of GPUs. Two kernels in one device loop keep their data on the device in between.</p>
+  <h3><a href="../week10/05-training-on-many.html">10.5 Training on several GPUs</a></h3>
+  <p>Data parallelism shards the batch and replicates the weights. A batch's gradient is the sum of its examples' gradients, so each device writes a partial gradient, and a kernel on device 0 adds them and steps the weights. A one-device program that loops over the whole batch adds in another order and can differ in the last bits. Deleting <code>axis=device</code> keeps the order. The work on device 0 and the copies on every step don't shrink as devices join, which is why real systems use an all-reduce.</p>
+  <h3><a href="../week10/06-lab.html">10.6 Lab</a></h3>
+  <p>The suite has 26 tests: 16 run tests (8 <code>rejected_</code>, 1 <code>mismatch_</code> and 7 that must MATCH) and 10 <code>c_</code> tests, eight with a copy budget and <code>c_err_load_outside_kernel</code>, which must be refused. There are no CPU render tests and no speed tests. Weeks 2 to 9 must still pass in full, and week 1 stays at 272 / 282 (the ten programs week 2 made legal).</p>
+
+  <h2>Cheat sheet</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>.uir</th><th>run</th><th>render (CPU)</th><th>render-cuda</th></tr></thead>
+    <tbody>
+      <tr><td><code>axis=device</code></td><td>a loop</td><td>a plain <code>for</code> loop around the kernels</td><td>scatter, then <code>UIR_DEVICE(d)</code> and the launches, <code>UIR_SYNC()</code>, gather</td></tr>
+      <tr><td>sharded buffer</td><td>as before</td><td>as before</td><td><code>S</code> elements per device from <code>d·S</code>, kernel index <code>offset - d·S</code></td></tr>
+      <tr><td>replicated buffer</td><td>as before</td><td>as before</td><td>a whole copy per device, index unchanged</td></tr>
+      <tr><td>i32 <code>add</code> and <code>mul</code> of <code>%d</code> and literals, between kernels</td><td>as before</td><td>as before</td><td>computed on the host and passed to the kernels</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>rule</th><th>value</th></tr></thead>
+    <tbody>
+      <tr><td>device bound</td><td>a literal from 1 to 16</td></tr>
+      <tr><td>a device loop sits</td><td>at the top level, inside no other loop</td></tr>
+      <tr><td>inside a device loop</td><td>global loops with their local and warp loops, never a thread loop</td></tr>
+      <tr><td>memory the loop writes</td><td>every load and store at <code>d·S + e</code>, with <code>0 ≤ e</code> and <code>e + size ≤ S</code></td></tr>
+      <tr><td>one buffer in one device loop</td><td>one <code>S</code>, and <code>N·S</code> at most its size</td></tr>
+      <tr><td>memory the loop only reads</td><td>sharded if it passes those checks, replicated if not, never rejected</td></tr>
+      <tr><td>bytes one buffer moves</td><td>replicated: its size per device. Sharded: <code>S</code> elements per device, twice if written</td></tr>
+      <tr><td>device on a machine with fewer GPUs</td><td>device <code>d</code> runs on GPU <code>d</code> modulo the number of GPUs</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Mistakes people make</h2>
+  <p>Most of these are bugs that were planted in the reference compiler to prove the suite catches them. The <a href="tests-week10.html">week 10 test guide</a> lists every test and what it checks.</p>
+  <ol>
+    <li><strong>Skipping the slice rule for memory a device loop writes.</strong> Caught by <code>rejected_devices_write_one_place</code> and <code>rejected_device_slices_overlap</code>.</li>
+    <li><strong>Applying it to memory the loop only reads.</strong> A failed check there means replicate, not reject. Caught by <code>device_reads_anywhere</code> and <code>c_reads_anywhere</code>.</li>
+    <li><strong>Missing a shape rule.</strong> A bound outside 1 to 16, a device loop inside another loop, a thread loop inside a device loop, two strides for one buffer, or shards that run past the end. Caught by <code>rejected_device_bound_0</code>, <code>rejected_device_bound_17</code>, <code>rejected_device_in_loop</code>, <code>rejected_thread_in_device</code>, <code>rejected_device_two_strides</code> and <code>rejected_device_shards_do_not_fit</code>.</li>
+    <li><strong>Replicating every read-only buffer.</strong> The bits stay right. Caught by the copy budgets: <code>c_shard_scale</code> moves 272 bytes where 208 are allowed.</li>
+    <li><strong>Not copying a buffer in.</strong> The kernel reads the emulator's fill, <code>0xA5A5A5A5</code>. Caught by <code>c_shard_scale</code>.</li>
+    <li><strong>Not copying the results back.</strong> Caught by <code>c_shard_scale</code> and every other <code>c_</code> test that writes.</li>
+    <li><strong>Indexing the whole buffer in the kernel.</strong> Without <code>- d·S</code>, device 1 writes past its allocation. Caught by <code>c_shard_scale</code>.</li>
+    <li><strong>Launching with device 0's pointers.</strong> The emulator stops the kernel. Caught by <code>c_shard_scale</code>.</li>
+    <li><strong>Copying shard 0 to every device.</strong> Leaving out <code>+ d·S</code> in the copies. Caught by <code>c_shard_scale</code>.</li>
+  </ol>
+
+  <h2>Stuck on the lab?</h2>
+  <p>Build in this order, and don't move on until the check passes.</p>
+  <ol>
+    <li><strong>The axis as a plain loop.</strong> Parse <code>axis=device</code> and run it like any loop. Done when this prints MATCH, and still does with all three axes removed:
+<pre><code>%x = buffer 8 [1 2 3 4 5 6 7 8] dtype=i32 slot=0
+%o = buffer 8 dtype=i32 slot=1
+%d = range 2 axis=device
+%b = range 1 axis=global
+%t = range 4 axis=local
+%ds = mul %d 4
+%e = add %b %t
+%i = add %ds %e
+%xv = shrink %x %i []
+%xe = load %xv
+%y = mul %xe 10
+%ov = shrink %o %i []
+%s = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%ed = end %eb %d
+%o1 = after %o %ed
+%l = load %o1
+%a = assert %l [10 20 30 40 50 60 70 80]</code></pre></li>
+    <li><strong>Where a device loop sits.</strong> The bound, the top level, no thread loop inside. Done when <code>-k bound</code>, <code>rejected_device_in_loop</code> and <code>rejected_thread_in_device</code> pass.</li>
+    <li><strong>Shards.</strong> The slice check on written memory, one stride per buffer, and the same check on read-only memory, which marks it replicated when it fails. Done when <code>rejected_device_slices_overlap</code>, <code>rejected_devices_write_one_place</code> and <code>two_strides</code> pass and <code>device_reads_anywhere</code> still prints MATCH.</li>
+    <li><strong>The shards fit.</strong> <code>N·S</code> at most the buffer's size. Done when every run test passes.</li>
+    <li><strong>render-cuda.</strong> Scatter, launch, wait and gather, with every read-only buffer copied whole for now. Done when <code>c_one_device</code> and <code>c_err_load_outside_kernel</code> pass and the tests left fail only on bytes.</li>
+    <li><strong>Shards of read-only memory.</strong> Copy <code>S</code> elements from <code>d·S</code>, subtract <code>d·S</code> in the kernel, and don't gather them. Done when all 26 pass, then weeks 1 to 9 pass as before.</li>
+  </ol>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+  <div class="quiz" data-answer="b">
+    <p class="q">A device loop of 2 stores into a buffer of 16 at <code>4d + e</code>, with <code>e</code> from 0 to 7. Is it accepted?</p>
+    <div class="opts"><button data-k="a">Yes: 2 shards of 4 fit in 16</button><button data-k="b">No: <code>e</code> reaches 7, past a shard of 4</button><button data-k="c">Yes, if the buffer is only read</button></div>
+    <p class="hint">Check <code>e + size ≤ S</code>.</p>
+    <div class="why"><code>7 + 1 ≤ 4</code> is false, so device 0 writes elements 4 to 7, which are device 1's shard. With <code>8d + e</code> it is accepted.</div>
+  </div>
+  <div class="quiz" data-answer="a">
+    <p class="q">Inside a device loop but outside its kernels, which of these may <code>render-cuda</code> compute on the host?</p>
+    <div class="opts"><button data-k="a"><code>%ds = mul %d 16</code></button><button data-k="b">a load of <code>x</code> at <code>%d</code></button><button data-k="c">a plain <code>range 4</code> loop around the kernel</button></div>
+    <p class="hint">Only two kinds of op may run there.</p>
+    <div class="why">Only i32 <code>add</code> and <code>mul</code> of the device index and literals. Anything else there makes <code>render-cuda</code> exit 2.</div>
+  </div>
+  <div class="quiz" data-fill="448">
+    <p class="q">4 devices. <code>x</code> (32 f32) is read at <code>8d + e</code>, <code>w</code> (4 f32) at the block number, and <code>o</code> (32 f32) is written at <code>8d + e</code>. How many bytes does the device loop copy?</p>
+    <div class="fill"><input aria-label="answer"><button class="btn">Check</button></div>
+    <p class="hint">Sharded: 8 elements per device. Replicated: all of it per device. Written: out and back.</p>
+    <div class="why">x: <code>4 · 8 · 4 = 128</code>. w: <code>4 · 4 · 4 = 64</code>. o: 128 out and 128 back. 448 in all.</div>
+  </div>
+
+  <p>More practice: the <a href="review.html?week=10">week 10 quiz review</a>.</p>
+
+  <h2>Go deeper</h2>
+  <ul>
+    <li><a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/">CUDA C++ Programming Guide</a>. The section on multi-device systems covers <code>cudaSetDevice</code> and peer-to-peer copies, the calls behind the five <code>UIR_</code> names.</li>
+    <li><a href="https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/">NCCL User Guide</a>. The library that real training systems use for all-reduce and the other collective operations between GPUs.</li>
+    <li><a href="https://andrew.gibiansky.com/blog/machine-learning/baidu-allreduce/">Bringing HPC Techniques to Deep Learning</a> (Andrew Gibiansky, 2017). The ring all-reduce of lesson 10.5, step by step.</li>
+    <li><a href="https://arxiv.org/abs/2006.15704">PyTorch Distributed: Experiences on Accelerating Data Parallel Training</a> (Li et al., 2020). Data parallelism in practice, with gradients sent while the next layer computes.</li>
+    <li><a href="https://arxiv.org/abs/1909.08053">Megatron-LM</a> (Shoeybi et al., 2019). Splitting the GEMMs of one model across GPUs, for models too big for one.</li>
+  </ul>
+</main>
+</body>
+</html>

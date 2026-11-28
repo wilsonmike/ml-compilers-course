@@ -1,0 +1,47 @@
+# cuda copy: 80
+# each device adds up its half of x into its own element of p, then one kernel on device 0 adds the two partial sums
+%x    = buffer 16 [-7 -5 3 9 2 -5 -6 -6 5 -4 -3 2 4 4 5 -2] dtype=i32 slot=0
+%p    = buffer 2 dtype=i32 slot=1
+%tot  = buffer 1 dtype=i32 slot=2
+%acc  = alloc 1 dtype=i32
+%d    = range 2 axis=device
+%b    = range 1 axis=global
+%t    = range 1 axis=local
+%k    = range 8
+%ds   = mul %d 8
+%i    = add %ds %k
+%xv   = shrink %x %i []
+%xe   = load %xv
+%tb   = add %t %b
+%av   = shrink %acc %tb []
+%cur  = load %av
+%sum  = add %cur %xe
+%st   = store %av %sum
+%ek   = end %st %k
+%et   = end %ek %t
+%acc1 = after %acc %et
+%u    = range 1 axis=local
+%ub   = add %u %b
+%rv   = shrink %acc1 %ub []
+%res  = load %rv
+%po   = add %d %ub
+%pv   = shrink %p %po []
+%sp   = store %pv %res
+%eu   = end %sp %u
+%eb   = end %et %eu %b
+%ed   = end %eb %d
+%p1   = after %p %ed
+%g    = range 1 axis=global
+%w    = range 1 axis=local
+%q0   = shrink %p1 %w []
+%a0   = load %q0
+%w1   = add %w 1
+%q1   = shrink %p1 %w1 []
+%a1   = load %q1
+%s2   = add %a0 %a1
+%wg   = add %w %g
+%tv   = shrink %tot %wg []
+%stt  = store %tv %s2
+%ew   = end %stt %w
+%eg   = end %ew %g
+%tot1 = after %tot %eg

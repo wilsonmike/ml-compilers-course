@@ -81,8 +81,8 @@ def _with_data(code, data):
     return '\\n'.join(out)
 
 def _grade_uir(ex, code, tests, everything):
-    m = re.match(r"w([0-9])-", ex['id'])
-    _O.WEEK = int(m.group(1)) if m and m.group(1) != '0' else 9
+    m = re.match(r"w([0-9]+)-", ex['id'])
+    _O.WEEK = int(m.group(1)) if m and m.group(1) != '0' else 10
     if ex.get('mode') == 'buffers':
         try: _O.parse(code)
         except _O.UIRError as e: return {'ok': False, 'error': f"invalid .uir: {e}", 'stdout': ''}

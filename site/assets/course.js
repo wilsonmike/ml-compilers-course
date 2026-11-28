@@ -53,6 +53,10 @@ const CC = (() => {
       ['week9/01-registers.html', 'Registers and register tiles', '9.1'], ['week9/02-fast-gemm.html', 'Fast GEMMs', '9.2'],
       ['week9/03-tensor-cores.html', 'Tensor cores', '9.3'], ['week9/04-convolutions.html', 'Convolutions', '9.4'],
       ['week9/05-flash-attention.html', 'Flash attention', '9.5'], ['week9/06-lab.html', 'Lab: fast GPU kernels', '9.6']] },
+    { title: 'Week 10 · Multiple GPUs', items: [
+      ['week10/01-more-than-one-gpu.html', 'More than one GPU', '10.1'], ['week10/02-device-loops.html', 'Device loops and shards', '10.2'],
+      ['week10/03-moving-memory.html', 'Moving memory', '10.3'], ['week10/04-sharded-gemm.html', 'A GEMM on two GPUs', '10.4'],
+      ['week10/05-training-on-many.html', 'Training on several GPUs', '10.5'], ['week10/06-lab.html', 'Lab: multiple GPUs', '10.6']] },
     { title: 'Learn Python', track: 'python', items: [
       ['learn/py-01-first-steps.html', 'First steps in Python', 'P.1'], ['learn/py-02-decisions-loops.html', 'Decisions, loops and functions', 'P.2'],
       ['learn/py-03-collections.html', 'Lists, dicts and sets', 'P.3'], ['learn/py-04-your-own-types.html', 'Your own types', 'P.4'],
@@ -587,7 +591,7 @@ const CC = (() => {
         codeEl.replaceChildren(ta);
       } else {
         codeEl.replaceChildren(...lines.map((l, i) => h('button', { type: 'button', class: 'tr-line' + (i === k - 1 ? ' cur' : i >= k ? ' later' : ''), text: l.trim(), 'aria-current': i === k - 1 ? 'step' : null,
-          onclick: () => { pending = false; k = i + 1; show(); }, onmouseenter: () => lit(i, true), onmouseleave: () => lit(i, false), onfocus: () => lit(i, true), onblur: () => lit(i, false) })));
+          onclick: () => { const j = i + 1; pending = (j > k || (j === k && pending)) && asks(j); k = j; show(); }, onmouseenter: () => lit(i, true), onmouseleave: () => lit(i, false), onfocus: () => lit(i, true), onblur: () => lit(i, false) })));
       }
       drawPic();
       count.textContent = editing ? '' : `line ${k} of ${n}`;
@@ -618,12 +622,12 @@ const CC = (() => {
       svg.querySelectorAll('[data-n]').forEach(g => { const i = lineOf(g.dataset.n); g.onmouseenter = () => lit(i, true); g.onmouseleave = () => lit(i, false); });
       pic.replaceChildren(svg, lim === 0 ? h('p', { class: 'muted tr-hint', text: 'The picture appears here, one box at a time.' }) : '');
     };
+    const asks = j => { const id = own(j - 1); return guess && vals.get(id) !== undefined && fresh(j - 1).includes(id) && full.nodes.find(n => n.id === id).src.length > 0; };
     next.onclick = () => {
       if (pending) { pending = false; show(); return; }
       if (k >= lines.length) return;
       k++;
-      const id = own(k - 1);
-      pending = guess && vals.get(id) !== undefined && fresh(k - 1).includes(id) && full.nodes.find(n => n.id === id).src.length > 0;
+      pending = asks(k);
       show();
     };
     prev.onclick = () => { if (k > 0) { pending = false; k--; show(); } };

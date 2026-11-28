@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Device loops and shards</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Now you write lesson 10.1&#x27;s pictures in .uir. A new loop axis says which device runs which iterations, and one rule says where each buffer lives. Your compiler...">
+<link rel="canonical" href="https://sharpterminal.com/site/week10/02-device-loops">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Device loops and shards">
+<meta property="og:description" content="Now you write lesson 10.1&#x27;s pictures in .uir. A new loop axis says which device runs which iterations, and one rule says where each buffer lives. Your compiler needs that rule before it can copy...">
+<meta property="og:url" content="https://sharpterminal.com/site/week10/02-device-loops">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<style>
+  .own { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+  .own .grid { display: grid; grid-template-columns: 4.5rem repeat(8, 1.7rem); gap: 3px; }
+  .own .lab { font-size: 0.875rem; color: var(--ink-2); align-self: center; }
+  .own .a { font: 0.875rem var(--mono); color: var(--ink-3); text-align: center; }
+  .own .s { font: 0.875rem var(--mono); text-align: center; padding: 5px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); min-height: 1.9rem; }
+  .own .s.two { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .own .s.none { background: none; }
+  .own .half { font-size: 0.875rem; color: var(--ink-2); text-align: center; border-bottom: 1px solid var(--line); padding-bottom: 2px; grid-column: 2 / span 8; }
+  @media (min-width: 1000px) {
+    .own .grid.second { grid-template-columns: repeat(8, 1.7rem); }
+    .own .grid.second .lab { display: none; }
+    .own .grid.second .half { grid-column: 1 / span 8; }
+  }
+</style>
+</head>
+<body data-crumbs="Week 10|Device loops and shards" data-root="../">
+<main>
+  <p class="eyebrow">Week 10 · Lesson 2</p>
+  <h1>Device loops and shards</h1>
+  <p class="lede">Now you write lesson 10.1's pictures in .uir. A new loop axis says which device runs which iterations, and one rule says where each buffer lives. Your compiler needs that rule before it can copy anything to a GPU.</p>
+
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Write a device loop, and say for each buffer it touches whether it is sharded, replicated or rejected.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Devices, shards and replicas from <a href="01-more-than-one-gpu.html">lesson 10.1</a>. Global and local loops and the offset <code>4b + t</code> from <a href="../week8/02-global-and-local.html">lesson 8.2</a>. The slice rule from <a href="../week7/04-threads.html">lesson 7.4</a> and <a href="../week9/01-registers.html#per-thread-memory">lesson 9.1</a>.</p>
+    <p class="only-python">In the exercises: a list of tuples, <code>all</code> and <code>any</code> (<a href="../learn/py-03-collections.html">P.3</a>).</p>
+    <p class="only-ocaml">In the exercises: a list of tuples, <code>List.for_all</code> and <code>List.exists</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>).</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="6">
+    <p class="q">In lesson 8.2, 2 blocks of 4 threads doubled 8 numbers, and thread <code>t</code> of block <code>b</code> took element <code>4b + t</code>. Which element does block 1, thread 2 take?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Block 0 takes elements 0 to 3.</p>
+    <div class="why"><p><code>4·1 + 2 = 6</code>. Block 1 takes elements 4 to 7. Today one more number joins the offset: the device.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">A thread loop over <code>r</code> stores into <code>o</code> and only loads from <code>x</code>. Which accesses does lesson 7.4's slice rule check?</p>
+    <div class="opts">
+      <button data-k="a">Every load and every store</button>
+      <button data-k="b">Only the loads of <code>x</code></button>
+      <button data-k="c">The stores into <code>o</code>, and any loads of <code>o</code></button>
+    </div>
+    <p class="hint">A race needs a write.</p>
+    <div class="why"><p>Memory the loop only reads may be read anywhere. Memory it writes is split into slices. Devices follow the same two ideas.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Sixteen numbers, two devices</h2>
+    <p>Here is a small job. Triple 16 numbers on 2 devices. Each device runs 2 blocks of 4 threads, the grid from lesson 8.2. That is 16 threads for 16 numbers.</p>
+    <p>The new catch: devices do not share memory. Device 0 should touch only the first half of the buffer and device 1 only the second, so each needs only its half copied to it.</p>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Thread <code>t</code> of block <code>b</code> on device <code>d</code> picks an element from 0 to 15. Which offset does each element exactly once, with each device inside its own half?</p>
+    <div class="opts">
+      <button data-k="a"><code>4b + t</code></button>
+      <button data-k="b"><code>4d + 4b + t</code></button>
+      <button data-k="c"><code>8d + 4b + t</code></button>
+    </div>
+    <p class="hint">One device's threads cover 8 elements. Where should device 1 start?</p>
+    <div class="why"><p><code>8d + 4b + t</code>. Device 0 takes elements 0 to 7 and device 1 takes 8 to 15. <code>4b + t</code> ignores the device, so both devices do elements 0 to 7. <code>4d + 4b + t</code> starts device 1 at element 4, inside device 0's half.</p></div>
+  </div>
+
+  <p class="prose">Step through the three offsets. A box shows which block and thread of that device writes the element, so <code>12</code> means block 1, thread 2. The bottom row counts the writers.</p>
+
+  <div class="fig" id="halves" data-title="Who writes each of the 16 elements"></div>
+
+  <div class="prose">
+    <p><code>8d + 4b + t</code> is lesson 8.2's <code>4b + t</code> with one more digit. The device digit is worth 8, which is more than the 7 that <code>4b + t</code> can reach, so no two threads anywhere share an element.</p>
+
+    <h2>A device loop</h2>
+    <p>In .uir the device is one more loop, with a new axis:</p>
+<pre><code>%d = range 2 axis=device</code></pre>
+    <p>Iteration <code>d</code> runs on device <code>d</code>, and the devices run at the same time. The bound is the number of devices, a literal from 1 to 16. The index <code>%d</code> is an ordinary i32, so you can do arithmetic with it. Here is the whole job, the test <code>device_same_as_loop</code>:</p>
+<pre><code>%x  = buffer 16 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16] dtype=i32 slot=0
+%o  = buffer 16 dtype=i32 slot=1
+%d  = range 2 axis=device
+%b  = range 2 axis=global
+%t  = range 4 axis=local
+%ds = mul %d 8
+%m  = mul %b 4
+%e  = add %m %t
+%i  = add %ds %e
+%xv = shrink %x %i []
+%xe = load %xv
+%y  = mul %xe 3
+%ov = shrink %o %i []
+%s  = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%ed = end %eb %d
+%o1 = after %o %ed
+%l  = load %o1
+%w  = stack 3 6 9 12 15 18 21 24 27 30 33 36 39 42 45 48
+%t9 = assert %l %w</code></pre>
+    <p>Inside the device loop is a week 8 kernel: a global loop around a local loop. The offset <code>%i</code> is <code>8d + 4b + t</code>.</p>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">Change <code>axis=device</code> to a plain <code>range 2</code>. What does <code>./compile</code> print for the test now?</p>
+    <div class="opts">
+      <button data-k="a"><code>MATCH</code>: the result is the same</button>
+      <button data-k="b"><code>MISMATCH</code>: one device now does all the work</button>
+      <button data-k="c"><code>REJECTED</code>: global loops need a device loop around them</button>
+    </div>
+    <p class="hint">Has an axis ever changed a result, in week 7 or week 8?</p>
+    <div class="why"><p><code>MATCH</code>, with or without the axis. An axis never changes a bit: <code>./compile</code> and <code>render</code> run a device loop as a plain loop. Only <code>render-cuda</code> (lesson 10.3) uses it to move memory.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Where a device loop may sit</h2>
+    <p>Devices are chosen once, at the top of the program, so a device loop is never inside another loop. The test <code>rejected_device_in_loop</code> wraps the job above in a plain loop of one iteration:</p>
+<pre><code>%q  = range 1
+%d  = range 2 axis=device
+...
+%i  = add %i0 %q
+...
+%ed = end %eb %d
+%eq = end %ed %q</code></pre>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">The outer loop runs only once, and the result would be right. What does <code>./compile</code> print?</p>
+    <div class="opts">
+      <button data-k="a"><code>MATCH</code>: one iteration changes nothing</button>
+      <button data-k="b"><code>REJECTED</code>: a device loop must be at the top level</button>
+    </div>
+    <p class="hint">The rule is about where the loop is written, not how many times the outer loop runs.</p>
+    <div class="why"><p><code>REJECTED</code>. The check reads the program's shape and does not count iterations.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>To see the reason, run <code>python _reference/uirc.py render FILE</code>. It exits with code 2 and prints:</p>
+<pre><code>invalid: device loop %d is inside another loop: a device loop is at the top level</code></pre>
+    <p>The inside of a device loop has a rule too. A device runs kernels, so the parallel loops in it are week 8's <code>global</code> loops, with their <code>local</code> and <code>warp</code> loops. Week 7's <code>thread</code> loop runs on CPU threads, so <code>rejected_thread_in_device</code>, which puts <code>%b = range 2 axis=thread</code> inside a device loop, gets:</p>
+<pre><code>invalid: thread loop %b is inside device loop %d: a device runs kernels, so use a global loop</code></pre>
+
+    <h2>Written memory is cut into shards</h2>
+    <p>Lesson 10.1 called a device's own piece of a buffer its <b>shard</b>. The compiler decides the shards with a rule you already know. In <a href="../week7/04-threads.html">lesson 7.4</a>, iteration <code>r</code> of a thread loop owned a slice: every store was at <code>r·S + e</code>, with <code>S</code> a literal and <code>e</code> proven inside <code>[0, S)</code>. <a href="../week9/01-registers.html#per-thread-memory">Lesson 9.1</a> used that same rule to give each GPU thread its own registers.</p>
+    <p>Week 10 puts the device index <code>d</code> in place of <code>r</code>. For a buffer the device loop writes, every load and every store must be at</p>
+<pre><code>d * S + e        S a positive literal, the same for every access
+                 0 &lt;= e and e + size &lt;= S, proven</code></pre>
+    <p>Then device <code>d</code> only touches elements <code>d·S</code> to <code>d·S + S - 1</code>, its shard. In <code>device_same_as_loop</code>, <code>S</code> is 8 and <code>e = 4b + t</code> runs from 0 to 7.</p>
+    <p>The test <code>rejected_devices_write_one_place</code> changes one line. It stores at <code>%e</code> in place of <code>%i</code>:</p>
+<pre><code>%ov = shrink %o %e []</code></pre>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">The store is now at <code>4b + t</code>, with no <code>d</code>. Which elements of <code>o</code> does device 1 write?</p>
+    <div class="opts">
+      <button data-k="a">8 to 15, as before</button>
+      <button data-k="b">0 to 7, the same elements as device 0</button>
+      <button data-k="c">None</button>
+    </div>
+    <p class="hint">Work out <code>4b + t</code> for device 1. Does <code>d</code> appear anywhere in it?</p>
+    <div class="why"><p>0 to 7. Both devices write the same 8 elements and nobody writes 8 to 15. There is no shard to give each device, so the program is rejected.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The message reuses the slice rule's wording, with <code>r</code> for the loop's index:</p>
+<pre><code>invalid: device loop %d: a store must be at an offset r * S + e, with r the device range</code></pre>
+
+    <h2>Each device stays in its shard</h2>
+    <p>Having <code>d</code> in the offset is not enough. <code>rejected_device_slices_overlap</code> has <code>%ds = mul %d 4</code> in place of <code>mul %d 8</code>. That is the middle offset of the figure, <code>4d + 4b + t</code>. Check it the way lesson 7.4 did:</p>
+    <ol>
+      <li><b>Find the d term.</b> It is <code>mul %d 4</code>, so <code>S</code> is 4.</li>
+      <li><b>Bound the rest.</b> <code>e = 4b + t</code> runs from 0 to 7.</li>
+      <li><b>Compare.</b> The store touches 1 element, and <code>7 + 1 ≤ 4</code> is false. Device 0 writes elements 4 to 7, which are device 1's shard.</li>
+    </ol>
+<pre><code>invalid: device loop %d: a store can't prove each iteration stays in its own slice: e in [0, 7], 1 element(s), stride 4</code></pre>
+  </div>
+
+  <div class="exercise" data-ex="w10-02n-fix-store">
+    <h3>Put the store in its shard</h3>
+    <p>This program computes <code>2x + 1</code> for 32 numbers on 4 devices. The load is right and the store is not, so it is rejected. Read the message when you press Run, then fix the store so that device <code>d</code> writes only elements <code>8d</code> to <code>8d + 7</code>. Keep all three axes.</p>
+  </div>
+
+  <div class="prose">
+    <h2>One stride, and the shards must fit</h2>
+    <p>Two more checks finish the rule for written memory. The first: <code>N·S</code> must be at most the buffer's size, where <code>N</code> is the number of devices. <code>rejected_device_shards_do_not_fit</code> runs 3 devices with <code>S = 4</code> on buffers of 10 elements:</p>
+<pre><code>%o  = buffer 10 dtype=i32 slot=1
+%d  = range 3 axis=device
+%b  = range 1 axis=global
+%t  = range 2 axis=local
+%ds = mul %d 4
+...</code></pre>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Device <code>d</code> writes elements <code>4d</code> and <code>4d + 1</code>: that is 0, 1, 4, 5, 8 and 9. All of them are inside the 10 elements. Is the program accepted?</p>
+    <div class="opts">
+      <button data-k="a">Yes: no access goes past the end</button>
+      <button data-k="b">No: device 2's shard would be elements 8 to 11</button>
+    </div>
+    <p class="hint">A shard is all <code>S</code> elements from <code>d·S</code>, whether or not every one is used.</p>
+    <div class="why"><p>Rejected. A shard is the whole block of <code>S</code> elements, since that is what gets copied. Device 2's shard runs past the end.</p></div>
+  </div>
+
+  <div class="prose">
+<pre><code>invalid: device loop %d: 3 shards of 4 don't fit in 10 elements</code></pre>
+    <p>The second check: one buffer has one stride. In <code>rejected_device_two_strides</code> one kernel reads <code>o</code> at <code>16d + e</code>, and a second kernel in the same device loop writes it at <code>8d + e</code>. Device 1's shard can't be elements 16 to 23 and also 8 to 15:</p>
+<pre><code>invalid: device loop %d: every access to one buffer must use the same stride</code></pre>
+
+    <h2>Memory that is only read</h2>
+    <p>Reading can't cause a race, so a buffer the device loop only reads may be read anywhere. The test <code>device_reads_anywhere</code> reads <code>x</code> back to front. Its store is still at <code>%i</code>, but its load is at <code>15 - i</code>:</p>
+<pre><code>%n  = mul %i -1
+%r  = add 15 %n
+%xv = shrink %x %r []</code></pre>
+    <p>Device 0 reads elements 15 down to 8, in device 1's half.</p>
+  </div>
+
+  <div class="quiz" data-answer="a">
+    <p class="q">What does <code>./compile</code> print for <code>device_reads_anywhere</code>?</p>
+    <div class="opts">
+      <button data-k="a"><code>MATCH</code>: <code>x</code> is only read, so every device gets all of it</button>
+      <button data-k="b"><code>REJECTED</code>: device 0 reads outside its shard</button>
+    </div>
+    <p class="hint">Which buffer does the program write?</p>
+    <div class="why"><p><code>MATCH</code>. The load of <code>x</code> does not follow <code>d·S + e</code>, so <code>x</code> is <b>replicated</b>: every device gets a whole copy. That costs more copying, but it is always correct.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>When every read does follow the rule, with one <code>S</code>, and the shards fit, a read-only buffer is sharded too, and each device gets only its part. <code>device_tail_untouched</code> has 2 devices with <code>S = 4</code> and buffers of 10 elements, and <code>o</code> starts as ten 7s. Both <code>x</code> and <code>o</code> are sharded. Elements 8 and 9 belong to no device.</p>
+  </div>
+
+  <div class="quiz" data-fill="7">
+    <p class="q">In <code>device_tail_untouched</code>, what is <code>o[9]</code> after the device loop?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Device 0 writes elements 0 to 3 and device 1 writes 4 to 7.</p>
+    <div class="why"><p>7. Elements past the last shard belong to no device and keep their values. The test expects <code>3 6 9 12 15 18 21 24 7 7</code>.</p></div>
+  </div>
+
+  <div class="exercise" data-ex="w10-02n-mirror">
+    <h3>Add each element to its mirror</h3>
+    <p>Write a program for 12 numbers on 3 devices, each running 1 block of 4 threads, that sets <code>o[i] = x[i] + x[11 - i]</code>. Device <code>d</code> must write only its own shard of <code>o</code>, elements <code>4d</code> to <code>4d + 3</code>. Then decide for yourself: is <code>x</code> sharded or replicated?</p>
+  </div>
+
+  <div class="prose">
+    <h2>Classify a buffer</h2>
+    <p>Put together, for one buffer in one device loop:</p>
+    <ol>
+      <li><b>Check each access.</b> <code>d·S + e</code>, <code>S ≥ 1</code>, <code>e</code> inside <code>[0, S)</code>.</li>
+      <li><b>Check the buffer.</b> One <code>S</code>, and <code>N·S</code> at most its size.</li>
+      <li><b>Decide.</b> Both pass: sharded with stride <code>S</code>. Otherwise written means rejected and only read means replicated.</li>
+    </ol>
+  </div>
+
+  <div class="exercise" data-ex="w10-02n-place" data-ex-py="w10-02n-place-py">
+    <h3>Where does a buffer live?</h3>
+    <p>A device loop of <code>n</code> devices touches a buffer of <code>size</code> elements. Each access to the buffer is a tuple <code>(writes, s, lo, hi)</code>: <code>writes</code> is <code>true</code> for a store, <code>s</code> is the stride <code>S</code> when the offset has the form <code>d·S + e</code> (and 0 when it does not), and <code>[lo, hi]</code> are the bounds of <code>e</code>. Each access touches one element, and the list is never empty.</p>
+    <p>Write <code>place n size accesses</code>. Return the stride <code>S</code> when the buffer is sharded, <code>0</code> when it is replicated and <code>-1</code> when the program is rejected.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>Every rule and message for device loops, for when you write the checker in the lab</summary>
+    <div class="prose">
+      <p>From sections 1 and 2 of <code>spec/uir-week10.md</code>, with the reference's messages:</p>
+      <ul>
+        <li><b>The bound</b> is a literal from 1 to 16. <code>rejected_device_bound_0</code> and <code>rejected_device_bound_17</code> get <code>invalid: line 4: range: a device range's bound is a literal from 1 to 16 (the number of GPUs)</code>.</li>
+        <li><b>Top level.</b> A device loop is not inside any other loop: <code>device loop %d is inside another loop: a device loop is at the top level</code>.</li>
+        <li><b>Kernels only.</b> Inside a device loop, the parallel loops are <code>global</code> loops with their <code>local</code> and <code>warp</code> loops, under the rules of weeks 8 and 9. A <code>thread</code> loop gets <code>thread loop %b is inside device loop %d: a device runs kernels, so use a global loop</code>.</li>
+        <li><b>Written memory is sharded.</b> Every load and store of it is at <code>d·S + e</code>. The check finds the one term that contains <code>d</code>, which must be <code>d</code> itself (<code>S = 1</code>) or <code>d</code> times a literal, as in lesson 7.4. Without one: <code>a store must be at an offset r * S + e, with r the device range</code>. For a load of written memory the message starts <code>a load of memory it writes</code>.</li>
+        <li><b>Inside the shard.</b> <code>0 ≤ e</code> and <code>e + size ≤ S</code>, where <code>size</code> is how many elements the access touches. An <code>mma</code> tile counts with its whole extent, as in week 9. Otherwise: <code>a store can't prove each iteration stays in its own slice: e in [lo, hi], size element(s), stride S</code>.</li>
+        <li><b>One stride.</b> <code>every access to one buffer must use the same stride</code>.</li>
+        <li><b>The shards fit.</b> <code>N·S</code> is at most the buffer's size: <code>N shards of S don't fit in SIZE elements</code>. Elements past the last shard belong to no device and keep their values.</li>
+        <li><b>Read-only memory</b> may be read anywhere. It is sharded when every read passes the three checks above, and replicated otherwise. It is never rejected.</li>
+        <li><b>Allocs.</b> An alloc that is one kernel's shared memory (week 8) lives on that kernel's device and is outside this rule. An alloc used by more than one kernel is treated like a buffer.</li>
+        <li><b>Each device loop decides on its own.</b> Two device loops in one program may shard the same buffer differently. Between them, and before and after them, all memory is whole again.</li>
+      </ul>
+      <p>All of these are static rules. <code>./compile</code> prints <code>REJECTED</code>, and <code>render</code> and <code>render-cuda</code> exit with code 2.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Write a device loop with a kernel inside it, and give each device its own part of the work with an offset like <code>8d + 4b + t</code>.</li>
+      <li>Say where a device loop may sit and what may sit inside it.</li>
+      <li>Check a written buffer: offset <code>d·S + e</code>, <code>e</code> inside the shard, one stride, shards that fit.</li>
+      <li>Tell a sharded read-only buffer from a replicated one.</li>
+    </ul>
+    <p>Next, <a href="03-moving-memory.html">lesson 10.3</a> shows what <code>render-cuda</code> prints for a device loop: the copies out to each device, the launches and the copies back.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-fill="16">
+    <p class="q">4 devices, each running 2 blocks of 8 threads, process 64 elements. The store is at <code>S·d + 8b + t</code>. What is the smallest <code>S</code> that passes?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">What is the largest value of <code>8b + t</code>?</p>
+    <div class="why"><p><code>8b + t</code> reaches 15, so <code>e + 1 ≤ S</code> needs <code>S ≥ 16</code>. And <code>4·16 = 64</code> fits the buffer.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">A device loop only reads <code>w</code>, a buffer of 32 elements: one kernel at <code>8d + e</code> and another at <code>16d + e</code>. What happens to <code>w</code>?</p>
+    <div class="opts">
+      <button data-k="a">Rejected: one buffer, one stride</button>
+      <button data-k="b">Replicated: every device gets all 32 elements</button>
+      <button data-k="c">Sharded with stride 8</button>
+    </div>
+    <p class="hint">Is <code>w</code> ever written?</p>
+    <div class="why"><p>Replicated. The reads don't share one stride, so <code>w</code> can't be sharded. A read can't cause a race, so the program is still fine: each device gets a whole copy.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Which of these is accepted?</p>
+    <div class="opts">
+      <button data-k="a"><code>%d = range 32 axis=device</code></button>
+      <button data-k="b">A device loop inside a <code>global</code> loop</button>
+      <button data-k="c">A device loop of 4 whose kernel stores at <code>5d + t</code>, with <code>t</code> in 0..4, into a buffer of 20</button>
+    </div>
+    <p class="hint">Check the bound, the place and the stride.</p>
+    <div class="why"><p>Only c. Its <code>e = t</code> stays inside 5 elements and <code>4·5 = 20</code> fits. The bound is at most 16, and a device loop is never inside another loop.</p></div>
+  </div>
+
+  <nav class="pager"></nav>
+</main>
+<script src="../assets/course.js?v=f8627300fd"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const show = off => {
+    const who = Array.from({ length: 16 }, () => [[], []]);
+    for (let d = 0; d < 2; d++) for (let b = 0; b < 2; b++) for (let t = 0; t < 4; t++) { const o = off(d, b, t); if (o >= 0 && o < 16) who[o][d].push(b + '' + t); }
+    const half = q => {
+      const cells = [h('div', { class: 'lab' }), h('div', { class: 'half', text: 'device ' + q + '’s half' })];
+      const row = (label, f) => { cells.push(h('div', { class: 'lab', text: label })); for (let k = 8 * q; k < 8 * q + 8; k++) cells.push(f(k)); };
+      row('element', k => h('div', { class: 'a', text: k }));
+      row('device 0', k => h('div', { class: 's' + (who[k][0].length ? '' : ' none'), text: who[k][0].join(' ') }));
+      row('device 1', k => h('div', { class: 's' + (who[k][1].length ? '' : ' none'), text: who[k][1].join(' ') }));
+      row('writers', k => { const n = who[k][0].length + who[k][1].length; return h('div', { class: 's' + (n > 1 ? ' two' : n ? '' : ' none'), text: n }); });
+      return h('div', { class: 'grid' + (q ? ' second' : '') }, cells);
+    };
+    return h('div', { class: 'own' }, [half(0), half(1)]);
+  };
+  const steps = [
+    { caption: '<code>4b + t</code>: the device is missing. Both devices write elements 0 to 7, so those have 2 writers (dark), and nobody writes 8 to 15.', draw: () => show((d, b, t) => 4 * b + t) },
+    { caption: '<code>4d + 4b + t</code>: device 1 starts at element 4, inside device 0’s half. Elements 4 to 7 have 2 writers and 12 to 15 have none.', draw: () => show((d, b, t) => 4 * d + 4 * b + t) },
+    { caption: '<code>8d + 4b + t</code>: device 0 writes 0 to 7 and device 1 writes 8 to 15. Every element has 1 writer, and each device stays in its half.', draw: () => show((d, b, t) => 8 * d + 4 * b + t) },
+  ];
+  CC.stepper(document.getElementById('halves'), steps, (s, body) => body.append(s.draw()));
+});
+</script>
+</body>
+</html>

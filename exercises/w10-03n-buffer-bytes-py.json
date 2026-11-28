@@ -1,0 +1,54 @@
+{
+  "id": "w10-03n-buffer-bytes-py",
+  "lang": "python",
+  "title": "Count one buffer's bytes",
+  "prompt": "<p><code>buffer_bytes(devices, size, elem, written, stride)</code> returns the bytes <code>UIR_COPY</code> moves for one buffer of a device loop: <code>size</code> elements of <code>elem</code> bytes each, <code>written</code> if the loop stores to it, and <code>stride</code> its <code>S</code>, or 0 when it is replicated. The replicated case is right. The sharded case has two mistakes. Fix them so that <code>x</code>, <code>w</code> and <code>o</code> of <code>c_shard_scale</code> give 64, 16 and 128.</p>",
+  "show": "str",
+  "starter": "def buffer_bytes(devices: int, size: int, elem: int, written: bool, stride: int) -> int:\n    if stride == 0:\n        return devices * size * elem\n    moved = devices * size * elem\n    if written:\n        moved = devices * stride * elem\n    return moved\n",
+  "tests": [
+    {
+      "expr": "buffer_bytes(2, 16, 4, False, 8)",
+      "expect": "64",
+      "sample": true
+    },
+    {
+      "expr": "buffer_bytes(2, 16, 4, True, 8)",
+      "expect": "128",
+      "sample": true
+    },
+    {
+      "expr": "buffer_bytes(2, 2, 4, False, 0)",
+      "expect": "16"
+    },
+    {
+      "expr": "buffer_bytes(2, 16, 4, False, 0)",
+      "expect": "128"
+    },
+    {
+      "expr": "buffer_bytes(2, 10, 4, True, 4)",
+      "expect": "64"
+    },
+    {
+      "expr": "buffer_bytes(1, 16, 4, False, 16)",
+      "expect": "64"
+    },
+    {
+      "expr": "buffer_bytes(4, 64, 4, True, 16)",
+      "expect": "512"
+    },
+    {
+      "expr": "buffer_bytes(2, 32, 1, False, 16)",
+      "expect": "32"
+    },
+    {
+      "expr": "buffer_bytes(3, 20, 4, False, 6)",
+      "expect": "72"
+    }
+  ],
+  "hints": [
+    "Look at the sharded case only. What does one device's copy in hold: the whole buffer or its shard?",
+    "A sharded copy in is <code>devices * stride * elem</code>, not <code>size</code>. A written buffer is copied in and then back out again, so its count is added to, not replaced.",
+    "<code>moved</code> starts at <code>devices * stride * elem</code>, and when <code>written</code> it becomes <code>moved + devices * stride * elem</code>: twice the copy in."
+  ],
+  "explain": "Scatter copies every buffer to every device: the whole buffer when it is replicated, <code>stride</code> elements when it is sharded. Gather copies back only the written shards, the same <code>stride</code> elements per device. So a read-only shard costs <code>devices * stride * elem</code> bytes, a written one twice that, and a replicated buffer <code>devices * size * elem</code>."
+}

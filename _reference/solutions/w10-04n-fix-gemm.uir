@@ -1,0 +1,37 @@
+%A    = buffer 32 dtype=f32 slot=0
+%B    = buffer 16 dtype=f32 slot=1
+%C    = buffer 32 dtype=f32 slot=2
+%acc  = alloc 4 dtype=f32
+%d    = range 2 axis=device
+%b    = range 4 axis=global
+%t    = range 4 axis=local
+%k    = range 4
+%ds   = mul %d 16
+%br   = mul %b 4
+%ao0  = add %ds %br
+%ao   = add %ao0 %k
+%av   = shrink %A %ao []
+%a    = load %av
+%bo0  = mul %k 4
+%bo   = add %bo0 %t
+%bv   = shrink %B %bo []
+%bb   = load %bv
+%cv   = shrink %acc %t []
+%cur  = load %cv
+%p    = mul %a %bb
+%sum  = add %cur %p
+%st   = store %cv %sum
+%ek   = end %st %k
+%et   = end %ek %t
+%acc1 = after %acc %et
+%u    = range 4 axis=local
+%rv   = shrink %acc1 %u []
+%res  = load %rv
+%co0  = add %ds %br
+%co   = add %co0 %u
+%ov   = shrink %C %co []
+%sc   = store %ov %res
+%eu   = end %sc %u
+%eb   = end %et %eu %b
+%ed   = end %eb %d
+%C1   = after %C %ed

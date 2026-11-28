@@ -1,0 +1,24 @@
+# each device reads x back to front, far outside its own slice: x is only read, so every device gets a whole copy
+%x  = buffer 16 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16] dtype=i32 slot=0
+%o  = buffer 16 dtype=i32 slot=1
+%d  = range 2 axis=device
+%b  = range 2 axis=global
+%t  = range 4 axis=local
+%ds = mul %d 8
+%m  = mul %b 4
+%e  = add %m %t
+%i  = add %ds %e
+%n  = mul %i -1
+%r  = add 15 %n
+%xv = shrink %x %r []
+%xe = load %xv
+%y  = mul %xe 3
+%ov = shrink %o %i []
+%s  = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%ed = end %eb %d
+%o1 = after %o %ed
+%l  = load %o1
+%w  = stack 48 45 42 39 36 33 30 27 24 21 18 15 12 9 6 3
+%t9 = assert %l %w

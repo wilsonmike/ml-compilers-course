@@ -1,0 +1,47 @@
+%x    = buffer 16 dtype=i32 slot=0
+%p    = buffer 2 dtype=i32 slot=1
+%m    = buffer 1 dtype=i32 slot=2
+%acc  = alloc 1 dtype=i32
+%d    = range 2 axis=device
+%b    = range 1 axis=global
+%t    = range 1 axis=local
+%k    = range 8
+%ds   = mul %d 8
+%i    = add %ds %k
+%xv   = shrink %x %i []
+%xe   = load %xv
+%tb   = add %t %b
+%av   = shrink %acc %tb []
+%cur  = load %av
+%big  = max %cur %xe
+%first = cmplt %k 1
+%new  = where %first %xe %big
+%st   = store %av %new
+%ek   = end %st %k
+%et   = end %ek %t
+%acc1 = after %acc %et
+%u    = range 1 axis=local
+%ub   = add %u %b
+%rv   = shrink %acc1 %ub []
+%res  = load %rv
+%po   = add %d %ub
+%pv   = shrink %p %po []
+%sp   = store %pv %res
+%eu   = end %sp %u
+%eb   = end %et %eu %b
+%ed   = end %eb %d
+%p1   = after %p %ed
+%g    = range 1 axis=global
+%w    = range 1 axis=local
+%q0   = shrink %p1 %w []
+%a0   = load %q0
+%w1   = add %w 1
+%q1   = shrink %p1 %w1 []
+%a1   = load %q1
+%top  = max %a0 %a1
+%wg   = add %w %g
+%mv   = shrink %m %wg []
+%sm   = store %mv %top
+%ew   = end %sm %w
+%eg   = end %ew %g
+%m1   = after %m %eg

@@ -1,0 +1,23 @@
+# cuda copy: 208
+# two devices, each scaling its own half of x by a weight from a small buffer every device gets a whole copy of
+%x  = buffer 16 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16] dtype=i32 slot=0
+%w  = buffer 2 [10 100] dtype=i32 slot=1
+%o  = buffer 16 dtype=i32 slot=2
+%d  = range 2 axis=device
+%b  = range 2 axis=global
+%t  = range 4 axis=local
+%ds = mul %d 8
+%m  = mul %b 4
+%e  = add %m %t
+%i  = add %ds %e
+%xv = shrink %x %i []
+%xe = load %xv
+%wv = shrink %w %b []
+%we = load %wv
+%y  = mul %xe %we
+%ov = shrink %o %i []
+%s  = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%ed = end %eb %d
+%o1 = after %o %ed

@@ -1,0 +1,53 @@
+{
+  "id": "w10-03n-loop-bytes",
+  "lang": "ocaml",
+  "title": "Count a device loop's bytes",
+  "show": "string_of_int",
+  "starter": "let loop_bytes (devices : int) (bufs : (int * int * bool * int) list) : int =\n  0\n",
+  "hints": [
+    "Add up one count per buffer. Each count is the rule from the exercise before.",
+    "Replicated: `devices * size * elem`. Sharded: `devices * stride * elem`, times 2 when the buffer is written.",
+    "`List.fold_left` over `bufs`, starting at 0, adding `devices * size * elem` when `stride = 0` and otherwise `devices * stride * elem * (if written then 2 else 1)`."
+  ],
+  "explain": "The loop's count is the sum of its buffers' counts. Every buffer is scattered to every device, a shard or the whole of it, and every written shard is gathered back. Most tests are the week's render tests, and their answers are the numbers in those tests' `# cuda copy:` line.",
+  "tests": [
+    {
+      "expr": "loop_bytes 2 [(16, 4, false, 8); (2, 4, false, 0); (16, 4, true, 8)]",
+      "expect": "208",
+      "sample": true
+    },
+    {
+      "expr": "loop_bytes 2 [(16, 4, false, 0); (2, 4, false, 0); (16, 4, true, 8)]",
+      "expect": "272",
+      "sample": true
+    },
+    {
+      "expr": "loop_bytes 2 [(10, 4, false, 4); (10, 4, true, 4)]",
+      "expect": "96"
+    },
+    {
+      "expr": "loop_bytes 1 [(16, 4, false, 16); (16, 4, true, 16)]",
+      "expect": "192"
+    },
+    {
+      "expr": "loop_bytes 2 [(16, 4, false, 0); (16, 4, true, 8)]",
+      "expect": "256"
+    },
+    {
+      "expr": "loop_bytes 4 [(16, 4, false, 4); (16, 4, true, 4)]",
+      "expect": "192"
+    },
+    {
+      "expr": "loop_bytes 2 [(32, 4, false, 16); (16, 4, false, 0); (32, 4, true, 16)]",
+      "expect": "512"
+    },
+    {
+      "expr": "loop_bytes 2 [(16, 4, false, 8); (16, 4, true, 8); (16, 4, true, 8)]",
+      "expect": "320"
+    },
+    {
+      "expr": "loop_bytes 3 []",
+      "expect": "0"
+    }
+  ]
+}

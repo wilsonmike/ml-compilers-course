@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training on several GPUs</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="In week 6 your compiler trained a model one batch at a time, on one device. Here the same training step runs on two GPUs: each works out the gradient for half...">
+<link rel="canonical" href="https://sharpterminal.com/site/week10/05-training-on-many">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Training on several GPUs">
+<meta property="og:description" content="In week 6 your compiler trained a model one batch at a time, on one device. Here the same training step runs on two GPUs: each works out the gradient for half the batch, and device 0 adds the halves...">
+<meta property="og:url" content="https://sharpterminal.com/site/week10/05-training-on-many">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<style>
+  .gp { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: flex-start; }
+  .gp .g { border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s2); background: var(--panel); }
+  .gp .lab { font: 0.875rem var(--sans); color: var(--ink-2); margin-bottom: var(--s1); }
+  .gp .dev > .lab { color: var(--ink); font-weight: 600; }
+  .gp .cells { display: flex; flex-wrap: wrap; gap: 3px; }
+  .gp .c { font: 0.875rem var(--mono); text-align: center; min-width: 2.75rem; min-height: 2.125rem; padding: 6px 4px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+  .gp .c.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .gp .rows { display: flex; flex-direction: column; gap: var(--s2); }
+  .gp .none { font: 0.875rem var(--sans); color: var(--ink-2); }
+</style>
+</head>
+<body data-crumbs="Week 10|Training on several GPUs" data-root="../">
+<main>
+  <p class="eyebrow">Week 10 · Lesson 5</p>
+  <h1>Training on several GPUs</h1>
+  <p class="lede">In week 6 your compiler trained a model one batch at a time, on one device. Here the same training step runs on two GPUs: each works out the gradient for half the batch, and device 0 adds the halves and moves the weights. Most large models are trained this way.</p>
+
+  <div class="note">
+    <span class="label">Goal</span>
+    <p>Build one training step that runs on two devices, check that it gives the same weights as one device, and say when more GPUs stop helping.</p>
+  </div>
+
+  <div class="note">
+    <span class="label">You'll use</span>
+    <p>Weights, loss, gradient and learning rate (<a href="../week6/03-autodiff.html">6.3</a>, <a href="../week6/05-data-and-mnist.html">6.5</a>). The slice rule <code>d*S + e</code> (<a href="01-more-than-one-gpu.html">10.1</a>, <a href="02-device-loops.html">10.2</a>). Scatter and gather (<a href="03-moving-memory.html">10.3</a>). Partial sums on device 0 (<a href="04-sharded-gemm.html">10.4</a>).</p>
+    <p class="only-python">In the last exercise: lists and <code>for</code> loops (<a href="../learn/py-02-decisions-loops.html">P.2</a>, <a href="../learn/py-03-collections.html">P.3</a>).</p>
+    <p class="only-ocaml">In the last exercise: arrays, <code>for</code> loops and <code>ref</code> (<a href="../learn/ml-05-mutation.html">O.5</a>).</p>
+  </div>
+
+  <h2>Warm up</h2>
+  <p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+  <div class="quiz" data-fill="3">
+    <p class="q">A weight is 2.0. Its gradient is -4.0 and the learning rate is 0.25. What is the weight after the step?</p>
+    <div class="fill"><input aria-label="answer" inputmode="decimal"><button class="btn">check</button></div>
+    <p class="hint">Lesson 6.5: new weight = old weight minus learning rate times gradient.</p>
+    <div class="why"><p>2.0 - 0.25 × (-4.0) = 3.0. A negative gradient means raising the weight lowers the loss.</p></div>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">A device loop of 2 writes a buffer of 8 elements at offset <code>4d + e</code>, with <code>e</code> from 0 to 3. Which elements are device 1's shard?</p>
+    <div class="opts">
+      <button data-k="a">0 to 3</button>
+      <button data-k="b">4 to 7</button>
+      <button data-k="c">All 8</button>
+    </div>
+    <p class="hint">Lesson 10.2: device <code>d</code> owns elements <code>d·S</code> to <code>d·S + S - 1</code>.</p>
+    <div class="why"><p>S is 4, so device 1 owns elements 4 to 7. Only that shard travels to it and back.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Split the batch, add the gradients</h2>
+    <p>A week 6 training step worked on a batch: guess, measure the loss, get the gradient, step every weight. A <b>gradient</b> says how much the loss moves when you nudge one weight. With two GPUs, give each half the batch.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">A batch of 4 examples, 2 devices. For one weight, device 0 works out the gradient of examples 0 and 1: 1.0. Device 1 does examples 2 and 3: 6.0. The batch's loss is the sum of the 4 examples' losses. What is the weight's gradient for the whole batch?</p>
+    <div class="opts">
+      <button data-k="a">3.5, the average of the two</button>
+      <button data-k="b">7.0, the sum of the two</button>
+      <button data-k="c">You can't tell: one device must see all 4 examples</button>
+    </div>
+    <p class="hint">Nudge the weight. Each example's loss moves a little. How far does their sum move?</p>
+    <div class="why"><p>7.0. Nudge the weight and the batch's loss moves by all the examples' moves added up. So its gradient is the sum of theirs, and a sum can be split: <code>(g0 + g1) + (g2 + g3)</code>. Each device adds its pair, and one device adds the partial sums, as in lesson 10.4.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>This plan is called <b>data parallelism</b>: split the data, give every device the whole model. In this week's words:</p>
+    <ol>
+      <li><strong>Shard the batch.</strong> Each device gets its own examples and their targets.</li>
+      <li><strong>Replicate the weights.</strong> Every device needs all of them to guess.</li>
+      <li><strong>Sum per device.</strong> Each device adds up its examples' gradients and writes this <b>partial gradient</b> into its shard of a small buffer.</li>
+      <li><strong>Add and step on device 0.</strong> One kernel adds the partial gradients and moves every weight.</li>
+    </ol>
+    <p>Week 6 used the mean loss, the sum times 0.01, which splits the same way. This lesson keeps the plain sum.</p>
+
+    <h2>A model small enough to see</h2>
+    <p>The model has two weights, <code>w0</code> and <code>w1</code>. An example is two numbers <code>x0</code> and <code>x1</code> and a <b>target</b> <code>t</code>, the answer it should give.</p>
+    <ul>
+      <li>guess = <code>w0·x0 + w1·x1</code></li>
+      <li>error = guess - <code>t</code></li>
+      <li>loss of one example = half of error × error</li>
+    </ul>
+    <p>A kernel can't use the <code>gradient</code> op, so work it out by hand with lesson 6.3's rules, walking back from the loss to <code>w0</code>:</p>
+    <ol>
+      <li><strong>Loss to error.</strong> error × error uses the error twice, and each use gets the other operand as its share. Two shares, then the half: the error.</li>
+      <li><strong>Error to guess.</strong> A nudge to the guess moves the error as much: 1.</li>
+      <li><strong>Guess to w0.</strong> <code>w0·x0</code> is a mul, so the rule gives <code>x0</code>.</li>
+      <li><strong>Multiply along the path.</strong> error × 1 × <code>x0</code>.</li>
+    </ol>
+    <p>So one example's gradient is error·<code>x0</code> for <code>w0</code> and error·<code>x1</code> for <code>w1</code>. The 4 examples, with both weights at 1.0:</p>
+  </div>
+
+  <div class="tablewrap"><table>
+    <tr><th>example</th><th>x0</th><th>x1</th><th>t</th><th>guess</th><th>error</th><th>gradient for w0</th><th>gradient for w1</th></tr>
+    <tr><td>0</td><td>1</td><td>2</td><td>4</td><td>3</td><td>-1</td><td>-1</td><td>-2</td></tr>
+    <tr><td>1</td><td>2</td><td>1</td><td>2</td><td>3</td><td>1</td><td>2</td><td>1</td></tr>
+    <tr><td>2</td><td>0</td><td>1</td><td>3</td><td>1</td><td>-2</td><td>0</td><td>-2</td></tr>
+    <tr><td>3</td><td>3</td><td>1</td><td>2</td><td>?</td><td>?</td><td>?</td><td>?</td></tr>
+  </table></div>
+
+  <div class="quiz" data-fill="6">
+    <p class="q">Fill in example 3. What is its gradient for <code>w0</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Guess first: 1·3 + 1·1. Then the error, then error × <code>x0</code>.</p>
+    <div class="why"><p>The guess is 4, the error is 4 - 2 = 2, and the gradient for <code>w0</code> is 2 × 3 = 6. For <code>w1</code> it is 2 × 1 = 2.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>One step, by hand, on two devices</h2>
+    <p>Device 0 gets examples 0 and 1, device 1 gets 2 and 3. Adding their rows of the table, device 0's partial gradient is (1, -1) and device 1's is (6, 0). The learning rate is 0.125, a power of two, so every number here is exact in f32.</p>
+    <p>Step through the program's memory. Before the last step, work out the new <code>w1</code>.</p>
+  </div>
+
+  <div class="fig" id="dp" data-title="One data-parallel step on two devices"></div>
+
+  <div class="quiz" data-fill="1.125">
+    <p class="q">The batch's gradient for <code>w1</code> is -1 + 0 = -1. With the learning rate 0.125, what is the new <code>w1</code>?</p>
+    <div class="fill"><input aria-label="answer" inputmode="decimal"><button class="btn">check</button></div>
+    <p class="hint">1.0 - 0.125 × (-1).</p>
+    <div class="why"><p>1.125. And <code>w0</code> becomes 1.0 - 0.125 × 7 = 0.125. The batch's loss was 5.0 before the step (half of 1 + 1 + 4 + 4). With the new weights it is about 3.4, so the step helped.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>The device loop in .uir</h2>
+    <p>The program has four buffers: <code>%x</code> (8 numbers, slot 0), <code>%t</code> (4 targets), <code>%w</code> (2 weights) and <code>%pg</code> (4 partial gradients), all f32. Example <code>k</code> of device <code>d</code> is example <code>2d + k</code>, so its numbers start at <code>x[4d + 2k]</code>. The device loop holds one kernel:</p>
+    <ol>
+      <li><strong>The loops.</strong> <code>%d = range 2 axis=device</code>, then one block of 2 threads (<code>%j = range 2 axis=local</code>), one per weight. A plain loop <code>%k = range 2</code> walks the device's 2 examples.</li>
+      <li><strong>Guess and error.</strong> Load <code>x[4d + 2k]</code>, <code>x[4d + 2k + 1]</code> and both weights, guess, and subtract <code>t[2d + k]</code>.</li>
+      <li><strong>Add up the gradient.</strong> Thread <code>j</code> adds error × <code>x[4d + 2k + j]</code> into <code>acc[j]</code>, its own per-thread memory (lesson 9.1), which starts at zero.</li>
+      <li><strong>Write the partial gradient.</strong> After the loop, thread <code>j</code> stores <code>acc[j]</code> into <code>pg[2d + j]</code>.</li>
+    </ol>
+<pre><code>%gk   = mul %err %xj
+...
+%po   = add %d2 %jb
+%pv   = shrink %pg %po []
+%sp   = store %pv %g</code></pre>
+    <p>The weights are loaded at <code>w[b]</code> and <code>w[b + 1]</code>, with <code>b</code> always 0. A load at <code>w[0]</code> depends on no loop, so it would sit outside the kernel, which lesson 8.4's kernel form refuses.</p>
+  </div>
+
+  <div class="quiz" data-answer="c">
+    <p class="q">Which buffer does lesson 10.2's rule replicate, with a whole copy on every device?</p>
+    <div class="opts">
+      <button data-k="a"><code>x</code></button>
+      <button data-k="b"><code>t</code></button>
+      <button data-k="c"><code>w</code></button>
+      <button data-k="d"><code>pg</code></button>
+    </div>
+    <p class="hint">Look for the one buffer whose offsets have no <code>d</code> in them.</p>
+    <div class="why"><p><code>w</code> is read at <code>b</code> and <code>b + 1</code>, with no <code>d</code>, so every device gets all of it, as every guess needs both weights. <code>x</code> (S = 4), <code>t</code> and <code>pg</code> (S = 2) follow the slice rule.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>Add the partial gradients on device 0</h2>
+    <p>After the device loop, <code>%pg1</code> is <code>pg</code> with both shards gathered: <code>[1.0 -1.0 6.0 0.0]</code>. The second kernel is outside the device loop, so it runs on device 0 (lesson 10.3). Thread <code>u</code> adds the partial gradients for weight <code>u</code> and steps it:</p>
+<pre><code>%q0v  = shrink %pg1 %u []
+%q0   = load %q0v
+%u2   = add %u 2
+%q1v  = shrink %pg1 %u2 []
+%q1   = load %q1v
+%gt   = add %q0 %q1
+%stp  = mul %gt 0.125
+%wn   = sub %wo %stp</code></pre>
+    <p>The reference runs the program to <code>w = [0.125 1.125]</code>, your numbers, and its CUDA passes the emulator with a copy budget of 96 bytes.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The whole program, and the host function <code>render-cuda</code> prints for it</summary>
+    <div class="prose">
+      <p>This is a complete program. Add <code>%lw = load %w1</code>, <code>%ew = stack 0.125 1.125</code> and <code>%aw = assert %lw %ew</code> to make it a run test, and <code>./compile</code> prints MATCH. As a <code># cuda copy: 96</code> test it passes in the emulator, and a budget of 95 fails.</p>
+<pre><code>%x    = buffer 8 [1.0 2.0 2.0 1.0 0.0 1.0 3.0 1.0] dtype=f32 slot=0
+%t    = buffer 4 [4.0 2.0 3.0 2.0] dtype=f32 slot=1
+%w    = buffer 2 [1.0 1.0] dtype=f32 slot=2
+%pg   = buffer 4 dtype=f32 slot=3
+%acc  = alloc 2 dtype=f32
+%d    = range 2 axis=device
+%d2   = mul %d 2
+%d4   = mul %d 4
+%b    = range 1 axis=global
+%j    = range 2 axis=local
+%jb   = add %j %b
+%k    = range 2
+%k2   = mul %k 2
+%r    = add %d4 %k2
+%x0v  = shrink %x %r []
+%x0   = load %x0v
+%r1   = add %r 1
+%x1v  = shrink %x %r1 []
+%x1   = load %x1v
+%wav  = shrink %w %b []
+%wa   = load %wav
+%b1   = add %b 1
+%wbv  = shrink %w %b1 []
+%wb   = load %wbv
+%p0   = mul %wa %x0
+%p1   = mul %wb %x1
+%p    = add %p0 %p1
+%ti   = add %d2 %k
+%tv   = shrink %t %ti []
+%te   = load %tv
+%err  = sub %p %te
+%rj   = add %r %j
+%xjv  = shrink %x %rj []
+%xj   = load %xjv
+%gk   = mul %err %xj
+%av   = shrink %acc %jb []
+%cur  = load %av
+%sum  = add %cur %gk
+%st   = store %av %sum
+%ek   = end %st %k
+%acc1 = after %acc %ek
+%gv   = shrink %acc1 %jb []
+%g    = load %gv
+%po   = add %d2 %jb
+%pv   = shrink %pg %po []
+%sp   = store %pv %g
+%ej   = end %sp %j
+%eb   = end %ej %b
+%ed   = end %eb %d
+%pg1  = after %pg %ed
+%c    = range 1 axis=global
+%u    = range 2 axis=local
+%uc   = add %u %c
+%q0v  = shrink %pg1 %u []
+%q0   = load %q0v
+%u2   = add %u 2
+%q1v  = shrink %pg1 %u2 []
+%q1   = load %q1v
+%gt   = add %q0 %q1
+%stp  = mul %gt 0.125
+%wv   = shrink %w %uc []
+%wo   = load %wv
+%wn   = sub %wo %stp
+%sw   = store %wv %wn
+%eu   = end %sw %u
+%ec   = end %eu %c
+%w1   = after %w %ec</code></pre>
+      <p><code>python _reference/uirc.py render-cuda FILE</code> prints two kernels, <code>k0</code> for the device loop and <code>k1</code> for the update, then this host function. <code>b0</code> to <code>b3</code> are <code>x</code>, <code>t</code>, <code>w</code> and <code>pg</code>. The scatter copies <code>w</code> whole (no <code>r8 *</code> offset) and every other buffer by shard:</p>
+<pre><code>void kernel(float *b0, float *b1, float *b2, float *b3) {   /* device pointers; UIR_LAUNCH comes from the harness */
+  float *s0_[2];
+  float *s1_[2];
+  float *s2_[2];
+  float *s3_[2];
+  for (int32_t r8 = 0; r8 &lt; 2; r8++) {
+    s0_[r8] = (float *)UIR_ALLOC(r8, 4 * sizeof(float));
+    UIR_COPY(r8, s0_[r8], 0, b0 + r8 * 4, 4 * sizeof(float));
+    s1_[r8] = (float *)UIR_ALLOC(r8, 2 * sizeof(float));
+    UIR_COPY(r8, s1_[r8], 0, b1 + r8 * 2, 2 * sizeof(float));
+    s2_[r8] = (float *)UIR_ALLOC(r8, 2 * sizeof(float));
+    UIR_COPY(r8, s2_[r8], 0, b2, 2 * sizeof(float));
+    s3_[r8] = (float *)UIR_ALLOC(r8, 2 * sizeof(float));
+    UIR_COPY(r8, s3_[r8], 0, b3 + r8 * 2, 2 * sizeof(float));
+  }
+  for (int32_t r8 = 0; r8 &lt; 2; r8++) {
+    UIR_DEVICE(r8);
+    int32_t v9 = (int32_t)((uint32_t)r8 * (uint32_t)2);
+    int32_t v10 = (int32_t)((uint32_t)r8 * (uint32_t)4);
+    UIR_LAUNCH(k0, 1, 2, s0_[r8], s1_[r8], s2_[r8], s3_[r8], r8, v9, v10);
+  }
+  UIR_SYNC();
+  for (int32_t r8 = 0; r8 &lt; 2; r8++) {
+    UIR_FREE(r8, s0_[r8]);
+    UIR_FREE(r8, s1_[r8]);
+    UIR_FREE(r8, s2_[r8]);
+    UIR_COPY(0, b3 + r8 * 2, r8, s3_[r8], 2 * sizeof(float));
+    UIR_FREE(r8, s3_[r8]);
+  }
+  UIR_DEVICE(0);
+  UIR_LAUNCH(k1, 1, 2, b2, b3);
+}</code></pre>
+      <p><code>v9</code> and <code>v10</code> are <code>2d</code> and <code>4d</code>, computed on the host and handed to <code>k0</code>. Only <code>pg</code> is gathered, because it is the only buffer the device loop writes.</p>
+    </div>
+  </details>
+
+  <div class="exercise" data-ex="w10-05n-dp-step">
+    <h3>Use every device's gradient</h3>
+    <p>The update kernel here loads only <code>pg[u]</code>, device 0's partial gradient, so the weights move as if the batch were examples 0 and 1. Make it add both partial gradients. The lesson's numbers should give <code>[0.125 1.125]</code>.</p>
+  </div>
+
+  <div class="prose">
+    <h2>One GPU, the same bits</h2>
+    <p>On one device, thread <code>j</code> loops over all 4 examples, then the same update runs (program in the toggle below). It gives <code>w = [0.125 1.125]</code>, the same bits.</p>
+    <p>But the adds come in another order. One device adds <code>((g0 + g1) + g2) + g3</code>. Two devices add <code>(g0 + g1) + (g2 + g3)</code>. With this lesson's numbers every sum is exact, so the order can't show.</p>
+  </div>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Now fill <code>x</code>, <code>t</code> and <code>w</code> with numbers like 0.3 and -1.7. Do the one-device and two-device programs still give the same bits?</p>
+    <div class="opts">
+      <button data-k="a">Always: it is the same math</button>
+      <button data-k="b">Not always: they add in a different order</button>
+      <button data-k="c">Never: two GPUs always round differently</button>
+    </div>
+    <p class="hint">Lesson 10.4: who fixes the order of a floating-point sum?</p>
+    <div class="why"><p>Not always. On 200 inputs of random tenths, 74 gave different bits in a weight, such as 0.69375002 against 0.69374990. Each f32 add rounds, so another order can round differently. Nothing here is random: each program fixes its own order.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>The one-device program that always matches is the two-device program with <code>axis=device</code> deleted. <code>%d</code> becomes a plain loop and the adds keep their order. That is the week's promise: an axis never changes a result.</p>
+  </div>
+
+  <details class="toggle">
+    <summary>The one-device program, for comparing bits yourself</summary>
+    <div class="prose">
+      <p>It is the two-device program without <code>%d</code>: the loop over examples runs to 4, and the gradient goes into a buffer <code>gr</code> of 2. <code>render-cuda</code> accepts it, and it passes the emulator as a <code># cuda</code> test.</p>
+<pre><code>%x    = buffer 8 [1.0 2.0 2.0 1.0 0.0 1.0 3.0 1.0] dtype=f32 slot=0
+%t    = buffer 4 [4.0 2.0 3.0 2.0] dtype=f32 slot=1
+%w    = buffer 2 [1.0 1.0] dtype=f32 slot=2
+%gr   = buffer 2 dtype=f32 slot=3
+%acc  = alloc 2 dtype=f32
+%b    = range 1 axis=global
+%j    = range 2 axis=local
+%jb   = add %j %b
+%k    = range 4
+%r    = mul %k 2
+%x0v  = shrink %x %r []
+%x0   = load %x0v
+%r1   = add %r 1
+%x1v  = shrink %x %r1 []
+%x1   = load %x1v
+%wav  = shrink %w %b []
+%wa   = load %wav
+%b1   = add %b 1
+%wbv  = shrink %w %b1 []
+%wb   = load %wbv
+%p0   = mul %wa %x0
+%p1   = mul %wb %x1
+%p    = add %p0 %p1
+%tv   = shrink %t %k []
+%te   = load %tv
+%err  = sub %p %te
+%rj   = add %r %j
+%xjv  = shrink %x %rj []
+%xj   = load %xjv
+%gk   = mul %err %xj
+%av   = shrink %acc %jb []
+%cur  = load %av
+%sum  = add %cur %gk
+%st   = store %av %sum
+%ek   = end %st %k
+%acc1 = after %acc %ek
+%gv   = shrink %acc1 %jb []
+%g    = load %gv
+%grv  = shrink %gr %jb []
+%sg   = store %grv %g
+%ej   = end %sg %j
+%eb   = end %ej %b
+%gr1  = after %gr %eb
+%c    = range 1 axis=global
+%u    = range 2 axis=local
+%uc   = add %u %c
+%qv   = shrink %gr1 %u []
+%q    = load %qv
+%stp  = mul %q 0.125
+%wv   = shrink %w %uc []
+%wo   = load %wv
+%wn   = sub %wo %stp
+%sw   = store %wv %wn
+%eu   = end %sw %u
+%ec   = end %eu %c
+%w1   = after %w %ec</code></pre>
+      <p>The two-device program with <code>axis=device</code> deleted also runs to <code>[0.125 1.125]</code> with <code>./compile</code>. <code>render-cuda</code> refuses that one, because a plain loop around a kernel is work outside a kernel.</p>
+    </div>
+  </details>
+
+  <div class="exercise" data-ex="w10-05n-split-sum" data-ex-py="w10-05n-split-sum-py">
+    <h3>Split a sum across devices</h3>
+    <p><code>xs</code> is split into <code>n</code> equal shards: with <code>s</code> its length divided by <code>n</code>, device <code>d</code> owns elements <code>d·s</code> to <code>d·s + s - 1</code>. Write <code>split_sum xs n</code>, the total in this lesson's order. Each device starts at <code>0.0</code> and adds its shard left to right. Then device 0 starts from partial sum 0 and adds partial sums 1, 2 and so on. Some tests use huge numbers, where order changes the answer.</p>
+  </div>
+
+  <div class="prose">
+    <h2>When more GPUs stop helping</h2>
+    <p>Two parts of the program do not shrink when you add devices.</p>
+    <p><b>The part on device 0.</b> The gradient work runs on all devices at once. The add and the step run on device 0 alone, afterward.</p>
+  </div>
+
+  <div class="quiz" data-fill="40">
+    <p class="q">A step takes 100 ms on one GPU: 80 ms of gradient work, which splits evenly, and 20 ms of adding and stepping on device 0. Leaving copies out, how many ms does it take on 4 GPUs?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">The 80 ms is shared by 4 devices. The 20 ms is not shared.</p>
+    <div class="why"><p>80 / 4 + 20 = 40 ms. With 8 GPUs it is 30 ms, with 80 GPUs 21 ms. No number of GPUs gets below 20 ms, and device 0 has more partial gradients to add as devices join.</p></div>
+  </div>
+
+  <div class="prose">
+    <p><b>The copies, every step.</b> Lesson 10.1 asked how much work is done per byte moved. Each device gets 4 numbers of <code>x</code>, 2 of <code>t</code>, 2 of <code>w</code> and 2 of <code>pg</code>, and sends 2 of <code>pg</code> back. An f32 is 4 bytes.</p>
+  </div>
+
+  <div class="quiz" data-fill="96">
+    <p class="q">How many bytes does <code>UIR_COPY</code> move in all, for both devices?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">Per device: 4 + 2 + 2 + 2 numbers out and 2 back.</p>
+    <div class="why"><p>12 numbers per device, 2 devices, 4 bytes each: 96 bytes, the emulator's budget. 16 of them copy out <code>pg</code>'s shards, which the kernels overwrite unread: the scatter copies written buffers too (lesson 10.3).</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Those 96 bytes buy about 50 arithmetic operations. Two GPUs would run this tiny step slower than one: it shows the method, not a speedup. Week 6's digit model has 7,840 weights, 31,360 bytes, and they travel to every device on every step.</p>
+
+    <h2>What real systems do differently</h2>
+    <p>This week's design moves memory the simplest way: everything starts and ends on device 0. Count the cost with 8 devices and week 6's model, where each partial gradient is 31,360 bytes.</p>
+  </div>
+
+  <div class="quiz" data-fill="219520">
+    <p class="q">How many bytes of partial gradients arrive at device 0 from the other 7 devices, each step?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">7 devices, 31,360 bytes each.</p>
+    <div class="why"><p>7 × 31,360 = 219,520 bytes, all through device 0's link, and then the new weights go out 7 times. Device 0's link becomes the limit.</p></div>
+  </div>
+
+  <div class="prose">
+    <p>Real training systems avoid this in three ways:</p>
+    <ol>
+      <li><strong>Keep data on the devices.</strong> Each device keeps its own weights from step to step and applies the same update to them, so weights never travel. Each device also loads its own batches.</li>
+      <li><strong>Send gradients between devices.</strong> An <b>all-reduce</b> adds the partial gradients while passing pieces from device to device, so every device ends with the sum. In a ring of 8, each device sends about 2 × 7/8 × 31,360 = 54,880 bytes, and that barely grows with more devices.</li>
+      <li><strong>Overlap.</strong> A device sends one layer's gradient while it computes the next, so copies hide behind work.</li>
+    </ol>
+  </div>
+
+  <details class="toggle">
+    <summary>How a ring all-reduce gets 2 × 7/8, for the curious</summary>
+    <div class="prose">
+      <p>Cut each device's gradient into 8 pieces. In the first 7 rounds, device <code>i</code> sends one piece to device <code>i + 1</code> (wrapping around), which adds it into its own copy of that piece. After 7 rounds each device holds the full sum of one piece. In the next 7 rounds those finished pieces travel around the ring the same way, so everyone gets every piece. Each round a device sends 1/8 of the gradient, for 14 rounds: 14/8 = 2 × 7/8. With N devices it is 2 × (N - 1)/N, which never reaches 2.</p>
+      <p>The ring also sets the order of the adds, and it differs from piece to piece. A system that wants the same bits on every run has to keep that order fixed, just as this lesson's program does.</p>
+    </div>
+  </details>
+
+  <div class="prose">
+    <h2>Running it with no GPUs, or too few</h2>
+    <p>You can do this whole week on a laptop. The grader builds your CUDA in lesson 8.4's emulator, with the five <code>UIR_</code> names defined for several devices:</p>
+    <ul>
+      <li><strong>Separate memory.</strong> Every <code>UIR_ALLOC</code> is its own block, filled with the byte 0xA5, not zeros. Forget to scatter <code>w</code> to device 1, and its kernel reads that pattern as weights.</li>
+      <li><strong>Wrong-device checks.</strong> It stops a kernel launched with another device's pointer, a copy that names the wrong device, and a kernel that writes past its allocation.</li>
+      <li><strong>One after another.</strong> Devices run in turn, so <code>UIR_SYNC()</code> has nothing to wait for. The bits are the same, because the program fixes them.</li>
+    </ul>
+    <p>On real GPUs, device <code>d</code> is GPU <code>d</code> modulo the number of GPUs. Each device still gets its own allocations, so the copies and bits match a machine with enough GPUs. Only the speed differs.</p>
+  </div>
+
+  <div class="quiz" data-fill="0">
+    <p class="q">A program has 4 devices and the machine has 3 GPUs. Which GPU runs device 3?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">3 modulo 3.</p>
+    <div class="why"><p>GPU 0, which also runs device 0. GPU 0 does twice the work, so the step is no faster than on 2 GPUs, but the weights come out the same.</p></div>
+  </div>
+
+  <div class="prose">
+    <h2>What you can do now</h2>
+    <ul>
+      <li>Say why a batch's gradient is the sum of its parts' gradients.</li>
+      <li>Write a data-parallel training step in .uir.</li>
+      <li>Say when a one-device version gives the same bits.</li>
+      <li>Work out the time left on device 0 and the bytes copied per step.</li>
+      <li>Name three things real systems do that this week leaves out.</li>
+    </ul>
+    <p>Next is the week 10 lab, where your own compiler shards buffers and renders the copies.</p>
+  </div>
+
+  <h2>Check yourself</h2>
+  <p class="score"></p>
+
+  <div class="quiz" data-answer="b">
+    <p class="q">Now 3 devices share a batch of 6 examples, 2 numbers each. At which offset of <code>x</code> does example <code>k</code> of device <code>d</code> start?</p>
+    <div class="opts">
+      <button data-k="a"><code>2d + k</code></button>
+      <button data-k="b"><code>4d + 2k</code></button>
+      <button data-k="c"><code>6d + 2k</code></button>
+    </div>
+    <p class="hint">Each device owns 2 examples of 2 numbers.</p>
+    <div class="why"><p>A device's shard of <code>x</code> is 4 numbers, so S is 4, and each example is 2 numbers further on. It is the same offset as with 2 devices: only the number of shards changed.</p></div>
+  </div>
+
+  <div class="quiz" data-fill="4">
+    <p class="q">With 4 devices, how many partial gradients does device 0's update kernel add for each weight?</p>
+    <div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+    <p class="hint">One per device.</p>
+    <div class="why"><p>4, one from each device's shard of <code>pg</code>. That work grows with the number of devices and runs on device 0 alone.</p></div>
+  </div>
+
+  <nav class="pager"></nav>
+</main>
+<script src="../assets/course.js?v=f8627300fd"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const cells = (vals, on) => h('div', { class: 'cells' }, vals.map((v, i) => h('div', { class: 'c' + (on && on(i) ? ' on' : ''), text: String(v) })));
+  const row = (label, vals, on) => h('div', {}, [h('div', { class: 'lab', text: label }), cells(vals, on)]);
+  const dev = (name, list, empty) => h('div', { class: 'g dev' }, [h('div', { class: 'lab', text: name }),
+    h('div', { class: 'rows' }, list.length ? list : [h('div', { class: 'none', text: empty || 'nothing yet' })])]);
+  const two = (a, b, empty) => h('div', { class: 'gp' }, [dev('device 0', a), dev('device 1', b, empty)]);
+  const all = () => true;
+  const x = [1, 2, 2, 1, 0, 1, 3, 1];
+  const t = [4, 2, 3, 2];
+  const home = (w, pg, on) => [row('x', x), row('t', t), row('w', w, on && on.w), row('pg', pg, on && on.pg)];
+  const own = (d, pg, on) => [row('x shard', x.slice(4 * d, 4 * d + 4), on && on.x), row('t shard', t.slice(2 * d, 2 * d + 2), on && on.t),
+    row('w copy', [1, 1], on && on.w), row('pg shard', pg, on && on.pg)];
+  const z = [0, 0];
+  const steps = [
+    { caption: 'Before the step, every buffer is on device 0. <code>pg</code> will hold the partial gradients.', draw: () => two(home([1, 1], [0, 0, 0, 0]), []) },
+    { caption: '<b>Scatter.</b> Each device gets its shard of <code>x</code> and <code>t</code>: 2 examples. Both get a whole copy of <code>w</code>. The shards of <code>pg</code> are copied out too.', draw: () => two([...home([1, 1], [0, 0, 0, 0]), ...own(0, z, { x: all, t: all, w: all, pg: all })], own(1, z, { x: all, t: all, w: all, pg: all })) },
+    { caption: '<b>Launch and wait.</b> Each device adds up the gradients of its 2 examples. Device 0: (-1, -2) + (2, 1) = (1, -1). Device 1: (0, -2) + (6, 2) = (6, 0).', draw: () => two([...home([1, 1], [0, 0, 0, 0]), ...own(0, [1, -1], { pg: all })], own(1, [6, 0], { pg: all })) },
+    { caption: '<b>Gather.</b> Each device\'s shard of <code>pg</code> goes back to its place on device 0. Now <code>pg</code> is (1, -1, 6, 0). Then the device allocations are freed.', draw: () => two([...home([1, 1], [1, -1, 6, 0], { pg: all }), ...own(0, [1, -1])], own(1, [6, 0])) },
+    { caption: '<b>Add and step on device 0.</b> The batch\'s gradient is (1 + 6, -1 + 0) = (7, -1). Each weight moves by 0.125 times its gradient, the other way: <code>w0</code> = 1 - 0.875 and <code>w1</code> = 1 + 0.125.', draw: () => two(home([0.125, 1.125], [1, -1, 6, 0], { w: all }), [], 'its allocations were freed') },
+  ];
+  CC.stepper(document.getElementById('dp'), steps, (s, body) => body.append(s.draw()));
+});
+</script>
+</body>
+</html>

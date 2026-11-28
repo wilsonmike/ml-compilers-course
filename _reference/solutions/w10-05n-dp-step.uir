@@ -1,0 +1,67 @@
+%x    = buffer 8 [1.0 2.0 2.0 1.0 0.0 1.0 3.0 1.0] dtype=f32 slot=0
+%t    = buffer 4 [4.0 2.0 3.0 2.0] dtype=f32 slot=1
+%w    = buffer 2 [1.0 1.0] dtype=f32 slot=2
+%pg   = buffer 4 dtype=f32 slot=3
+%acc  = alloc 2 dtype=f32
+%d    = range 2 axis=device
+%d2   = mul %d 2
+%d4   = mul %d 4
+%b    = range 1 axis=global
+%j    = range 2 axis=local
+%jb   = add %j %b
+%k    = range 2
+%k2   = mul %k 2
+%r    = add %d4 %k2
+%x0v  = shrink %x %r []
+%x0   = load %x0v
+%r1   = add %r 1
+%x1v  = shrink %x %r1 []
+%x1   = load %x1v
+%wav  = shrink %w %b []
+%wa   = load %wav
+%b1   = add %b 1
+%wbv  = shrink %w %b1 []
+%wb   = load %wbv
+%p0   = mul %wa %x0
+%p1   = mul %wb %x1
+%p    = add %p0 %p1
+%ti   = add %d2 %k
+%tv   = shrink %t %ti []
+%te   = load %tv
+%err  = sub %p %te
+%rj   = add %r %j
+%xjv  = shrink %x %rj []
+%xj   = load %xjv
+%gk   = mul %err %xj
+%av   = shrink %acc %jb []
+%cur  = load %av
+%sum  = add %cur %gk
+%st   = store %av %sum
+%ek   = end %st %k
+%acc1 = after %acc %ek
+%gv   = shrink %acc1 %jb []
+%g    = load %gv
+%po   = add %d2 %jb
+%pv   = shrink %pg %po []
+%sp   = store %pv %g
+%ej   = end %sp %j
+%eb   = end %ej %b
+%ed   = end %eb %d
+%pg1  = after %pg %ed
+%c    = range 1 axis=global
+%u    = range 2 axis=local
+%uc   = add %u %c
+%q0v  = shrink %pg1 %u []
+%q0   = load %q0v
+%u2   = add %u 2
+%q1v  = shrink %pg1 %u2 []
+%q1   = load %q1v
+%gt   = add %q0 %q1
+%stp  = mul %gt 0.125
+%wv   = shrink %w %uc []
+%wo   = load %wv
+%wn   = sub %wo %stp
+%sw   = store %wv %wn
+%eu   = end %sw %u
+%ec   = end %eu %c
+%w1   = after %w %ec

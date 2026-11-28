@@ -140,8 +140,8 @@ def run_uir_buffers(ex, code, tests):
 UIR_LOCK = threading.Lock()
 def run_uir(ex, code, tests, cfg):
   with UIR_LOCK:
-    m = re.match(r"w([0-9])-", ex['id'])
-    O.WEEK = int(m.group(1)) if m and m.group(1) != '0' else 9
+    m = re.match(r"w([0-9]+)-", ex['id'])
+    O.WEEK = int(m.group(1)) if m and m.group(1) != '0' else 10
     return run_uir_week(ex, code, tests, cfg)
 
 def run_uir_week(ex, code, tests, cfg):

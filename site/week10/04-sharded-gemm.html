@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A GEMM on two GPUs</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="You have written matrix multiply since week 3. Now you will split one across two devices, count every byte it moves, and add up a result that needs every...">
+<link rel="canonical" href="https://sharpterminal.com/site/week10/04-sharded-gemm">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="A GEMM on two GPUs">
+<meta property="og:description" content="You have written matrix multiply since week 3. Now you will split one across two devices, count every byte it moves, and add up a result that needs every device. Your compiler&#x27;s render-cuda has to...">
+<meta property="og:url" content="https://sharpterminal.com/site/week10/04-sharded-gemm">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<style>
+  .gp { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: flex-start; }
+  .gp .g { border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s2); background: var(--panel); }
+  .gp .lab { font: 0.875rem var(--sans); color: var(--ink-2); margin-bottom: var(--s1); }
+  .gp .dev > .lab { color: var(--ink); font-weight: 600; }
+  .gp .cells { display: flex; flex-direction: column; gap: 3px; }
+  .gp .c { font: 0.875rem var(--mono); text-align: center; width: 4.5rem; min-height: 2.125rem; padding: 6px 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+  .gp .c.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .gp .inner { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: flex-start; }
+</style>
+</head>
+<body data-crumbs="Week 10|A GEMM on two GPUs" data-root="../">
+<main>
+<p class="eyebrow">Week 10 · Lesson 4</p>
+<h1>A GEMM on two GPUs</h1>
+<p class="lede">You have written matrix multiply since week 3. Now you will split one across two devices, count every byte it moves, and add up a result that needs every device. Your compiler's <code>render-cuda</code> has to get all three right in the lab.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Decide which buffers of a program are sharded and which are replicated, count the bytes its device loop copies, and say why its answer has the same bits on any number of GPUs.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>The GEMM from <a href="../week3/03-gemm.html">lesson 3.3</a>, blocks and phases from <a href="../week8/02-global-and-local.html">8.2</a> and <a href="../week8/03-shared-memory.html">8.3</a>, the memory rule from <a href="02-device-loops.html">10.2</a>, and the four steps and the copy budget from <a href="03-moving-memory.html">10.3</a>. The exercises are <code>.uir</code>, the same on both tracks.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from lessons 10.2 and 10.3, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">A device loop of 2 only reads the buffer <code>w</code>, at offset <code>%b</code>, the block number. There is no <code>%d</code> in the offset. Where does <code>w</code> live?</p>
+<div class="opts">
+<button data-k="a">Sharded: each device gets half of it</button>
+<button data-k="b">Replicated: every device gets a whole copy</button>
+<button data-k="c">The program is rejected</button>
+</div>
+<p class="hint">Memory a loop only reads may be read anywhere. When is it sharded?</p>
+<div class="why"><p>Read-only memory is sharded only when every read is at <code>d·S + e</code>. Here none is.</p></div>
+</div>
+
+<div class="quiz" data-fill="3">
+<p class="q">The buffer <code>x</code> is sharded with <code>S = 8</code>. A kernel on device <code>d</code> loads element <code>8d + 3</code> of <code>x</code>. Which element of the device's own allocation is that?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">The allocation holds only the shard, which starts at element <code>8d</code> of the buffer.</p>
+<div class="why"><p>Element 3. Element <code>d·S + e</code> of the buffer is element <code>e</code> of the allocation, so the rendered kernel subtracts <code>d·S</code> from the offset.</p></div>
+</div>
+
+<h2>Decide who needs what</h2>
+<div class="prose">
+<p>Recall lesson 3.3: row <code>i</code> of <code>C = A @ B</code> is row <code>i</code> of A multiplied by every column of B. Take A with 8 rows and 4 columns, B with 4 rows and 4 columns, and C with 8 rows and 4 columns. Two devices share the work: device 0 makes rows 0 to 3 of C, and device 1 makes rows 4 to 7.</p>
+<p>Each device needs a copy of everything it reads. Decide before you read on.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Which of A, B and C can be cut in half, so that each device gets only its half, and which must every device have whole?</p>
+<div class="opts">
+<button data-k="a">All three can be cut in half</button>
+<button data-k="b">A and C are cut by rows. Every device needs all of B</button>
+<button data-k="c">B and C are cut. Every device needs all of A</button>
+<button data-k="d">Only C is cut. Every device needs all of A and all of B</button>
+</div>
+<p class="hint">Device 0 makes row 2 of C. Which rows of A does that use? Which columns of B?</p>
+<div class="why"><p>Row 2 of C uses only row 2 of A, but every column of B. So device 0 needs rows 0 to 3 of A and all of B. In lesson 10.2's words, A and C are <b>sharded</b> and B is <b>replicated</b>.</p></div>
+</div>
+
+<div class="fig" id="who" data-title="What each device needs for its rows of C"></div>
+
+<div class="prose">
+<p>A row of C and the row of A it comes from land on the same device. B is the price of this split: every device pays for a whole copy.</p>
+</div>
+
+<h2>Read the sharded GEMM</h2>
+<div class="prose">
+<p>Here is the test <code>tests/week10/render/c_shard_gemm.uir</code>, without its comment line and with the numbers in A and B left out (<code>...</code>):</p>
+</div>
+<pre><code># cuda copy: 512
+%A    = buffer 32 [...] dtype=f32 slot=0
+%B    = buffer 16 [...] dtype=f32 slot=1
+%C    = buffer 32 dtype=f32 slot=2
+%acc  = alloc 4 dtype=f32
+%d    = range 2 axis=device
+%b    = range 4 axis=global
+%t    = range 4 axis=local
+%k    = range 4
+%ds   = mul %d 16
+%br   = mul %b 4
+%ao0  = add %ds %br
+%ao   = add %ao0 %k
+%av   = shrink %A %ao []
+%a    = load %av
+%bo0  = mul %k 4
+%bo   = add %bo0 %t
+%bv   = shrink %B %bo []
+%bb   = load %bv
+%cv   = shrink %acc %t []
+%cur  = load %cv
+%p    = mul %a %bb
+%sum  = add %cur %p
+%st   = store %cv %sum
+%ek   = end %st %k
+%et   = end %ek %t
+%acc1 = after %acc %et
+%u    = range 4 axis=local
+%rv   = shrink %acc1 %u []
+%res  = load %rv
+%co0  = add %ds %br
+%co   = add %co0 %u
+%ov   = shrink %C %co []
+%sc   = store %ov %res
+%eu   = end %sc %u
+%eb   = end %et %eu %b
+%ed   = end %eb %d
+%C1   = after %C %ed</code></pre>
+<div class="prose">
+<ol>
+<li><strong>Split the work.</strong> Device <code>d</code> runs 4 blocks. Block <code>b</code> makes row <code>4d + b</code> of C, and thread <code>t</code> makes column <code>t</code> of that row.</li>
+<li><strong>Find the row.</strong> <code>%ds</code> is <code>16d</code>, where the device's rows start. <code>%br</code> is <code>4b</code>, the block's row within them.</li>
+<li><strong>Read A.</strong> <code>16d + 4b + k</code> is row <code>4d + b</code>, column <code>k</code>. It is <code>d·16 + e</code> with <code>e = 4b + k</code> between 0 and 15, so A follows the slice rule with <code>S = 16</code>. A is sharded.</li>
+<li><strong>Read B.</strong> <code>4k + t</code> is row <code>k</code>, column <code>t</code>. It has no <code>d</code>, so B is replicated.</li>
+<li><strong>Add up.</strong> Thread <code>t</code> adds <code>A[row, k] · B[k, t]</code> into <code>acc[t]</code> for <code>k</code> from 0 to 3, the dot product of lesson 3.3.</li>
+<li><strong>Write C.</strong> A second phase stores <code>acc[u]</code> at <code>16d + 4b + u</code>. C is written at <code>d·16 + e</code>, and 2 shards of 16 fit in 32 elements. C is sharded.</li>
+</ol>
+</div>
+
+<div class="quiz" data-fill="27">
+<p class="q">Device 1, block 2, <code>k = 3</code>. Which element of A does it load?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>16d + 4b + k</code>.</p>
+<div class="why"><p>16 + 8 + 3 = 27, which is row 6, column 3. It is inside device 1's shard, elements 16 to 31, so it is element 11 of device 1's allocation of A.</p></div>
+</div>
+
+<details class="toggle"><summary>The whole kernel the reference prints, for when you compare it with your own</summary><div class="prose">
+<p>This is the output of <code>python _reference/uirc.py render-cuda tests/week10/render/c_shard_gemm.uir</code> with the helper functions at the top left out. <code>r6</code> is the device index, <code>b0</code> is A and <code>b1</code> is B. The load of A, <code>v18</code>, has the shard's start, <code>r6 * 16</code>, subtracted. The load of B, <code>v22</code>, uses its offset as it is, because every device has all of B.</p>
+<pre><code>__global__ void k0(float *__restrict__ b0, float *__restrict__ b1, float *__restrict__ b2, int32_t r6, int32_t v7) {
+  int32_t r8 = blockIdx.x;
+  float a9[1] = {0};
+  int32_t v10 = (int32_t)((uint32_t)r8 * (uint32_t)4);
+  int32_t v11 = (int32_t)((uint32_t)v7 + (uint32_t)v10);
+  {
+    int32_t r12 = threadIdx.x;
+    for (int32_t r14 = 0; r14 &lt; 4; r14++) {
+      float v15 = a9[(int32_t)((uint32_t)(r12) - (uint32_t)r12 * 1u)];
+      int32_t v16 = (int32_t)((uint32_t)v11 + (uint32_t)r14);
+      float v18 = b0[(int32_t)((uint32_t)(v16) - (uint32_t)r6 * 16u)];
+      int32_t v19 = (int32_t)((uint32_t)r14 * (uint32_t)4);
+      int32_t v20 = (int32_t)((uint32_t)v19 + (uint32_t)r12);
+      float v22 = b1[v20];
+      float v23 = (v18 * v22);
+      float v24 = (v15 + v23);
+      a9[(int32_t)((uint32_t)(r12) - (uint32_t)r12 * 1u)] = v24;
+    }
+  }
+  __syncthreads();
+  {
+    int32_t r27 = threadIdx.x;
+    int32_t v28 = (int32_t)((uint32_t)v11 + (uint32_t)r27);
+    float v31 = a9[(int32_t)((uint32_t)(r27) - (uint32_t)r27 * 1u)];
+    b2[(int32_t)((uint32_t)(v28) - (uint32_t)r6 * 16u)] = v31;
+  }
+  __syncthreads();
+}</code></pre>
+<p><code>v7</code> is <code>%ds</code>, computed on the host and passed in. <code>acc</code> is per-thread memory (lesson 9.1), so it became <code>a9[1]</code>, one sum for each thread.</p>
+</div></details>
+
+<h2>Count the bytes it moves</h2>
+<div class="prose">
+<p>Recall lesson 10.3: the scatter sends each device its shard of a sharded buffer and all of a replicated one, and the gather brings back the shards the loop wrote. Count it by hand.</p>
+</div>
+
+<div class="quiz" data-fill="512">
+<p class="q">An f32 is 4 bytes. How many bytes does the device loop copy between devices, out and back, over both devices?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Each device gets 16 floats of each buffer: its shard of A, all of B, its shard of C. Then C's shards come back.</p>
+<div class="why"><p>8 copies of 64 bytes is 512, the number in the test's <code># cuda copy: 512</code> line. A compiler that moves more fails the test, even with the right bits.</p></div>
+</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>buffer</th><th>lives</th><th>scatter</th><th>gather</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>sharded</td><td>2 × 16 × 4 = 128</td><td>0, never written</td></tr>
+<tr><td>B</td><td>replicated</td><td>2 × 16 × 4 = 128</td><td>0, never written</td></tr>
+<tr><td>C</td><td>sharded</td><td>2 × 16 × 4 = 128</td><td>2 × 16 × 4 = 128</td></tr>
+<tr><td>total</td><td></td><td>384</td><td>128</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<p>C is copied out as well as back. The rule of lesson 10.3 scatters every buffer the loop touches, because a kernel may leave some elements of its shard unwritten, and those must come back unchanged.</p>
+<p>Now suppose every device got a whole copy of A, B and C, and sent back only its own rows of C. A costs 2 × 32 × 4 = 256, B 128, C 256 in and 128 back: 768 bytes. Sharding A and C saved a third. The bigger A and C are, the more it saves. B's copies are what is left to pay.</p>
+</div>
+
+<details class="toggle"><summary>The host function the reference prints, where you can see each copy</summary><div class="prose">
+<p>From <code>render-cuda</code> for the same program, with the comment after the first line left out. The last argument of each <code>UIR_COPY</code> is its size in bytes: 8 copies of 64.</p>
+<pre><code>void kernel(float *b0, float *b1, float *b2) {
+  float *s0_[2];
+  float *s1_[2];
+  float *s2_[2];
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    s0_[r6] = (float *)UIR_ALLOC(r6, 16 * sizeof(float));
+    UIR_COPY(r6, s0_[r6], 0, b0 + r6 * 16, 16 * sizeof(float));
+    s1_[r6] = (float *)UIR_ALLOC(r6, 16 * sizeof(float));
+    UIR_COPY(r6, s1_[r6], 0, b1, 16 * sizeof(float));
+    s2_[r6] = (float *)UIR_ALLOC(r6, 16 * sizeof(float));
+    UIR_COPY(r6, s2_[r6], 0, b2 + r6 * 16, 16 * sizeof(float));
+  }
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_DEVICE(r6);
+    int32_t v7 = (int32_t)((uint32_t)r6 * (uint32_t)16);
+    UIR_LAUNCH(k0, 4, 4, s0_[r6], s1_[r6], s2_[r6], r6, v7);
+  }
+  UIR_SYNC();
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_FREE(r6, s0_[r6]);
+    UIR_FREE(r6, s1_[r6]);
+    UIR_COPY(0, b2 + r6 * 16, r6, s2_[r6], 16 * sizeof(float));
+    UIR_FREE(r6, s2_[r6]);
+  }
+  UIR_DEVICE(0);
+}</code></pre>
+</div></details>
+
+<details class="toggle"><summary>The count for any size, for when you plan a bigger GEMM</summary><div class="prose">
+<p>For A with <code>n</code> rows and <code>k</code> columns, B with <code>k</code> rows and <code>m</code> columns, and <code>D</code> devices, with 4-byte floats, the sharded GEMM moves:</p>
+<ul>
+<li>A: <code>4nk</code> bytes, each row once, whatever <code>D</code> is.</li>
+<li>B: <code>4Dkm</code> bytes, a whole copy for every device.</li>
+<li>C: <code>4nm</code> in and <code>4nm</code> back.</li>
+</ul>
+<p>The work is <code>2nkm</code> float operations. So when <code>n</code> is large, the work per byte is high and more devices help. When B is large and <code>n</code> is small, B's copies take over, and each new device adds a whole B. Cutting B by columns instead does not work in this week's rule: a device's columns of C are not one piece of the buffer at <code>d·S + e</code>, so the stores are rejected.</p>
+</div></details>
+
+<h2>Fix a sharded GEMM</h2>
+<div class="prose">
+<p>This program is the sharded GEMM with one line added and one changed. Rows 0 to 3 of C come out right. Rows 4 to 7 do not. It still runs, because the wrong offset only reads, so the compiler quietly replicated A: it moves 640 bytes where the test allows 512.</p>
+</div>
+
+<div class="exercise" data-ex="w10-04n-fix-gemm">
+<h3>Fix the sharded GEMM</h3>
+<p>One buffer's offset is wrong. Find it and repair it, so that device <code>d</code> reads the same rows of A as the rows of C it makes. Each test fills A and B with different numbers and checks all of C.</p>
+</div>
+
+<h2>A result that needs every device</h2>
+<div class="prose">
+<p>A sum of 16 numbers on two devices has a problem the GEMM did not: no device has all the numbers. The test <code>c_partial_sums.uir</code> solves it in two steps, on 16 i32 numbers.</p>
+</div>
+
+<div class="prose">
+<ol>
+<li><strong>Partial sums.</strong> On each device one thread adds its 8 elements, <code>x[8d + k]</code>, into <code>acc</code>, then stores the sum at <code>p[d]</code>. A <b>partial sum</b> is the sum of one shard. <code>p</code> is written at <code>d·1 + 0</code>, so each device's shard of <code>p</code> is one element.</li>
+<li><strong>Gather.</strong> When the device loop ends, <code>p</code> is whole again on device 0: -15 from device 0 and 11 from device 1.</li>
+<li><strong>Total.</strong> The last global loop is outside any device loop, so it runs on device 0, as in week 8. It adds <code>p[0]</code> and <code>p[1]</code> into <code>tot</code>: -4.</li>
+</ol>
+</div>
+
+<details class="toggle"><summary>The whole program, for when you write the partial maximum below</summary><div class="prose">
+<pre><code># cuda copy: 80
+%x    = buffer 16 [-7 -5 3 9 2 -5 -6 -6 5 -4 -3 2 4 4 5 -2] dtype=i32 slot=0
+%p    = buffer 2 dtype=i32 slot=1
+%tot  = buffer 1 dtype=i32 slot=2
+%acc  = alloc 1 dtype=i32
+%d    = range 2 axis=device
+%b    = range 1 axis=global
+%t    = range 1 axis=local
+%k    = range 8
+%ds   = mul %d 8
+%i    = add %ds %k
+%xv   = shrink %x %i []
+%xe   = load %xv
+%tb   = add %t %b
+%av   = shrink %acc %tb []
+%cur  = load %av
+%sum  = add %cur %xe
+%st   = store %av %sum
+%ek   = end %st %k
+%et   = end %ek %t
+%acc1 = after %acc %et
+%u    = range 1 axis=local
+%ub   = add %u %b
+%rv   = shrink %acc1 %ub []
+%res  = load %rv
+%po   = add %d %ub
+%pv   = shrink %p %po []
+%sp   = store %pv %res
+%eu   = end %sp %u
+%eb   = end %et %eu %b
+%ed   = end %eb %d
+%p1   = after %p %ed
+%g    = range 1 axis=global
+%w    = range 1 axis=local
+%q0   = shrink %p1 %w []
+%a0   = load %q0
+%w1   = add %w 1
+%q1   = shrink %p1 %w1 []
+%a1   = load %q1
+%s2   = add %a0 %a1
+%wg   = add %w %g
+%tv   = shrink %tot %wg []
+%stt  = store %tv %s2
+%ew   = end %stt %w
+%eg   = end %ew %g
+%tot1 = after %tot %eg</code></pre>
+</div></details>
+
+<div class="quiz" data-fill="80">
+<p class="q">An i32 is 4 bytes. Count the bytes this program copies between devices. (The device loop never touches <code>tot</code>.)</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint"><code>x</code> is read with <code>S = 8</code>. <code>p</code> is written with <code>S = 1</code>, so it goes out and comes back.</p>
+<div class="why"><p><code>x</code>: 2 × 8 × 4 = 64. <code>p</code>: 2 × 1 × 4 = 8 out and 8 back. 64 + 16 = 80, the test's budget. The total on device 0 needs no copy at all.</p></div>
+</div>
+
+<h2>The order of a sum is in the program</h2>
+<div class="prose">
+<p>Now make the same program add f32 numbers: <code>x</code> is 4 floats, each device adds 2 of them, and the last kernel adds the two partial sums. One fact about f32 you need: numbers near 100,000,000 are 8 apart, so 100,000,000 + 1 rounds back to 100,000,000.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q"><code>x</code> is [100000000, 1, -100000000, 1]. Device 0 adds the first two, device 1 the last two, and device 0 adds the two partial sums. What ends up in <code>tot</code>?</p>
+<div class="opts">
+<button data-k="a">2, the exact sum</button>
+<button data-k="b">1</button>
+<button data-k="c">0</button>
+<button data-k="d">It depends on how many GPUs the machine has</button>
+</div>
+<p class="hint">Work out each partial sum with the rounding fact, then add them.</p>
+<div class="why"><p>Device 0: 100000000 + 1 rounds to 100000000. Device 1: -100000000 + 1 rounds to -100000000. Their sum is 0. A plain loop that adds left to right gives 1 instead: (100000000 + 1) - 100000000 is 0, then + 1.</p></div>
+</div>
+
+<div class="prose">
+<p>With rounding, a different order can give different bits. But the order here is written in the program: each device adds its shard from <code>k = 0</code> up, then device 0 adds <code>p[0]</code> and <code>p[1]</code>. A device loop means the same as a plain loop, so that order is the same on one GPU, on two, and in the emulator, and the answer is 0 on all of them.</p>
+<p>That is why the grader can ask for the oracle's bits exactly. With i32 order never matters: adding with wraparound gives the same bits in any order.</p>
+</div>
+
+<details class="toggle"><summary>The f32 program, for when you want to run it</summary><div class="prose">
+<p>Save it and run <code>python _reference/uirc.py render-cuda FILE</code>. Its device loop moves 32 bytes. Add a <code># cuda copy: 32</code> line on top and <code>python tools/test.py --week 10 --check-tests DIR</code>, with <code>DIR</code> the folder you saved it in, runs it in the emulator against the oracle.</p>
+<pre><code>%x    = buffer 4 [100000000.0 1.0 -100000000.0 1.0] dtype=f32 slot=0
+%p    = buffer 2 dtype=f32 slot=1
+%tot  = buffer 1 dtype=f32 slot=2
+%acc  = alloc 1 dtype=f32
+%d    = range 2 axis=device
+%b    = range 1 axis=global
+%t    = range 1 axis=local
+%k    = range 2
+%ds   = mul %d 2
+%i    = add %ds %k
+%xv   = shrink %x %i []
+%xe   = load %xv
+%tb   = add %t %b
+%av   = shrink %acc %tb []
+%cur  = load %av
+%sum  = add %cur %xe
+%st   = store %av %sum
+%ek   = end %st %k
+%et   = end %ek %t
+%acc1 = after %acc %et
+%u    = range 1 axis=local
+%ub   = add %u %b
+%rv   = shrink %acc1 %ub []
+%res  = load %rv
+%po   = add %d %ub
+%pv   = shrink %p %po []
+%sp   = store %pv %res
+%eu   = end %sp %u
+%eb   = end %et %eu %b
+%ed   = end %eb %d
+%p1   = after %p %ed
+%g    = range 1 axis=global
+%w    = range 1 axis=local
+%q0   = shrink %p1 %w []
+%a0   = load %q0
+%w1   = add %w 1
+%q1   = shrink %p1 %w1 []
+%a1   = load %q1
+%s2   = add %a0 %a1
+%wg   = add %w %g
+%tv   = shrink %tot %wg []
+%stt  = store %tv %s2
+%ew   = end %stt %w
+%eg   = end %ew %g
+%tot1 = after %tot %eg</code></pre>
+<p>The reference gives <code>p = [100000000.0 -100000000.0]</code> and <code>tot = [0.0]</code>. A single plain loop over the 4 elements gives 1.0.</p>
+<p>Change the program to 4 devices of 1 element each and it is a different program with a different order. Its bits may differ from the 2-device program's, but the oracle runs that new program too, so your compiler must still match it. Some real multi-GPU libraries choose the order of a sum at run time, from the number of GPUs and how they are wired, so their results can change from machine to machine. This course's design rules that out.</p>
+</div></details>
+
+<h2>Write a partial maximum</h2>
+<div class="prose">
+<p>The same two steps find the largest element: each device finds the largest in its shard, then device 0 takes the larger of the two. One catch: <code>acc</code> starts at 0, which is larger than any negative number, so at <code>k = 0</code> the kernel must take the element itself. <code>where</code> picks between two values: <code>%new = where %first %xe %big</code> is <code>%xe</code> when <code>%first</code> is true.</p>
+</div>
+
+<div class="exercise" data-ex="w10-04n-partial-max">
+<h3>The largest element, on two devices</h3>
+<p>The starter declares <code>x</code> (16 i32), <code>p</code> (2), <code>m</code> (1) and <code>acc</code>. Write a device loop of 2 in which device <code>d</code> stores the largest of <code>x[8d]</code> to <code>x[8d + 7]</code> at <code>p[d]</code>, then a kernel after it that stores the larger of <code>p[0]</code> and <code>p[1]</code> at <code>m[0]</code>. Model it on <code>c_partial_sums</code>. The tests check <code>m</code>, and some check <code>p</code>, on inputs that include all negative numbers.</p>
+</div>
+
+<h2>Two kernels on one device</h2>
+<div class="prose">
+<p>A device loop may hold more than one kernel. Each device launches them in program order. In <code>c_two_kernels_per_device.uir</code> the first kernel writes <code>tmp = x + 1</code> and the second writes <code>o = tmp · tmp</code>, each on the device's shard of 8 elements. Both global loops sit inside one device loop.</p>
+</div>
+
+<div class="prose">
+<p>The second kernel reads <code>tmp</code> through <code>%tmp1</code>, the version after the first kernel. Between the two launches <code>tmp</code> stays on the device. The budget is 320: <code>x</code> 64 out, <code>tmp</code> 64 out and 64 back, <code>o</code> 64 out and 64 back.</p>
+</div>
+
+<details class="toggle"><summary>The whole program</summary><div class="prose">
+<pre><code># cuda copy: 320
+%x    = buffer 16 [-1 -5 7 -4 -6 -1 5 0 -4 -4 -4 6 2 1 4 -2] dtype=i32 slot=0
+%tmp  = buffer 16 dtype=i32 slot=1
+%o    = buffer 16 dtype=i32 slot=2
+%d    = range 2 axis=device
+%b    = range 2 axis=global
+%t    = range 4 axis=local
+%ds   = mul %d 8
+%m    = mul %b 4
+%e    = add %m %t
+%i    = add %ds %e
+%xv   = shrink %x %i []
+%xe   = load %xv
+%y    = add %xe 1
+%tv   = shrink %tmp %i []
+%s    = store %tv %y
+%et   = end %s %t
+%eb   = end %et %b
+%tmp1 = after %tmp %eb
+%c    = range 2 axis=global
+%u    = range 4 axis=local
+%m2   = mul %c 4
+%e2   = add %m2 %u
+%j    = add %ds %e2
+%tv2  = shrink %tmp1 %j []
+%te   = load %tv2
+%z    = mul %te %te
+%ov   = shrink %o %j []
+%s2   = store %ov %z
+%eu   = end %s2 %u
+%ec   = end %eu %c
+%ed   = end %eb %ec %d
+%o1   = after %o %ed
+%tmp2 = after %tmp %ed</code></pre>
+</div></details>
+
+<div class="quiz" data-fill="384">
+<p class="q">Split it into two device loops: the first ends after it writes <code>tmp</code>, and the second reads <code>tmp</code> and writes <code>o</code>. Between them all memory is whole on device 0 again. How many bytes do the two loops copy?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Count each loop on its own.</p>
+<div class="why"><p>Loop 1: <code>x</code> 64, <code>tmp</code> 64 out and 64 back, 192. Loop 2: <code>tmp</code> 64 out again, <code>o</code> 64 out and 64 back, 192. 384 in all, 64 more than one loop: <code>tmp</code> made a round trip through device 0 for nothing.</p></div>
+</div>
+
+<div class="prose">
+<p>On 64 bytes that is nothing. On a model's activations it can turn a speedup into a slowdown, so keep work on the devices as long as you can.</p>
+</div>
+
+<h2>What you can do now</h2>
+<div class="prose">
+<ul>
+<li>Split a GEMM by rows: A and C sharded, B replicated, and read that from the offsets.</li>
+<li>Count the bytes a device loop copies and check the count against a <code># cuda copy:</code> line.</li>
+<li>Add up a result in two steps, partial results on each device and a total on device 0, and say why its bits do not depend on the number of GPUs.</li>
+<li>Keep data on a device between kernels with one device loop.</li>
+</ul>
+<p>Next, <a href="05-training-on-many.html">lesson 10.5</a> sums gradients this way to train on several GPUs.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-fill="1024">
+<p class="q">The same sharded GEMM on 4 devices: A is 16 rows by 4 columns, B is 4 by 4, C is 16 by 4, all f32. Each device makes 4 rows of C. How many bytes does the device loop copy?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">A goes out once in total. B goes out once for every device. C goes out and comes back.</p>
+<div class="why"><p>A: 64 × 4 = 256. B: 4 × 16 × 4 = 256. C: 256 out and 256 back. 1024 in all, which is what the reference moves for this program.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Could the GEMM be split by columns instead, with device <code>d</code> making columns <code>2d</code> and <code>2d + 1</code> of C, which has 4 columns?</p>
+<div class="opts">
+<button data-k="a">Yes, with A replicated and B sharded</button>
+<button data-k="b">Not this week: C's offset <code>4i + 2d + j</code> is not <code>d·S + e</code> with <code>e</code> inside one shard, so the stores are rejected</button>
+<button data-k="c">Yes, but it gives different bits</button>
+</div>
+<p class="hint">With <code>S = 2</code>, what is the largest <code>e</code> in <code>4i + j</code>?</p>
+<div class="why"><p>A device's columns are spread over every row of the buffer, not one piece of it. <code>e = 4i + j</code> reaches 29, far past <code>S = 2</code>, and written memory must follow the slice rule.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Your compiler renders <code>c_partial_sums</code> and gets the right <code>tot</code>, but it copies all of <code>x</code> to both devices. What does the test say?</p>
+<div class="opts">
+<button data-k="a">It fails: 144 bytes is over the budget of 80</button>
+<button data-k="b">It passes, because the bits are right</button>
+<button data-k="c">It fails, because the bits are wrong</button>
+</div>
+<p class="hint">2 devices, 16 elements of 4 bytes, plus <code>p</code>.</p>
+<div class="why"><p>2 × 16 × 4 = 128 for <code>x</code>, plus 16 for <code>p</code>, is 144. The results are the same, so only the budget can tell.</p></div>
+</div>
+
+<nav class="pager"></nav>
+</main>
+<script src="../assets/course.js?v=f8627300fd"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const rows = (name, n, on, from) => h('div', { class: 'g' }, [h('div', { class: 'lab', text: name }), h('div', { class: 'cells' }, Array.from({ length: n }, (_, i) => h('div', { class: 'c' + (on && on(i + (from || 0)) ? ' on' : ''), text: 'row ' + (i + (from || 0)) })))]);
+  const whole = (onA, onB, onC) => h('div', { class: 'gp' }, [rows('A', 8, onA), rows('B', 4, onB), rows('C', 8, onC)]);
+  const dev = (d) => h('div', { class: 'g dev' }, [h('div', { class: 'lab', text: 'device ' + d }), h('div', { class: 'inner' }, [rows('A, rows ' + 4 * d + ' to ' + (4 * d + 3), 4, null, 4 * d), rows('B, all of it', 4), rows('C, rows ' + 4 * d + ' to ' + (4 * d + 3), 4, null, 4 * d)])]);
+  const steps = [
+    { caption: 'The three matrices, whole, on device 0, where <code>kernel(...)</code> receives them.', draw: () => whole() },
+    { caption: 'Device 0 makes rows 0 to 3 of C (dark). It needs rows 0 to 3 of A and every row of B (dark).', draw: () => whole(i => i < 4, () => true, i => i < 4) },
+    { caption: 'Device 1 makes rows 4 to 7 of C. It needs rows 4 to 7 of A and, again, every row of B.', draw: () => whole(i => i >= 4, () => true, i => i >= 4) },
+    { caption: 'What each device gets: half of A, all of B, and its half of C. A and C are sharded with <code>S = 16</code> elements. B is replicated.', draw: () => h('div', { class: 'gp' }, [dev(0), dev(1)]) },
+  ];
+  CC.stepper(document.getElementById('who'), steps, (s, body) => body.append(s.draw()));
+});
+</script>
+</body>
+</html>

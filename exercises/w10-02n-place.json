@@ -1,0 +1,58 @@
+{
+ "id": "w10-02n-place",
+ "lang": "ocaml",
+ "title": "Where does a buffer live?",
+ "show": "string_of_int",
+ "starter": "let place (n : int) (size : int) (accesses : (bool * int * int * int) list) : int =\n  0\n",
+ "hints": [
+  "First check every access on its own: a stride `s` of at least 1, `lo >= 0` and `hi + 1 <= s`. Then check that all strides are the same, and that `n * s <= size`.",
+  "If all of that holds, the buffer is sharded: return `s`. If not, the answer depends on one thing only: does any access write?",
+  "Written and broken gives `-1`. Only read and broken gives `0`, replicated: every device gets the whole buffer."
+ ],
+ "explain": "A buffer is sharded when every access follows `d·S + e` with one `S`, each `e` stays in `[0, S)`, and the `n` shards fit in the buffer. Then the answer is `S`. When any of that fails, a buffer the loop writes is rejected, since two devices could write the same element, and a buffer it only reads is replicated, since reading is always safe.",
+ "tests": [
+  {
+   "expr": "place 2 16 [(true, 8, 0, 7)]",
+   "expect": "8",
+   "sample": true
+  },
+  {
+   "expr": "place 2 16 [(false, 0, 0, 0)]",
+   "expect": "0",
+   "sample": true
+  },
+  {
+   "expr": "place 2 16 [(true, 0, 0, 7)]",
+   "expect": "-1",
+   "sample": true
+  },
+  {
+   "expr": "place 2 16 [(false, 8, 0, 7); (true, 8, 0, 7)]",
+   "expect": "8"
+  },
+  {
+   "expr": "place 2 16 [(true, 4, 0, 7)]",
+   "expect": "-1"
+  },
+  {
+   "expr": "place 3 10 [(true, 4, 0, 1)]",
+   "expect": "-1"
+  },
+  {
+   "expr": "place 3 10 [(false, 4, 0, 1)]",
+   "expect": "0"
+  },
+  {
+   "expr": "place 2 32 [(false, 16, 0, 7); (true, 8, 0, 7)]",
+   "expect": "-1"
+  },
+  {
+   "expr": "place 2 32 [(false, 16, 0, 7); (false, 8, 0, 7)]",
+   "expect": "0"
+  },
+  {
+   "expr": "place 2 10 [(false, 4, 0, 3)]",
+   "expect": "4"
+  }
+ ]
+}

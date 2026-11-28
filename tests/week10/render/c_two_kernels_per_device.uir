@@ -1,0 +1,35 @@
+# cuda copy: 320
+# two kernels in a row on each device: the second reads what the first wrote, without the data leaving the device in between
+%x    = buffer 16 [-1 -5 7 -4 -6 -1 5 0 -4 -4 -4 6 2 1 4 -2] dtype=i32 slot=0
+%tmp  = buffer 16 dtype=i32 slot=1
+%o    = buffer 16 dtype=i32 slot=2
+%d    = range 2 axis=device
+%b    = range 2 axis=global
+%t    = range 4 axis=local
+%ds   = mul %d 8
+%m    = mul %b 4
+%e    = add %m %t
+%i    = add %ds %e
+%xv   = shrink %x %i []
+%xe   = load %xv
+%y    = add %xe 1
+%tv   = shrink %tmp %i []
+%s    = store %tv %y
+%et   = end %s %t
+%eb   = end %et %b
+%tmp1 = after %tmp %eb
+%c    = range 2 axis=global
+%u    = range 4 axis=local
+%m2   = mul %c 4
+%e2   = add %m2 %u
+%j    = add %ds %e2
+%tv2  = shrink %tmp1 %j []
+%te   = load %tv2
+%z    = mul %te %te
+%ov   = shrink %o %j []
+%s2   = store %ov %z
+%eu   = end %s2 %u
+%ec   = end %eu %c
+%ed   = end %eb %ec %d
+%o1   = after %o %ed
+%tmp2 = after %tmp %ed

@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moving memory</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="Your compiler can check and run device loops, but render-cuda does not know them yet. A kernel on device 1 can only read device 1&#x27;s memory, so the host has to...">
+<link rel="canonical" href="https://sharpterminal.com/site/week10/03-moving-memory">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Moving memory">
+<meta property="og:description" content="Your compiler can check and run device loops, but render-cuda does not know them yet. A kernel on device 1 can only read device 1&#x27;s memory, so the host has to move data there and bring results back...">
+<meta property="og:url" content="https://sharpterminal.com/site/week10/03-moving-memory">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+<style>
+  .mm { display: flex; flex-direction: column; gap: var(--s3); }
+  .mm .g { border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--s3); background: var(--panel); }
+  .mm .t { font: 500 0.875rem var(--sans); color: var(--ink); margin-bottom: var(--s2); }
+  .mm .r { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); align-items: start; gap: var(--s2); margin-top: 6px; }
+  .mm .k { font: 0.875rem var(--mono); color: var(--ink-2); padding-top: 5px; }
+  .mm .cells { display: flex; flex-wrap: wrap; gap: 3px; max-width: 22.5rem; }
+  .mm .c { font: 0.875rem var(--mono); text-align: center; min-width: 2.5rem; padding: 4px 2px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+  @container (max-width: 34rem) { .mm .r { grid-template-columns: minmax(0, 1fr); gap: 2px; } .mm .k { padding-top: 0; } .mm .g { padding: var(--s2); } .mm .c { min-width: 2.125rem; padding: 4px 1px; } }
+  .mm .c.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .mm .none { font: 0.875rem var(--sans); color: var(--ink-2); }
+</style>
+</head>
+<body data-crumbs="Week 10|Moving memory" data-root="../">
+<main>
+<p class="eyebrow">Week 10 · Lesson 3</p>
+<h1>Moving memory</h1>
+<p class="lede">Your compiler can check and run device loops, but <code>render-cuda</code> does not know them yet. A kernel on device 1 can only read device 1's memory, so the host has to move data there and bring results back. Here you learn the four steps it prints for that, and how the grader counts the bytes.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Read a device loop and say the lines <code>render-cuda</code> prints for it, and how many bytes they move.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Rendering CUDA and <code>UIR_LAUNCH</code>, from <a href="../week8/04-rendering-cuda.html">lesson 8.4</a>. The slice rule <code>r * S + e</code>, from <a href="../week7/04-threads.html">lesson 7.4</a> and <a href="../week9/01-registers.html">lesson 9.1</a>. Device loops, shards and replicated buffers, from <a href="02-device-loops.html">lesson 10.2</a>.</p>
+<p class="only-python">In the exercises: <code>if</code>, loops and tuples (<a href="../learn/py-02-decisions-loops.html">P.2</a>, <a href="../learn/py-03-collections.html">P.3</a>).</p>
+<p class="only-ocaml">In the exercises: <code>if</code>, tuples and <code>List.fold_left</code> (<a href="../learn/ml-03-lists-matching.html">O.3</a>).</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Two questions from earlier lessons, from memory. Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">A loop over 2 devices reads <code>x</code> (16 elements) at <code>d*8 + e</code>, with <code>e</code> from 0 to 7, and <code>w</code> (2 elements) at the block number <code>b</code>. Where do they live?</p>
+<div class="opts">
+<button data-k="a">Both are sharded</button>
+<button data-k="b"><code>x</code> is sharded with <code>S = 8</code>, and <code>w</code> is replicated</button>
+<button data-k="c"><code>x</code> is replicated, and <code>w</code> is sharded</button>
+</div>
+<p class="hint">A read-only buffer is sharded only when every read of it has the form <code>d*S + e</code>.</p>
+<div class="why"><p>Every read of <code>x</code> follows the slice rule with <code>S = 8</code>, and 2 shards of 8 fit in 16. The read of <code>w</code> does not use <code>d</code>, so <code>w</code> is replicated.</p></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">In week 8, what did the host function <code>kernel</code> print for a program with one <code>global</code> loop of 2 blocks of 4 threads?</p>
+<div class="opts">
+<button data-k="a">One line: <code>UIR_LAUNCH(k0, 2, 4, b0, b1);</code></button>
+<button data-k="b">A copy of each buffer to the GPU, then the launch</button>
+<button data-k="c">A loop over the 2 blocks, with one launch each</button>
+</div>
+<p class="hint">Where were the buffers when <code>kernel</code> was called?</p>
+<div class="why"><p>The buffers were already on the GPU, so one launch line was enough. With several devices that is no longer true.</p></div>
+</div>
+
+<div class="prose">
+<h2>Device 1 needs its numbers first</h2>
+<p>Here is <code>tests/week10/render/c_shard_scale.uir</code>. Two devices each scale their own half of <code>x</code> by a weight from <code>w</code>, and store the result in <code>o</code>:</p>
+<pre><code>%x  = buffer 16 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16] dtype=i32 slot=0
+%w  = buffer 2 [10 100] dtype=i32 slot=1
+%o  = buffer 16 dtype=i32 slot=2
+%d  = range 2 axis=device
+%b  = range 2 axis=global
+%t  = range 4 axis=local
+%ds = mul %d 8
+%m  = mul %b 4
+%e  = add %m %t
+%i  = add %ds %e
+%xv = shrink %x %i []
+%xe = load %xv
+%wv = shrink %w %b []
+%we = load %wv
+%y  = mul %xe %we
+%ov = shrink %o %i []
+%s  = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%ed = end %eb %d
+%o1 = after %o %ed</code></pre>
+<p>The host function <code>python _reference/uirc.py render-cuda</code> prints for it, one comment left out and six lines hidden:</p>
+<pre><code>void kernel(int32_t *b0, int32_t *b1, int32_t *b2) {
+  int32_t *s0_[2];
+  int32_t *s1_[2];
+  int32_t *s2_[2];
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    ______________________________
+    ______________________________
+    ______________________________
+    ______________________________
+    ______________________________
+    ______________________________
+  }
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_DEVICE(r6);
+    int32_t v7 = (int32_t)((uint32_t)r6 * (uint32_t)8);
+    UIR_LAUNCH(k0, 2, 4, s0_[r6], s1_[r6], s2_[r6], r6, v7);
+  }
+  UIR_SYNC();
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_FREE(r6, s0_[r6]);
+    UIR_FREE(r6, s1_[r6]);
+    UIR_COPY(0, b2 + r6 * 8, r6, s2_[r6], 8 * sizeof(int32_t));
+    UIR_FREE(r6, s2_[r6]);
+  }
+  UIR_DEVICE(0);
+}</code></pre>
+<p>The buffers <code>b0</code>, <code>b1</code> and <code>b2</code> are <code>x</code>, <code>w</code> and <code>o</code>. When <code>kernel</code> is called, all three are on device 0.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Device 1 is about to run a kernel that reads <code>x[8]</code> to <code>x[15]</code>. What has to happen first?</p>
+<div class="opts">
+<button data-k="a">Nothing. Device 1 reads them from device 0's memory.</button>
+<button data-k="b">Device 1 gets memory of its own, and <code>x[8]</code> to <code>x[15]</code> are copied into it</button>
+<button data-k="c">All of device 0's memory is copied to device 1</button>
+</div>
+<p class="hint">Lesson 10.1's one hard fact: what do devices not share?</p>
+<div class="why"><p>Devices do not share memory. So the host gets room on device 1 and copies its shard of <code>x</code> in. The hidden lines do that.</p></div>
+</div>
+
+<div class="prose">
+<p>The host function is week 8's launch with steps around it, four in all: <b>scatter</b>, <b>launch</b>, <b>wait</b> and <b>gather</b>. The next screens take one step each.</p>
+</div>
+
+<div class="fig" id="steps" data-title="c_shard_scale on two devices"></div>
+
+<div class="prose">
+<h2>Scatter: room and a copy for every buffer</h2>
+<p>The loop never reads <code>o</code>. It only stores into it. Yet in the figure, each device's shard of <code>o</code> was copied in too.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Why copy in a buffer the kernel only writes?</p>
+<div class="opts">
+<button data-k="a">No reason. It is wasted work.</button>
+<button data-k="b">New device memory holds leftovers, and gather copies the whole shard back</button>
+<button data-k="c">So that device 0 keeps a spare copy</button>
+</div>
+<p class="hint">Say the kernel skips one element of the shard. What would gather copy back for it?</p>
+<div class="why"><p>New memory is not zeroed, and gather copies the whole shard back. Copying <code>o</code> in first means an element the kernel leaves alone comes back unchanged. Every buffer the loop touches is copied in.</p></div>
+</div>
+
+<div class="prose">
+<p>The six hidden lines:</p>
+<pre><code>    s0_[r6] = (int32_t *)UIR_ALLOC(r6, 8 * sizeof(int32_t));
+    UIR_COPY(r6, s0_[r6], 0, b0 + r6 * 8, 8 * sizeof(int32_t));
+    s1_[r6] = (int32_t *)UIR_ALLOC(r6, 2 * sizeof(int32_t));
+    UIR_COPY(r6, s1_[r6], 0, b1, 2 * sizeof(int32_t));
+    s2_[r6] = (int32_t *)UIR_ALLOC(r6, 8 * sizeof(int32_t));
+    UIR_COPY(r6, s2_[r6], 0, b2 + r6 * 8, 8 * sizeof(int32_t));</code></pre>
+<ol>
+<li><strong>Make room.</strong> <code>UIR_ALLOC(d, bytes)</code> gets memory on device <code>d</code>, an <b>allocation</b>. For a sharded buffer it holds <code>S</code> elements, here 8. <code>s0_[r6]</code> keeps one pointer per device.</li>
+<li><strong>Copy the shard in.</strong> <code>UIR_COPY(dst_dev, dst, src_dev, src, bytes)</code> copies here to device <code>r6</code> from device 0, starting at <code>b0 + r6 * 8</code>: element <code>d*S</code>, where shard <code>d</code> starts.</li>
+<li><strong>Replicated buffers come whole.</strong> All of <code>w</code> goes to every device.</li>
+</ol>
+<p>Device 0 gets its own allocations too, so the kernel is the same on every device.</p>
+</div>
+
+<div class="prose">
+<h2>Launch: the same line, new arguments</h2>
+<p>In week 8 the launch was <code>UIR_LAUNCH(k0, 2, 4, b0, b1);</code>. Now it sits in a loop over the devices, and passes <code>s0_[r6]</code> for <code>x</code>.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">On device 1, why pass <code>s0_[1]</code> and not <code>b0 + 8</code>, which points at <code>x[8]</code>?</p>
+<div class="opts">
+<button data-k="a"><code>b0 + 8</code> points into device 0's memory</button>
+<button data-k="b">They are the same, <code>s0_[1]</code> is just shorter</button>
+<button data-k="c"><code>b0 + 8</code> would skip the first 8 threads</button>
+</div>
+<p class="hint">Where does <code>b0</code> live?</p>
+<div class="why"><p><code>b0</code> and everything after it is device 0's memory. Device 1's copy of its shard is the allocation <code>s0_[1]</code>.</p></div>
+</div>
+
+<div class="prose">
+<pre><code>  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_DEVICE(r6);
+    int32_t v7 = (int32_t)((uint32_t)r6 * (uint32_t)8);
+    UIR_LAUNCH(k0, 2, 4, s0_[r6], s1_[r6], s2_[r6], r6, v7);
+  }</code></pre>
+<ol>
+<li><strong>Select the device.</strong> <code>UIR_DEVICE(r6)</code>: launches from here on go to device <code>r6</code>.</li>
+<li><strong>Compute the host values.</strong> <code>%ds = mul %d 8</code> is in the device loop but outside the kernel, so the host computes it per device: <code>v7</code>.</li>
+<li><strong>Launch.</strong> 2 blocks of 4 threads, as in week 8, on each device. Then the device's allocations in place of the buffers, the device index <code>r6</code> and the host values.</li>
+</ol>
+<p>A launch does not wait for its kernel, so both devices run at once.</p>
+
+<h2>Inside the kernel: element d*S + e is element e</h2>
+<p>The kernel's parameters <code>b0</code>, <code>b1</code> and <code>b2</code> are now the allocations. Three lines of <code>k0</code> (the whole kernel is in a toggle below):</p>
+<pre><code>    int32_t v14 = (int32_t)((uint32_t)v7 + (uint32_t)v13);
+    int32_t v17 = b0[(int32_t)((uint32_t)(v14) - (uint32_t)r6 * 8u)];
+    b2[(int32_t)((uint32_t)(v14) - (uint32_t)r6 * 8u)] = v18;</code></pre>
+<p><code>v14</code> is <code>%i</code>, the element's place in the whole buffer. But <code>b0</code> holds only this device's 8 elements.</p>
+</div>
+
+<div class="quiz" data-fill="6">
+<p class="q">On device 1, one thread has <code>v14 = 14</code>. Device 1's allocation holds <code>x[8]</code> to <code>x[15]</code>. At which place in it is <code>x[14]</code>?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Place 0 of the allocation holds <code>x[8]</code>.</p>
+<div class="why"><p>14 minus 8 is 6. The kernel computes exactly that: <code>v14 - r6 * 8</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>The slice rule from lessons 7.4 and 9.1 again: a sharded access is at <code>d*S + e</code>, with <code>e</code> from 0 to <code>S - 1</code>. Shard <code>d</code> starts at element <code>d*S</code> of the buffer and at place 0 of the allocation. So element <code>d*S + e</code> is place <code>e</code>, and the kernel subtracts <code>d*S</code> from every offset into a sharded buffer. That is why it takes the device index. The replicated <code>w</code> is read as <code>b1[r8]</code>, unchanged.</p>
+</div>
+
+<div class="exercise small" data-ex="w10-03n-alloc-offset" data-ex-py="w10-03n-alloc-offset-py">
+<h3>Find an element in a device's allocation</h3>
+<p>Write <code>alloc_offset stride d i</code>: where element <code>i</code> of a buffer sits in device <code>d</code>'s allocation. <code>stride</code> is the buffer's <code>S</code>, or 0 when it is replicated. Return -1 when the element is not in that device's allocation at all. <code>alloc_offset 8 1 14</code> is 6.</p>
+</div>
+
+<div class="prose">
+<h2>Wait, then gather</h2>
+<p>After the launches, <code>UIR_SYNC()</code> waits until every device has finished its kernels. Only then is it safe to copy results back.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The scatter made six allocations. Which ones should gather copy back to device 0?</p>
+<div class="opts">
+<button data-k="a">All six</button>
+<button data-k="b">Only the two shards of <code>o</code></button>
+<button data-k="c">None. The kernels wrote into <code>b2</code> directly.</button>
+</div>
+<p class="hint">Which buffer did the kernels change?</p>
+<div class="why"><p>Only <code>o</code> was written. The copies of <code>x</code> and <code>w</code> hold what device 0 already has, so they are just freed.</p></div>
+</div>
+
+<div class="prose">
+<pre><code>  UIR_SYNC();
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_FREE(r6, s0_[r6]);
+    UIR_FREE(r6, s1_[r6]);
+    UIR_COPY(0, b2 + r6 * 8, r6, s2_[r6], 8 * sizeof(int32_t));
+    UIR_FREE(r6, s2_[r6]);
+  }
+  UIR_DEVICE(0);</code></pre>
+<ol>
+<li><strong>Copy the written shard back.</strong> The scatter's copy turned around: to device 0 at <code>b2 + r6 * 8</code>, from device <code>r6</code>.</li>
+<li><strong>Free.</strong> <code>UIR_FREE(d, p)</code> gives each allocation back.</li>
+<li><strong>Back to device 0.</strong> A <code>global</code> loop after the device loop runs on device 0, as in week 8.</li>
+</ol>
+<p>Those are the five new names. Like <code>UIR_LAUNCH</code>, they come from the harness, so one file runs on real GPUs and in the emulator.</p>
+
+<h2>What the host may compute</h2>
+<p>Week 8's kernel form put all work inside kernels. Week 10 lets a <code>global</code> loop sit directly inside a top-level device loop, and between them the host may do i32 <code>add</code> and <code>mul</code> on the device index and literals, like <code>v7</code>. The test <code>c_err_load_outside_kernel</code> puts a <code>load</code> of <code>x[d*8]</code> there instead.</p>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">What does <code>render-cuda</code> do with the <code>load</code>?</p>
+<div class="opts">
+<button data-k="a">The host loads <code>x[d*8]</code> and passes it to the kernel like <code>v7</code></button>
+<button data-k="b">It moves the load into the kernel</button>
+<button data-k="c">It prints an <code>invalid:</code> line and exits 2</button>
+</div>
+<p class="hint">Only two kinds of op may run on the host inside a device loop.</p>
+<div class="why"><p>The reference prints <code>invalid: render-cuda: load in a device loop but outside a kernel: only i32 add and mul of the device index may be computed there</code>. <code>./compile</code> still runs the program.</p></div>
+</div>
+
+<div class="prose">
+<h2>When memory is in the wrong place</h2>
+<p>Two things go wrong: a kernel is handed another device's memory, or it uses a place in its own memory that holds nothing useful. The grader's emulator (lesson 8.4) catches both. In it, each allocation is separate memory filled with the byte <code>0xA5</code>, with 32 more filled bytes on each side.</p>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your <code>render-cuda</code> forgets the <code>UIR_COPY</code> of <code>x</code>. Everything else is right. What does the grader say for <code>c_shard_scale</code>?</p>
+<div class="opts">
+<button data-k="a">The emulator stops the kernel with an error</button>
+<button data-k="b">A wrong value in <code>o</code></button>
+<button data-k="c">It passes: <code>x</code> is on device 0 anyway</button>
+</div>
+<p class="hint">The read is inside the allocation. What is in the allocation?</p>
+<div class="why"><p>The kernel reads the fill, <code>0xA5A5A5A5</code>, and multiplies it by 10. The grader prints <code>buffer 2[0]: expected 10, your kernel left 2021161074 (in the emulator)</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>We broke the reference's output for <code>c_shard_scale</code> two more ways and ran each through the grader:</p>
+<div class="tablewrap"><table>
+<tr><th>mistake</th><th>what the grader prints</th></tr>
+<tr><td>launch with <code>b0</code> in place of <code>s0_[r6]</code></td><td><code>the emulator stopped your kernel: multi-device error: a kernel was launched on one device with a pointer to another device's memory</code></td></tr>
+<tr><td>leave out the <code>- r6 * 8u</code> in the kernel</td><td><code>the emulator stopped your kernel: multi-device error: a kernel wrote outside its device's allocation</code></td></tr>
+</table></div>
+<p>The first is checked at <code>UIR_LAUNCH</code>: every pointer must be on the selected device. The second is found at <code>UIR_FREE</code>: device 1 wrote places 8 to 15 of an 8-element allocation, into the filled bytes after it.</p>
+
+<h2>The copy budget</h2>
+<p>The first line of <code>c_shard_scale.uir</code> is <code># cuda copy: 208</code>. The grader adds up the bytes that every <code>UIR_COPY</code> moves and fails the test above 208. Count them by hand. An i32 is 4 bytes.</p>
+</div>
+
+<div class="quiz" data-fill="208">
+<p class="q">How many bytes do the scatter and gather of <code>c_shard_scale</code> move in total?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Each device gets a shard of <code>x</code>, all of <code>w</code> and a shard of <code>o</code>, and sends its shard of <code>o</code> back.</p>
+<div class="why"><p><code>x</code>: 2 copies of 8 elements, 64 bytes. <code>w</code>: 2 copies of 2, 16 bytes. <code>o</code>: 64 bytes in and 64 bytes back. 64 + 16 + 64 + 64 = 208, the number on the test's first line.</p></div>
+</div>
+
+<div class="quiz" data-fill="272">
+<p class="q">A compiler that replicated <code>x</code> would copy all 16 elements to each device. How many bytes would it move?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Only the count for <code>x</code> changes.</p>
+<div class="why"><p><code>x</code> becomes 128 bytes, so 272 in all. The grader prints <code>moved 272 bytes between devices, the budget is 208 (send each device only its shard of a buffer, not all of it)</code>.</p></div>
+</div>
+
+<div class="prose">
+<p>Both leave the same bits in <code>o</code>, so only the count tells them apart. A replicated buffer costs its whole size per device. A sharded one costs <code>S</code> elements per device, twice if the loop writes it.</p>
+</div>
+
+<div class="exercise small" data-ex="w10-03n-buffer-bytes" data-ex-py="w10-03n-buffer-bytes-py">
+<h3>Count one buffer's bytes</h3>
+<p><code>buffer_bytes devices size elem written stride</code> returns the bytes moved for one buffer: <code>size</code> elements of <code>elem</code> bytes, <code>written</code> if the loop stores to it, <code>stride</code> its <code>S</code> or 0 when replicated. The sharded case has two mistakes. Fix them so that <code>x</code>, <code>w</code> and <code>o</code> of <code>c_shard_scale</code> give 64, 16 and 128.</p>
+</div>
+
+<div class="exercise small" data-ex="w10-03n-loop-bytes" data-ex-py="w10-03n-loop-bytes-py">
+<h3>Count a device loop's bytes</h3>
+<p>Write <code>loop_bytes devices bufs</code>, where each element of <code>bufs</code> is <code>(size, elem, written, stride)</code> as above. <code>loop_bytes 2 [(16, 4, false, 8); (2, 4, false, 0); (16, 4, true, 8)]</code> is <code>c_shard_scale</code> and gives 208.</p>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Say the four steps for a device loop: scatter, launch, wait, gather.</li>
+<li>Give a kernel its device's allocations, and explain why it subtracts <code>d*S</code>.</li>
+<li>Say what the host may compute inside a device loop.</li>
+<li>Read the emulator's errors and count the bytes a device loop moves.</li>
+</ul>
+<p>Next, lesson 10.4 puts all of this to work on a GEMM split across two GPUs.</p>
+</div>
+
+<details class="toggle">
+<summary>The whole render-cuda output for c_shard_scale, for when you write the lab</summary>
+<div class="prose">
+<p>What <code>python _reference/uirc.py render-cuda tests/week10/render/c_shard_scale.uir</code> prints, without the helper functions at the top and the comment on the <code>kernel</code> line:</p>
+<pre><code>__global__ void k0(int32_t *__restrict__ b0, int32_t *__restrict__ b1, int32_t *__restrict__ b2, int32_t r6, int32_t v7) {
+  int32_t r8 = blockIdx.x;
+  int32_t v9 = (int32_t)((uint32_t)r8 * (uint32_t)4);
+  int32_t v11 = b1[r8];
+  {
+    int32_t r12 = threadIdx.x;
+    int32_t v13 = (int32_t)((uint32_t)v9 + (uint32_t)r12);
+    int32_t v14 = (int32_t)((uint32_t)v7 + (uint32_t)v13);
+    int32_t v17 = b0[(int32_t)((uint32_t)(v14) - (uint32_t)r6 * 8u)];
+    int32_t v18 = (int32_t)((uint32_t)v17 * (uint32_t)v11);
+    b2[(int32_t)((uint32_t)(v14) - (uint32_t)r6 * 8u)] = v18;
+  }
+  __syncthreads();
+}
+
+void kernel(int32_t *b0, int32_t *b1, int32_t *b2) {
+  int32_t *s0_[2];
+  int32_t *s1_[2];
+  int32_t *s2_[2];
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    s0_[r6] = (int32_t *)UIR_ALLOC(r6, 8 * sizeof(int32_t));
+    UIR_COPY(r6, s0_[r6], 0, b0 + r6 * 8, 8 * sizeof(int32_t));
+    s1_[r6] = (int32_t *)UIR_ALLOC(r6, 2 * sizeof(int32_t));
+    UIR_COPY(r6, s1_[r6], 0, b1, 2 * sizeof(int32_t));
+    s2_[r6] = (int32_t *)UIR_ALLOC(r6, 8 * sizeof(int32_t));
+    UIR_COPY(r6, s2_[r6], 0, b2 + r6 * 8, 8 * sizeof(int32_t));
+  }
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_DEVICE(r6);
+    int32_t v7 = (int32_t)((uint32_t)r6 * (uint32_t)8);
+    UIR_LAUNCH(k0, 2, 4, s0_[r6], s1_[r6], s2_[r6], r6, v7);
+  }
+  UIR_SYNC();
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_FREE(r6, s0_[r6]);
+    UIR_FREE(r6, s1_[r6]);
+    UIR_COPY(0, b2 + r6 * 8, r6, s2_[r6], 8 * sizeof(int32_t));
+    UIR_FREE(r6, s2_[r6]);
+  }
+  UIR_DEVICE(0);
+}</code></pre>
+<ul>
+<li>The device loop's counter <code>r6</code> appears in three host loops, one per step, and as a kernel parameter.</li>
+<li>The kernel takes the allocations under the buffers' names, <code>b0</code> to <code>b2</code>, then the device index, then the host values it uses.</li>
+<li>Only the offsets into sharded buffers change inside the kernel: each gets <code>- r6 * 8u</code>, with <code>S</code> as a literal.</li>
+<li>A device loop with several kernels launches them all on a device, in program order, between one <code>UIR_DEVICE</code> and the next. Lesson 10.4 shows <code>c_two_kernels_per_device</code>.</li>
+</ul>
+</div>
+</details>
+
+<details class="toggle">
+<summary>The five UIR_ names, with real CUDA and in the emulator</summary>
+<div class="prose">
+<div class="tablewrap"><table>
+<tr><th>name</th><th>meaning</th><th>real CUDA</th><th>emulator</th></tr>
+<tr><td><code>UIR_ALLOC(d, bytes)</code></td><td>allocate on device <code>d</code>, not zeroed</td><td><code>cudaSetDevice</code>, then <code>cudaMalloc</code></td><td>new memory filled with <code>0xA5</code>, with 32 filled bytes on each side</td></tr>
+<tr><td><code>UIR_COPY(dst_dev, dst, src_dev, src, bytes)</code></td><td>copy between two devices, or within one</td><td><code>cudaMemcpyPeer</code></td><td>checks both devices and both ends, then copies and counts the bytes</td></tr>
+<tr><td><code>UIR_DEVICE(d)</code></td><td>launches after this go to device <code>d</code></td><td><code>cudaSetDevice</code></td><td>remembers <code>d</code>, so <code>UIR_LAUNCH</code> can check its pointers</td></tr>
+<tr><td><code>UIR_SYNC()</code></td><td>wait for every device to finish</td><td><code>cudaDeviceSynchronize</code> on each GPU</td><td>nothing: the emulator runs each launch to the end before going on</td></tr>
+<tr><td><code>UIR_FREE(d, p)</code></td><td>free an allocation</td><td><code>cudaSetDevice</code>, then <code>cudaFree</code></td><td>checks the device and the 32 bytes on each side, then frees</td></tr>
+</table></div>
+<p>With real CUDA, device <code>d</code> is GPU <code>d</code> modulo the number of GPUs, so a program with more devices than the machine has GPUs still runs. Lesson 10.5 comes back to this.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Every error the emulator can stop with</summary>
+<div class="prose">
+<p>The emulator stops with exit code 4, and the grader prints <code>the emulator stopped your kernel: multi-device error:</code> followed by one of these:</p>
+<ul>
+<li><code>a kernel was launched on one device with a pointer to another device's memory</code>. Checked for every pointer argument of <code>UIR_LAUNCH</code>. Memory that <code>UIR_ALLOC</code> did not return, like <code>b0</code>, counts as device 0's.</li>
+<li><code>UIR_COPY names a device its pointer is not on</code>.</li>
+<li><code>UIR_COPY writes past the end of a device allocation</code>, or <code>reads past the end</code>.</li>
+<li><code>UIR_FREE names the wrong device</code>.</li>
+<li><code>UIR_FREE of memory that UIR_ALLOC did not return</code>.</li>
+<li><code>a kernel wrote outside its device's allocation</code>. Found at <code>UIR_FREE</code>, from the 32 filled bytes on each side. A write further away than that is not caught, and a read outside the allocation is never caught. It only gives wrong bits.</li>
+</ul>
+<p>Reading memory that was never copied in is not an error. It shows up as a wrong value, because the fill is <code>0xA5A5A5A5</code>.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Edge cases: one device, and elements no device owns</summary>
+<div class="prose">
+<p><code>c_one_device</code> has <code>range 1 axis=device</code>. It still allocates, copies in, launches and copies back, so its budget is 192 bytes: 64 for <code>x</code> and 128 for <code>o</code>.</p>
+<p><code>c_tail_untouched</code> has buffers of 10 elements, 2 devices and <code>S = 4</code>. Elements 8 and 9 belong to no device. They are never copied out or back, so they keep their values on device 0, as spec section 2 requires. Its budget is 96: 32 for <code>x</code> and 64 for <code>o</code>.</p>
+</div>
+</details>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="c">
+<p class="q">Why does <code>UIR_SYNC()</code> come after the launch loop, and not after each launch?</p>
+<div class="opts">
+<button data-k="a">It makes no difference</button>
+<button data-k="b">Because only device 0 needs to wait</button>
+<button data-k="c">Waiting after each launch would make device 1 start only when device 0 is done, so the devices would not run at the same time</button>
+</div>
+<p class="hint">A launch returns before the kernel is done. What would a wait inside the loop hold up?</p>
+<div class="why"><p>All devices are started first, then the host waits once. That is what lets two GPUs work at the same time.</p></div>
+</div>
+
+<div class="quiz" data-fill="192">
+<p class="q"><code>c_four_devices</code> has 4 devices with <code>S = 4</code>. It reads <code>x</code> (16 i32) and writes <code>o</code> (16 i32), both sharded. What is its <code># cuda copy:</code> budget?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Each device gets 4 elements of each buffer, and <code>o</code> comes back.</p>
+<div class="why"><p><code>x</code>: 4 devices times 16 bytes, 64. <code>o</code>: 64 in and 64 back. 192, the number in the test.</p></div>
+</div>
+
+<nav class="pager"></nav>
+</main>
+<script src="../assets/course.js?v=f8627300fd"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const { h } = CC;
+  const row = (k, vals, on) => h('div', { class: 'r' }, [h('div', { class: 'k', text: k }), h('div', { class: 'cells' }, vals.map(v => h('div', { class: 'c' + (on ? ' on' : ''), text: String(v) })))]);
+  const dev = (title, rows) => h('div', { class: 'g' }, [h('div', { class: 't', text: title }), ...(rows.length ? rows : [h('div', { class: 'none', text: 'no memory in use' })])]);
+  const x = Array.from({ length: 16 }, (_, i) => i + 1);
+  const w = [10, 100];
+  const zero8 = Array(8).fill(0);
+  const o0 = [10, 20, 30, 40, 500, 600, 700, 800];
+  const o1 = [90, 100, 110, 120, 1300, 1400, 1500, 1600];
+  const base = o => [row('b0 (x)', x), row('b1 (w)', w), row('b2 (o)', o.vals, o.on)];
+  const allocs = (d, o, on, oOn) => [row('s0_[' + d + '] (x)', x.slice(8 * d, 8 * d + 8), on), row('s1_[' + d + '] (w)', w, on), row('s2_[' + d + '] (o)', o, on || oOn)];
+  const draw = (b2, a0, a1) => h('div', { class: 'mm' }, [dev('device 0', [...base(b2), ...a0]), dev('device 1', a1)]);
+  const zeros16 = { vals: Array(16).fill(0) };
+  const steps = [
+    { caption: 'Before: <code>x</code>, <code>w</code> and <code>o</code> are all on device 0. Device 1 has nothing.', draw: () => draw(zeros16, [], []) },
+    { caption: 'Scatter: each device gets three allocations. Its shard of <code>x</code>, all of <code>w</code>, and its shard of <code>o</code>. Device 0 copies within its own memory.', draw: () => draw(zeros16, allocs(0, zero8, true), allocs(1, zero8, true)) },
+    { caption: 'Launch: both devices run <code>k0</code> at the same time. Each one writes only its own allocation <code>s2_</code>.', draw: () => draw(zeros16, allocs(0, o0, false, true), allocs(1, o1, false, true)) },
+    { caption: 'Wait: <code>UIR_SYNC()</code> returns once both devices have finished. Nothing has moved yet. <code>b2</code> on device 0 is still all zeros.', draw: () => draw(zeros16, allocs(0, o0), allocs(1, o1)) },
+    { caption: 'Gather: both shards of <code>o</code> are copied back into <code>b2</code>, and all six allocations are freed.', draw: () => draw({ vals: o0.concat(o1), on: true }, [], []) },
+  ];
+  CC.stepper(document.getElementById('steps'), steps, (s, body) => body.append(s.draw()));
+});
+</script>
+</body>
+</html>

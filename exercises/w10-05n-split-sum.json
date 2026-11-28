@@ -1,0 +1,53 @@
+{
+ "id": "w10-05n-split-sum",
+ "lang": "ocaml",
+ "title": "Split a sum across devices",
+ "show": "(Printf.sprintf \"%.17g\")",
+ "starter": "let split_sum (xs : float array) (n : int) : float =\n  0.0\n",
+ "hints": [
+  "Shard <code>d</code> is the <code>s</code> elements starting at <code>d * s</code>, with <code>s = Array.length xs / n</code>. Write a helper <code>part d</code> that returns one partial sum.",
+  "In <code>part d</code>, start <code>let p = ref 0.0</code> and add <code>xs.(d * s + e)</code> for <code>e = 0 to s - 1</code> with <code>p := !p +. ...</code>.",
+  "Then start <code>let tot = ref (part 0)</code>, add <code>part d</code> for <code>d = 1 to n - 1</code>, in that order, and return <code>!tot</code>."
+ ],
+ "explain": "Device <code>d</code> adds up its own shard, starting from 0.0 and going left to right, as each device's kernel does. Device 0 then adds the partial sums in device order, starting from partial 0. In floating point the order of the additions decides the bits: with 1e16 and three 1.0s, a plain left-to-right sum loses every 1.0, while the split sum keeps two of them, because the shard of 1.0s is added up first.",
+ "tests": [
+  {
+   "expr": "split_sum [|1.0; 2.0; 3.0; 4.0|] 2",
+   "expect": "10",
+   "sample": true
+  },
+  {
+   "expr": "split_sum [|1e+16; 1.0; 1.0; 1.0|] 2",
+   "expect": "10000000000000002",
+   "sample": true
+  },
+  {
+   "expr": "split_sum [|1e+16; 1.0; -1e+16; 1.0|] 2",
+   "expect": "0"
+  },
+  {
+   "expr": "split_sum [|1.0; 1e+16; -1e+16|] 3",
+   "expect": "0"
+  },
+  {
+   "expr": "split_sum [|1e+16; 1.0; -1e+16; 1.0|] 4",
+   "expect": "1"
+  },
+  {
+   "expr": "split_sum [|0.1; 0.2; 0.3; 0.4; 0.5; 0.6|] 3",
+   "expect": "2.1000000000000001"
+  },
+  {
+   "expr": "split_sum [|-0.5|] 1",
+   "expect": "-0.5"
+  },
+  {
+   "expr": "split_sum [|1.0; 1e+16; 1.0; 1.0; -1e+16; 1.0|] 2",
+   "expect": "0"
+  },
+  {
+   "expr": "split_sum [|1e+16; 1.0; 1.0; -1e+16; 1.0; 1.0|] 3",
+   "expect": "2"
+  }
+ ]
+}

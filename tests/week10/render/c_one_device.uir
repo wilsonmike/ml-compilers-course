@@ -1,0 +1,20 @@
+# cuda copy: 192
+# a device loop of one still allocates, copies in, runs and copies back
+%x  = buffer 16 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16] dtype=i32 slot=0
+%o  = buffer 16 dtype=i32 slot=1
+%d  = range 1 axis=device
+%b  = range 4 axis=global
+%t  = range 4 axis=local
+%ds = mul %d 16
+%m  = mul %b 4
+%e  = add %m %t
+%i  = add %ds %e
+%xv = shrink %x %i []
+%xe = load %xv
+%y  = mul %xe 3
+%ov = shrink %o %i []
+%s  = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%ed = end %eb %d
+%o1 = after %o %ed

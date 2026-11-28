@@ -136,7 +136,8 @@ def build(op, src, attrs):
     need(n == 1 and src[0].dtype == 'i32' and src[0].shape == (), "range N, N an i32 scalar")
     need(not opens(src[0]), "a range's bound can't depend on another range")
     ax = attrs.get('axis', 'loop')                # week 7: how the loop runs. loop keeps the week 3 node unchanged
-    need(ax in AXES, "axis is loop, upcast, thread, global, local or warp")
+    need(ax in AXES, "axis is loop, upcast, thread, global, local, warp or device")
+    if ax == 'device': need(src[0].op == 'const' and 1 <= src[0].arg <= 16, "a device range's bound is a literal from 1 to 16 (the number of GPUs)")
     if ax == 'upcast': need(src[0].op == 'const' and 1 <= src[0].arg <= 32, "an upcast range's bound is a literal from 1 to 32")
     if ax == 'local': need(src[0].op == 'const' and 1 <= src[0].arg <= 1024, "a local range's bound is a literal from 1 to 1024 (the block size)")
     if ax == 'warp': need(src[0].op == 'const' and 1 <= src[0].arg <= 32, "a warp range's bound is a literal from 1 to 32 (warps per block)")
@@ -1063,7 +1064,7 @@ def execute(block, roots_need=None):
   go(block)
   return vals, mem
 
-AXES = ('loop', 'upcast', 'thread', 'global', 'local', 'warp')
+AXES = ('loop', 'upcast', 'thread', 'global', 'local', 'warp', 'device')
 PHASE = ('local', 'warp')
 PAR = ('thread', 'global')                      # iterations that may run at once, each with private allocs
 def axis_of(r): return r.arg[2] if len(r.arg) > 2 else 'loop'
@@ -1108,14 +1109,14 @@ def offset_terms(v):
   while v.op == 'shrink': flat(v.src[1]); v = v.src[0]
   return terms
 
-def check_thread_access(r, v, what, ld=None):
+def check_thread_access(r, v, what, ld=None, kind='thread'):
   """Iteration r of a thread loop may only touch its own slice: offset r*S + e, with e independent of r and
   0 <= e, e + size <= S. Returns S."""
   def need(c, m):
-    if not c: raise UIRError(f"thread loop %{r.arg[1]}: {what} {m}")
+    if not c: raise UIRError(f"{kind} loop %{r.arg[1]}: {what} {m}")
   ts = offset_terms(v); size = extent(v, ld)
   mine = [t for t in ts if r in opens(t)]
-  need(len(mine) == 1, "must be at an offset r * S + e, with r the thread range")
+  need(len(mine) == 1, f"must be at an offset r * S + e, with r the {kind} range")
   t = mine[0]
   if t is r: S = 1
   else:
@@ -1204,18 +1205,41 @@ def check_global_body(g, body, private):
   walk(body, None)
   if len(sizes) > 1: raise UIRError(f"global loop %{g.arg[1]}: its local and warp loops give different block sizes {sorted(sizes)} (a warp loop of n is 32n threads): one block size per kernel")
 
+def storage_size(a): return a.arg[2] if a.op == 'buffer' else a.arg[1]
+
+def device_shards(d, body, private):
+  acc = [(v, w, ld) for n in loop_nodes(body) for v, w, ld in accesses(n) if id(storage_of(v)) not in private]
+  written = {id(storage_of(v)) for v, w, _ in acc if w}
+  out, loose = {}, set()
+  for v, w, ld in acc:
+    a = storage_of(v); sid = id(a)
+    if sid in loose: continue
+    try:
+      S = check_thread_access(d, v, ('an mma' if ld else 'a store') if w else 'a load of memory it writes', ld, 'device')
+      if d.src[0].arg * S > storage_size(a): raise UIRError(f"device loop %{d.arg[1]}: {d.src[0].arg} shards of {S} don't fit in {storage_size(a)} elements")
+      if out.setdefault(sid, (a, S, sid in written))[1] != S: raise UIRError(f"device loop %{d.arg[1]}: every access to one buffer must use the same stride")
+    except UIRError:
+      if sid in written: raise
+      loose.add(sid); out[sid] = (a, None, False)
+  return out
+
 def check_axes(block):
   privates = thread_privates(block)
-  def walk(items, inside, in_global=False):
+  def walk(items, inside, in_global=False, depth=0, dev=None):
     for it in items:
       if not isinstance(it, tuple): continue
       _, e, r, body = it
+      if axis_of(r) == 'device':
+        if depth: raise UIRError(f"device loop %{r.arg[1]} is inside another loop: a device loop is at the top level")
+        device_shards(r, body, {id(a) for x in iter_loops(body) for a in privates.get(id(x[2]), [])})
+        walk(body, False, False, depth + 1, r); continue
+      if dev is not None and axis_of(r) == 'thread': raise UIRError(f"thread loop %{r.arg[1]} is inside device loop %{dev.arg[1]}: a device runs kernels, so use a global loop")
       if axis_of(r) in PHASE and not in_global: raise UIRError(f"{axis_of(r)} loop %{r.arg[1]} is not inside a global loop")
       if axis_of(r) in PAR:
         if inside: raise UIRError(f"{axis_of(r)} loop %{r.arg[1]} is inside another parallel loop")
         if axis_of(r) == 'global':
           check_global_body(r, body, {id(a) for a in privates.get(id(r), [])})
-          walk(body, True, True); continue           # the week 7 thread checks below are for thread loops
+          walk(body, True, True, depth + 1, dev); continue           # the week 7 thread checks below are for thread loops
         priv = {id(a) for a in privates.get(id(r), [])}
         acc = [(v, w, ld) for n in loop_nodes(body) for v, w, ld in accesses(n)]
         written = {id(storage_of(v)) for v, w, _ in acc if w}
@@ -1225,7 +1249,7 @@ def check_axes(block):
           if sid in priv or (not w and sid not in written): continue
           S = check_thread_access(r, v, ('an mma' if ld else 'a store') if w else 'a load of memory it writes', ld)
           if stride.setdefault(sid, S) != S: raise UIRError(f"thread loop %{r.arg[1]}: every access to one buffer must use the same stride")
-      walk(body, inside or axis_of(r) in PAR, in_global)
+      walk(body, inside or axis_of(r) in PAR, in_global, depth + 1, dev)
   walk(block, False, False)
 
 def per_thread(body, allocs):
@@ -1649,13 +1673,21 @@ def render_c(names, target='c', week=None):
   counter = [0]; in_kernel = [False]
   mine = {}
   cur = [None]
+  dev = [None]; shards = {}
+  dsfx = ['', 0]
+  hostvals = set()
   def ex(u): return c_lit(u.arg, u.dtype) if u.op == 'const' else name[id(u)]
   def view(u):
     if u.op != 'shrink': return ptr[id(storage_of(u))], '0'
     p, o = view(u.src[0]); off = ex(u.src[1])
     return p, (off if o == '0' else f"{o} + {off}")
-  def at(u):
+  def dview(u):
     p, o = view(u)
+    S = shards.get(id(storage_of(u)))
+    if S is not None: o = f"(int32_t)((uint32_t)({o}) - (uint32_t){name[id(dev[0])]} * {S}u)"
+    return p, o
+  def at(u):
+    p, o = dview(u)
     S = mine.get(id(storage_of(u)))
     if S is not None:
       o = f"(int32_t)((uint32_t)({o}) - (uint32_t){name[id(cur[0])]} * {S}u)"
@@ -1678,8 +1710,35 @@ def render_c(names, target='c', week=None):
           for t in range(r.src[0].arg): name[id(r)] = str(t); emit(body, depth)
           continue
         rv = f"r{counter[0]}"; counter[0] += 1; name[id(r)] = rv; ctype[rv] = 'int32_t'
+        if cuda and ax == 'device':
+          if in_kernel[0] or depth != 1: raise UIRError("render-cuda: a device loop must be at the top level")
+          kpriv = {id(a) for x in iter_loops(body) for a in privates.get(id(x[2]), [])}
+          lay = device_shards(r, body, kpriv); n = r.src[0].arg
+          for a, S, _ in lay.values():
+            if a.op != 'buffer': raise UIRError("render-cuda: an alloc used outside a single global loop has nowhere to live on the GPU")
+          mem = sorted(lay.values(), key=lambda x: x[0].arg[1])
+          dsfx[0] = f'd{dsfx[1]}' if dsfx[1] else ''; dsfx[1] += 1; sf = dsfx[0]
+          start = len(lines); dev[0] = r; shards.clear(); shards.update({id(a): S for a, S, _ in mem if S is not None})
+          emit(body, depth + 1); dev[0] = None; shards.clear()
+          inner = lines[start:]; del lines[start:]
+          def size(a, S): return f"{S if S is not None else a.arg[2]} * sizeof({CT[a.dtype]})"
+          def home(a, S): return f"b{a.arg[1]}" + (f" + {rv} * {S}" if S is not None else '')
+          lines.extend(f"{pad}{CT[a.dtype]} *s{a.arg[1]}{sf}_[{n}];" for a, S, _ in mem)
+          lines.append(f"{pad}for (int32_t {rv} = 0; {rv} < {n}; {rv}++) {{")
+          for a, S, _ in mem:
+            lines.append(f"{pad}  s{a.arg[1]}{sf}_[{rv}] = ({CT[a.dtype]} *)UIR_ALLOC({rv}, {size(a, S)});")
+            lines.append(f"{pad}  UIR_COPY({rv}, s{a.arg[1]}{sf}_[{rv}], 0, {home(a, S)}, {size(a, S)});")
+          lines.append(f"{pad}}}")
+          lines.append(f"{pad}for (int32_t {rv} = 0; {rv} < {n}; {rv}++) {{"); lines.append(f"{pad}  UIR_DEVICE({rv});")
+          lines.extend(inner); lines.append(f"{pad}}}"); lines.append(f"{pad}UIR_SYNC();")
+          lines.append(f"{pad}for (int32_t {rv} = 0; {rv} < {n}; {rv}++) {{")
+          for a, S, w in mem:
+            if w: lines.append(f"{pad}  UIR_COPY(0, {home(a, S)}, {rv}, s{a.arg[1]}{sf}_[{rv}], {size(a, S)});")
+            lines.append(f"{pad}  UIR_FREE({rv}, s{a.arg[1]}{sf}_[{rv}]);")
+          lines.append(f"{pad}}}"); lines.append(f"{pad}UIR_DEVICE(0);")
+          continue
         if cuda and ax == 'global':              # a kernel: one block per value of r, launched by the host function
-          if in_kernel[0]: raise UIRError("render-cuda: a global loop must be at the top level")
+          if in_kernel[0] or depth != (2 if dev[0] is not None else 1): raise UIRError("render-cuda: a global loop must be at the top level, or directly inside a device loop")
           fn = f"k{len(fns)}"; start = len(lines)
           bs = next((x[2].src[0].arg * (32 if axis_of(x[2]) == 'warp' else 1) for x in iter_loops(body) if axis_of(x[2]) in PHASE), 1)
           if w9: mine.update(per_thread(body, privates.get(id(r), ())))
@@ -1689,11 +1748,13 @@ def render_c(names, target='c', week=None):
           text = '\n'.join(inner)
           declared = set(re.findall(r"\b(?:float|int32_t|int8_t|bool) ([va][0-9]+)\b", text)) | set(re.findall(r"(?:for \(|^\s*)int32_t (r[0-9]+)", text, re.M)) | {rv}
           used = sorted(set(re.findall(r"\b([vrab][0-9]+)\b", text)) - declared, key=lambda x: (x[0], int(x[1:])))
-          bad = [c for c in used if c[0] != 'b']
+          dv = name[id(dev[0])] if dev[0] is not None else None
+          bad = [c for c in used if c[0] != 'b' and c != dv and c not in hostvals]
           if bad: raise UIRError(f"render-cuda: kernel %{r.arg[1]} uses values computed outside it ({', '.join(bad)}): a kernel may only use buffers, literals and its own ranges")
-          params = ', '.join(f"{ctype[c][:-2]} *__restrict__ {c}" for c in used) or 'void'
+          params = ', '.join(f"int32_t {c}" if c == dv or c in hostvals else f"{ctype[c][:-2]} *__restrict__ {c}" for c in used) or 'void'
           fns.append(f"__global__ void {fn}({params}) {{\n  int32_t {rv} = blockIdx.x;\n" + text + "\n}\n")
-          lines.append(f"{pad}UIR_LAUNCH({fn}, {ex(r.src[0])}, {bs}{''.join(', ' + c for c in used)});")
+          if dv and r.src[0].op != 'const': raise UIRError("render-cuda: inside a device loop a global range's bound is a literal")
+          lines.append(f"{pad}UIR_LAUNCH({fn}, {ex(r.src[0])}, {bs}{''.join(', ' + (c if dv is None or c == dv or c in hostvals else f's{c[1:]}{dsfx[0]}_[{dv}]') for c in used)});")
           continue
         if cuda and ax == 'local':               # one phase: every thread of the block runs the body once, then all wait
           lines.append(f"{pad}{{"); lines.append(f"{pad}  int32_t {rv} = threadIdx.x;")
@@ -1726,7 +1787,9 @@ def render_c(names, target='c', week=None):
           if cuda: raise UIRError("render-cuda: an alloc used outside a single global loop has nowhere to live on the GPU")
           lines.append(alloc_line(u, pad))
         continue
-      if cuda and not in_kernel[0] and op not in ('const', 'after', 'shrink', 'buffer', 'end', 'range', 'assert'):
+      host = cuda and not in_kernel[0] and dev[0] is not None and op in ('add', 'mul') and u.dtype == 'i32' and not u.shape
+      if cuda and not in_kernel[0] and not host and op not in ('const', 'after', 'shrink', 'buffer', 'end', 'range', 'assert'):
+        if dev[0] is not None: raise UIRError(f"render-cuda: {op} in a device loop but outside a kernel: only i32 add and mul of the device index may be computed there")
         raise UIRError(f"render-cuda: {op} outside a global loop: every bit of work must be inside a kernel")
       i = counter[0]; counter[0] += 1
       v, t = f"v{i}", CT.get(u.dtype)
@@ -1742,7 +1805,7 @@ def render_c(names, target='c', week=None):
         else: lines.append(f"{pad}{p}[{o}] = {x};")
         continue
       if op == 'mma':
-        (pc, oc), (pa, oa), (pb, ob) = (view(x) for x in u.src); lda, ldb, ldc = u.arg
+        (pc, oc), (pa, oa), (pb, ob) = (dview(x) for x in u.src); lda, ldb, ldc = u.arg
         if cuda:
           lines.append(f"{pad}{{ wmma::fragment<wmma::matrix_a, 16, 16, 16, signed char, wmma::row_major> fa_; wmma::load_matrix_sync(fa_, {pa} + {oa}, {lda});")
           lines.append(f"{pad}  wmma::fragment<wmma::matrix_b, 16, 16, 16, signed char, wmma::row_major> fb_; wmma::load_matrix_sync(fb_, {pb} + {ob}, {ldb});")
@@ -1777,6 +1840,7 @@ def render_c(names, target='c', week=None):
       elif op in ('div', 'mod'): e = f"i32_{op}({a[0]}, {a[1]})"
       else: raise UIRError(f"render: can't render {op} here")
       lines.append(f"{pad}{t} {v} = {e};"); name[id(u)] = v; ctype[v] = t
+      if cuda and not in_kernel[0]: hostvals.add(v)
   emit(block, 1)
   if cuda:                                       # kernels, then the host function that launches them in order
     params = ', '.join(f"{CT[v.dtype]} *b{slot}" for slot, v in outs.items()) or 'void'

@@ -1,0 +1,54 @@
+{
+  "id": "w10-03n-loop-bytes-py",
+  "lang": "python",
+  "title": "Count a device loop's bytes",
+  "prompt": "<p>Write <code>loop_bytes(devices, bufs)</code>: the bytes a whole device loop moves. Each entry of <code>bufs</code> is a tuple <code>(size, elem, written, stride)</code> for one buffer the loop touches, with <code>stride</code> 0 for a replicated buffer. <code>c_shard_scale</code> is <code>loop_bytes(2, [(16, 4, False, 8), (2, 4, False, 0), (16, 4, True, 8)])</code> and must give 208, its <code># cuda copy:</code> line.</p>",
+  "show": "str",
+  "starter": "def loop_bytes(devices: int, bufs: list[tuple[int, int, bool, int]]) -> int:\n    return 0\n",
+  "tests": [
+    {
+      "expr": "loop_bytes(2, [(16, 4, False, 8), (2, 4, False, 0), (16, 4, True, 8)])",
+      "expect": "208",
+      "sample": true
+    },
+    {
+      "expr": "loop_bytes(2, [(16, 4, False, 0), (2, 4, False, 0), (16, 4, True, 8)])",
+      "expect": "272",
+      "sample": true
+    },
+    {
+      "expr": "loop_bytes(2, [(10, 4, False, 4), (10, 4, True, 4)])",
+      "expect": "96"
+    },
+    {
+      "expr": "loop_bytes(1, [(16, 4, False, 16), (16, 4, True, 16)])",
+      "expect": "192"
+    },
+    {
+      "expr": "loop_bytes(2, [(16, 4, False, 0), (16, 4, True, 8)])",
+      "expect": "256"
+    },
+    {
+      "expr": "loop_bytes(4, [(16, 4, False, 4), (16, 4, True, 4)])",
+      "expect": "192"
+    },
+    {
+      "expr": "loop_bytes(2, [(32, 4, False, 16), (16, 4, False, 0), (32, 4, True, 16)])",
+      "expect": "512"
+    },
+    {
+      "expr": "loop_bytes(2, [(16, 4, False, 8), (16, 4, True, 8), (16, 4, True, 8)])",
+      "expect": "320"
+    },
+    {
+      "expr": "loop_bytes(3, [])",
+      "expect": "0"
+    }
+  ],
+  "hints": [
+    "Add up one count per buffer. Each count is the rule from the exercise before.",
+    "Replicated: <code>devices * size * elem</code>. Sharded: <code>devices * stride * elem</code>, times 2 when the buffer is written.",
+    "Loop over <code>bufs</code> and add <code>devices * size * elem</code> when <code>stride == 0</code>, else <code>devices * stride * elem * (2 if written else 1)</code>."
+  ],
+  "explain": "The loop's count is the sum of its buffers' counts. Every buffer is scattered to every device, a shard or the whole of it, and every written shard is gathered back. Most tests are the week's render tests, and their answers are the numbers in those tests' <code># cuda copy:</code> line."
+}

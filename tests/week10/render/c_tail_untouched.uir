@@ -1,0 +1,20 @@
+# cuda copy: 96
+# the last two elements of o belong to no device: they must come back unchanged
+%x  = buffer 10 [1 2 3 4 5 6 7 8 9 10] dtype=i32 slot=0
+%o  = buffer 10 [7 7 7 7 7 7 7 7 7 7] dtype=i32 slot=1
+%d  = range 2 axis=device
+%b  = range 1 axis=global
+%t  = range 4 axis=local
+%ds = mul %d 4
+%m  = mul %b 4
+%e  = add %m %t
+%i  = add %ds %e
+%xv = shrink %x %i []
+%xe = load %xv
+%y  = mul %xe 3
+%ov = shrink %o %i []
+%s  = store %ov %y
+%et = end %s %t
+%eb = end %et %b
+%ed = end %eb %d
+%o1 = after %o %ed

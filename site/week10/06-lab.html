@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab: multiple GPUs</title>
+<!-- seo: written by tools/build_seo.py -->
+<meta name="description" content="In this lab your compiler learns to run one program on several GPUs. It reads a device loop, proves that each device stays inside its shard, and prints CUDA...">
+<link rel="canonical" href="https://sharpterminal.com/site/week10/06-lab">
+<meta property="og:site_name" content="ML compilers, from zero">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Lab: multiple GPUs">
+<meta property="og:description" content="In this lab your compiler learns to run one program on several GPUs. It reads a device loop, proves that each device stays inside its shard, and prints CUDA that copies each device its memory, runs...">
+<meta property="og:url" content="https://sharpterminal.com/site/week10/06-lab">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="../vendor/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- /seo -->
+<link rel="stylesheet" href="../assets/course.css?v=d10c966d5f">
+</head>
+<body data-crumbs="Week 10|Lab: multiple GPUs" data-root="../">
+<main>
+<p class="eyebrow">Week 10 · Lesson 6</p>
+<h1>Lab: multiple GPUs</h1>
+<p class="lede">In this lab your compiler learns to run one program on several GPUs. It reads a device loop, proves that each device stays inside its shard, and prints CUDA that copies each device its memory, runs its kernels and copies the results back. You need no GPU: the emulator checks every bit and every byte moved.</p>
+
+<div class="note">
+<span class="label">Goal</span>
+<p>Pass all 26 week 10 tests with your own compiler, in the emulator or on GPUs, and write 10 tests of your own.</p>
+</div>
+
+<div class="note">
+<span class="label">You'll use</span>
+<p>Your compiler from the <a href="../week9/06-lab.html">week 9 lab</a>, and lessons <a href="01-more-than-one-gpu.html">10.1</a>, <a href="02-device-loops.html">10.2</a>, <a href="03-moving-memory.html">10.3</a>, <a href="04-sharded-gemm.html">10.4</a> and <a href="05-training-on-many.html">10.5</a>. The slice check from <a href="../week7/04-threads.html">lesson 7.4</a> comes back, and so does kernel form from <a href="../week8/04-rendering-cuda.html">lesson 8.4</a>.</p>
+</div>
+
+<h2>Warm up</h2>
+<p class="prose">Pulling an idea back out of your head is what makes it stay.</p>
+
+<div class="quiz" data-answer="b">
+<p class="q">A device loop of 2 reads <code>x</code> at <code>15 - i</code>, back to front, and never writes <code>x</code>. What does the compiler do with <code>x</code>?</p>
+<div class="opts">
+<button data-k="a">REJECTED: the reads leave each device's slice</button>
+<button data-k="b">It replicates <code>x</code>: every device gets a whole copy</button>
+<button data-k="c">It shards <code>x</code> into halves</button>
+</div>
+<p class="hint">Lesson 10.2: memory the loop only reads may be read anywhere.</p>
+<div class="why"><p>The reads do not follow <code>d·S + e</code>, so <code>x</code> can't be sharded. Since nothing writes it, a whole copy on each device is safe. A store that broke the rule would be REJECTED.</p></div>
+</div>
+
+<div class="quiz" data-fill="80">
+<p class="q">Two devices. <code>x</code> holds 16 <code>i32</code> and is sharded. <code>w</code> holds 2 <code>i32</code> and is replicated. How many bytes does the scatter copy for <code>x</code> and <code>w</code> together?</p>
+<div class="fill"><input aria-label="answer" inputmode="numeric"><button class="btn">check</button></div>
+<p class="hint">Lesson 10.3: an <code>i32</code> is 4 bytes. A shard goes to one device, a replicated buffer to every device.</p>
+<div class="why"><p>Two shards of 8 elements are 64 bytes, and two copies of <code>w</code> are 16, so 80. Add <code>o</code>'s shards in and back, 64 bytes each way, and you get the 208 that <code>c_shard_scale</code> allows.</p></div>
+</div>
+
+<div class="prose">
+<h2>What you are building</h2>
+<ul>
+<li><code>compile FILE</code> reads <code>axis=device</code> and runs a device loop as a plain loop. It rejects a program that breaks lesson 10.2's rules.</li>
+<li><code>compile render FILE</code> prints a device loop as a plain <code>for</code> loop.</li>
+<li><code>compile render-cuda FILE</code> prints the four steps of lesson 10.3 for each device loop: scatter, launch, wait and gather.</li>
+</ul>
+<p>The suite has 26 tests. 16 are run tests: 8 named <code>rejected_</code>, 1 named <code>mismatch_</code> and 7 that must MATCH. 10 are CUDA tests (<code>c_</code>). Eight of those have a copy budget, and <code>c_err_load_outside_kernel</code> must be refused. There are no CPU render tests and no speed tests this week. The contract is <a href="../../spec/uir-week10.md">spec/uir-week10.md</a>. If this page and the spec disagree, the spec wins.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>rejected_device_bound_17.uir</code> ends in an assert whose values are right for plain loops. Your compiler reads <code>axis=device</code> but has no bound rule yet. What does it print?</p>
+<div class="opts">
+<button data-k="a">MATCH</button>
+<button data-k="b">REJECTED</button>
+<button data-k="c">MISMATCH</button>
+</div>
+<p class="hint">Run as a plain loop of 17, does the program compute what the assert says?</p>
+<div class="why"><p>It does, so it prints MATCH. Unlike weeks 8 and 9, every week 10 run test ends in an assert, so once your compiler reads the axis, REJECTED shows a rule at work.</p></div>
+</div>
+
+<div class="prose">
+<p>All eight <code>rejected_</code> tests are written this way. The grader also runs your <code>render</code> on each one and wants exit code 2 and an <code>invalid:</code> line. So run every rule in <code>render</code> too.</p>
+</div>
+
+<details class="toggle">
+<summary>The command-line contract for week 10, with every new reason to print REJECTED</summary>
+<div class="tablewrap"><table>
+<thead><tr><th>command</th><th>week 10 changes</th></tr></thead>
+<tbody>
+<tr><td><code>your.exe FILE...</code></td><td><code>axis=device</code> runs as a plain loop. New REJECTED cases: a device bound that isn't a literal from 1 to 16, a device loop inside any other loop, a thread loop inside a device loop, a load or store of memory the loop writes that is not at <code>d·S + e</code> with <code>0 ≤ e</code> and <code>e + size ≤ S</code> provable, two strides <code>S</code> for one written buffer, and written shards that don't fit (<code>N·S</code> more than the buffer's size).</td></tr>
+<tr><td><code>your.exe render FILE</code></td><td>A device loop is a plain loop, and the kernels inside it render as in week 8. A program that <code>FILE</code> mode rejects for one of the reasons above is refused here too, with exit code 2 and an <code>invalid:</code> line.</td></tr>
+<tr><td><code>your.exe render-cuda FILE</code></td><td>A global loop may sit directly inside a top-level device loop, with a literal bound. Between its kernels a device loop may compute only <code>i32</code> <code>add</code> and <code>mul</code> of the device index and literals, on the host. Anything else there exits 2. Each device loop becomes scatter, launch, wait and gather, with <code>UIR_ALLOC</code>, <code>UIR_COPY</code>, <code>UIR_DEVICE</code>, <code>UIR_SYNC</code> and <code>UIR_FREE</code> from the harness.</td></tr>
+</tbody></table></div>
+</details>
+
+<details class="toggle">
+<summary>How each kind of test is graded this week</summary>
+<div class="prose">
+<ul>
+<li><b>Run tests</b> check that a device loop means the same as a plain loop, and every rule. Each <code>rejected_</code> test breaks one rule, and its first line says which. <code>device_reads_anywhere</code> reads <code>x</code> far outside each slice and must MATCH, and <code>device_tail_untouched</code> checks that elements past the last shard keep their values.</li>
+<li><b>CUDA tests</b> (<code>c_</code>) run your <code>render-cuda</code> on GPUs or in the emulator and compare every buffer with the interpreter, bit for bit. A header <code># cuda copy: N</code> also counts the bytes your <code>UIR_COPY</code> calls move and fails above <code>N</code>, which is what the reference moves. <code>c_err_load_outside_kernel</code> (header <code># cuda: invalid</code>) has a load between kernels, and <code>render-cuda</code> must exit 2.</li>
+</ul>
+</div>
+</details>
+
+<div class="prose">
+<h2>Check the emulator, then your start</h2>
+<p>Run one CUDA test with the reference compiler, from the root of the course repo:</p>
+<pre><code>python tools/test.py --compiler "python _reference/uirc.py --week=10" --week 10 -k c_shard_scale -v</code></pre>
+<p>It ends with <code>1 / 1 passed</code>. With no C++ compiler, see <a href="../week8/05-getting-a-gpu.html#emulator">lesson 8.5</a>.</p>
+<p>Now run the week with your own compiler as it is. <code>YOURS</code> is its path in quotes.</p>
+<pre><code>python tools/test.py --compiler YOURS --week 10</code></pre>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p>A finished week 9 compiler gets:</p>
+<pre><code>9 / 26 passed</code></pre>
+<p>All 9 pass by luck: the 8 <code>rejected_</code> tests and <code>c_err_load_outside_kernel</code> are refused because <code>axis=device</code> is unknown.</p>
+</div>
+
+<div class="prose">
+<h2>Plan it first</h2>
+<p>Decide the order first.</p>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">Which piece is the smallest that makes a week 10 program run?</p>
+<div class="opts">
+<button data-k="a">Read <code>axis=device</code> and run it as a plain loop</button>
+<button data-k="b">The slice rule for shards</button>
+<button data-k="c">Scatter and gather in <code>render-cuda</code></button>
+</div>
+<p class="hint">An axis never changes the bits.</p>
+<div class="why"><p>Run as a plain loop, every valid program already gives the right bits.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">Your first <code>render-cuda</code> sends a whole copy of every read-only buffer to every device. The bits are right. Which tests fail?</p>
+<div class="opts">
+<button data-k="a">Every <code>c_</code> test</button>
+<button data-k="b">The ones whose budget counts a read-only buffer sent as shards</button>
+<button data-k="c">None</button>
+</div>
+<p class="hint">What can the grader see besides the bits?</p>
+<div class="why"><p>A whole copy and a shard give the same bits, so only the byte count tells them apart. That makes sharding read-only memory a safe last step.</p></div>
+</div>
+
+<p class="prose">So: the axis, the rules one at a time, <code>render-cuda</code>, and last, shards for read-only memory.</p>
+
+<div class="prose">
+<h2>Read the device axis</h2>
+<p>Run the run tests with your compiler as it is:</p>
+<pre><code>python tools/test.py --compiler YOURS --week 10 -k run/</code></pre>
+<p>The last line should read <code>8 / 16 passed</code>.</p>
+<ol>
+<li><strong>Parse it.</strong> <code>range</code> now also takes <code>axis=device</code>.</li>
+<li><strong>Keep it on the range.</strong> Store the axis on the node.</li>
+<li><strong>Run it as a plain loop.</strong> <code>compile FILE</code> runs iteration 0, then 1, and so on. The kernels inside run as in week 8.</li>
+<li><strong>Render it as a plain loop.</strong> <code>render</code> prints a <code>for</code> loop around the kernels' calls.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<p>From here on, a checkpoint lists what to add to <code>python tools/test.py --compiler YOURS --week 10</code>, and the last line you should see.</p>
+<pre><code>-k device_same_as_loop  1 / 1 passed
+-k run/                 8 or more of 16</code></pre>
+<p>The count may not move, but different tests pass now: the valid ones run, and the lucky ones print MATCH. With <code>-v</code>, they read like this:</p>
+<pre><code>FAIL tests/week10/run/rejected_device_bound_17.uir
+    expected REJECTED, got MATCH</code></pre>
+<p>No test checks <code>render</code> on a valid device loop, so look yourself. For <code>device_same_as_loop.uir</code> the reference prints:</p>
+<pre><code>void kernel(int32_t *restrict b0, int32_t *restrict b1) {
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    int32_t v7 = (int32_t)((uint32_t)r6 * (uint32_t)8);
+    { thread0_ctx k_ = { b0, b1, v7 }; uir_parallel_for(2, thread0, &amp;k_); }
+  }
+}</code></pre>
+<p>Commit after every checkpoint.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread <a href="02-device-loops.html">lesson 10.2</a> from the start.</p>
+
+<div class="prose">
+<h2>Check where a device loop sits</h2>
+<p>Check these in <code>compile FILE</code> and in <code>render</code>.</p>
+<ol>
+<li><strong>Count the devices.</strong> The bound is a literal from 1 to 16. A 0, a 17 or a name is rejected.</li>
+<li><strong>Top level only.</strong> A device loop is not inside any other loop, not even a plain one.</li>
+<li><strong>Devices run kernels.</strong> A <code>thread</code> loop inside a device loop is rejected. Global loops, with their local and warp loops, follow the rules of weeks 8 and 9.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<pre><code>-k bound                      2 / 2 passed
+-k rejected_device_in_loop    1 / 1 passed
+-k rejected_thread_in_device  1 / 1 passed
+-k run/                       12 or more of 16</code></pre>
+</div>
+
+<p class="prose muted">Stuck? Reread where a device loop may sit in <a href="02-device-loops.html">lesson 10.2</a>.</p>
+
+<div class="prose">
+<h2>Keep each device in its shard</h2>
+<p>This is week 7's slice check with the device range <code>d</code> in place of the thread range.</p>
+<ol>
+<li><strong>Find the written memory.</strong> Collect every buffer that a store or an <code>mma</code> writes anywhere in the device loop, across all its kernels. Leave out an alloc that is one kernel's shared memory.</li>
+<li><strong>Check every access.</strong> Each load and store of written memory is at <code>d·S + e</code>, with <code>S</code> a positive literal and <code>0 ≤ e</code> and <code>e + size ≤ S</code> provable. An <code>mma</code> tile counts with its whole extent.</li>
+<li><strong>One stride per buffer.</strong> Every access to one buffer uses the same <code>S</code>, in every kernel of the loop.</li>
+<li><strong>Try it on read-only memory.</strong> Run the same check on buffers the loop only reads. If it fails, do not reject: mark the buffer replicated. Keep <code>S</code> for those that pass, since <code>render-cuda</code> will need it.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<pre><code>-k rejected_device_slices_overlap    1 / 1 passed
+-k rejected_devices_write_one_place  1 / 1 passed
+-k two_strides                       1 / 1 passed
+-k run/                              15 or more of 16</code></pre>
+<p>If <code>device_reads_anywhere</code> fails, step 4 rejects where it should replicate.</p>
+</div>
+
+<p class="prose muted">Stuck? Reread the memory rule in <a href="02-device-loops.html">lesson 10.2</a>. The slice check itself is in <a href="../week7/04-threads.html">lesson 7.4</a>.</p>
+
+<div class="prose">
+<h2>Make the shards fit</h2>
+<p><code>rejected_device_shards_do_not_fit</code> has 3 shards of 4 in buffers of 10. Every access stays inside, and it is still refused.</p>
+<ol>
+<li><strong>Multiply.</strong> For a device loop of bound <code>N</code>, a buffer with stride <code>S</code> needs <code>N·S</code> elements.</li>
+<li><strong>Compare.</strong> If that is more than the buffer's size, a written buffer is REJECTED. A read-only buffer is replicated instead.</li>
+<li><strong>Leave the tail alone.</strong> Elements past the last shard belong to no device and keep their values.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<pre><code>-k rejected_  8 / 8 passed
+-k run/       16 / 16 passed</code></pre>
+</div>
+
+<p class="prose muted">Stuck? Reread "One stride, and the shards must fit" in <a href="02-device-loops.html">lesson 10.2</a>, or section 2 of the spec.</p>
+
+<div class="prose">
+<h2>Print scatter, launch, wait and gather</h2>
+<p>Start with <code>c_one_device</code>, a device loop of 1. For now, copy every read-only buffer whole to every device.</p>
+<ol>
+<li><strong>Accept the new shape.</strong> A global loop may sit directly inside a top-level device loop. Its bound is a literal.</li>
+<li><strong>Compute on the host.</strong> Between kernels, a device loop may hold only <code>i32</code> <code>add</code> and <code>mul</code> of the device index and literals. Print them in the host loop and pass them to the kernels. Anything else exits 2.</li>
+<li><strong>Scatter.</strong> For every device and every buffer the loop touches, <code>UIR_ALLOC</code> on that device, then <code>UIR_COPY</code> in its shard of a written buffer, or the whole of a read-only one.</li>
+<li><strong>Launch.</strong> <code>UIR_DEVICE(d)</code>, then each kernel in program order, with the device's allocations in place of the buffers, plus <code>d</code> and any host values.</li>
+<li><strong>Index the shard.</strong> In the kernel, element <code>d·S + e</code> of a sharded buffer is element <code>e</code> of the allocation, so subtract <code>d·S</code>.</li>
+<li><strong>Wait, then gather.</strong> <code>UIR_SYNC()</code>. Copy every written shard back to its place on device 0, and <code>UIR_FREE</code> every allocation. Kernels after the loop run on device 0.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<pre><code>-k c_one_device  1 / 1 passed
+-k c_err         1 / 1 passed
+-k render/       4 or more of 10</code></pre>
+<p>With <code>-v</code>, the tests left now fail only on bytes:</p>
+<pre><code>FAIL tests/week10/render/c_shard_scale.uir
+    moved 272 bytes between devices, the budget is 208 (send each device only its shard of a buffer, not all of it)</code></pre>
+</div>
+
+<p class="prose muted">Stuck? Reread <a href="03-moving-memory.html">lesson 10.3</a>, which follows <code>c_shard_scale</code> from start to end.</p>
+
+<details class="toggle">
+<summary>What stops a program in the emulator, for when a test ends in "multi-device error"</summary>
+<div class="prose">
+<p>The emulator gives each allocation its own memory, filled with the byte <code>0xA5</code>. A kernel that reads what was never copied to its device gets wrong bits. It also stops the program with one of these messages:</p>
+<ul>
+<li><code>a kernel was launched on one device with a pointer to another device's memory</code>: you passed a program buffer, or another device's allocation, to a kernel.</li>
+<li><code>UIR_COPY names a device its pointer is not on</code>: the device numbers of a copy are swapped or wrong.</li>
+<li><code>UIR_COPY writes past the end of a device allocation</code>, or <code>reads past</code>: a copy's size is the whole buffer where the allocation holds a shard.</li>
+<li><code>a kernel wrote outside its device's allocation</code>: an index that did not subtract <code>d·S</code>.</li>
+<li><code>UIR_FREE names the wrong device</code>.</li>
+</ul>
+</div>
+</details>
+
+<details class="toggle">
+<summary>The host function the reference prints for c_shard_scale, to compare with yours</summary>
+<div class="prose">
+<p><code>python _reference/uirc.py render-cuda tests/week10/render/c_shard_scale.uir</code> prints the kernel <code>k0</code> and then this. <code>x</code> and <code>o</code> are sharded with <code>S = 8</code>, and <code>w</code> is replicated. <code>v7</code> is the shard's offset, computed on the host.</p>
+</div>
+<pre><code>void kernel(int32_t *b0, int32_t *b1, int32_t *b2) {   /* device pointers; UIR_LAUNCH comes from the harness */
+  int32_t *s0_[2];
+  int32_t *s1_[2];
+  int32_t *s2_[2];
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    s0_[r6] = (int32_t *)UIR_ALLOC(r6, 8 * sizeof(int32_t));
+    UIR_COPY(r6, s0_[r6], 0, b0 + r6 * 8, 8 * sizeof(int32_t));
+    s1_[r6] = (int32_t *)UIR_ALLOC(r6, 2 * sizeof(int32_t));
+    UIR_COPY(r6, s1_[r6], 0, b1, 2 * sizeof(int32_t));
+    s2_[r6] = (int32_t *)UIR_ALLOC(r6, 8 * sizeof(int32_t));
+    UIR_COPY(r6, s2_[r6], 0, b2 + r6 * 8, 8 * sizeof(int32_t));
+  }
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_DEVICE(r6);
+    int32_t v7 = (int32_t)((uint32_t)r6 * (uint32_t)8);
+    UIR_LAUNCH(k0, 2, 4, s0_[r6], s1_[r6], s2_[r6], r6, v7);
+  }
+  UIR_SYNC();
+  for (int32_t r6 = 0; r6 &lt; 2; r6++) {
+    UIR_FREE(r6, s0_[r6]);
+    UIR_FREE(r6, s1_[r6]);
+    UIR_COPY(0, b2 + r6 * 8, r6, s2_[r6], 8 * sizeof(int32_t));
+    UIR_FREE(r6, s2_[r6]);
+  }
+  UIR_DEVICE(0);
+}</code></pre>
+</details>
+
+<div class="prose">
+<h2>Send each device only its shard</h2>
+<p>The bits are right. What is left is waste: a device gets all of a buffer it reads only a shard of.</p>
+<ol>
+<li><strong>Use the kept <code>S</code>.</strong> A read-only buffer whose reads passed the slice rule and whose shards fit has one.</li>
+<li><strong>Scatter a shard.</strong> Allocate and copy <code>S</code> elements starting at <code>d·S</code>, as for written memory.</li>
+<li><strong>Index it the same way.</strong> Subtract <code>d·S</code> in the kernel.</li>
+<li><strong>Do not gather it.</strong> Nothing wrote it, so only free it.</li>
+</ol>
+</div>
+
+<div class="note">
+<span class="label">Checkpoint</span>
+<pre><code>-k render/  10 / 10 passed</code></pre>
+<p>Then <code>--week 10</code> with no filter should say <code>26 / 26 passed</code>.</p>
+<p>Now run weeks 1 to 9 again, one <code>--week</code> at a time, leaving out the slow tests as before: <code>--skip mnist</code> for week 6 and <code>--skip render/s_</code> for weeks 7 to 9. Weeks 2 to 9 pass everything, and <code>--week 1</code> says <code>272 / 282 passed</code>, as before.</p>
+</div>
+
+<p class="prose muted">Stuck? <a href="04-sharded-gemm.html">Lesson 10.4</a> counts the bytes of <code>c_shard_gemm</code>, shard by shard.</p>
+
+<details class="toggle">
+<summary>On real GPUs, and every way to run the suite</summary>
+<div class="prose">
+<p>With <code>nvcc</code> on your PATH, the same command builds your CUDA for the real thing. Device <code>d</code> runs on GPU <code>d</code> modulo the number of GPUs, so one GPU runs every test, each device with its own allocations. Copies are counted the same way, and there is no speed test this week.</p>
+<pre><code>python tools/test.py --compiler "C:/path/to/your.exe" --week 10
+python tools/test.py --compiler "C:/path/to/your.exe" --week 10 -k c_shard -v
+python _reference/uirc.py render-cuda tests/week10/render/c_shard_gemm.uir</code></pre>
+<p>The first runs the whole week, the second one group with details, and the third prints the reference's CUDA for you to compare.</p>
+<p>Pass <span class="only-ocaml">the built executable, not <code>dune exec</code>.</span><span class="only-python">the same wrapper script as in week 1.</span></p>
+</div>
+</details>
+
+<div class="prose">
+<h2>Write your 10 tests</h2>
+<p>Put 10 tests in <code>&lt;your compiler repo&gt;/tests/week10/</code>, each aimed at a rule someone will get wrong. The first toggle below holds a whole one, <code>rejected_device_swap_halves.uir</code>. Each device copies the other half of <code>o</code> into its own. As plain loops that gives 9 to 16 twice, which is what the assert says, so only the rule can make it REJECTED: the loop writes <code>o</code> and reads it at <code>8 - 8d + e</code>.</p>
+<p>Check your tests against the oracle:</p>
+<pre><code>python tools/test.py --check-tests &lt;your compiler repo&gt;/tests/week10 --week 10</code></pre>
+<p>With only that file there, it prints <code>1 / 1 tests agree with the oracle</code>.</p>
+</div>
+
+<details class="toggle">
+<summary>The sample test, to copy into your tests folder</summary>
+<pre><code>%o    = buffer 16 [1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16] dtype=i32 slot=0
+%tmp  = buffer 16 dtype=i32 slot=1
+%d    = range 2 axis=device
+%b    = range 1 axis=global
+%t    = range 8 axis=local
+%ds   = mul %d 8
+%m    = mul %b 8
+%e    = add %m %t
+%i    = add %ds %e
+%n    = mul %d -8
+%os   = add 8 %n
+%j    = add %os %e
+%ov   = shrink %o %j []
+%x    = load %ov
+%tv   = shrink %tmp %i []
+%s    = store %tv %x
+%et   = end %s %t
+%eb   = end %et %b
+%tmp1 = after %tmp %eb
+%c    = range 1 axis=global
+%u    = range 8 axis=local
+%m2   = mul %c 8
+%e2   = add %m2 %u
+%i2   = add %ds %e2
+%rv   = shrink %tmp1 %i2 []
+%y    = load %rv
+%wv   = shrink %o %i2 []
+%s2   = store %wv %y
+%eu   = end %s2 %u
+%ec   = end %eu %c
+%ed   = end %ec %d
+%o1   = after %o %ed
+%l    = load %o1
+%w    = stack 9 10 11 12 13 14 15 16 9 10 11 12 13 14 15 16
+%a    = assert %l %w</code></pre>
+<div class="prose">
+<p>Load <code>%o</code> at <code>%i</code> in place of <code>%j</code>, delete the three lines that make <code>%j</code>, expect 1 to 16 and drop <code>rejected_</code> from the name, and you have its partner, which must MATCH.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>Good targets for your tests</summary>
+<div class="prose">
+<p>Good targets: a vector store whose size just fits the end of a shard, and one element more. Shards that fit exactly, <code>N·S</code> equal to the size. A read-only buffer whose shards don't fit, which must be replicated, not rejected. A device loop of 16. A buffer read in one kernel and written in the next, in one device loop.</p>
+</div>
+</details>
+
+<details class="toggle">
+<summary>A checklist to tick off before you call the lab done</summary>
+
+<ul class="checklist" id="checklist">
+<li><label><input type="checkbox" data-k="parse"><span><code>axis=device</code> parses and runs as a plain loop, in <code>compile</code> and in <code>render</code></span></label></li>
+<li><label><input type="checkbox" data-k="place"><span>The bound is from 1 to 16, the loop is at the top level, and no thread loop is inside it</span></label></li>
+<li><label><input type="checkbox" data-k="shard"><span>Written memory is accessed at <code>d·S + e</code> with one <code>S</code>, and its shards fit</span></label></li>
+<li><label><input type="checkbox" data-k="read"><span>Read-only memory is sharded when it can be, and otherwise replicated, never rejected</span></label></li>
+<li><label><input type="checkbox" data-k="cuda"><span><code>render-cuda</code> scatters, launches, waits and gathers, and refuses work between kernels other than <code>add</code> and <code>mul</code> of the device index</span></label></li>
+<li><label><input type="checkbox" data-k="budget"><span>Every <code>c_</code> test passes in the emulator, inside its copy budget</span></label></li>
+<li><label><input type="checkbox" data-k="old"><span>Weeks 2 to 9 pass everything, and week 1 says 272 / 282 with the same ten failures as before</span></label></li>
+<li><label><input type="checkbox" data-k="mine"><span>10 week 10 tests of my own, passing <code>--check-tests</code></span></label></li>
+</ul>
+</details>
+
+<div class="key">
+<span class="label">The AI policy, still</span>
+<p>An AI assistant may <strong>explain concepts, draw diagrams and help you debug by asking questions</strong>, but must <strong>never write or rewrite compiler code</strong>. "Why would my compiler move 272 bytes where the reference moves 208?" is a fine question. "Write my scatter and gather" is not.</p>
+</div>
+
+<div class="prose">
+<h2>What you can do now</h2>
+<ul>
+<li>Read a program that names its devices, and run it as plain loops.</li>
+<li>Prove that each device touches only its own shard of what it writes.</li>
+<li>Decide, buffer by buffer, whether to send each device a shard or a whole copy.</li>
+<li>Print CUDA that scatters, launches, waits and gathers, and moves no more bytes than it must.</li>
+</ul>
+<p>This is the last lab of the course as it stands today. One screen is left: three questions, then a look back.</p>
+</div>
+
+<h2>Check yourself</h2>
+<p class="score"></p>
+
+<div class="quiz" data-answer="a">
+<p class="q"><code>c_shard_scale</code> fails with <code>moved 272 bytes between devices, the budget is 208</code>. Its <code>x</code> has 16 <code>i32</code>, <code>w</code> has 2 and <code>o</code> has 16, on 2 devices. What did your compiler do?</p>
+<div class="opts">
+<button data-k="a">It sent all of <code>x</code> to each device instead of its half</button>
+<button data-k="b">It gathered <code>w</code></button>
+<button data-k="c">It forgot to copy <code>o</code> back</button>
+</div>
+<p class="hint">272 − 208 = 64. Which buffer is 64 bytes more when replicated?</p>
+<div class="why"><p>Two whole copies of <code>x</code> are 128 bytes, two halves are 64. Gathering <code>w</code> would add only 16, and a missing copy would move fewer bytes.</p></div>
+</div>
+
+<div class="quiz" data-answer="b">
+<p class="q">The emulator stops a test with <code>a kernel was launched on one device with a pointer to another device's memory</code>. What is the likely bug?</p>
+<div class="opts">
+<button data-k="a">A shard that does not fit</button>
+<button data-k="b">The launch passes the program's buffer, which lives on device 0, where it should pass the device's allocation</button>
+<button data-k="c">A missing <code>UIR_SYNC()</code></button>
+</div>
+<p class="hint">Lesson 10.3: what does a kernel take in place of the buffers?</p>
+<div class="why"><p>On device 1, a kernel may only touch device 1's allocations. On device 0 the check can't see it, since the buffers live there too.</p></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">Your compiler prints REJECTED for <code>device_reads_anywhere</code>, which reads <code>x</code> back to front. What went wrong?</p>
+<div class="opts">
+<button data-k="a">The bound check</button>
+<button data-k="b">Nothing: that program breaks the slice rule</button>
+<button data-k="c">The slice rule was applied to memory the loop only reads, as if it were written</button>
+</div>
+<p class="hint">The test's name says what it is allowed to do.</p>
+<div class="why"><p><code>x</code> is never written, so it may be read anywhere. A failed slice check on it means "replicate", not "reject".</p></div>
+</div>
+
+<div class="key">
+<span class="label">What you have built</span>
+<p>You began with a ten-line interpreter. Ten weeks later you have a compiler that goes from a line of text to CUDA on several GPUs, and you wrote every line of it.</p>
+</div>
+
+<div class="prose">
+<ol>
+<li><strong>Week 1.</strong> UOps, an interpreter, rewrites and symbolic simplification.</li>
+<li><strong>Week 2.</strong> Buffers, loads and stores, bounds proofs, and C.</li>
+<li><strong>Week 3.</strong> Loops, and a GEMM and a convolution written by hand.</li>
+<li><strong>Week 4.</strong> Rangeify: whole-tensor ops turned into fused loops.</li>
+<li><strong>Week 5.</strong> Shapes of any rank, and reshape, permute, pad, shrink and expand.</li>
+<li><strong>Week 6.</strong> Gradients, and a network trained on MNIST.</li>
+<li><strong>Week 7.</strong> Fast C: tiles, upcast and every core of the CPU.</li>
+<li><strong>Week 8.</strong> GPU kernels with blocks, threads and shared memory.</li>
+<li><strong>Week 9.</strong> Registers, <code>i8</code> tensor cores, convolutions and flash attention.</li>
+<li><strong>Week 10.</strong> One program on several GPUs, with each one sent only what it needs.</li>
+</ol>
+<p>What you could do next:</p>
+<ul>
+<li><strong>Keep data on the devices.</strong> Two device loops in a row that shard a buffer the same way, with no kernel between, gather it and scatter it again. Skip both. Fewer bytes than the budget always pass.</li>
+<li><strong>Time it.</strong> Rent two GPUs for an hour, as in <a href="../week8/05-getting-a-gpu.html#renting">lesson 8.5</a>, and see when the copies cost more than the second GPU saves.</li>
+</ul>
+</div>
+
+<nav class="pager"></nav>
+</main>
+<script src="../assets/course.js?v=f8627300fd"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const KEY = 'cc-week10-checklist'; let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  document.querySelectorAll('#checklist input').forEach(b => {
+    b.checked = !!saved[b.dataset.k];
+    b.onchange = () => { saved[b.dataset.k] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} };
+  });
+});
+</script>
+</body>
+</html>

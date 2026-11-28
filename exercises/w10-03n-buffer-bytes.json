@@ -1,0 +1,53 @@
+{
+  "id": "w10-03n-buffer-bytes",
+  "lang": "ocaml",
+  "title": "Count one buffer's bytes",
+  "show": "string_of_int",
+  "starter": "let buffer_bytes (devices : int) (size : int) (elem : int) (written : bool) (stride : int) : int =\n  if stride = 0 then devices * size * elem\n  else begin\n    let moved = ref (devices * size * elem) in\n    if written then moved := devices * stride * elem;\n    !moved\n  end\n",
+  "hints": [
+    "Look at the sharded case only. What does one device's copy in hold: the whole buffer or its shard?",
+    "A sharded copy in is `devices * stride * elem`, not `size`. A written buffer is copied in and then back out again, so its count is added to, not replaced.",
+    "`moved` starts at `devices * stride * elem`, and when `written` it becomes `moved + devices * stride * elem`: twice the copy in."
+  ],
+  "explain": "Scatter copies every buffer to every device: the whole buffer when it is replicated, `stride` elements when it is sharded. Gather copies back only the written shards, the same `stride` elements per device. So a read-only shard costs `devices * stride * elem` bytes, a written one twice that, and a replicated buffer `devices * size * elem`.",
+  "tests": [
+    {
+      "expr": "buffer_bytes 2 16 4 false 8",
+      "expect": "64",
+      "sample": true
+    },
+    {
+      "expr": "buffer_bytes 2 16 4 true 8",
+      "expect": "128",
+      "sample": true
+    },
+    {
+      "expr": "buffer_bytes 2 2 4 false 0",
+      "expect": "16"
+    },
+    {
+      "expr": "buffer_bytes 2 16 4 false 0",
+      "expect": "128"
+    },
+    {
+      "expr": "buffer_bytes 2 10 4 true 4",
+      "expect": "64"
+    },
+    {
+      "expr": "buffer_bytes 1 16 4 false 16",
+      "expect": "64"
+    },
+    {
+      "expr": "buffer_bytes 4 64 4 true 16",
+      "expect": "512"
+    },
+    {
+      "expr": "buffer_bytes 2 32 1 false 16",
+      "expect": "32"
+    },
+    {
+      "expr": "buffer_bytes 3 20 4 false 6",
+      "expect": "72"
+    }
+  ]
+}
