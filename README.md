@@ -1,6 +1,7 @@
-# ML compilers, from zero
+# ML Compilers, From Zero
 
-A free, open-source course where you build a machine learning compiler from scratch, inspired by the public syllabus
+A free, open-source, self-paced course by Sharp Terminal. Take it at **[sharpterminal.com](https://sharpterminal.com)**.
+You build a machine learning compiler from scratch, in Python or OCaml, inspired by the public syllabus
 of [10-411, Compilers for Machine Learning](https://10-411.com/)
 ([technical syllabus](https://gist.github.com/geohot/4768597d9dc536446ee2d5de1f29e89d)).
 **Independent. Not affiliated with CMU or George Hotz.**
@@ -51,13 +52,18 @@ floor division, f32 rounding). Lesson 0.6 teaches OCaml from scratch. Exercises 
 follow the track you pick.
 
 Every lesson has LeetCode-style exercises in your language, C or .uir. Type in the editor (Vim, Emacs or Sublime
-keys, picked in the sidebar). **Run** checks the examples and **Submit** runs the hidden tests, on your machine.
+keys, picked under Keys in the sidebar). The same choice turns on keys for the whole site: move between parts and
+lessons, jump to any link, and press `?` for the list. **Run** checks the examples and **Submit** runs the hidden tests, on your machine.
 Python exercises need nothing extra. C needs `clang` or `gcc`, and OCaml exercises need `ocaml` on PATH. Without a
 local OCaml you can use `--ocaml "docker run --rm -i ocaml/opam:alpine-ocaml-5.2 ocaml"`. The runner only listens on
 127.0.0.1 and refuses requests from other sites.
 
 The lessons also read fine on the hosted site or straight from disk. There the exercises show their examples, hints
 and answers, and running code needs the local runner.
+
+The hosted site counts visits with Google Analytics, along with lessons finished, quiz answers and exercises solved,
+so we can see which lessons need work. Open any page with `?analytics=off` to turn that off in your browser
+(`?analytics=on` turns it back on). The local server sends nothing.
 
 ## Grading your compiler
 
