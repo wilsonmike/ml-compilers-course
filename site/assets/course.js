@@ -211,6 +211,11 @@ const CC = (() => {
         h('span', { text: g.title }), h('span', { class: 'gcount' })));
       grp.append(h('ul', {}, g.items.map(item)));
       return grp; }));
+    const placeLearn = () => { const grps = [...nav.querySelectorAll('.grp')], at = t => grps.find(x => x.dataset.gk === 'cc-grp:' + t);
+      const start = at(startGroup().title), wk0 = at('Week 0 · Prerequisites'), learn = NAV.filter(g => g.track).map(g => at(g.title)).filter(Boolean);
+      if (!start || !wk0) return; if (pathId() === 'new') start.after(...learn); else wk0.before(...learn); };
+    placeLearn();
+    document.addEventListener('cc-progress', placeLearn);
     const paintSide = () => {
       nav.querySelectorAll('a[data-href]').forEach(a => { const href = a.dataset.href, p = prog(href), m = a.querySelector('.prog');
         const all = p && p.t && p.s >= p.t, d = isDone(href) || all;
@@ -1642,5 +1647,6 @@ const CC = (() => {
     paint();
     document.addEventListener('cc-badges', paint);
   }
-  return { badgePage, h, graph, parseUir, stepper, trace, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX, onTrackItem };
+  const setPath = k => { if (k) store.set('cc-path', k); else try { localStorage.removeItem('cc-path'); } catch {} changed(); };
+  return { badgePage, setPath, PATHS, pathId, h, graph, parseUir, stepper, trace, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX, onTrackItem };
 })();

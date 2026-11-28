@@ -21,8 +21,8 @@
 <link rel="preload" href="vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <script type="application/ld+json">[{"@context": "https://schema.org", "@type": "WebSite", "name": "Sharp Terminal", "alternateName": "ML Compilers, From Zero", "url": "https://sharpterminal.com/site/"}, {"@context": "https://schema.org", "@type": "Course", "name": "ML Compilers, From Zero", "description": "A free, self-paced course where you build a machine learning compiler in Python or OCaml. Start by interpreting add 2 3 and finish with CUDA kernels, tensor cores and training on several GPUs, with a hands-on lab and a test suite every week. Every Python and .uir exercise runs in your browser, and...", "url": "https://sharpterminal.com/site/", "inLanguage": "en", "isAccessibleForFree": true, "educationalLevel": "Beginner to advanced", "teaches": "Building a machine learning compiler from scratch in Python or OCaml: graph IRs, rewrites, loops, memory, rendering C and CUDA, autodiff, fast CPU and GPU kernels, tensor cores and multiple GPUs", "audience": {"@type": "Audience", "audienceType": "Beginners, Python programmers, systems programmers and machine learning engineers"}, "provider": {"@type": "Organization", "name": "Sharp Terminal", "url": "https://sharpterminal.com/"}, "offers": {"@type": "Offer", "category": "Free", "price": 0, "priceCurrency": "USD"}, "hasCourseInstance": {"@type": "CourseInstance", "courseMode": "Online"}, "license": "https://github.com/wilsonmike/ml-compilers-course/blob/main/LICENSE-CONTENT.md"}]</script>
 <!-- /seo -->
-<link rel="stylesheet" href="assets/course.css?v=b666b320b6">
-<script src="assets/course.js?v=a804b84891"></script>
+<link rel="stylesheet" href="assets/course.css?v=b993eb4820">
+<script src="assets/course.js?v=0cb08eb82c"></script>
 </head>
 <body class="home" data-root="./">
 <main>
@@ -34,6 +34,7 @@
         <a class="btn primary lg" id="hero-start" href="#you">Start learning →</a>
         <a class="btn lg" href="resources/bug-hunts.html">Try the 10-bug hunt</a>
       </div>
+      <div class="hero-path" id="hero-path"></div>
     </div>
     <div class="hero-art" aria-hidden="true">
       <picture><source srcset="assets/hero-mac.avif" type="image/avif"><img src="assets/hero-mac.webp" alt="" width="1672" height="941" fetchpriority="high"></picture>
@@ -314,6 +315,21 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   paintHeroStart();
   document.addEventListener('cc-progress', paintHeroStart);
+  const heroPath = document.getElementById('hero-path');
+  function paintHeroPath() {
+    if (!heroPath) return;
+    const pid = CC.pathId();
+    if (pid) {
+      heroPath.replaceChildren(h('span', { text: `Your path: ${CC.PATHS[pid].short}. ` }),
+        h('button', { type: 'button', class: 'linkish', text: 'Change', onclick: () => { CC.setPath(null); document.getElementById('you').scrollIntoView(); } }));
+      return;
+    }
+    heroPath.replaceChildren(h('span', { class: 'q', text: 'Where are you starting from?' }),
+      h('span', { class: 'opts' }, Object.entries(CC.PATHS).map(([k, p]) => h('button', { type: 'button', class: 'btn', text: p.name, title: p.about(),
+        onclick: () => { CC.setPath(k); const nx = pathNext(); location.href = nx ? nx[0] : '#you'; } }))));
+  }
+  paintHeroPath();
+  document.addEventListener('cc-progress', paintHeroPath);
 
   const crt = document.getElementById('hero-crt');
   if (crt) {
