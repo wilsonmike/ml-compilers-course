@@ -304,6 +304,13 @@ const CC = (() => {
     pager.replaceChildren(
       h('a', { href: root + (prev ? prev[0] : 'index.html'), text: prev ? `← ${prev[2]} ${prev[1]}` : '← Course home' }),
       h('a', { href: root + (next ? next[0] : 'index.html'), text: next ? `${next[2]} ${next[1]} →` : 'Course home →' }));
+    const old = pager.nextElementSibling; if (old && old.classList.contains('path-note')) old.remove();
+    const s2 = startGroup().items[1];
+    if (pid === 'new' && next && lang === undefined && NAV.some(g => g.track && g.items.some(x => x[0] === next[0]))) {
+      const sw = h('button', { type: 'button', class: 'linkish', text: `switch to the “${PATHS.coder.short}” path and go to ${s2[2]}`,
+        onclick: () => { store.set('cc-path', 'coder'); location.href = root + s2[0]; } });
+      pager.after(h('p', { class: 'muted path-note' }, `You’re on the “${PATHS.new.short}” path, so you learn ${langName()} first and then do ${s2[2]}. If you can already program, `, sw, '.'));
+    }
   }
 
   function lessonTools(main, cur) {
@@ -413,7 +420,7 @@ const CC = (() => {
       kids.forEach((k, i) => { if (i && k.tagName === 'H2') { const d = h('div', { class: p.className }); at.after(d); at = d; } if (at !== p) at.append(k); });
     });
     const starts = k => k.tagName === 'H2' || (k.classList.contains('prose') && k.firstElementChild && k.firstElementChild.tagName === 'H2');
-    const tail = k => k.matches('nav.pager, .finish');
+    const tail = k => k.matches('nav.pager, .finish, .path-note');
     const groups = [[]]; let seen = false;
     [...main.children].filter(k => !tail(k)).forEach(k => { if (starts(k)) { if (seen) groups.push([]); seen = true; } groups[groups.length - 1].push(k); });
     if (groups.length < 3) return;
