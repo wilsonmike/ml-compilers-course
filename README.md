@@ -48,7 +48,8 @@ with `clang++` or `g++`, so no GPU is needed.
 
 You write your compiler in one of two languages, picked under Language in the sidebar: **Python** (the default) or
 **OCaml**. Lesson 0.7 sets up a Python compiler project and covers the Python traps that matter here (i32 wrapping,
-floor division, f32 rounding). Lesson 0.6 teaches OCaml from scratch. Exercises and the few instructions that differ
+floor division, f32 rounding). The Learn OCaml lessons teach OCaml from scratch, and lesson 0.6 sets up an
+OCaml compiler project and covers the OCaml traps that matter here. Exercises and the few instructions that differ
 follow the track you pick.
 
 Every lesson has LeetCode-style exercises in your language, C or .uir. Type in the editor (Vim, Emacs or Sublime
@@ -81,7 +82,7 @@ python tools/test.py --check-tests C:/path/to/your/tests/week1 --week 1   # chec
 run `COMPILER simplify FILE`, and from week 2 `COMPILER render FILE`. `python _reference/uirc.py --week=1 FILE...` prints
 what the oracle says for your own files. `--compiler` can be a built OCaml executable such as
 `_build/default/bin/main.exe`, or for a Python compiler the small wrapper script from lesson 0.7 (`mlc.cmd` on Windows,
-an executable `mlc` script on macOS and Linux).
+an executable `compile` script on macOS and Linux).
 
 ## Layout
 

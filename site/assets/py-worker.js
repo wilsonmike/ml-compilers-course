@@ -145,7 +145,7 @@ self.onmessage = async (ev) => {
       await py.runPythonAsync(PY_GRADER);
       graderInstalled = true;
     }
-    py.globals.set('_payload_json', JSON.stringify({ ex, code, submit }));
+    py.globals.set('_payload_json', '{"ex":' + (ex.raw || JSON.stringify(ex)) + ',"code":' + JSON.stringify(code) + ',"submit":' + JSON.stringify(!!submit) + '}');
     const resJson = await py.runPythonAsync('_run_job(_payload_json)');
     self.postMessage({ type: 'result', id, res: JSON.parse(resJson) });
   } catch (err) {

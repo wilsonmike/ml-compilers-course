@@ -296,10 +296,10 @@ const CC = (() => {
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : w.endsWith('z') ? 'zes' : 's'}`;
 
   function pagerFor(pager, href) {
-    const root = ROOT(), pid = pathId(), every = NAV.flatMap(g => g.items.filter(i => i[2]).map(i => [...i, g.title]));
+    const root = ROOT(), pid = pathId(), all = NAV.flatMap(g => g.items.filter(i => i[2]).map(i => [...i, g.title])), every = all.filter(onTrackItem);
     const lang = NAV.find(g => g.track && g.items.some(i => i[0] === href)), tag = (g, xs) => xs.map(i => [...i, g.title]);
     const langSeq = lang && [...tag(startGroup(), startStep(0).items), ...tag(lang, lang.items), ...tag(startGroup(), startStep(1).items)];
-    const seq = [pid && pathItems(pid), pathItems('new'), langSeq, every].find(s => s && s.some(x => x[0] === href));
+    const seq = [pid && pathItems(pid), pathItems('new'), langSeq, every, all].find(s => s && s.some(x => x[0] === href));
     const i = seq.findIndex(x => x[0] === href), prev = seq[i - 1], next = seq[i + 1];
     pager.replaceChildren(
       h('a', { href: root + (prev ? prev[0] : 'index.html'), text: prev ? `← ${prev[2]} ${prev[1]}` : '← Course home' }),
@@ -1005,7 +1005,7 @@ const CC = (() => {
       // With the runner, the exercise comes from it. Without (a hosted copy, or the runner not started), from the
       // static data that tools/build_static.py writes, so the examples, hints, and answer still show.
       let ex;
-      try { ex = await fetch(r ? api('exercise/' + id) : ROOT() + 'data/ex/' + id + '.json').then(x => { if (!x.ok) throw new Error(x.status); return x.json(); }); }
+      try { ex = await fetch(r ? api('exercise/' + id) : ROOT() + 'data/ex/' + id + '.json').then(x => { if (!x.ok) throw new Error(x.status); return x.text(); }).then(t => Object.assign(JSON.parse(t), { raw: t })); }
       catch (e) { ex = null; if (r) { work.append(h('div', { class: 'ex-offline', text: `Couldn't load exercise "${id}" (${e.message}).` })); continue; } }
       const offline = () => h('div', { class: 'ex-offline' }, h('strong', { text: 'Code runs on your own machine.' }),
         h('p', {}, 'Get the course on your computer (', h('a', { href: REPO + '#taking-the-course', text: 'how' }), '), then start the runner from its folder.'),
@@ -1424,5 +1424,5 @@ const CC = (() => {
 
   document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); terms(); siteKeys(); });
   const pathNext = () => { const pid = pathId(); return pid ? nextUp(pid) : null; };
-  return { h, graph, parseUir, stepper, trace, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX };
+  return { h, graph, parseUir, stepper, trace, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX, onTrackItem };
 })();

@@ -33,7 +33,7 @@ Run commands like the test suite when asked, and report results plainly.
 
 Keep the block for the language this compiler is written in and delete the other.
 
-Python (the wrapper script from lesson 0.7: `mlc.cmd` on Windows, `./mlc` on macOS and Linux):
+Python (the wrapper script from lesson 0.7: `mlc.cmd` on Windows, `./compile` on macOS and Linux):
 
 ```
 python <course repo>/tools/test.py --compiler C:/path/to/this/repo/mlc.cmd --week 1

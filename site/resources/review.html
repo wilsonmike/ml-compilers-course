@@ -21,7 +21,7 @@
 <link rel="preload" href="../vendor/fonts/geist-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- /seo -->
 <link rel="stylesheet" href="../assets/course.css?v=3bd090f741">
-<script src="../assets/course.js?v=a5cae112de"></script>
+<script src="../assets/course.js?v=f59c51f2e3"></script>
 <style>
   .review-bar { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin: 0 0 var(--s5); }
   .review-bar .seg button { padding: 4px var(--s3); }
@@ -56,7 +56,7 @@
 <script>
 (() => {
   const { h, NAV, quizzes, store } = CC;
-  const weeks = NAV.filter(g => /^Week \d/.test(g.title)).sort((a, b) => parseInt(a.title.slice(5), 10) - parseInt(b.title.slice(5), 10)).concat(NAV.filter(g => /^(Start ·|Learn|Hard)/.test(g.title)));
+  const weeks = NAV.filter(g => /^Week \d/.test(g.title)).sort((a, b) => parseInt(a.title.slice(5), 10) - parseInt(b.title.slice(5), 10)).concat(NAV.filter(g => /^(Start ·|Learn|Hard)/.test(g.title))).filter(g => !g.track || g.track === CC.track());
   const params = new URLSearchParams(location.search);
   let week = Math.min(Math.max(parseInt(params.get('week') || '1', 10) || 0, 0), weeks.length - 1);
   let mode = ['missed', 'due', 'all'].includes(params.get('mode')) ? params.get('mode') : (params.has('week') ? 'all' : 'due');
@@ -74,7 +74,7 @@
   async function load() {
     const allDue = CC.dueQuizzes(), due = new Set(allDue.slice(0, CC.REVIEW_MAX)), groups = [];
     const all = NAV.flatMap(g => g.items).filter(i => i[2]);
-    const pages = mode === 'due' ? all.filter(([href]) => [...due].some(q => q.startsWith(href + '#'))) : weeks[week].items;
+    const pages = mode === 'due' ? all.filter(([href]) => [...due].some(q => q.startsWith(href + '#'))) : weeks[week].items.filter(CC.onTrackItem);
     for (const [href, title, n] of pages) {
       try {
         const html = await fetch('../' + href).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); });
