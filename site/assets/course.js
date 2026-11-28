@@ -86,7 +86,7 @@ const CC = (() => {
     if (q === 'off') localStorage.setItem('cc-no-analytics', '1'); else if (q === 'on') localStorage.removeItem('cc-no-analytics');
     return localStorage.getItem('cc-no-analytics') === '1'; } catch { return false; } })();
   const LIVE = /(^|\.)sharpterminal\.com$/.test(location.hostname) && !optOut;
-  const report = (event, params) => { if (LIVE) (window.dataLayer = window.dataLayer || []).push({ event, ...params }); };
+  const report = (event, params) => { if (!LIVE) return; window.dataLayer = window.dataLayer || []; (function () { window.dataLayer.push(arguments); })('event', event, params); };
   if (LIVE) {
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
