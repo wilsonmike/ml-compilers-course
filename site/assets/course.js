@@ -74,7 +74,7 @@ const CC = (() => {
       ['learn/hard-01-sharing.html', 'Sharing nodes', 'H.1'], ['learn/hard-02-walking-graphs.html', 'Walking a graph once', 'H.2'],
       ['learn/hard-03-rewriting.html', 'Rewriting until nothing changes', 'H.3'], ['learn/hard-04-numbers-like-c.html', 'Numbers that behave like C', 'H.4']] },
     { title: 'Resources', items: [['resources/index.html', 'All resources'], ['resources/bug-hunts.html', 'Bug hunts'], ['resources/debugging.html', 'Debugging your compiler'],
-      ['resources/review.html', 'Quiz review'], ['resources/glossary.html', 'Glossary'], ['resources/languages.html', 'Python and OCaml, deeper']] }
+      ['resources/review.html', 'Quiz review'], ['resources/badges.html', 'Badges'], ['resources/glossary.html', 'Glossary'], ['resources/languages.html', 'Python and OCaml, deeper']] }
   ];
   const ROOT = () => document.body.dataset.root || './';
   // The course's source, linked from the top bar of every page
@@ -142,7 +142,7 @@ const CC = (() => {
   const readJSON = (k, d) => { try { const v = JSON.parse(store.get(k)); return v == null ? d : v; } catch { return d; } };
   const keysWith = prefix => { const out = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(prefix)) out.push(k); } } catch {} return out; };
   const changed = () => document.dispatchEvent(new Event('cc-progress'));
-  function studied() { const ds = readJSON('cc-days', []), t = today(); if (ds[ds.length - 1] !== t) { ds.push(t); store.set('cc-days', JSON.stringify(ds.slice(-400))); } }
+  function studied() { const ds = readJSON('cc-days', []), t = today(); if (ds[ds.length - 1] !== t) { ds.push(t); store.set('cc-days', JSON.stringify(ds.slice(-400))); } queueBadges(); }
   const isDone = href => !!store.get('cc-done:' + href);
   const prog = href => { try { return JSON.parse(store.get('cc-prog:' + href) || 'null'); } catch { return null; } };
   const lessonDone = href => { const p = prog(href); return isDone(href) || !!(p && p.t && p.s >= p.t); };
@@ -270,7 +270,7 @@ const CC = (() => {
     if (main) { if (!main.id) main.id = 'main'; main.tabIndex = -1; b.prepend(h('a', { class: 'skip', href: '#' + main.id, text: 'Skip to content' })); }
     const onLink = side.querySelector('nav a.on');
     if (onLink && side.scrollHeight > side.clientHeight) side.scrollTop = onLink.getBoundingClientRect().top - side.getBoundingClientRect().top - side.clientHeight / 3;
-    const you = document.getElementById('you'); if (you) { homePanel(you); document.addEventListener('cc-progress', () => homePanel(you)); }
+    const you = document.getElementById('you'); if (you) { homePanel(you); document.addEventListener('cc-progress', () => homePanel(you)); document.addEventListener('cc-badges', () => homePanel(you)); }
     if (main && !isHome) toc(main, page);
     document.querySelectorAll('[data-prog]').forEach(a => { const p = prog(a.dataset.prog), d = isDone(a.dataset.prog) || (p && p.t && p.s >= p.t);
       a.append(h('span', { class: 'p' + (d ? ' done' : ''), text: d ? 'Done' : p && p.s ? `${p.s}/${p.t}` : '' })); });
@@ -403,6 +403,7 @@ const CC = (() => {
           due ? h('span', { class: 'v', text: `${plural(due, 'question')} due` }) : h('span', { class: 'v', text: 'Nothing due' }),
           due ? h('a', { class: 'btn primary', href: root + 'resources/review.html?mode=due', text: due > REVIEW_MAX ? `Review ${REVIEW_MAX} now, about ${REVIEW_MAX / 2} min` : `Review now, about ${Math.max(1, Math.ceil(due / 2))} min` })
               : h('span', { class: 'd', text: 'Quiz questions come back after 3 days if you got them right, the next day if not, and then at longer gaps.' }))),
+      badgeRow(),
       h('p', { class: 'muted you-foot' }, `Your path: ${PATHS[pid].short}. `,
         h('button', { type: 'button', class: 'linkish', 'data-key': 'change', text: 'Change path', onclick: () => { try { localStorage.removeItem('cc-path'); } catch {} changed(); } }),
         ' · Progress is saved in this browser only.'),
@@ -1431,5 +1432,215 @@ const CC = (() => {
 
   document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); terms(); siteKeys(); });
   const pathNext = () => { const pid = pathId(); return pid ? nextUp(pid) : null; };
-  return { h, graph, parseUir, stepper, trace, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX, onTrackItem };
+  const GLYPH = {
+    run: ['#......', '###....', '#####..', '#######', '#####..', '###....', '#......'],
+    prompt: ['#........', '.#.......', '..#......', '.#.......', '#...#####'],
+    book: ['###.###', '#..#..#', '#..#..#', '#..#..#', '#..#..#', '###.###'],
+    tree: ['....#....', '...#.#...', '..#...#..', '.#.....#.', '##.....##', '##.....##'],
+    c: ['.#####', '##...#', '##....', '##....', '##....', '##...#', '.#####'],
+    loop: ['..###.#', '.#...##', '#...###', '#......', '#.....#', '.#...#.', '..###..'],
+    sigma: ['#######', '.#.....', '..#....', '...#...', '..#....', '.#.....', '#######'],
+    shape: ['####.##', '####.##', '.....##', '##...##', '##.....', '##.####', '##.####'],
+    seven: ['#######', '#######', '.....##', '....##.', '...##..', '...##..', '..##...', '..##...'],
+    tiles: ['###.###', '###.###', '###.###', '.......', '###.###', '###.###', '###.###'],
+    threads: ['#.#.#.#.#', '.........', '#.#.#.#.#', '.........', '#.#.#.#.#', '.........', '#.#.#.#.#', '.........', '#.#.#.#.#'],
+    bolt: ['....###', '...###.', '..###..', '.######', '....##.', '...##..', '..##...', '.##....'],
+    gpus: ['###...###', '###...###', '#########', '###...###', '###...###'],
+    star: ['....#....', '....#....', '...###...', '#########', '.#######.', '..#####..', '.###.###.', '.##...##.', '#.......#'],
+    flame: ['...#...', '...##..', '..###..', '.####.#', '.######', '###.###', '##...##', '.#####.'],
+    check: ['........#', '.......##', '......##.', '#....##..', '##..##...', '.####....', '..##.....'],
+    braces: ['.##...##.', '.#.....#.', '.#.....#.', '#.......#', '.#.....#.', '.#.....#.', '.##...##.'],
+  };
+  const LAB = n => `week${n}/06-lab.html`;
+  const LABS = [
+    [1, 'tree', 'Rewriter', 'My compiler passes', 'all 282 tests.', 'UOps, rewrites and simplifying'],
+    [2, 'c', 'Writes C', 'My compiler now', 'writes C.', 'Floats, memory and rendering C'],
+    [3, 'loop', 'Loops', 'My compiler', 'runs loops.', 'Loops, ranges and bounds'],
+    [4, 'sigma', 'Reducer', 'My compiler does', 'reductions now.', 'Rangeify, reduce and materialization'],
+    [5, 'shape', 'Any shape', 'My compiler handles', 'any tensor shape.', 'Reshape, permute, pad and shrink'],
+    [6, 'seven', 'Trained MNIST', 'My compiler just', 'trained MNIST.', 'Autodiff and all'],
+    [7, 'tiles', 'Fast kernels', 'My compiler writes', 'fast kernels.', 'Tiling, upcasting and threads'],
+    [8, 'threads', 'First CUDA kernel', 'My compiler', 'speaks CUDA.', 'Blocks, threads and shared memory'],
+    [9, 'bolt', 'Flash attention', 'My compiler does', 'flash attention.', 'Tensor cores and fast GEMMs'],
+    [10, 'gpus', 'Many GPUs', 'My compiler trains', 'on several GPUs.', 'Shards, device loops and moving memory'],
+  ];
+  const bestStreak = () => { const ds = [...new Set(readJSON('cc-days', []))].sort(); let best = 0, run = 0, prev = null;
+    for (const d of ds) { run = prev && addDays(1, new Date(prev + 'T12:00')) === d ? run + 1 : 1; best = Math.max(best, run); prev = d; } return best; };
+  const quizRight = () => keysWith('cc-q:').filter(k => (readJSON(k, {}).b || 0) >= 1).length;
+  const solvedCount = () => keysWith('cc-solved:').length;
+  const learnGroup = () => NAV.find(g => g.track === track());
+  const BADGES = [
+    { id: 'first-program', g: 'run', n: 'First program', c: 'Finish S.1', test: () => lessonDone('start/01-run-a-program.html'), from: 'start/01-run-a-program.html' },
+    { id: 'interpreter', g: 'prompt', n: 'First interpreter', c: 'Finish S.2', test: () => lessonDone('start/02-build-a-calculator.html'), from: 'start/02-build-a-calculator.html',
+      card: ['I wrote my first', 'interpreter.', () => `Step one of an ML compiler I’m building from scratch, in ${langName()}.`, 0] },
+    { id: 'language', g: 'book', n: () => `Learned ${langName()}`, c: () => `Finish the six Learn ${langName()} lessons`, test: () => learnGroup().items.every(i => lessonDone(i[0])) },
+    ...LABS.map(([w, g, n, l1, l2, topic]) => ({ id: 'week' + w, g, n, c: `Finish the week ${w} lab`, test: () => lessonDone(LAB(w)), from: LAB(w),
+      card: [l1, l2, () => `${topic}, from scratch in ${langName()}. Week ${w} of 10.`, w] })),
+    { id: 'zero', g: 'star', n: 'Built it from zero', c: 'Finish all ten labs', test: () => LABS.every(([w]) => lessonDone(LAB(w))),
+      card: ['I built an ML compiler', 'from zero.', () => `From add 2 3 to CUDA kernels on several GPUs, in ${langName()}.`, 10] },
+    ...[[3, 1], [7, 2], [30, 3]].map(([d, t]) => ({ id: 'streak' + d, g: 'flame', tier: t, n: `${d}-day streak`, c: `Study ${d} days in a row`, test: () => bestStreak() >= d })),
+    ...[[25, 1], [100, 2], [300, 3]].map(([q, t]) => ({ id: 'quiz' + q, g: 'check', tier: t, n: `${q} quizzes right`, c: `Get ${q} quiz questions right`, test: () => quizRight() >= q })),
+    ...[[10, 1], [50, 2], [150, 3]].map(([x, t]) => ({ id: 'solved' + x, g: 'braces', tier: t, n: `${x} exercises solved`, c: `Solve ${x} exercises`, test: () => solvedCount() >= x })),
+  ];
+  const val = x => (typeof x === 'function' ? x() : x);
+  const earnedOn = id => store.get('cc-badge:' + id);
+  let plateN = 0;
+  function lampGrid(b) {
+    const rows = GLYPH[b.g], m = Array.from({ length: 9 }, () => Array(9).fill(false)), H = b.tier ? 8 : 9;
+    const w = Math.max(...rows.map(r => r.length)), x0 = Math.floor((9 - w) / 2), y0 = Math.floor((H - rows.length) / 2);
+    rows.forEach((r, y) => [...r].forEach((ch, x) => { if (ch === '#') m[y + y0][x + x0] = true; }));
+    if (b.tier) for (let i = 0; i < b.tier; i++) m[8][4 - (b.tier - 1) + i * 2] = true;
+    return m;
+  }
+  function plate(b, on, inner = false) {
+    const u = 'bp' + (++plateN), m = lampGrid(b), cream = '#ece4c6';
+    let lamps = '';
+    for (let y = 0; y < 9; y++) for (let x = 0; x < 9; x++) {
+      const cx = 22 + x * 7, cy = 22 + y * 7;
+      if (m[y][x] && on) lamps += `<circle cx="${cx}" cy="${cy}" r="3.6" fill="${cream}" opacity=".5" filter="url(#gl${u})"/><circle cx="${cx}" cy="${cy}" r="2.55" fill="#fff8dc"/><circle cx="${cx - .7}" cy="${cy - .8}" r=".8" fill="#fff" opacity=".9"/>`;
+      else if (m[y][x]) lamps += `<circle cx="${cx}" cy="${cy}" r="2.4" fill="${cream}" opacity=".26"/>`;
+      else lamps += `<circle cx="${cx}" cy="${cy}" r="2.2" fill="${cream}" opacity="${on ? .07 : .05}"/>`;
+    }
+    const rivet = (x, y) => `<circle cx="${x}" cy="${y}" r="2" fill="url(#rv${u})"/><circle cx="${x}" cy="${y}" r="2" fill="none" stroke="#000" stroke-opacity=".5" stroke-width=".5"/>`;
+    const body = `<defs><linearGradient id="pl${u}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${on ? '#4a4840' : '#26262a'}"/><stop offset=".45" stop-color="${on ? '#2a2925' : '#18181b'}"/><stop offset="1" stop-color="${on ? '#141412' : '#0d0d0f'}"/></linearGradient>`
+      + `<linearGradient id="rm${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${on ? .45 : .2}"/><stop offset=".5" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#fff" stop-opacity="${on ? .14 : .06}"/></linearGradient>`
+      + `<radialGradient id="rv${u}" cx=".35" cy=".35" r=".8"><stop offset="0" stop-color="#d8d2bb"/><stop offset="1" stop-color="#3a3933"/></radialGradient>`
+      + `<radialGradient id="sh${u}" cx=".3" cy=".2" r="1"><stop offset="0" stop-color="#fff" stop-opacity="${on ? .16 : .06}"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/></radialGradient>`
+      + `<filter id="gl${u}" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="1.8"/></filter>`
+      + `<filter id="gr${u}" x="0" y="0" width="1" height="1"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="${plateN % 9}"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1.4 -.55"/><feComposite in2="SourceGraphic" operator="in"/></filter></defs>`
+      + `<rect x="2" y="2" width="96" height="96" rx="24" fill="url(#pl${u})"/><rect x="2" y="2" width="96" height="96" rx="24" fill="url(#sh${u})"/>`
+      + `<rect x="2" y="2" width="96" height="96" rx="24" fill="#fff" filter="url(#gr${u})" opacity="${on ? .22 : .14}"/>`
+      + `<rect x="2.6" y="2.6" width="94.8" height="94.8" rx="23.4" fill="none" stroke="url(#rm${u})" stroke-width="1.2"/>`
+      + `<rect x="14" y="14" width="72" height="72" rx="13" fill="#050506"/><rect x="14" y="14" width="72" height="72" rx="13" fill="none" stroke="#000" stroke-opacity=".9" stroke-width="1.4"/>`
+      + `<rect x="14.7" y="14.7" width="70.6" height="70.6" rx="12.4" fill="none" stroke="#fff" stroke-opacity=".05"/>${lamps}${rivet(9.5, 9.5)}${rivet(90.5, 9.5)}${rivet(9.5, 90.5)}${rivet(90.5, 90.5)}`;
+    if (inner) return body;
+    const s = h('span', { class: 'bdg-plate' + (on ? ' on' : ''), role: 'img', 'aria-label': val(b.n) + (on ? '' : ' (not earned yet)') });
+    s.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true">${body}</svg>`;
+    return s;
+  }
+  const fmtDay = d => { try { return new Date(d + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.slice(0, 4) === today().slice(0, 4) ? undefined : 'numeric' }); } catch { return d; } };
+  const earnedList = () => BADGES.filter(b => earnedOn(b.id)).sort((a, b) => (earnedOn(a.id) < earnedOn(b.id) ? -1 : earnedOn(a.id) > earnedOn(b.id) ? 1 : 0));
+  let toastBox = null;
+  function toast(b) {
+    if (!toastBox) { toastBox = h('div', { class: 'bdg-toasts', 'aria-live': 'polite' }); document.body.append(toastBox); }
+    const root = ROOT(), close = h('button', { type: 'button', class: 'btn', text: 'Close' });
+    const t = h('div', { class: 'bdg-toast' }, plate(b, true),
+      h('div', { class: 'bdg-tt' }, h('div', { class: 'k', text: 'Badge earned' }), h('div', { class: 't', text: val(b.n) })),
+      h('div', { class: 'bdg-acts' }, h('a', { class: 'btn primary', href: root + 'resources/badges.html' + (b.card ? '?card=' + b.id : ''), text: b.card ? 'Share' : 'See badges' }), close));
+    let timer = null; const go = () => t.remove(), arm = () => { clearTimeout(timer); timer = setTimeout(go, 9000); };
+    close.onclick = go; t.addEventListener('mouseenter', () => clearTimeout(timer)); t.addEventListener('mouseleave', arm);
+    t.addEventListener('focusin', () => clearTimeout(timer)); t.addEventListener('focusout', arm);
+    toastBox.append(t); arm();
+  }
+  let checking = false;
+  function checkBadges() {
+    if (checking) return; checking = true;
+    try {
+      const first = !store.get('cc-badges-seen'), fresh = [];
+      for (const b of BADGES) {
+        if (earnedOn(b.id)) continue;
+        let ok = false; try { ok = b.test(); } catch {}
+        if (!ok) continue;
+        store.set('cc-badge:' + b.id, (b.from && store.get('cc-done:' + b.from)) || today());
+        fresh.push(b);
+      }
+      if (first) store.set('cc-badges-seen', '1');
+      else for (const b of fresh) { report('badge_earned', { badge: b.id, language: track() }); toast(b); }
+      if (fresh.length) document.dispatchEvent(new Event('cc-badges'));
+    } finally { checking = false; }
+  }
+  let checkQueued = false;
+  const queueBadges = () => { if (checkQueued) return; checkQueued = true; setTimeout(() => { checkQueued = false; checkBadges(); }, 0); };
+  document.addEventListener('cc-progress', queueBadges);
+  document.addEventListener('DOMContentLoaded', queueBadges);
+
+  function badgeRow() {
+    const root = ROOT(), got = earnedList();
+    return h('div', { class: 'bdg-row' },
+      h('div', { class: 'bdg-count' }, h('span', { class: 'label', text: 'Badges' }), h('span', { class: 'v', text: `${got.length} of ${BADGES.length}` })),
+      got.length ? h('div', { class: 'bdg-mini' }, got.slice(-6).reverse().map(b => plate(b, true)))
+        : h('span', { class: 'd', text: 'Finish S.1 for your first one.' }),
+      h('a', { class: 'bdg-all', href: root + 'resources/badges.html', text: 'See all →' }));
+  }
+
+  const CARD_IMG = 'assets/univac-card.jpg';
+  function cardSvg(b, img, fontCss = '') {
+    const [l1, l2, sub, done] = b.card, bg = '#09090b', ink = '#ece4c6', ink2 = '#c9c2a8', ink3 = '#8f8a7a', line = 'rgba(236,228,198,.2)';
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    let lamps = '';
+    for (let i = 0; i < 10; i++) {
+      const x = 92 + i * 46, on = i < done;
+      lamps += on ? `<circle cx="${x}" cy="440" r="11" fill="${ink}" opacity=".45" filter="url(#cgl)"/><circle cx="${x}" cy="440" r="8" fill="#fff8dc"/><circle cx="${x - 2.4}" cy="437.4" r="2.4" fill="#fff" opacity=".9"/>`
+        : `<circle cx="${x}" cy="440" r="8" fill="none" stroke="${ink}" stroke-opacity=".28" stroke-width="1.5"/><circle cx="${x}" cy="440" r="8" fill="${ink}" opacity=".05"/>`;
+      lamps += `<text x="${x}" y="476" class="m" font-size="14" fill="${on ? ink2 : ink3}" text-anchor="middle">${String(i + 1).padStart(2, '0')}</text>`;
+    }
+    const pick = [b, ...earnedList().filter(x => x !== b && x.card).reverse()].slice(0, 3).reverse();
+    const bs = pick.map((x, i) => `<g transform="translate(${1000 - (pick.length - 1 - i) * 132},392) scale(1.2)">${plate(x, true, true)}</g>`).join('');
+    const tick = (x, y, dx, dy) => `<path d="M${x} ${y + dy * 18}V${y}H${x + dx * 18}" fill="none" stroke="${ink}" stroke-opacity=".7" stroke-width="2"/>`;
+    const eyebrow = done ? `MILESTONE ${String(done).padStart(2, '0')} / 10` : 'MILESTONE 00 / 10';
+    return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 630" width="1200" height="630">`
+      + `<style>${fontCss}.s{font-family:Geist,-apple-system,'Segoe UI',sans-serif}.m{font-family:'Geist Mono',ui-monospace,Consolas,monospace}</style><defs>`
+      + `<linearGradient id="cfade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${bg}" stop-opacity=".97"/><stop offset=".42" stop-color="${bg}" stop-opacity=".82"/><stop offset=".75" stop-color="${bg}" stop-opacity=".3"/><stop offset="1" stop-color="${bg}" stop-opacity=".15"/></linearGradient>`
+      + `<linearGradient id="cbot" x1="0" y1="0" x2="0" y2="1"><stop offset=".55" stop-color="${bg}" stop-opacity="0"/><stop offset="1" stop-color="${bg}" stop-opacity=".9"/></linearGradient>`
+      + `<radialGradient id="cvig" cx=".5" cy=".5" r=".75"><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".7"/></radialGradient>`
+      + `<filter id="cgr" x="0" y="0" width="1" height="1"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="3" seed="4"/><feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1.6 -.62"/><feComposite in2="SourceGraphic" operator="in"/></filter>`
+      + `<filter id="cgl" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="5"/></filter></defs>`
+      + `<rect width="1200" height="630" fill="${bg}"/><image href="${img}" xlink:href="${img}" x="0" y="0" width="1200" height="630" preserveAspectRatio="xMidYMid slice" opacity=".62"/>`
+      + `<rect width="1200" height="630" fill="url(#cfade)"/><rect width="1200" height="630" fill="url(#cbot)"/><rect width="1200" height="630" fill="url(#cvig)"/>`
+      + `<rect width="1200" height="630" fill="#fff" filter="url(#cgr)" opacity=".13"/><rect x="32" y="32" width="1136" height="566" fill="none" stroke="${line}"/>`
+      + tick(32, 32, 1, 1) + tick(1168, 32, -1, 1) + tick(32, 598, 1, -1) + tick(1168, 598, -1, -1)
+      + `<rect x="80" y="76" width="36" height="36" rx="10" fill="${ink}"/><rect x="88.5" y="84.5" width="8" height="8" rx="1.5" fill="${bg}"/><rect x="99.5" y="95.5" width="8" height="8" rx="1.5" fill="${bg}"/>`
+      + `<text x="130" y="101" class="s" font-size="22" font-weight="600" fill="${ink}">ML Compilers, From Zero</text>`
+      + `<text x="1120" y="101" class="m" font-size="16" fill="${ink2}" text-anchor="end" letter-spacing="3">${eyebrow}</text>`
+      + `<text x="80" y="226" class="s" font-size="72" font-weight="600" fill="${ink}" letter-spacing="-2">${esc(l1)}</text>`
+      + `<text x="80" y="306" class="s" font-size="72" font-weight="600" fill="${ink}" letter-spacing="-2">${esc(l2)}</text>`
+      + `<text x="80" y="358" class="s" font-size="24" fill="${ink2}">${esc(val(sub))}</text>`
+      + `<text x="80" y="408" class="m" font-size="14" fill="${ink3}" letter-spacing="3">WEEKS</text>${lamps}${bs}`
+      + `<text x="80" y="556" class="m" font-size="22" fill="${ink}">sharpterminal.com</text>`
+      + `<text x="1120" y="556" class="s" font-size="20" fill="${ink2}" text-anchor="end">Free, open source, no signup</text></svg>`;
+  }
+  const b64 = async url => { const buf = await (await fetch(url)).arrayBuffer(), u8 = new Uint8Array(buf); let s = '';
+    for (let i = 0; i < u8.length; i += 32768) s += String.fromCharCode.apply(null, u8.subarray(i, i + 32768)); return btoa(s); };
+  async function cardPng(b) {
+    const root = ROOT();
+    const [img, a, m] = await Promise.all([b64(root + CARD_IMG), b64(root + 'vendor/fonts/geist-latin.woff2'), b64(root + 'vendor/fonts/geist-mono-latin.woff2')]);
+    const fonts = `@font-face{font-family:Geist;font-weight:400 600;src:url(data:font/woff2;base64,${a}) format('woff2')}@font-face{font-family:'Geist Mono';font-weight:400 500;src:url(data:font/woff2;base64,${m}) format('woff2')}`;
+    const pic = new Image(); pic.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(cardSvg(b, 'data:image/jpeg;base64,' + img, fonts));
+    await pic.decode(); await new Promise(r => setTimeout(r, 80));
+    const cv = document.createElement('canvas'); cv.width = 2400; cv.height = 1260;
+    cv.getContext('2d').drawImage(pic, 0, 0, 2400, 1260);
+    return new Promise((ok, no) => cv.toBlob(x => (x ? ok(x) : no(new Error('no image'))), 'image/png'));
+  }
+  const shareText = b => `${b.card[0]} ${b.card[1]} ${val(b.card[2])} Free course: https://sharpterminal.com`;
+
+  function badgePage(el) {
+    checkBadges();
+    const paint = () => {
+      const got = BADGES.filter(b => earnedOn(b.id)), cards = BADGES.filter(b => b.card && earnedOn(b.id));
+      const want = new URLSearchParams(location.search).get('card');
+      let cur = cards.find(b => b.id === want) || cards[cards.length - 1] || null;
+      const grid = h('div', { class: 'bdg-grid' }, BADGES.map(b => { const on = !!earnedOn(b.id);
+        return h('div', { class: 'bdg-cell' + (on ? '' : ' locked') }, plate(b, on), h('div', { class: 'n', text: val(b.n) }), h('div', { class: 'c', text: on ? 'Earned ' + fmtDay(earnedOn(b.id)) : val(b.c) })); }));
+      const out = [h('p', { class: 'bdg-sum', text: `${got.length} of ${BADGES.length} earned. Badges are saved in this browser, along with the rest of your progress.` }), grid,
+        h('h2', { id: 'share', text: 'Share a milestone' })];
+      if (!cur) { out.push(h('p', { class: 'muted', text: 'Finish S.2, where you write your first interpreter, and your first share card appears here. Each week’s lab adds another.' })); el.replaceChildren(...out); return; }
+      const frameBox = h('div', { class: 'bdg-card' }), note = h('span', { class: 'muted bdg-note', 'aria-live': 'polite' });
+      const show = () => { frameBox.innerHTML = cardSvg(cur, ROOT() + CARD_IMG); const s = frameBox.firstElementChild; s.setAttribute('role', 'img'); s.setAttribute('aria-label', `${cur.card[0]} ${cur.card[1]}`); };
+      const tabs = h('div', { class: 'seg bdg-tabs' }, cards.map(b => h('button', { type: 'button', class: b === cur ? 'on' : '', text: val(b.n), onclick: e => { cur = b; tabs.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === e.currentTarget)); show(); note.textContent = ''; } })));
+      const name = () => `ml-compilers-${cur.id}.png`;
+      const dl = h('button', { type: 'button', class: 'btn primary', text: 'Download PNG', onclick: async () => { note.textContent = 'Drawing...';
+        try { const blob = await cardPng(cur), a = h('a', { href: URL.createObjectURL(blob), download: name() }); document.body.append(a); a.click(); a.remove(); note.textContent = `Saved ${name()}.`; } catch (e) { note.textContent = 'Couldn’t draw the image here. Try another browser.'; } } });
+      const copy = h('button', { type: 'button', class: 'btn', text: 'Copy post text', onclick: async () => { try { await navigator.clipboard.writeText(shareText(cur)); note.textContent = 'Copied. Paste it with the image.'; } catch { note.textContent = shareText(cur); } } });
+      const acts = h('div', { class: 'bdg-share' }, dl, copy);
+      if (navigator.canShare && navigator.share) acts.append(h('button', { type: 'button', class: 'btn', text: 'Share…', onclick: async () => {
+        try { const f = new File([await cardPng(cur)], name(), { type: 'image/png' }); if (navigator.canShare({ files: [f] })) await navigator.share({ files: [f], text: shareText(cur) }); else await navigator.share({ text: shareText(cur) }); } catch {} } }));
+      acts.append(note);
+      out.push(h('p', { class: 'muted', text: 'Pick a milestone you’ve reached. The image is made in your browser, and nothing is uploaded.' }), cards.length > 1 ? tabs : null, frameBox, acts);
+      el.replaceChildren(...out.filter(Boolean)); show();
+      if (want && location.hash !== '#share') document.getElementById('share').scrollIntoView();
+    };
+    paint();
+    document.addEventListener('cc-badges', paint);
+  }
+  return { badgePage, h, graph, parseUir, stepper, trace, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX, onTrackItem };
 })();
