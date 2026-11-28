@@ -475,10 +475,12 @@ if __name__ == '__main__':
     todo = [i for i, (n, _) in enumerate(pool) if not only or any(o in n for o in only)]
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=jobs) as ex: res = list(ex.map(lambda i: run_one(i, ref, matrix), todo))
+  GPU_ONLY = {'w9 per-thread memory kept in shared memory': 'only a real GPU runs s_cuda_gemm_registers slowly enough to fail it'}
   for r in res:
-    if not r['killed']: print(f"SURVIVED  {r['name']}")
+    if not r['killed']: print(f"GPU ONLY  {r['name']}: {GPU_ONLY[r['name']]}" if r['name'] in GPU_ONLY else f"SURVIVED  {r['name']}")
   if matrix or not only:                      # the test guides read this: which bugs each test is known to catch
     json.dump({'matrix': matrix, 'entries': {r['name']: r for r in res}}, open(os.path.join(HERE, '.mutant_results.json'), 'w', encoding='utf-8'), indent=0)
-  alive = sum(not r['killed'] for r in res)
-  print(f"\n{len(res) - alive} / {len(res)} mutants killed, control passed, {time.time() - t0:.0f} s")
+  gpu = sum(not r['killed'] and r['name'] in GPU_ONLY for r in res)
+  alive = sum(not r['killed'] for r in res) - gpu
+  print(f"\n{len(res) - alive - gpu} / {len(res)} mutants killed" + (f", {gpu} more needs a real GPU" if gpu else '') + f", control passed, {time.time() - t0:.0f} s")
   sys.exit(1 if alive else 0)

@@ -18,7 +18,7 @@ those, and puts a diagram before every idea.
 | 0 | short primers, each read just before the week that needs it: C, memory, IRs, tensors, matmul, Python or OCaml setup | 7 | exercises only | |
 | 1 | UOps and rewrites | 6 | 282 | [uir-week1.md](spec/uir-week1.md) |
 | 2 | floats, memory and rendering C | 6 | 198 | [uir-week2.md](spec/uir-week2.md) |
-| 3 | loops | 6 | 94 | [uir-week3.md](spec/uir-week3.md) |
+| 3 | loops | 6 | 95 | [uir-week3.md](spec/uir-week3.md) |
 | 4 | rangeify, reduce, materialization | 6 | 90 | [uir-week4.md](spec/uir-week4.md) |
 | 5 | movement ops: reshape, permute, pad, shrink, any rank | 6 | 116 | [uir-week5.md](spec/uir-week5.md) |
 | 6 | math ops, sugar, autodiff, data files, training on MNIST | 6 | 169 | [uir-week6.md](spec/uir-week6.md) |
@@ -27,8 +27,8 @@ those, and puts a diagram before every idea.
 | 9 | GPUs, part 2: registers, fast GEMMs, tensor cores, convolutions, flash attention | 6 | 52 | [uir-week9.md](spec/uir-week9.md) |
 | 10 | multiple GPUs: device loops, shards, moving memory, a sharded GEMM, training on several GPUs | 6 | 26 | [uir-week10.md](spec/uir-week10.md) |
 
-1,200 quizzes with hints and answers, 437 graded exercises (167 of them in Python) and 1110 compiler tests. `_reference/mutants.py` plants 298 plausible bugs in the reference compiler, one at a time, and each one must
-make some test fail. A few of them, like a CUDA kernel that runs each block on a single thread, are only caught on a real GPU. With `--checks` it
+1,200 quizzes with hints and answers, 437 graded exercises (167 of them in Python) and 1111 compiler tests. `_reference/mutants.py` plants 298 plausible bugs in the reference compiler, one at a time, and each one must
+make some test fail. One, per-thread memory kept in shared memory, gives the same answers and only fails a speed test on a real GPU, so the run lists it on its own line. With `--checks` it
 also switches off each of the reference compiler's validations and simplifier rules, one at a time: most of these are caught, and the
 rest are either backed up by a second check that rejects the same program or can't be reached by a valid one. Week 1 follows the official 10-411
 [week 1 reference](https://10-411.com/assignments/week1.pdf): its format, semantics and outcomes. The format for weeks 2
