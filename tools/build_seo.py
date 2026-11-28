@@ -49,7 +49,11 @@ def info(p):
   return src, text(title.group(1)), text(h1.group(1)) if h1 else text(title.group(1)), text(lede.group(1)) if lede else ''
 
 ASSETS = ROOT / 'site' / 'assets'
-VERSION = {n: hashlib.sha256((ASSETS / n).read_bytes()).hexdigest()[:10] for n in ('course.css', 'course.js')}
+WORKER = hashlib.sha256((ASSETS / 'py-worker.js').read_bytes()).hexdigest()[:10]
+_js = (ASSETS / 'course.js').read_bytes()
+_js2 = re.sub(rb"assets/py-worker\.js(?:\?v=[0-9a-f]+)?'", f"assets/py-worker.js?v={WORKER}'".encode(), _js)
+if _js2 != _js: (ASSETS / 'course.js').write_bytes(_js2)
+VERSION ={n: hashlib.sha256((ASSETS / n).read_bytes()).hexdigest()[:10] for n in ('course.css', 'course.js')}
 PRELOAD = ('geist-latin.woff2', 'geist-mono-latin.woff2')
 
 def up(p):
