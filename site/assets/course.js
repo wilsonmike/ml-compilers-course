@@ -299,7 +299,7 @@ const CC = (() => {
     const root = ROOT(), pid = pathId(), all = NAV.flatMap(g => g.items.filter(i => i[2]).map(i => [...i, g.title])), every = all.filter(onTrackItem);
     const lang = NAV.find(g => g.track && g.items.some(i => i[0] === href)), tag = (g, xs) => xs.map(i => [...i, g.title]);
     const langSeq = lang && [...tag(startGroup(), startStep(0).items), ...tag(lang, lang.items), ...tag(startGroup(), startStep(1).items)];
-    const seq = [pid && pathItems(pid), pathItems('new'), langSeq, every, all].find(s => s && s.some(x => x[0] === href));
+    const seq = [pid && pathItems(pid), pathItems('coder'), pathItems('new'), langSeq, every, all].find(s => s && s.some(x => x[0] === href));
     const i = seq.findIndex(x => x[0] === href), prev = seq[i - 1], next = seq[i + 1];
     pager.replaceChildren(
       h('a', { href: root + (prev ? prev[0] : 'index.html'), text: prev ? `← ${prev[2]} ${prev[1]}` : '← Course home' }),
