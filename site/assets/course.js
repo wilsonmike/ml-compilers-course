@@ -82,7 +82,9 @@ const CC = (() => {
   // Google Analytics 4, through the Google tag container (it carries the GA4 stream, G-5W4EDH8RFN). Only on the
   // live site, so local copies and previews never count as visits.
   const TAG_ID = 'GTM-MPMCLH74';
-  if (/(^|\.)sharpterminal\.com$/.test(location.hostname)) {
+  const LIVE = /(^|\.)sharpterminal\.com$/.test(location.hostname);
+  const report = (event, params) => { if (LIVE) (window.dataLayer = window.dataLayer || []).push({ event, ...params }); };
+  if (LIVE) {
     window.dataLayer = window.dataLayer || [];
     window.dataLayer.push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
     const s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtm.js?id=' + TAG_ID;
@@ -141,7 +143,7 @@ const CC = (() => {
   const isDone = href => !!store.get('cc-done:' + href);
   const prog = href => { try { return JSON.parse(store.get('cc-prog:' + href) || 'null'); } catch { return null; } };
   const lessonDone = href => { const p = prog(href); return isDone(href) || !!(p && p.t && p.s >= p.t); };
-  function setDone(href, on) { if (on) { if (!isDone(href)) store.set('cc-done:' + href, today()); studied(); } else { try { localStorage.removeItem('cc-done:' + href); } catch {} } changed(); }
+  function setDone(href, on) { if (on) { if (!isDone(href)) { store.set('cc-done:' + href, today()); report('lesson_complete', { lesson: href, language: track() }); } studied(); } else { try { localStorage.removeItem('cc-done:' + href); } catch {} } changed(); }
   const GAPS = [1, 3, 7, 16, 35, 90];
   function schedule(qid, ok) {
     const r = readJSON('cc-q:' + qid, null);
@@ -694,7 +696,7 @@ const CC = (() => {
         if (q.classList.contains('done')) return;
         q.classList.add('done'); done++; if (how === 'first') first++;
         try { if (how === 'first') localStorage.removeItem('cc-missed:' + q.dataset.qid); else localStorage.setItem('cc-missed:' + q.dataset.qid, '1'); } catch {}
-        schedule(q.dataset.qid, how === 'first');
+        schedule(q.dataset.qid, how === 'first'); report('quiz_answer', { quiz: q.dataset.qid, result: how });
         opts.forEach(o => { o.disabled = true; if (o.dataset.k === q.dataset.answer) o.classList.add('right'); });
         if (inp) { inp.disabled = checkB.disabled = true; if (how === 'shown') inp.value = q.dataset.fill.split('|')[0].trim(); inp.classList.toggle('good', how !== 'shown'); }
         bar.remove(); hints.forEach(x => x.classList.add('shown'));
@@ -1064,7 +1066,7 @@ const CC = (() => {
         }
         runB.disabled = subB.disabled = false;
         out.replaceChildren(...render(res, submit));
-        if (submit && res.ok && res.passed === res.total) { store.set('cc-solved:' + id, '1'); solved.hidden = false; studied(); record();
+        if (submit && res.ok && res.passed === res.total) { if (!store.get('cc-solved:' + id)) report('exercise_solved', { exercise: id, language: track() }); store.set('cc-solved:' + id, '1'); solved.hidden = false; studied(); record();
           if (page && ids.every(i => store.get('cc-solved:' + i))) setDone(page[1][0], true); }
       }
       runB.onclick = () => run(false); subB.onclick = () => run(true);
