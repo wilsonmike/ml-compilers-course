@@ -48,7 +48,7 @@ def _grade_python(ex, code, tests, everything):
     try:
         with contextlib.redirect_stdout(buf):
             exec(compile(code, 'solution.py', 'exec'), ns)
-    except Exception:
+    except (Exception, SystemExit):
         tb = traceback.format_exc()
         return {'ok': False, 'error': _clip(tb), 'stdout': _clip(buf.getvalue().strip())}
     try:
@@ -62,7 +62,7 @@ def _grade_python(ex, code, tests, everything):
             with contextlib.redirect_stdout(buf):
                 val = eval(t['expr'], ns)
             got.append(str(show(val)))
-        except Exception as e:
+        except (Exception, SystemExit) as e:
             got.append('exception ' + type(e).__name__ + (': ' + str(e) if str(e) else ''))
     return _finish(ex, tests, got, everything, _clip(buf.getvalue().strip()))
 

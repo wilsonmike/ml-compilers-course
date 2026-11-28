@@ -170,7 +170,7 @@ def run_python(ex, code, tests, cfg):
              f"__show = {ex.get('show', 'str')}\n"
              f"for __i, __e in enumerate({[t['expr'] for t in tests]!r}):\n"
              "    try:\n        __v = __show(eval(__e))\n"
-             "    except Exception as __x:\n        __v = 'exception ' + type(__x).__name__ + (': ' + str(__x) if str(__x) else '')\n"
+             "    except (Exception, SystemExit) as __x:\n        __v = 'exception ' + type(__x).__name__ + (': ' + str(__x) if str(__x) else '')\n"
              f"    print('\\n{nonce}' + str(__i) + ' ' + str(__v), flush=True)\n")
   with tempfile.TemporaryDirectory() as d:
     path = os.path.join(d, 'solution.py')

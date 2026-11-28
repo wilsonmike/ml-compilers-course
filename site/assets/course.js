@@ -956,7 +956,7 @@ const CC = (() => {
   let pyWorker = null, pySeq = 0, pyReady = false;
   function browserRun(ex, code, submit, onStatus) {
     return new Promise(resolve => {
-      if (!pyWorker) pyWorker = new Worker(new URL(ROOT() + 'assets/py-worker.js?v=fb98b85fdc', location.href));
+      if (!pyWorker) pyWorker = new Worker(new URL(ROOT() + 'assets/py-worker.js?v=47cc884924', location.href));
       const jobId = ++pySeq;
       const ms = pyReady ? 12000 : 45000;
       const timer = setTimeout(() => {
