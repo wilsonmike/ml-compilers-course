@@ -110,7 +110,7 @@ rows = ''.join(f'  <url><loc>{url(p)}</loc></url>\n' for p in pages)
   '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + rows + '</urlset>\n', encoding='utf-8', newline='\n')
 
 (ROOT / 'robots.txt').write_text(
-  'User-agent: *\nDisallow: /_reference/\nAllow: /\n\n'
+  'User-agent: *\nDisallow: /_reference/\nDisallow: /api/\nAllow: /\n\n'
   f'Sitemap: {BASE}/sitemap.xml\n', encoding='utf-8', newline='\n')
 
 # llms.txt, in the format of https://llmstxt.org
