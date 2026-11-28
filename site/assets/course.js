@@ -159,6 +159,7 @@ const CC = (() => {
   const LANG_LESSON = { 'week0/06-ocaml.html': 'ocaml', 'week0/07-python.html': 'python' };
   const langLesson = () => (track() === 'python' ? 'week0/07-python.html' : 'week0/06-ocaml.html');
   const onTrack = ([href]) => !LANG_LESSON[href] || href === langLesson();
+  const onTrackItem = item => onTrack(item) && !offTrackHref(item[0]);
   const weeksFrom = n => NAV.filter(g => { const m = /^Week (\d+)/.exec(g.title); return m && +m[1] >= n; });
   const hardIdeas = () => NAV.find(g => g.title.startsWith('Hard ideas'));
   const langName = () => (track() === 'python' ? 'Python' : 'OCaml');
@@ -235,7 +236,7 @@ const CC = (() => {
     const side = h('aside', { class: 'side' },
       h('a', { class: 'brand', href: root + 'index.html' }, h('span', { class: 'mark', 'aria-hidden': 'true' }), 'ML compilers, from zero'),
       h('div', { class: 'search' }, search), nav,
-      h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect()), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Editor keys', km)));
+      h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect()), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Keys', km)));
     const pill = h('span', { class: 'runner', title: 'Start it with: python tools/serve.py' }, h('span', { class: 'dot' }), 'Runner off');
     runner().then(r => {
       if (r) { pill.classList.add('on'); pill.lastChild.textContent = 'Runner on'; pill.title = 'Exercises run on your machine via tools/serve.py'; }
@@ -728,10 +729,203 @@ const CC = (() => {
   const KEYMAPS = [['default', 'Default'], ['vim', 'Vim'], ['emacs', 'Emacs'], ['sublime', 'Sublime']];
   const editors = new Set(), selects = new Set();
   const keymap = () => store.get('cc-keymap') || 'default';
-  function setKeymap(k) { store.set('cc-keymap', k); editors.forEach(cm => { cm.setOption('keyMap', k); cm.getWrapperElement().dispatchEvent(new Event('cc-keymap')); }); selects.forEach(s => s.paint(k)); }
+  function setKeymap(k) { store.set('cc-keymap', k); editors.forEach(cm => { cm.setOption('keyMap', k); cm.getWrapperElement().dispatchEvent(new Event('cc-keymap')); }); selects.forEach(s => s.paint(k)); document.dispatchEvent(new Event('cc-keymap')); }
   function keymapSelect() {
-    const s = segPick('Editor key bindings', KEYMAPS, keymap(), setKeymap);
+    const s = segPick('Key bindings for the site and the code editors', KEYMAPS, keymap(), setKeymap);
     selects.add(s); return s;
+  }
+  function siteKeys() {
+    const on = () => keymap() !== 'default';
+    const inEditor = t => t && t.closest && t.closest('.CodeMirror');
+    const typing = t => t && t.closest && !inEditor(t) && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    const shown = el => { const r = el.getBoundingClientRect(); return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== 'hidden'; };
+    let lastCM = null, seq = '', seqT = 0, escT = 0, hints = null, layer = null;
+    document.addEventListener('focusin', e => { const w = inEditor(e.target); if (w && w.CodeMirror) lastCM = w.CodeMirror; });
+
+    const scroll = (dy, smooth = true) => scrollBy({ top: dy, behavior: smooth ? 'smooth' : 'auto' });
+    const line = () => scroll(64, false), lineUp = () => scroll(-64, false);
+    const half = () => scroll(innerHeight / 2), halfUp = () => scroll(-innerHeight / 2);
+    const page = () => scroll(innerHeight * 0.85), pageUp = () => scroll(-innerHeight * 0.85);
+    const top = () => scrollTo({ top: 0, behavior: 'smooth' });
+    const bottom = () => scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+    const part = d => {
+      const nav = document.querySelector('.stepnav');
+      if (nav && !nav.hidden) {
+        const b = d > 0 ? nav.querySelector('.btn.primary') : nav.querySelector('.btn:not(.primary)');
+        if (b && !b.hidden && !b.disabled) return b.click();
+        return d > 0 ? bottom() : top();
+      }
+      const hs = [...document.querySelectorAll('main h2')].filter(shown), y = 72;
+      const t = d > 0 ? hs.find(x => x.getBoundingClientRect().top > y + 8) : hs.filter(x => x.getBoundingClientRect().top < y - 8).pop();
+      if (t) t.scrollIntoView({ block: 'start', behavior: 'smooth' }); else (d > 0 ? bottom : top)();
+    };
+    const lesson = d => { const a = [...document.querySelectorAll('main nav.pager a')]; const t = d > 0 ? a[a.length - 1] : a[0]; if (t) location.href = t.href; };
+    const editor = () => {
+      const all = [...document.querySelectorAll('.CodeMirror')].filter(shown);
+      const inView = all.filter(w => { const r = w.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+      const w = (lastCM && all.includes(lastCM.getWrapperElement()) && lastCM.getWrapperElement()) || inView[0] || all[0];
+      if (!w) return;
+      w.scrollIntoView({ block: 'center', behavior: 'smooth' }); w.CodeMirror.focus();
+    };
+    const search = () => {
+      const s = document.querySelector('.side .search input'); if (!s) return;
+      if (!shown(s)) document.querySelector('.topbar .menu')?.click();
+      setTimeout(() => s.focus(), 60);
+    };
+
+    const leave = cm => {
+      lastCM = cm; cm.getInputField().blur(); setTimeout(() => { if (inEditor(document.activeElement)) document.activeElement.blur(); }, 0);
+      const w = cm.getWrapperElement(); w.classList.add('kb-left'); setTimeout(() => w.classList.remove('kb-left'), 900);
+    };
+    addEventListener('keydown', e => {
+      if (!on() || e.key !== 'Escape') return;
+      const w = inEditor(e.target);
+      if (!w) { if (typing(e.target) && !layer) e.target.blur(); return; }
+      const cm = w.CodeMirror; if (!cm) return;
+      const km = keymap(), out = () => { e.preventDefault(); e.stopPropagation(); leave(cm); };
+      if (km === 'vim') { const v = cm.state.vim; if (v && !v.insertMode && !v.visualMode) out(); return; }
+      if (km === 'emacs') { const now = Date.now(); if (now - escT < 700) { escT = 0; out(); } else escT = now; return; }
+      out();
+    }, true);
+
+    const LET = 'asdfghjklqwertyuiopzxcvbnm';
+    function showHints() {
+      const sel = 'a[href], button, input, textarea, select, summary, .CodeMirror, [tabindex]:not([tabindex="-1"])';
+      const els = [...document.querySelectorAll(sel)].filter(el => {
+        if (el.tagName === 'TEXTAREA' && inEditor(el)) return false;
+        if (inEditor(el) && !el.classList.contains('CodeMirror')) return false;
+        if (el.disabled || el.closest('[hidden], [inert]')) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 2 && r.height > 2 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth && getComputedStyle(el).visibility !== 'hidden';
+      });
+      if (!els.length) return;
+      const two = els.length > LET.length;
+      const box = h('div', { class: 'kb-hints', 'aria-hidden': 'true' });
+      const items = els.map((el, i) => {
+        const code = two ? LET[Math.floor(i / LET.length) % LET.length] + LET[i % LET.length] : LET[i];
+        const r = el.getBoundingClientRect();
+        const tag = h('span', { class: 'kb-hint', text: code, style: `left:${Math.max(0, r.left)}px;top:${Math.max(0, r.top)}px` });
+        box.append(tag); return { el, code, tag };
+      });
+      document.body.append(box);
+      hints = { box, items, typed: '' };
+    }
+    const closeHints = () => { if (hints) hints.box.remove(); hints = null; };
+    const activate = el => {
+      if (el.classList.contains('CodeMirror')) { el.CodeMirror.focus(); return; }
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) { el.focus(); return; }
+      el.focus({ preventScroll: true }); el.click();
+    };
+    const hintKey = e => {
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === 'Escape') return closeHints();
+      if (e.key === 'Backspace') hints.typed = hints.typed.slice(0, -1);
+      else if (e.key.length === 1 && LET.includes(e.key.toLowerCase())) hints.typed += e.key.toLowerCase();
+      else return;
+      const left = hints.items.filter(it => it.code.startsWith(hints.typed));
+      hints.items.forEach(it => { it.tag.hidden = !it.code.startsWith(hints.typed); it.tag.classList.toggle('part', !!hints.typed && it.code.startsWith(hints.typed)); });
+      if (!left.length) return closeHints();
+      if (left.length === 1 && left[0].code === hints.typed) { const el = left[0].el; closeHints(); activate(el); }
+    };
+
+    const fuzzy = (q, s) => { q = q.toLowerCase(); s = s.toLowerCase(); let i = 0; for (const c of s) if (c === q[i]) i++; return i === q.length; };
+    function palette(title, list, choose) {
+      const input = h('input', { type: 'text', 'aria-label': title, placeholder: title, autocomplete: 'off', spellcheck: 'false' });
+      const ul = h('ul', { class: 'kb-list', role: 'listbox' });
+      let shown_ = [], sel = 0;
+      const paint = () => {
+        const q = input.value.trim().toLowerCase(), rank = it => { const t = it.text.toLowerCase(), u = (it.sub || '').toLowerCase();
+          return !q ? 0 : t.includes(q) ? (t.split(' ').slice(1).join(' ').startsWith(q) ? 0 : 1) : u.includes(q) ? 2 : fuzzy(q, it.text) ? 3 : fuzzy(q, it.text + ' ' + u) ? 4 : 9; };
+        shown_ = list.map((it, i) => [rank(it), i, it]).filter(r => r[0] < 9).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map(r => r[2]).slice(0, 60);
+        sel = Math.min(sel, Math.max(0, shown_.length - 1));
+        ul.replaceChildren(...shown_.map((it, i) => h('li', { role: 'option', class: i === sel ? 'on' : '', 'aria-selected': String(i === sel), onmousedown: ev => { ev.preventDefault(); pick(i); } },
+          h('span', { class: 'kb-t', text: it.text }), it.sub ? h('span', { class: 'kb-s', text: it.sub }) : null)));
+        ul.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+      };
+      const pick = i => { const it = shown_[i]; closeLayer(); if (it) choose(it); };
+      input.addEventListener('input', () => { sel = 0; paint(); });
+      input.addEventListener('keydown', ev => {
+        const k = ev.key, c = ev.ctrlKey;
+        if (k === 'ArrowDown' || (c && (k === 'n' || k === 'j'))) { ev.preventDefault(); sel = Math.min(sel + 1, shown_.length - 1); paint(); }
+        else if (k === 'ArrowUp' || (c && (k === 'p' || k === 'k'))) { ev.preventDefault(); sel = Math.max(sel - 1, 0); paint(); }
+        else if (k === 'Enter') { ev.preventDefault(); pick(sel); }
+        else if (k === 'Escape') { ev.preventDefault(); closeLayer(); }
+      });
+      openLayer(h('div', { class: 'kb-box', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, input, ul));
+      paint(); input.focus();
+    }
+    const lessons = () => {
+      const root = ROOT(), here = location.pathname.replace(/\.html$/, '');
+      const list = NAV.flatMap(g => g.items.filter(onTrackItem).map(([href, t, n]) => ({ text: (n ? n + ' ' : '') + t, sub: g.title, href: root + href })));
+      palette('Go to a lesson', list, it => { if (new URL(it.href, location.href).pathname.replace(/\.html$/, '') !== here) location.href = it.href; });
+    };
+    const sections = () => {
+      const hs = [...document.querySelectorAll('main h2')].filter(x => x.id);
+      if (!hs.length) return;
+      palette('Go to a part of this page', hs.map((x, i) => ({ text: x.textContent, sub: 'Part ' + (i + 1), id: x.id })), it => {
+        if (location.hash === '#' + it.id) dispatchEvent(new HashChangeEvent('hashchange')); else location.hash = it.id;
+        setTimeout(() => document.getElementById(it.id)?.scrollIntoView({ block: 'start' }), 30);
+      });
+    };
+
+    const VIM = [['j', 'Scroll down', line], ['k', 'Scroll up', lineUp], ['d', 'Half a page down', half], ['u', 'Half a page up', halfUp],
+      ['gg', 'Top of the page', top], ['G', 'Bottom of the page', bottom], ['l', 'Next part of the lesson', () => part(1)], ['h', 'Previous part', () => part(-1)],
+      [']]', 'Next lesson', () => lesson(1)], ['[[', 'Previous lesson', () => lesson(-1)], ['f', 'Label every link and button, then type a label to click it', showHints],
+      ['o', 'Go to any lesson by name', lessons], ['s', 'Go to a part of this page', sections], ['/', 'Search the lessons', search],
+      ['i', 'Into the code editor', editor], ['H', 'Back in history', () => history.back()], ['L', 'Forward in history', () => history.forward()], ['?', 'Show these keys', () => help()]];
+    const EMACS = [['C-n', 'Scroll down', line], ['C-p', 'Scroll up', lineUp], ['C-v', 'Page down', page], ['M-v', 'Page up', pageUp],
+      ['SPC', 'Page down', page], ['Backspace', 'Page up', pageUp], ['M-<', 'Top of the page', top], ['M->', 'Bottom of the page', bottom],
+      ['n', 'Next part of the lesson', () => part(1)], ['p', 'Previous part', () => part(-1)], [']', 'Next lesson', () => lesson(1)], ['[', 'Previous lesson', () => lesson(-1)],
+      ['f', 'Label every link and button, then type a label to click it', showHints], ['g', 'Go to any lesson by name', lessons], ['i', 'Go to a part of this page', sections],
+      ['C-s', 'Search the lessons', search], ['e', 'Into the code editor', editor], ['l', 'Back in history', () => history.back()], ['?', 'Show these keys', () => help()]];
+    const SUBLIME = [['C-p', 'Go to any lesson by name', lessons], ['C-r', 'Go to a part of this page', sections], ['C-;', 'Label every link and button, then type a label to click it', showHints],
+      ['C-]', 'Next part of the lesson', () => part(1)], ['C-[', 'Previous part', () => part(-1)], ['M-ArrowDown', 'Next part of the lesson', () => part(1)], ['M-ArrowUp', 'Previous part', () => part(-1)],
+      ['C-i', 'Into the code editor', editor], ['C-k', 'Search the lessons', search], ['F1', 'Show these keys', () => help()], ['?', 'Show these keys', () => help()]];
+    const MAPS = { vim: VIM, emacs: EMACS, sublime: SUBLIME };
+    const LEAVE = { vim: 'Escape in normal mode', emacs: 'Escape twice', sublime: 'Escape' };
+    const show = k => k.replace('SPC', 'Space').replace('C-', 'Ctrl+').replace('M-', 'Alt+').replace('Arrow', '');
+
+    function help() {
+      const km = keymap(), rows = MAPS[km];
+      openLayer(h('div', { class: 'kb-box kb-help', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Keyboard keys', tabindex: '-1' },
+        h('p', { class: 'kb-head', text: `${KEYMAPS.find(x => x[0] === km)[1]} keys for the whole site` }),
+        h('table', {}, rows.map(([k, d]) => h('tr', {}, h('td', {}, h('kbd', { text: show(k) })), h('td', { text: d })))),
+        h('p', { class: 'kb-note', text: `In a code editor your keys go to the editor. ${LEAVE[km]} leaves it, and ${show(km === 'vim' ? 'i' : km === 'emacs' ? 'e' : 'C-i')} goes back in. Turn these off by choosing Default under Keys in the sidebar.` })));
+      layer.querySelector('.kb-help').focus();
+    }
+    function openLayer(box) {
+      closeLayer(); closeHints();
+      layer = h('div', { class: 'kb-layer', onmousedown: e => { if (e.target === layer) closeLayer(); } }, box);
+      layer.addEventListener('keydown', e => { if (e.key === 'Escape' || (e.key === '?' && box.classList.contains('kb-help'))) { e.preventDefault(); e.stopPropagation(); closeLayer(); } });
+      document.body.append(layer);
+    }
+    function closeLayer() { if (layer) { layer.remove(); layer = null; } }
+
+    const combo = e => (e.ctrlKey ? 'C-' : '') + (e.altKey ? 'M-' : '') + (e.metaKey ? 's-' : '') + (e.key === ' ' ? 'SPC' : e.key);
+    addEventListener('keydown', e => {
+      if (!on() || e.isComposing) return;
+      if (hints) return hintKey(e);
+      if (layer || e.defaultPrevented) return;
+      const t = e.target;
+      if (inEditor(t) || typing(t)) return;
+      if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+      const k = combo(e), map = MAPS[keymap()];
+      if ((k === 'SPC' || k === 'Enter') && t !== document.body && t.closest && t.closest('a, button, summary, [tabindex]')) return;
+      if (Date.now() - seqT > 900) seq = '';
+      const tryKey = s => map.find(([key]) => key === s);
+      const want = seq + k, hit = tryKey(want);
+      const more = map.some(([key]) => key.length > want.length && key.startsWith(want));
+      if (hit && !more) { e.preventDefault(); seq = ''; hit[2](); return; }
+      if (more) { e.preventDefault(); seq = want; seqT = Date.now(); return; }
+      seq = '';
+      const alone = tryKey(k);
+      if (alone) { e.preventDefault(); alone[2](); }
+    });
+
+    const chip = h('button', { type: 'button', class: 'kb-chip', title: 'Keyboard keys for the whole site', onclick: () => help() });
+    const paintChip = () => { chip.hidden = !on(); chip.textContent = on() ? `${KEYMAPS.find(x => x[0] === keymap())[1]} keys · ${show(keymap() === 'sublime' ? 'F1' : '?')}` : ''; };
+    const bar = document.querySelector('.topbar'); if (bar) bar.insertBefore(chip, bar.querySelector('.runner') || null);
+    document.addEventListener('cc-keymap', paintChip); paintChip();
   }
   let cmP = null;
   function loadCM() {
@@ -1223,7 +1417,7 @@ const CC = (() => {
     window.addEventListener('resize', () => { if (pop && activeBtn) { if (isSheet()) pop.classList.add('sheet'); else { pop.classList.remove('sheet'); positionPop(activeBtn); } } });
   }
 
-  document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); terms(); });
+  document.addEventListener('DOMContentLoaded', () => { frame(); quizzes(); exercises(); terms(); siteKeys(); });
   const pathNext = () => { const pid = pathId(); return pid ? nextUp(pid) : null; };
   return { h, graph, parseUir, stepper, trace, code, NAV, quizzes, quizId, store, dueQuizzes, nextReview, pathNext, forget, track, today, lessonDone, REVIEW_MAX };
 })();
