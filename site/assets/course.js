@@ -172,8 +172,8 @@ const CC = (() => {
   const startStep = n => ({ title: startGroup().title, items: [startGroup().items[n]] });
   const shelf = (...hrefs) => ({ title: 'Week 0 · Prerequisites', items: hrefs.map(x => NAV.flatMap(g => g.items).find(([href]) => href === x)) });
   const week = n => NAV.find(g => g.title.startsWith(`Week ${n} `));
-  const spine = () => [shelf(langLesson()), week(1), shelf('week0/01-c-and-pointers.html'), week(2), shelf('week0/04-tensors-and-shapes.html', 'week0/05-matmul.html'),
-    week(3), week(4), week(5), week(6), shelf('week0/02-memory-and-caches.html'), ...weeksFrom(7)];
+  const spine = () => { const w1 = week(1); return [{ title: w1.title, items: w1.items.slice(0, -1) }, shelf(langLesson()), { title: w1.title, items: w1.items.slice(-1) }, shelf('week0/01-c-and-pointers.html'), week(2), shelf('week0/04-tensors-and-shapes.html', 'week0/05-matmul.html'),
+    week(3), week(4), week(5), week(6), shelf('week0/02-memory-and-caches.html'), ...weeksFrom(7)]; };
   const PATHS = {
     new: { name: 'I’m new to programming', short: 'new to programming', about: () => `Run a program first, learn ${langName()} from scratch, then build the compiler one step at a time.`,
       groups: () => [startStep(0), NAV.find(g => g.track === track()), startStep(1), ...spine()] },
