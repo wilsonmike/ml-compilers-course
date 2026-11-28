@@ -239,7 +239,7 @@ const CC = (() => {
     paintSeg();
     const km = keymapSelect();
     const side = h('aside', { class: 'side' },
-      h('a', { class: 'brand', href: root + 'index.html' }, h('span', { class: 'mark', 'aria-hidden': 'true' }), 'ML compilers, from zero'),
+      h('a', { class: 'brand', href: root + 'index.html' }, h('span', { class: 'mark', 'aria-hidden': 'true' }), 'ML Compilers, From Zero'),
       h('div', { class: 'search' }, search),
       h('div', { class: 'foot' }, h('div', { class: 'row' }, 'Language', trackSelect()), h('div', { class: 'row' }, 'Theme', seg), h('div', { class: 'row' }, 'Keys', km)), nav);
     const pill = h('span', { class: 'runner', title: 'Start it with: python tools/serve.py' }, h('span', { class: 'dot' }), 'Runner off');
